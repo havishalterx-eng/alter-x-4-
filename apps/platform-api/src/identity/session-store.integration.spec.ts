@@ -70,6 +70,7 @@ describe("PostgreSQL identity tenant isolation", () => {
     await adminClient.query(`DELETE FROM user_sessions WHERE user_id = $1`, [userId]);
     await adminClient.query(`DELETE FROM users WHERE id = $1`, [userId]);
     await adminClient.query(`DELETE FROM tenants WHERE id IN ($1, $2)`, [tenantA, tenantB]);
+    await adminClient.query(`DROP OWNED BY "${roleName}"`);
     await adminClient.query(`DROP ROLE IF EXISTS "${roleName}"`);
     await adminClient.end();
   });
