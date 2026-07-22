@@ -4,7 +4,13 @@ import { describe, expect, it } from "vitest";
 import { RbacDeniedError } from "../../../apps/platform-api/src/rbac/problem";
 import { RbacGuard } from "../../../apps/platform-api/src/rbac/rbac.guard";
 import { RequestParamTenantResolver } from "../../../apps/platform-api/src/rbac/resource-tenant.resolver";
-import type { ActorContext, RbacRequest } from "../../../apps/platform-api/src/rbac/types";
+import {
+  tenantRoles,
+  workspaceRoles,
+  type ActorContext,
+  type RbacRequest,
+  type TenantRole,
+} from "../../../apps/platform-api/src/rbac/types";
 
 const tenantA = "00000000-0000-7000-8000-000000000001";
 const tenantB = "00000000-0000-7000-8000-000000000002";
@@ -12,31 +18,48 @@ const workspaceA = "00000000-0000-7000-8000-000000000101";
 const workspaceB = "00000000-0000-7000-8000-000000000102";
 
 describe("RBAC integration isolation", () => {
-  it("passes with right tenant and right tenant role", async () => {
-    await expect(
-      canActivate({
-        actorContext: actor(["admin"], tenantA),
+  it.each(tenantRoles.flatMap((actual) => tenantRoles.map((required) => [actual, required])))(
+    "checks tenant role %s against requirement %s",
+    async (actual, required) => {
+      const result = canActivate({
+        actorContext: actor([actual], tenantA),
         params: { tenantId: tenantA },
-        requiredTenantRoles: ["admin"],
-      }),
-    ).resolves.toBe(true);
-  });
+        requiredTenantRoles: [required],
+      });
 
-  it("denies right tenant with wrong role", async () => {
-    await expect(
-      canActivate({
-        actorContext: actor(["member"], tenantA),
-        params: { tenantId: tenantA },
-        requiredTenantRoles: ["admin"],
-      }),
-    ).rejects.toMatchObject({
-      problem: {
-        error_code: "RBAC_ROLE_DENIED",
-        status: 403,
-        retryable: false,
-        field_errors: [],
-      },
+      if (tenantRoleExpectedStatus(actual, required) === 200) {
+        await expect(result).resolves.toBe(true);
+      } else {
+        await expect(result).rejects.toMatchObject({
+          problem: {
+            error_code: "RBAC_ROLE_DENIED",
+            status: 403,
+            retryable: false,
+            field_errors: [],
+          },
+        });
+      }
+    },
+  );
+
+  it.each(
+    workspaceRoles.flatMap((actual) =>
+      workspaceRoles.map((required) => [actual, required]),
+    ),
+  )("checks workspace role %s against requirement %s", async (actual, required) => {
+    const result = canActivate({
+      actorContext: actor([actual], tenantA, workspaceA),
+      params: { workspaceId: workspaceA },
+      requiredWorkspaceRoles: [required],
     });
+
+    if (actual === required) {
+      await expect(result).resolves.toBe(true);
+    } else {
+      await expect(result).rejects.toMatchObject({
+        problem: { error_code: "RBAC_ROLE_DENIED", status: 403 },
+      });
+    }
   });
 
   it("denies wrong tenant before role check", async () => {
@@ -66,16 +89,6 @@ describe("RBAC integration isolation", () => {
         error_code: "RBAC_TENANT_MISMATCH",
       },
     });
-  });
-
-  it("passes workspace role with same tenant", async () => {
-    await expect(
-      canActivate({
-        actorContext: actor(["approver"], tenantA, workspaceA),
-        params: { workspaceId: workspaceA },
-        requiredWorkspaceRoles: ["approver"],
-      }),
-    ).resolves.toBe(true);
   });
 
   it("denies unclassified route by default", async () => {
@@ -159,4 +172,15 @@ function actor(roles: string[], tenantId: string, workspaceId?: string): ActorCo
     context.workspace_id = workspaceId;
   }
   return context;
+}
+
+function tenantRoleExpectedStatus(actual: TenantRole, required: TenantRole): number {
+  const ranks: Record<TenantRole, number> = {
+    owner: 4,
+    admin: 3,
+    billing: 2,
+    member: 1,
+  };
+
+  return ranks[actual] >= ranks[required] ? 200 : 403;
 }

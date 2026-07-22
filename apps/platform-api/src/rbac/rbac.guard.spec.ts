@@ -5,8 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ActorContext, Public, RequireTenantRole, RequireWorkspaceRole } from "./decorators";
 import { RbacModule, resourceTenantResolverToken } from "./rbac.module";
 import { RequestParamTenantResolver } from "./resource-tenant.resolver";
-import type { ActorContext as ActorContextType, TenantRole } from "./types";
-import { tenantRoles, workspaceRoles } from "./types";
+import type { ActorContext as ActorContextType } from "./types";
 
 const tenantA = "00000000-0000-7000-8000-000000000001";
 const tenantB = "00000000-0000-7000-8000-000000000002";
@@ -129,31 +128,6 @@ describe("RbacGuard", () => {
     await app.close();
   });
 
-  it.each(tenantRoles.flatMap((actual) => tenantRoles.map((required) => [actual, required])))(
-    "checks tenant role %s against requirement %s",
-    async (actual, required) => {
-      const response = await get(
-        `/rbac-test/tenants/${tenantA}/${required}`,
-        actor([actual], tenantA),
-      );
-
-      expect(response.statusCode).toBe(tenantRoleExpectedStatus(actual, required));
-    },
-  );
-
-  it.each(
-    workspaceRoles.flatMap((actual) =>
-      workspaceRoles.map((required) => [actual, required]),
-    ),
-  )("checks workspace role %s against requirement %s", async (actual, required) => {
-    const response = await get(
-      `/rbac-test/workspaces/${workspaceA}/${required}`,
-      actor([actual], tenantA, workspaceA),
-    );
-
-    expect(response.statusCode).toBe(actual === required ? 200 : 403);
-  });
-
   it("denies unclassified routes by default", async () => {
     const response = await get("/rbac-test/default-deny", actor(["owner"], tenantA));
 
@@ -221,15 +195,4 @@ function actor(
     context.workspace_id = workspaceId;
   }
   return context;
-}
-
-function tenantRoleExpectedStatus(actual: TenantRole, required: TenantRole): number {
-  const ranks: Record<TenantRole, number> = {
-    owner: 4,
-    admin: 3,
-    billing: 2,
-    member: 1,
-  };
-
-  return ranks[actual] >= ranks[required] ? 200 : 403;
 }
