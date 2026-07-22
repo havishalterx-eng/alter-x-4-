@@ -8,10 +8,19 @@ import type {
   SessionRecord,
   SsoConfig,
 } from "../../identity-provider.interface";
+import type { SessionStore } from "../../session-store";
+import {
+  normalizedSsoConfig,
+  type SsoConfigStore,
+} from "../../sso-config-store";
 
 export interface Auth0IdentityProviderOptions {
   domain: string;
   clientId: string;
+  clientSecretRef?: string;
+  m2mClientId?: string;
+  m2mClientSecretRef?: string;
+  resolveSecret?: (reference: string) => Promise<string>;
   managementToken?: string;
   fetchImpl?: typeof fetch;
 }
@@ -19,8 +28,13 @@ export interface Auth0IdentityProviderOptions {
 export class Auth0IdentityProvider implements IdentityProvider {
   private readonly fetchImpl: typeof fetch;
   private readonly issuer: string;
+  private cachedManagementToken?: { token: string; expiresAt: number };
 
-  constructor(private readonly options: Auth0IdentityProviderOptions) {
+  constructor(
+    private readonly options: Auth0IdentityProviderOptions,
+    private readonly sessionStore: SessionStore,
+    private readonly ssoConfigStore: SsoConfigStore,
+  ) {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.issuer = `https://${options.domain}`;
   }
@@ -66,11 +80,13 @@ export class Auth0IdentityProvider implements IdentityProvider {
   }
 
   async handleCallback(request: CallbackRequest): Promise<AuthenticatedIdentity> {
+    const clientSecret = await this.resolveSecret(this.options.clientSecretRef);
     const token = await this.authJson<Auth0TokenResponse>("/oauth/token", {
       method: "POST",
       body: JSON.stringify({
         grant_type: "authorization_code",
         client_id: this.options.clientId,
+        client_secret: clientSecret,
         code: request.code,
         redirect_uri: request.redirectUri,
         code_verifier: request.codeVerifier,
@@ -84,11 +100,13 @@ export class Auth0IdentityProvider implements IdentityProvider {
   }
 
   async refreshSession(refreshToken: string): Promise<AuthenticatedIdentity> {
+    const clientSecret = await this.resolveSecret(this.options.clientSecretRef);
     const token = await this.authJson<Auth0TokenResponse>("/oauth/token", {
       method: "POST",
       body: JSON.stringify({
         grant_type: "refresh_token",
         client_id: this.options.clientId,
+        client_secret: clientSecret,
         refresh_token: refreshToken,
       }),
     });
@@ -99,14 +117,12 @@ export class Auth0IdentityProvider implements IdentityProvider {
     return authenticatedIdentityFromProfile(profile);
   }
 
-  async listActiveSessions(_userId: string): Promise<SessionRecord[]> {
-    void _userId;
-    return [];
+  async listActiveSessions(tenantId: string, userId: string): Promise<SessionRecord[]> {
+    return this.sessionStore.listActive(tenantId, userId);
   }
 
-  async revokeSession(_userId: string, _sessionId: string): Promise<void> {
-    void _userId;
-    void _sessionId;
+  async revokeSession(tenantId: string, userId: string, sessionId: string): Promise<void> {
+    await this.sessionStore.revoke(tenantId, userId, sessionId);
   }
 
   async enrollMfa(userId: string): Promise<MfaEnrollment> {
@@ -147,16 +163,18 @@ export class Auth0IdentityProvider implements IdentityProvider {
   }
 
   async configureSso(tenantId: string, config: SsoConfig): Promise<SsoConfig> {
+    const persistedConfig = normalizedSsoConfig(config);
     await this.managementJson(`/api/v2/organizations/${tenantId}`, {
       method: "PATCH",
       body: JSON.stringify({
         metadata: {
-          sso_config_type: config.type,
+          sso_config_type: persistedConfig.type,
         },
       }),
     });
+    await this.ssoConfigStore.save(tenantId, persistedConfig);
 
-    return config;
+    return persistedConfig;
   }
 
   private async authJson<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -164,17 +182,58 @@ export class Auth0IdentityProvider implements IdentityProvider {
   }
 
   private async managementJson<T>(path: string, init: RequestInit = {}): Promise<T> {
-    if (!this.options.managementToken) {
-      throw new Error("Auth0 management token unavailable");
-    }
+    const managementToken = await this.managementToken();
 
     return this.requestJson<T>(`${this.issuer}${path}`, {
       ...init,
       headers: {
-        Authorization: `Bearer ${this.options.managementToken}`,
+        Authorization: `Bearer ${managementToken}`,
         ...init.headers,
       },
     });
+  }
+
+  private async managementToken(): Promise<string> {
+    if (this.options.managementToken) {
+      return this.options.managementToken;
+    }
+
+    if (
+      this.cachedManagementToken &&
+      this.cachedManagementToken.expiresAt > Date.now() + 60_000
+    ) {
+      return this.cachedManagementToken.token;
+    }
+
+    if (!this.options.m2mClientId || !this.options.m2mClientSecretRef) {
+      throw new Error("Auth0 management credentials unavailable");
+    }
+
+    const clientSecret = await this.resolveSecret(this.options.m2mClientSecretRef);
+    const response = await this.authJson<Auth0ManagementTokenResponse>("/oauth/token", {
+      method: "POST",
+      body: JSON.stringify({
+        grant_type: "client_credentials",
+        client_id: this.options.m2mClientId,
+        client_secret: clientSecret,
+        audience: `${this.issuer}/api/v2/`,
+      }),
+    });
+    this.cachedManagementToken = {
+      token: response.access_token,
+      expiresAt: Date.now() + response.expires_in * 1000,
+    };
+    return response.access_token;
+  }
+
+  private async resolveSecret(reference: string | undefined): Promise<string | undefined> {
+    if (!reference) {
+      return undefined;
+    }
+    if (!this.options.resolveSecret) {
+      throw new Error("Auth0 secret resolver unavailable");
+    }
+    return this.options.resolveSecret(reference);
   }
 
   private async requestJson<T>(url: string, init: RequestInit): Promise<T> {
@@ -198,6 +257,11 @@ interface Auth0TokenResponse {
   access_token: string;
   id_token?: string;
   refresh_token?: string;
+}
+
+interface Auth0ManagementTokenResponse {
+  access_token: string;
+  expires_in: number;
 }
 
 interface Auth0Profile {
