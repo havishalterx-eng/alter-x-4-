@@ -5,7 +5,12 @@ import pg from "pg";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const databaseUrl = process.env.DATABASE_URL;
-const describeWithDb = databaseUrl ? describe : describe.skip;
+
+if (!databaseUrl) {
+  throw new Error(
+    "DATABASE_URL is required for the platform-api DB integration test target",
+  );
+}
 
 const tenantA = "00000000-0000-7000-8000-000000000001";
 const tenantB = "00000000-0000-7000-8000-000000000002";
@@ -99,7 +104,7 @@ async function createRlsClient(
   return client;
 }
 
-describeWithDb("platform_db migration", () => {
+describe("platform_db migration", () => {
   let adminClient: pg.Client;
   let schemaName: string;
 
