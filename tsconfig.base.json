@@ -1,0 +1,43 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": [
+      "ES2022"
+    ],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false,
+    "baseUrl": ".",
+    "paths": {
+      "@alterx/contracts": [
+        "packages/contracts/src/index.ts"
+      ],
+      "@alterx/workflow-schema": [
+        "packages/workflow-schema/src/index.ts"
+      ],
+      "@alterx/auth": [
+        "packages/auth/src/index.ts"
+      ],
+      "@alterx/tenancy": [
+        "packages/tenancy/src/index.ts"
+      ],
+      "@alterx/observability": [
+        "packages/observability/src/index.ts"
+      ],
+      "@alterx/policy": [
+        "packages/policy/src/index.ts"
+      ],
+      "@alterx/shared-clients": [
+        "packages/shared-clients/src/index.ts"
+      ]
+    }
+  }
+}

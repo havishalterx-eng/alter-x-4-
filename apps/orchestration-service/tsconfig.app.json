@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "../../dist/apps/orchestration-service",
+    "rootDir": "./src",
+    "sourceMap": true
+  },
+  "exclude": [
+    "src/**/*.spec.ts"
+  ]
+}

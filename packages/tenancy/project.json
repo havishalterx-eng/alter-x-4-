@@ -1,0 +1,39 @@
+{
+  "name": "tenancy",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "packages/tenancy/src",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/dist/packages/tenancy"
+      ],
+      "options": {
+        "command": "tsc -p packages/tenancy/tsconfig.lib.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "eslintConfig": "packages/tenancy/eslint.config.mjs",
+        "lintFilePatterns": [
+          "packages/tenancy/src/**/*.ts"
+        ]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit -p packages/tenancy/tsconfig.json"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run packages/tenancy/src/index.spec.ts"
+      }
+    }
+  },
+  "tags": []
+}

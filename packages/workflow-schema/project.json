@@ -1,0 +1,39 @@
+{
+  "name": "workflow-schema",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "packages/workflow-schema/src",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/dist/packages/workflow-schema"
+      ],
+      "options": {
+        "command": "tsc -p packages/workflow-schema/tsconfig.lib.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "eslintConfig": "packages/workflow-schema/eslint.config.mjs",
+        "lintFilePatterns": [
+          "packages/workflow-schema/src/**/*.ts"
+        ]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit -p packages/workflow-schema/tsconfig.json"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run packages/workflow-schema/src/index.spec.ts"
+      }
+    }
+  },
+  "tags": []
+}

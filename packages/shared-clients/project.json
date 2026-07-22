@@ -1,0 +1,39 @@
+{
+  "name": "shared-clients",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "packages/shared-clients/src",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/dist/packages/shared-clients"
+      ],
+      "options": {
+        "command": "tsc -p packages/shared-clients/tsconfig.lib.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "eslintConfig": "packages/shared-clients/eslint.config.mjs",
+        "lintFilePatterns": [
+          "packages/shared-clients/src/**/*.ts"
+        ]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit -p packages/shared-clients/tsconfig.json"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run packages/shared-clients/src/index.spec.ts"
+      }
+    }
+  },
+  "tags": []
+}

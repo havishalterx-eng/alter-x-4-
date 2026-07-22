@@ -1,0 +1,33 @@
+[project]
+name = "alterx-eval-service"
+version = "0.0.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.116.0,<1.0.0",
+  "pydantic>=2.11.0,<3.0.0",
+  "uvicorn[standard]>=0.35.0,<1.0.0",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28.0,<1.0.0",
+  "mypy>=1.17.0,<2.0.0",
+  "pytest>=8.4.0,<10.0.0",
+  "ruff>=0.12.0,<1.0.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

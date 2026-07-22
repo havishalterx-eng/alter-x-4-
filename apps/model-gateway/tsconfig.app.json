@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "../../dist/apps/model-gateway",
+    "rootDir": "./src",
+    "sourceMap": true
+  },
+  "exclude": [
+    "src/**/*.spec.ts"
+  ]
+}

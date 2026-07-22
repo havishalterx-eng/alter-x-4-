@@ -1,0 +1,64 @@
+{
+  "name": "platform-web",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/platform-web/app",
+  "targets": {
+    "build": {
+      "executor": "@nx/next:build",
+      "outputs": [
+        "{options.outputPath}"
+      ],
+      "options": {
+        "outputPath": "dist/apps/platform-web"
+      },
+      "configurations": {
+        "development": {
+          "outputPath": "dist/apps/platform-web"
+        },
+        "production": {}
+      }
+    },
+    "serve": {
+      "executor": "@nx/next:server",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "platform-web:build",
+        "dev": true
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "platform-web:build:development",
+          "dev": true
+        },
+        "production": {
+          "buildTarget": "platform-web:build:production",
+          "dev": false
+        }
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "eslintConfig": "apps/platform-web/eslint.config.mjs",
+        "lintFilePatterns": [
+          "apps/platform-web/app/**/*.{ts,tsx}",
+          "apps/platform-web/tailwind.config.ts"
+        ]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit -p apps/platform-web/tsconfig.json"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run apps/platform-web/app/api/health/route.spec.ts"
+      }
+    }
+  },
+  "tags": []
+}
