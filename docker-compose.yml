@@ -1,0 +1,31 @@
+services:
+  platform-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: platform_db
+      POSTGRES_USER: platform_api
+      POSTGRES_PASSWORD: platform_api_local
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform_api -d platform_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - platform_db_data:/var/lib/postgresql/data
+
+  # redis:
+  #   # added in PLAT-P1-T03
+
+  # localstack:
+  #   # added in ENG foundation/provider-emulation ticket
+
+  # temporal:
+  #   # added in Engine durable-substrate ticket
+
+  # otel:
+  #   # added in observability foundation ticket
+
+volumes:
+  platform_db_data:

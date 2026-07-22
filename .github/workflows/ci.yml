@@ -8,6 +8,22 @@ on:
 jobs:
   gate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: platform_db
+          POSTGRES_USER: platform_api
+          POSTGRES_PASSWORD: platform_api_local
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U platform_api -d platform_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://platform_api:platform_api_local@localhost:5432/platform_db
     steps:
       - uses: actions/checkout@v4
 
@@ -20,3 +36,26 @@ jobs:
           test -f README.md
           test -f .github/CODEOWNERS
           echo "skeleton ok"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: install dependencies
+        run: pnpm install
+
+      - name: build
+        run: pnpm -w build
+
+      - name: migrate platform db
+        run: pnpm --filter @alterx/platform-api db:migrate
+
+      - name: test platform api
+        run: pnpm exec nx test platform-api
