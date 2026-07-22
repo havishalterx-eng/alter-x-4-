@@ -1,8 +1,32 @@
-import { generateKeyPairSync } from "node:crypto";
+import { createPrivateKey, createPublicKey, generateKeyPairSync } from "node:crypto";
+import type { SecretsProvider } from "@alterx/shared-clients";
 
 export interface SigningKeyResolver {
   resolvePrivateKey(keyRef: string): Promise<string>;
   resolvePublicKey(keyRef: string): Promise<string>;
+}
+
+export class SecretsProviderSigningKeyResolver implements SigningKeyResolver {
+  private readonly privateKeys = new Map<string, string>();
+
+  constructor(private readonly secretsProvider: SecretsProvider) {}
+
+  async resolvePrivateKey(keyRef: string): Promise<string> {
+    const cached = this.privateKeys.get(keyRef);
+    if (cached) {
+      return cached;
+    }
+
+    const privateKey = await this.secretsProvider.getSecret(keyRef);
+    createPrivateKey(privateKey);
+    this.privateKeys.set(keyRef, privateKey);
+    return privateKey;
+  }
+
+  async resolvePublicKey(keyRef: string): Promise<string> {
+    const privateKey = await this.resolvePrivateKey(keyRef);
+    return createPublicKey(privateKey).export({ type: "spki", format: "pem" }).toString();
+  }
 }
 
 export class GeneratedSigningKeyResolver implements SigningKeyResolver {

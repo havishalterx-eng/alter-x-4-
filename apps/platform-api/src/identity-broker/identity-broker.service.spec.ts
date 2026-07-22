@@ -2,7 +2,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EngineHealthTransport } from "./engine-health.client";
 import { EngineHealthClient } from "./engine-health.client";
-import { IdentityBrokerError } from "./identity-broker.error";
+import { identityBrokerProblem, IdentityBrokerError } from "./identity-broker.error";
 import { IdentityBrokerService, serviceUserId } from "./identity-broker.service";
 import { decodeActorToken, verifyActorToken } from "./jwt";
 import { StaticSigningKeyResolver } from "./signing-key-resolver";
@@ -111,6 +111,18 @@ describe("IdentityBrokerService", () => {
     expect(minted.claims.user_id).not.toBe(userId);
   });
 
+  it("preserves explicit service workspace and defaults permissions", async () => {
+    const minted = await service.mintServiceActorToken({
+      serviceName: "platform-workers",
+      tenantId,
+      workspaceId,
+      callingTenantId: tenantId,
+    });
+
+    expect(minted.claims.workspace_id).toBe(workspaceId);
+    expect(minted.claims.permissions).toEqual([]);
+  });
+
   it("rejects tenant scope mismatch at mint time", async () => {
     await expect(
       service.mintActorToken({
@@ -175,5 +187,40 @@ describe("IdentityBrokerService", () => {
 describe("service actor naming", () => {
   it("normalizes service actor ids", () => {
     expect(serviceUserId("Platform Workers")).toBe("svc_platform_workers");
+  });
+
+  it("uses default clock when none is injected", async () => {
+    const generated = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const before = Math.floor(Date.now() / 1000);
+    const defaultClockService = new IdentityBrokerService(
+      signingKeyRef,
+      new StaticSigningKeyResolver(generated.privateKey, generated.publicKey),
+    );
+    const minted = await defaultClockService.mintServiceActorToken({
+      serviceName: "clock",
+      tenantId,
+      callingTenantId: tenantId,
+    });
+    expect(minted.claims.iat).toBeGreaterThanOrEqual(before);
+  });
+});
+
+describe("identity broker problem details", () => {
+  it("maps tenant errors and unknown failures", () => {
+    expect(
+      identityBrokerProblem(
+        new IdentityBrokerError("ACTOR_TOKEN_TENANT_MISMATCH", "Access denied"),
+        "/broker",
+      ),
+    ).toMatchObject({ status: 403, detail: "Access denied" });
+    expect(identityBrokerProblem(new Error("hidden"), "/broker")).toMatchObject({
+      status: 500,
+      detail: "Actor token minting failed",
+      error_code: "ACTOR_TOKEN_MINT_FAILED",
+    });
   });
 });

@@ -14,10 +14,19 @@ export const platformApiEnvSchema = z
     AUTH0_M2M_CLIENT_ID: z.string().min(1).optional(),
     AUTH0_M2M_CLIENT_SECRET_REF: z.string().min(1).optional(),
     SESSION_COOKIE_SIGNING_KEY_REF: z.string().min(1).optional(),
-    ACTOR_TOKEN_SIGNING_KEY_REF: z.string().min(1),
+    SIGNING_KEY_PROVIDER: z.enum(["secrets", "mock"]).default("secrets"),
+    ACTOR_TOKEN_SIGNING_KEY_REF: z.string().min(1).optional(),
     ALTER_CONFIG_SOURCE: z.string().optional(),
   })
   .superRefine((env, context) => {
+    if (env.SIGNING_KEY_PROVIDER === "secrets" && !env.ACTOR_TOKEN_SIGNING_KEY_REF) {
+      context.addIssue({
+        code: "custom",
+        path: ["ACTOR_TOKEN_SIGNING_KEY_REF"],
+        message: "ACTOR_TOKEN_SIGNING_KEY_REF required when SIGNING_KEY_PROVIDER=secrets",
+      });
+    }
+
     if (env.IDENTITY_PROVIDER !== "auth0") {
       return;
     }
