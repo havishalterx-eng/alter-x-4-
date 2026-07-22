@@ -12,26 +12,10 @@ export class PlatformDb implements SignupPersistence {
     identityRef: string,
     tenantHint: string,
   ): Promise<ExistingSignup | null> {
-    const user = await this.pool.query<{ id: string }>(
-      "SELECT id FROM users WHERE identity_ref = $1 LIMIT 1",
-      [identityRef],
-    );
-    const userId = user.rows[0]?.id;
-    if (!userId) return null;
-
     const validTenantHint = isUuid(tenantHint) ? tenantHint : null;
     const result = await this.pool.query<ExistingSignup>(
-      `SELECT tm.user_id AS "userId", tm.tenant_id AS "tenantId",
-              wm.workspace_id AS "workspaceId", tm.role AS "tenantRole",
-              wm.role AS "workspaceRole"
-         FROM tenant_members tm
-         JOIN workspace_members wm
-           ON wm.tenant_id = tm.tenant_id AND wm.user_id = tm.user_id
-        WHERE tm.user_id = $1
-        ORDER BY CASE WHEN tm.tenant_id = $2::uuid THEN 0 ELSE 1 END,
-                 tm.created_at DESC, wm.created_at DESC
-        LIMIT 1`,
-      [userId, validTenantHint],
+      "SELECT * FROM resolve_existing_signup($1, $2::uuid)",
+      [identityRef, validTenantHint],
     );
     return result.rows[0] ?? null;
   }

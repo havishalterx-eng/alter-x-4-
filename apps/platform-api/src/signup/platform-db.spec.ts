@@ -56,25 +56,23 @@ describe("PlatformDb signup transaction", () => {
 
   it("finds returning user and prefers the hinted tenant", async () => {
     const { pool } = poolWith(vi.fn());
-    vi.mocked(pool.query)
-      .mockResolvedValueOnce({ rows: [{ id: input.userId }] } as never)
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            userId: input.userId,
-            tenantId: input.tenantId,
-            workspaceId: input.workspaceId,
-            tenantRole: "owner",
-            workspaceRole: "admin",
-          },
-        ],
-      } as never);
+    vi.mocked(pool.query).mockResolvedValue({
+      rows: [
+        {
+          userId: input.userId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          tenantRole: "owner",
+          workspaceRole: "admin",
+        },
+      ],
+    } as never);
     await expect(
       new PlatformDb(pool).findExisting(input.identityRef, input.tenantId),
     ).resolves.toMatchObject({ userId: input.userId, tenantId: input.tenantId });
     expect(pool.query).toHaveBeenLastCalledWith(
-      expect.stringContaining("CASE WHEN tm.tenant_id = $2::uuid"),
-      [input.userId, input.tenantId],
+      "SELECT * FROM resolve_existing_signup($1, $2::uuid)",
+      [input.identityRef, input.tenantId],
     );
   });
 
@@ -98,15 +96,13 @@ describe("PlatformDb signup transaction", () => {
         workspaceRole: "admin",
       };
       const { pool } = poolWith(vi.fn());
-      vi.mocked(pool.query)
-        .mockResolvedValueOnce({ rows: [{ id: input.userId }] } as never)
-        .mockResolvedValueOnce({ rows: [existing] } as never);
+      vi.mocked(pool.query).mockResolvedValue({ rows: [existing] } as never);
 
       await expect(
         new PlatformDb(pool).findExisting(input.identityRef, tenantHint),
       ).resolves.toEqual(existing);
       expect(pool.query).toHaveBeenLastCalledWith(expect.any(String), [
-        input.userId,
+        input.identityRef,
         null,
       ]);
     },
@@ -121,9 +117,7 @@ describe("PlatformDb signup transaction", () => {
       workspaceRole: "admin",
     };
     const { pool } = poolWith(vi.fn());
-    vi.mocked(pool.query)
-      .mockResolvedValueOnce({ rows: [{ id: input.userId }] } as never)
-      .mockResolvedValueOnce({ rows: [existing] } as never);
+    vi.mocked(pool.query).mockResolvedValue({ rows: [existing] } as never);
 
     await expect(
       new PlatformDb(pool).findExisting(
@@ -132,16 +126,14 @@ describe("PlatformDb signup transaction", () => {
       ),
     ).resolves.toEqual(existing);
     expect(pool.query).toHaveBeenLastCalledWith(
-      expect.stringContaining("tm.created_at DESC, wm.created_at DESC"),
-      [input.userId, "00000000-0000-7000-8000-000000000999"],
+      "SELECT * FROM resolve_existing_signup($1, $2::uuid)",
+      [input.identityRef, "00000000-0000-7000-8000-000000000999"],
     );
   });
 
   it("returns no existing signup when membership lookup is empty", async () => {
     const { pool } = poolWith(vi.fn().mockResolvedValue({ rows: [] }));
-    vi.mocked(pool.query)
-      .mockResolvedValueOnce({ rows: [{ id: input.userId }] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never);
+    vi.mocked(pool.query).mockResolvedValue({ rows: [] } as never);
     await expect(
       new PlatformDb(pool).findExisting(input.identityRef, input.tenantId),
     ).resolves.toBeNull();

@@ -15,6 +15,13 @@
       "when": 1784710800000,
       "tag": "0001_identity_sessions_sso",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784769000000,
+      "tag": "0002_signup_existing_membership",
+      "breakpoints": true
     }
   ]
 }
