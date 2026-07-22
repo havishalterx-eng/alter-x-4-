@@ -3,6 +3,10 @@
   "compilerOptions": {
     "noEmit": false,
     "outDir": "../../dist/apps/platform-api",
+    "paths": {
+      "@alterx/contracts": ["packages/contracts/dist/index.d.ts"],
+      "@alterx/shared-clients": ["packages/shared-clients/dist/index.d.ts"]
+    },
     "rootDir": "./src",
     "sourceMap": true
   },
