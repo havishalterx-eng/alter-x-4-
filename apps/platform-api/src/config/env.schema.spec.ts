@@ -14,6 +14,7 @@ describe("platformApiEnvSchema", () => {
         DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
         ACTOR_TOKEN_SIGNING_KEY_REF: "env:ACTOR_TOKEN_PRIVATE_KEY",
         REDIS_ENDPOINT_PARAM: "/alter/dev/platform-api/redis-endpoint",
+        ALTER_CONFIG_SOURCE: "local-file",
       }),
     ).toEqual({
       DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
@@ -21,6 +22,7 @@ describe("platformApiEnvSchema", () => {
       IDENTITY_PROVIDER: "mock",
       REDIS_ENDPOINT_PARAM: "/alter/dev/platform-api/redis-endpoint",
       SIGNING_KEY_PROVIDER: "secrets",
+      ALTER_CONFIG_SOURCE: "local-file",
     });
   });
 
@@ -41,5 +43,14 @@ describe("platformApiEnvSchema", () => {
         SIGNING_KEY_PROVIDER: "mock",
       }),
     ).toMatchObject({ SIGNING_KEY_PROVIDER: "mock" });
+  });
+
+  it("requires AppConfig identifiers in appconfig mode", () => {
+    expect(() =>
+      validatePlatformApiEnv({
+        DATABASE_URL: "postgres://localhost/platform_db",
+        ALTER_CONFIG_SOURCE: "appconfig",
+      }),
+    ).toThrow("APPCONFIG_APP_ID required");
   });
 });

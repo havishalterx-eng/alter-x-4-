@@ -16,7 +16,10 @@ export const platformApiEnvSchema = z
     SESSION_COOKIE_SIGNING_KEY_REF: z.string().min(1).optional(),
     SIGNING_KEY_PROVIDER: z.enum(["secrets", "mock"]).default("secrets"),
     ACTOR_TOKEN_SIGNING_KEY_REF: z.string().min(1).optional(),
-    ALTER_CONFIG_SOURCE: z.string().optional(),
+    ALTER_CONFIG_SOURCE: z.enum(["appconfig", "local-file"]).default("local-file"),
+    APPCONFIG_APP_ID: z.string().min(1).optional(),
+    APPCONFIG_ENV_ID: z.string().min(1).optional(),
+    APPCONFIG_PROFILE_ID: z.string().min(1).optional(),
   })
   .superRefine((env, context) => {
     if (env.SIGNING_KEY_PROVIDER === "secrets" && !env.ACTOR_TOKEN_SIGNING_KEY_REF) {
@@ -27,27 +30,47 @@ export const platformApiEnvSchema = z
       });
     }
 
-    if (env.IDENTITY_PROVIDER !== "auth0") {
-      return;
+    if (env.IDENTITY_PROVIDER === "auth0") {
+      requireFields(
+        env,
+        context,
+        [
+          "AUTH0_DOMAIN",
+          "AUTH0_CLIENT_ID",
+          "AUTH0_CLIENT_SECRET_REF",
+          "AUTH0_M2M_CLIENT_ID",
+          "AUTH0_M2M_CLIENT_SECRET_REF",
+          "SESSION_COOKIE_SIGNING_KEY_REF",
+        ],
+        "IDENTITY_PROVIDER=auth0",
+      );
     }
 
-    for (const field of [
-      "AUTH0_DOMAIN",
-      "AUTH0_CLIENT_ID",
-      "AUTH0_CLIENT_SECRET_REF",
-      "AUTH0_M2M_CLIENT_ID",
-      "AUTH0_M2M_CLIENT_SECRET_REF",
-      "SESSION_COOKIE_SIGNING_KEY_REF",
-    ] as const) {
-      if (!env[field]) {
-        context.addIssue({
-          code: "custom",
-          path: [field],
-          message: `${field} required when IDENTITY_PROVIDER=auth0`,
-        });
-      }
+    if (env.ALTER_CONFIG_SOURCE === "appconfig") {
+      requireFields(
+        env,
+        context,
+        ["APPCONFIG_APP_ID", "APPCONFIG_ENV_ID", "APPCONFIG_PROFILE_ID"],
+        "ALTER_CONFIG_SOURCE=appconfig",
+      );
     }
   });
+
+function requireFields<
+  T extends Record<string, unknown>,
+  K extends Extract<keyof T, string>,
+>(env: T, context: z.RefinementCtx<T>, fields: readonly K[], condition: string): void {
+  for (const field of fields) {
+    if (!env[field]) {
+      context.addIssue({
+        code: "custom",
+        path: [field],
+        message: `${field} required when ${condition}`,
+        input: env,
+      });
+    }
+  }
+}
 
 export type PlatformApiEnv = z.infer<typeof platformApiEnvSchema>;
 
