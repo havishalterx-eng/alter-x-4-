@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
+import { APP_FILTER } from "@nestjs/core";
 import { Pool } from "pg";
 import { OnboardingController } from "./onboarding.controller";
+import { OnboardingExceptionFilter } from "./onboarding-exception.filter";
 import {
   ONBOARDING_INITIALIZER,
   OnboardingRepository,
@@ -26,6 +28,10 @@ import { OnboardingService } from "./onboarding.service";
       inject: [OnboardingRepository],
       useFactory: (repository: OnboardingRepository) =>
         new OnboardingService(repository),
+    },
+    {
+      provide: APP_FILTER,
+      useClass: OnboardingExceptionFilter,
     },
   ],
   exports: [ONBOARDING_INITIALIZER],
