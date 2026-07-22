@@ -1,0 +1,22 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Placeholder gate — replaced with the full merge-gate pipeline
+      # (lint, typecheck, unit, contract, integration, migration check,
+      # tenant-isolation tests, secret scan, dependency scan,
+      # architecture-boundary check) during the Foundation Phase.
+      - name: skeleton check
+        run: |
+          test -f README.md
+          test -f .github/CODEOWNERS
+          echo "skeleton ok"

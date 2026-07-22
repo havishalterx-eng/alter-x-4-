@@ -1,0 +1,30 @@
+# Each builder owns their rooms. PRs touching a path require that owner's review.
+# Replace placeholder handles with real GitHub usernames as builders join.
+
+# Repo owner / CEO — default owner for anything unlisted
+*                           @havishaivardhan-svg
+
+# Shared contracts — changes are law, repo-owner approval required
+/packages/contracts/        @havishaivardhan-svg
+/packages/workflow-schema/  @havishaivardhan-svg
+
+# Engine builder (replace with engine builder's handle)
+/apps/orchestration-service/  @havishaivardhan-svg
+/apps/intelligence-service/   @havishaivardhan-svg
+/apps/model-gateway/          @havishaivardhan-svg
+/apps/tool-gateway/           @havishaivardhan-svg
+/apps/sandbox-service/        @havishaivardhan-svg
+/apps/verification-service/   @havishaivardhan-svg
+/apps/memory-service/         @havishaivardhan-svg
+/apps/eval-service/           @havishaivardhan-svg
+/apps/background-workers/     @havishaivardhan-svg
+
+# Platform builder (replace with platform builder's handle)
+/apps/platform-api/           @havishaivardhan-svg
+
+# UI/UX builder (replace with UI builder's handle)
+/apps/platform-web/           @havishaivardhan-svg
+
+# Infrastructure — repo owner
+/infrastructure/              @havishaivardhan-svg
+/.github/                     @havishaivardhan-svg
