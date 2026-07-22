@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppConfigConfigProvider } from "./adapters/appconfig/appconfig-config-provider";
 import { LocalFileConfigProvider } from "./adapters/local-file/local-file-config-provider";
+import { parseConfigDocument } from "./config-document";
 import type { ConfigProvider } from "./config-provider.interface";
 
 const expectedFree = {
@@ -94,6 +95,31 @@ describe("LocalFileConfigProvider", () => {
     original.plans.free.maxWorkflows = 9;
     await writeFile(path, JSON.stringify(original));
     expect((await provider.getEntitlementDefaults("free")).maxWorkflows).toBe(9);
+  });
+});
+
+describe("entitlement config validation", () => {
+  it("rejects non-object and missing-plan documents", () => {
+    expect(() => parseConfigDocument("null")).toThrow(
+      "Entitlement config must be an object",
+    );
+    expect(() => parseConfigDocument(JSON.stringify({ abuse: {} }))).toThrow(
+      "Entitlement config plans must be an object",
+    );
+  });
+
+  it("rejects invalid limits and missing abuse thresholds", () => {
+    expect(() =>
+      parseConfigDocument(
+        JSON.stringify({
+          ...configDocument,
+          plans: { free: { ...expectedFree, maxWorkflows: -1 } },
+        }),
+      ),
+    ).toThrow("plans.free.maxWorkflows must be a non-negative number");
+    expect(() =>
+      parseConfigDocument(JSON.stringify({ plans: configDocument.plans })),
+    ).toThrow("abuse must be an object");
   });
 });
 
