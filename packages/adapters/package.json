@@ -1,0 +1,18 @@
+{
+  "name": "@alterx/adapters",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@alterx/contracts": "workspace:*",
+    "@alterx/shared-clients": "workspace:*",
+    "@temporalio/client": "1.20.3",
+    "@temporalio/worker": "1.20.3",
+    "@temporalio/workflow": "1.20.3"
+  },
+  "devDependencies": {
+    "@temporalio/testing": "1.20.3",
+    "@vitest/coverage-v8": "4.1.10"
+  }
+}
