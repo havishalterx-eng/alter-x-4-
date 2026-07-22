@@ -4,13 +4,15 @@ import { join } from "node:path";
 import pg from "pg";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const databaseUrl = process.env.DATABASE_URL;
-
-if (!databaseUrl) {
-  throw new Error(
-    "DATABASE_URL is required for the platform-api DB integration test target",
-  );
-}
+const databaseUrl = (() => {
+  const value = process.env.DATABASE_URL;
+  if (!value) {
+    throw new Error(
+      "DATABASE_URL is required for the platform-api DB integration test target",
+    );
+  }
+  return value;
+})();
 
 const tenantA = "00000000-0000-7000-8000-000000000001";
 const tenantB = "00000000-0000-7000-8000-000000000002";
@@ -93,10 +95,12 @@ async function createRlsClient(
     `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "${schemaName}" TO "${roleName}"`,
   );
 
+  const rlsDatabaseUrl = new URL(databaseUrl);
+  rlsDatabaseUrl.username = roleName;
+  rlsDatabaseUrl.password = password;
+
   const client = new pg.Client({
-    connectionString: databaseUrl,
-    user: roleName,
-    password,
+    connectionString: rlsDatabaseUrl.toString(),
   });
   await client.connect();
   await client.query(`SET search_path TO "${schemaName}"`);
