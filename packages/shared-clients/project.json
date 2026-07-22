@@ -7,7 +7,7 @@
     "build": {
       "executor": "nx:run-commands",
       "outputs": [
-        "{workspaceRoot}/dist/packages/shared-clients"
+        "{projectRoot}/dist"
       ],
       "options": {
         "command": "tsc -p packages/shared-clients/tsconfig.lib.json"
@@ -30,8 +30,11 @@
     },
     "test": {
       "executor": "nx:run-commands",
+      "dependsOn": [
+        "build"
+      ],
       "options": {
-        "command": "vitest run packages/shared-clients/src/index.spec.ts"
+        "command": "vitest run --config packages/shared-clients/vitest.config.ts"
       }
     }
   },

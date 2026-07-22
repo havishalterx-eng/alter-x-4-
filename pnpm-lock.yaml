@@ -221,7 +221,11 @@ importers:
 
   packages/policy: {}
 
-  packages/shared-clients: {}
+  packages/shared-clients:
+    dependencies:
+      '@alterx/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/tenancy: {}
 
