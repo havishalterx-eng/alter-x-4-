@@ -15,7 +15,7 @@ import {
   type SsoConfigStore,
 } from "./sso-config-store";
 
-const identityProviderToken = Symbol("IdentityProvider");
+export const IDENTITY_PROVIDER = Symbol("IdentityProvider");
 const sessionStoreToken = Symbol("SessionStore");
 const ssoConfigStoreToken = Symbol("SsoConfigStore");
 const databasePoolToken = Symbol("DatabasePool");
@@ -43,7 +43,7 @@ const databasePoolToken = Symbol("DatabasePool");
       inject: [databasePoolToken],
     },
     {
-      provide: identityProviderToken,
+      provide: IDENTITY_PROVIDER,
       useFactory: (
         sessionStore: SessionStore,
         ssoConfigStore: SsoConfigStore,
@@ -78,9 +78,10 @@ const databasePoolToken = Symbol("DatabasePool");
       provide: IdentityService,
       useFactory: (identityProvider: IdentityProvider, sessionStore: SessionStore) =>
         new IdentityService(identityProvider, sessionStore),
-      inject: [identityProviderToken, sessionStoreToken],
+      inject: [IDENTITY_PROVIDER, sessionStoreToken],
     },
   ],
+  exports: [IDENTITY_PROVIDER, IdentityService],
 })
 export class IdentityModule {}
 

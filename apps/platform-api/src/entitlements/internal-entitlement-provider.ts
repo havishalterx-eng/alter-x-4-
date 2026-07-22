@@ -1,4 +1,5 @@
 import { Logger } from "@nestjs/common";
+import type { PoolClient } from "pg";
 import type { ConfigProvider } from "./config-provider.interface";
 import type {
   EntitlementProvider,
@@ -47,8 +48,12 @@ export class InternalEntitlementProvider implements EntitlementProvider {
   async createEntitlement(
     tenantId: string,
     plan: string,
+    transactionClient?: PoolClient,
   ): Promise<EffectiveEntitlement> {
-    return this.resolve(tenantId, await this.store.create(tenantId, plan));
+    const row = transactionClient
+      ? await this.store.create(tenantId, plan, transactionClient)
+      : await this.store.create(tenantId, plan);
+    return this.resolve(tenantId, row);
   }
 
   private async resolve(

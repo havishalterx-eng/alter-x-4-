@@ -21,6 +21,7 @@ function auth0FetchStub(): typeof fetch {
       return json({
         sub: "auth0|123",
         email: "user@example.com",
+        email_verified: true,
         name: "User Example",
         org_id: "00000000-0000-7000-8000-000000000001",
         "https://alter.dev/user_id": "00000000-0000-7000-8000-000000000101",
@@ -110,6 +111,7 @@ describe.each(providerHarnesses())("IdentityProvider contract: $name", (harness)
       codeVerifier: "verifier",
     });
     expect(identity.email).toContain("@");
+    expect(identity.emailVerified).toBe(true);
     expect(identity.tenantId).toBeTruthy();
     expect(identity.userId).toBeTruthy();
 

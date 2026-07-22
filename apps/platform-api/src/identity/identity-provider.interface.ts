@@ -32,6 +32,8 @@ export interface AuthenticatedIdentity {
   tenantId: string;
   identityRef: string;
   email: string;
+  emailVerified: boolean;
+  phoneVerified?: boolean;
   displayName?: string;
 }
 
