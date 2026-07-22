@@ -1,0 +1,23 @@
+aws_region = "ap-south-1"
+aws_partition = "aws"
+mock_provider = false
+configuration = {
+  account_id = "000000000000"
+  target_role_arn = "arn:aws:iam::000000000000:role/REPLACE_WITH_BOOTSTRAP_ROLE"
+  budget = { limit_usd = 2000, thresholds = [70, 85, 100], alert_email = "aws-budgets@example.invalid" }
+  ci = {
+    principal_arn = "arn:aws:iam::000000000000:role/REPLACE_WITH_SHARED_SERVICES_CI_ROLE"
+    external_id = "replace-with-ci-external-id"
+    actions = ["ecs:DescribeServices", "ecs:UpdateService", "iam:PassRole"]
+    global_actions = ["ecs:RegisterTaskDefinition"]
+    resource_arns = ["arn:aws:ecs:ap-south-1:000000000000:service/alter-prod/*", "arn:aws:ecs:ap-south-1:000000000000:task-definition/alter-prod-*", "arn:aws:iam::000000000000:role/alter-prod-*"]
+  }
+  network = {
+    vpc_cidr = "10.40.0.0/16"
+    availability_zones = ["ap-south-1a", "ap-south-1b"]
+    public_subnet_cidrs = ["10.40.0.0/24", "10.40.1.0/24"]
+    private_subnet_cidrs = ["10.40.10.0/24", "10.40.11.0/24"]
+    nat_gateway_strategy = "per_az"
+    flow_log_retention_days = 365
+  }
+}
