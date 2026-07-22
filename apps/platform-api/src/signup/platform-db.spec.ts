@@ -92,6 +92,14 @@ describe("PlatformDb signup transaction", () => {
     ).resolves.toBeNull();
   });
 
+  it("returns no existing signup when membership lookup is empty", async () => {
+    const { pool } = poolWith(vi.fn().mockResolvedValue({ rows: [] }));
+    vi.mocked(pool.query).mockResolvedValue({ rows: [{ id: input.userId }] } as never);
+    await expect(
+      new PlatformDb(pool).findExisting(input.identityRef, input.tenantId),
+    ).resolves.toBeNull();
+  });
+
   it("runs tenant query and returns rows", async () => {
     const query = vi.fn().mockImplementation(async (sql: string) =>
       sql === "SELECT value" ? { rows: [{ value: 1 }] } : { rows: [] },

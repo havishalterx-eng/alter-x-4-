@@ -46,6 +46,7 @@ describe("Auth0IdentityProvider edge behavior", () => {
       tenantId: "org-fallback",
       identityRef: "auth0|fallback",
       email: "fallback@example.com",
+      emailVerified: false,
     });
   });
 

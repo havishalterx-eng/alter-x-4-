@@ -73,7 +73,13 @@ function providerStub(): IdentityProvider {
   return {
     getOrCreateOrgForTenant: vi.fn(async () => "org"),
     loginRedirectUrl: vi.fn(async () => "https://identity.test"),
-    handleCallback: vi.fn(async () => ({ userId, tenantId, identityRef: "auth0|user", email: "u@test" })),
+    handleCallback: vi.fn(async () => ({
+      userId,
+      tenantId,
+      identityRef: "auth0|user",
+      email: "u@test",
+      emailVerified: true,
+    })),
     refreshSession: vi.fn(),
     listActiveSessions: vi.fn(async () => []),
     revokeSession: vi.fn(async () => undefined),

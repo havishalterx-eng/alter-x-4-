@@ -53,4 +53,29 @@ describe("SignupActorContextMiddleware", () => {
     await middleware.use(request("other=x; alter_access=bad"), {} as FastifyReply, next);
     expect(next).toHaveBeenCalledTimes(2);
   });
+
+  it("hydrates tenant-only actor when no workspace membership exists", async () => {
+    const identity = {
+      authenticateAccessToken: vi.fn().mockResolvedValue({
+        id: "session",
+        userId: "user",
+        tenantId: "tenant",
+      }),
+    } as unknown as IdentityService;
+    const db = {
+      queryTenant: vi
+        .fn()
+        .mockResolvedValueOnce([{ role: "member", workspaceId: null }])
+        .mockResolvedValueOnce([]),
+    } as unknown as PlatformDb;
+    const req = request("theme=dark; alter_access=token");
+    await new SignupActorContextMiddleware(identity, db).use(
+      req,
+      {} as FastifyReply,
+      vi.fn(),
+    );
+    expect(req.actorContext).toEqual(
+      expect.not.objectContaining({ workspace_id: expect.anything() }),
+    );
+  });
 });
