@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package alter.sandbox.v1;
+
+service SandboxService {
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+  rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
+  rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
+  rpc RunVerificationSuite(RunVerificationSuiteRequest) returns (RunVerificationSuiteResponse);
+}
+
+message CreateSessionRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string environment_json = 3;
+}
+
+message CreateSessionResponse {
+  reserved 100 to 199;
+
+  string session_id = 1; // ses_ prefixed UUIDv7
+  string expires_at = 2; // ISO 8601 timestamp
+}
+
+message CloseSessionRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string session_id = 3; // ses_ prefixed UUIDv7
+}
+
+message CloseSessionResponse {
+  reserved 100 to 199;
+
+  bool closed = 1;
+}
+
+message ExecuteRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string session_id = 4; // ses_ prefixed UUIDv7
+  string command = 5;
+  repeated string arguments = 6;
+}
+
+message ExecuteResponse {
+  reserved 100 to 199;
+
+  int32 exit_code = 1;
+  string stdout_artifact_id = 2; // art_ prefixed UUIDv7
+  string stderr_artifact_id = 3; // art_ prefixed UUIDv7
+}
+
+message ReadFileRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string session_id = 3; // ses_ prefixed UUIDv7
+  string path = 4;
+}
+
+message ReadFileResponse {
+  reserved 100 to 199;
+
+  string content_artifact_id = 1; // art_ prefixed UUIDv7
+  uint64 size_bytes = 2;
+}
+
+message WriteFileRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string session_id = 3; // ses_ prefixed UUIDv7
+  string path = 4;
+  string content_artifact_id = 5; // art_ prefixed UUIDv7
+}
+
+message WriteFileResponse {
+  reserved 100 to 199;
+
+  bool written = 1;
+  uint64 size_bytes = 2;
+}
+
+message RunVerificationSuiteRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string session_id = 4; // ses_ prefixed UUIDv7
+  repeated string checks = 5;
+}
+
+message RunVerificationSuiteResponse {
+  reserved 100 to 199;
+
+  bool passed = 1;
+  string report_artifact_id = 2; // art_ prefixed UUIDv7
+}

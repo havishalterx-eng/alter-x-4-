@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package alter.eval.v1;
+
+service EvalService {
+  rpc RunEvaluation(RunEvaluationRequest) returns (RunEvaluationResponse);
+  rpc CheckReleaseGate(CheckReleaseGateRequest) returns (CheckReleaseGateResponse);
+}
+
+message RunEvaluationRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string evaluation_run_id = 2; // evr_ prefixed UUIDv7
+  string golden_set_reference = 3;
+  string candidate_version = 4;
+}
+
+message RunEvaluationResponse {
+  reserved 100 to 199;
+
+  string evaluation_run_id = 1; // evr_ prefixed UUIDv7
+  string status = 2;
+  string results_json = 3;
+}
+
+message CheckReleaseGateRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string release_gate_key = 2;
+  string evaluation_run_id = 3; // evr_ prefixed UUIDv7
+}
+
+message CheckReleaseGateResponse {
+  reserved 100 to 199;
+
+  bool passed = 1;
+  repeated string failed_thresholds = 2;
+}

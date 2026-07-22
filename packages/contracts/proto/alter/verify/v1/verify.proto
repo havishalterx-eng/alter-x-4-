@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package alter.verify.v1;
+
+service VerifyService {
+  rpc ScoreGate(ScoreGateRequest) returns (ScoreGateResponse);
+  rpc CheckHallucination(CheckHallucinationRequest) returns (CheckHallucinationResponse);
+  rpc AssessSeverity(AssessSeverityRequest) returns (AssessSeverityResponse);
+}
+
+message ScoreGateRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string gate_type = 4;
+  repeated string evidence_artifact_ids = 5; // art_ prefixed UUIDv7 values
+}
+
+message ScoreGateResponse {
+  reserved 100 to 199;
+
+  string verification_result_id = 1; // ver_ prefixed UUIDv7
+  string verdict = 2;
+  double score = 3;
+}
+
+message CheckHallucinationRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string response_artifact_id = 4; // art_ prefixed UUIDv7
+  repeated string evidence_artifact_ids = 5; // art_ prefixed UUIDv7 values
+}
+
+message CheckHallucinationResponse {
+  reserved 100 to 199;
+
+  string verification_result_id = 1; // ver_ prefixed UUIDv7
+  string verdict = 2;
+  double confidence = 3;
+}
+
+message AssessSeverityRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string finding_json = 4;
+}
+
+message AssessSeverityResponse {
+  reserved 100 to 199;
+
+  string severity = 1;
+  string rationale = 2;
+}

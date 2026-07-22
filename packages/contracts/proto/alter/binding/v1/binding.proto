@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package alter.binding.v1;
+
+service BindingService {
+  rpc BindAgentModelTool(BindAgentModelToolRequest) returns (BindAgentModelToolResponse);
+  rpc CreatePersona(CreatePersonaRequest) returns (CreatePersonaResponse);
+}
+
+message BindAgentModelToolRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_key = 3;
+  string node_requirements_json = 4;
+}
+
+message BindAgentModelToolResponse {
+  reserved 100 to 199;
+
+  string agent_id = 1; // agt_ prefixed UUIDv7
+  uint32 agent_version = 2;
+  string model_alias = 3;
+  repeated string tool_names = 4;
+}
+
+message CreatePersonaRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workspace_id = 2; // ws_ prefixed UUIDv7
+  string capability_profile_json = 3;
+}
+
+message CreatePersonaResponse {
+  reserved 100 to 199;
+
+  string agent_id = 1; // agt_ prefixed UUIDv7
+  uint32 agent_version = 2;
+  string persona_json = 3;
+}

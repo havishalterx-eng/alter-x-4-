@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package alter.deployctl.v1;
+
+service DeployctlService {
+  rpc PromoteVersion(PromoteVersionRequest) returns (PromoteVersionResponse);
+  rpc StartCanary(StartCanaryRequest) returns (StartCanaryResponse);
+  rpc RollbackVersion(RollbackVersionRequest) returns (RollbackVersionResponse);
+}
+
+message PromoteVersionRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workflow_id = 2; // wf_ prefixed UUIDv7
+  string workflow_version_id = 3; // wfv_ prefixed UUIDv7
+}
+
+message PromoteVersionResponse {
+  reserved 100 to 199;
+
+  string status = 1;
+  string promoted_at = 2; // ISO 8601 timestamp
+}
+
+message StartCanaryRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workflow_id = 2; // wf_ prefixed UUIDv7
+  string workflow_version_id = 3; // wfv_ prefixed UUIDv7
+  uint32 traffic_percent = 4;
+}
+
+message StartCanaryResponse {
+  reserved 100 to 199;
+
+  string status = 1;
+  uint32 traffic_percent = 2;
+}
+
+message RollbackVersionRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workflow_id = 2; // wf_ prefixed UUIDv7
+  string target_version_id = 3; // wfv_ prefixed UUIDv7
+}
+
+message RollbackVersionResponse {
+  reserved 100 to 199;
+
+  string status = 1;
+  string active_version_id = 2; // wfv_ prefixed UUIDv7
+}

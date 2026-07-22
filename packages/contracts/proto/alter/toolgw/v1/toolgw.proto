@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package alter.toolgw.v1;
+
+service ToolgwService {
+  rpc InvokeTool(InvokeToolRequest) returns (InvokeToolResponse);
+  rpc ResolveCredential(ResolveCredentialRequest) returns (ResolveCredentialResponse);
+  rpc FetchUrl(FetchUrlRequest) returns (FetchUrlResponse);
+}
+
+message InvokeToolRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string tool_name = 4;
+  string input_json = 5;
+  string credential_ref = 6; // reference only, never a secret value
+}
+
+message InvokeToolResponse {
+  reserved 100 to 199;
+
+  string output_json = 1;
+  string audit_id = 2; // aud_ prefixed UUIDv7
+}
+
+message ResolveCredentialRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string integration_id = 2; // itg_ prefixed UUIDv7
+  string credential_ref = 3; // reference only, never a secret value
+}
+
+message ResolveCredentialResponse {
+  reserved 100 to 199;
+
+  string resolved_reference = 1; // opaque in-process reference, never credential material
+  string expires_at = 2; // ISO 8601 timestamp
+}
+
+message FetchUrlRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string url = 4;
+  string network_policy_json = 5;
+}
+
+message FetchUrlResponse {
+  reserved 100 to 199;
+
+  uint32 status_code = 1;
+  string content_artifact_id = 2; // art_ prefixed UUIDv7
+}

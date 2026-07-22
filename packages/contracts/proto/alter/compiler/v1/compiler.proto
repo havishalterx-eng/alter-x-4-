@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package alter.compiler.v1;
+
+service CompilerService {
+  rpc CompileWorkflow(CompileWorkflowRequest) returns (CompileWorkflowResponse);
+  rpc ValidateWorkflowDag(ValidateWorkflowDagRequest) returns (ValidateWorkflowDagResponse);
+}
+
+message CompileWorkflowRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workflow_id = 2; // wf_ prefixed UUIDv7
+  string task_skeleton_json = 3;
+  string dag_schema_version = 4;
+}
+
+message CompileWorkflowResponse {
+  reserved 100 to 199;
+
+  string workflow_version_id = 1; // wfv_ prefixed UUIDv7
+  string compiled_dag_json = 2;
+  string node_requirements_json = 3;
+  string policy_bindings_json = 4;
+}
+
+message ValidateWorkflowDagRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workflow_id = 2; // wf_ prefixed UUIDv7
+  string workflow_dag_json = 3;
+}
+
+message ValidateWorkflowDagResponse {
+  reserved 100 to 199;
+
+  bool valid = 1;
+  repeated string issues_json = 2;
+}

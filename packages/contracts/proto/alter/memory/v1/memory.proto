@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package alter.memory.v1;
+
+service MemoryService {
+  rpc ProposeWriteback(ProposeWritebackRequest) returns (ProposeWritebackResponse);
+  rpc PromoteMemory(PromoteMemoryRequest) returns (PromoteMemoryResponse);
+  rpc UpdatePolicy(UpdatePolicyRequest) returns (UpdatePolicyResponse);
+}
+
+message ProposeWritebackRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workspace_id = 2; // ws_ prefixed UUIDv7
+  string run_id = 3; // run_ prefixed UUIDv7
+  string verified_output_artifact_id = 4; // art_ prefixed UUIDv7
+  string namespace = 5;
+}
+
+message ProposeWritebackResponse {
+  reserved 100 to 199;
+
+  string memory_id = 1; // mem_ prefixed UUIDv7
+  string candidate_json = 2;
+}
+
+message PromoteMemoryRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string memory_id = 2; // mem_ prefixed UUIDv7
+  string evaluation_run_id = 3; // evr_ prefixed UUIDv7
+}
+
+message PromoteMemoryResponse {
+  reserved 100 to 199;
+
+  bool promoted = 1;
+  string promoted_at = 2; // ISO 8601 timestamp
+}
+
+message UpdatePolicyRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string policy_id = 2; // pol_ prefixed UUIDv7
+  string current_version = 3;
+  string patch_json = 4;
+}
+
+message UpdatePolicyResponse {
+  reserved 100 to 199;
+
+  string policy_id = 1; // pol_ prefixed UUIDv7
+  string new_version = 2;
+}

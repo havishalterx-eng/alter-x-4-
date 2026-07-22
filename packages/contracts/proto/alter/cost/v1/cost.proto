@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package alter.cost.v1;
+
+service CostService {
+  rpc IngestCostEvent(IngestCostEventRequest) returns (IngestCostEventResponse);
+  rpc QueryRollups(QueryRollupsRequest) returns (QueryRollupsResponse);
+}
+
+message IngestCostEventRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string cost_event_id = 2; // cst_ prefixed UUIDv7
+  string run_id = 3; // run_ prefixed UUIDv7
+  string node_execution_id = 4; // node_ prefixed UUIDv7
+  string provider_reference = 5; // opaque external reference
+  string usage_json = 6;
+  string amount_json = 7;
+}
+
+message IngestCostEventResponse {
+  reserved 100 to 199;
+
+  bool accepted = 1;
+}
+
+message QueryRollupsRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workspace_id = 2; // ws_ prefixed UUIDv7
+  string start_at = 3; // ISO 8601 timestamp
+  string end_at = 4; // ISO 8601 timestamp
+  repeated string dimensions = 5;
+}
+
+message QueryRollupsResponse {
+  reserved 100 to 199;
+
+  string rollups_json = 1;
+}

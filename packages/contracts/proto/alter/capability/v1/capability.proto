@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package alter.capability.v1;
+
+service CapabilityService {
+  rpc ResolveNodeRequirements(ResolveNodeRequirementsRequest) returns (ResolveNodeRequirementsResponse);
+}
+
+message ResolveNodeRequirementsRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_key = 3;
+  string node_type = 4;
+  string node_config_json = 5;
+}
+
+message ResolveNodeRequirementsResponse {
+  reserved 100 to 199;
+
+  string node_requirements_json = 1;
+  string schema_version = 2;
+}

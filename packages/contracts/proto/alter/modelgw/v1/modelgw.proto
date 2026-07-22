@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package alter.modelgw.v1;
+
+service ModelgwService {
+  rpc Invoke(InvokeRequest) returns (InvokeResponse);
+  rpc Stream(StreamRequest) returns (stream StreamResponse);
+  rpc Redact(RedactRequest) returns (RedactResponse);
+  rpc SelectFallback(SelectFallbackRequest) returns (SelectFallbackResponse);
+}
+
+message InvokeRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string model_alias = 4;
+  string input_json = 5;
+}
+
+message InvokeResponse {
+  reserved 100 to 199;
+
+  string output_json = 1;
+  string usage_json = 2;
+  string resolved_capability = 3;
+}
+
+message StreamRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string model_alias = 4;
+  string input_json = 5;
+}
+
+message StreamResponse {
+  reserved 100 to 199;
+
+  uint64 sequence = 1;
+  string delta = 2;
+  bool final = 3;
+}
+
+message RedactRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string content = 3;
+}
+
+message RedactResponse {
+  reserved 100 to 199;
+
+  string redacted_content = 1;
+  uint32 redaction_count = 2;
+}
+
+message SelectFallbackRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string failed_alias = 4;
+  repeated string required_capabilities = 5;
+}
+
+message SelectFallbackResponse {
+  reserved 100 to 199;
+
+  string selected_alias = 1;
+  string reason = 2;
+}

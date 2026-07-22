@@ -4,7 +4,7 @@
     "noEmit": false,
     "declaration": true,
     "declarationMap": true,
-    "outDir": "../../dist/packages/contracts",
+    "outDir": "./dist",
     "rootDir": "./src",
     "sourceMap": true
   },

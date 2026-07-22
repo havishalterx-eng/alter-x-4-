@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package alter.conversation.v1;
+
+service ConversationService {
+  rpc ClassifyIntent(ClassifyIntentRequest) returns (ClassifyIntentResponse);
+  rpc GetGoalState(GetGoalStateRequest) returns (GetGoalStateResponse);
+  rpc MergeClarification(MergeClarificationRequest) returns (MergeClarificationResponse);
+}
+
+message ClassifyIntentRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workspace_id = 2; // ws_ prefixed UUIDv7
+  string conversation_id = 3; // cnv_ prefixed UUIDv7
+  string utterance = 4;
+}
+
+message ClassifyIntentResponse {
+  reserved 100 to 199;
+
+  string intent = 1;
+  double confidence = 2;
+  bool actionable = 3;
+}
+
+message GetGoalStateRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string conversation_id = 2; // cnv_ prefixed UUIDv7
+}
+
+message GetGoalStateResponse {
+  reserved 100 to 199;
+
+  string goal_state_json = 1;
+  string status = 2;
+  uint32 revision = 3;
+}
+
+message MergeClarificationRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string conversation_id = 2; // cnv_ prefixed UUIDv7
+  string clarification_id = 3; // clr_ prefixed UUIDv7
+  string answer = 4;
+}
+
+message MergeClarificationResponse {
+  reserved 100 to 199;
+
+  string goal_state_json = 1;
+  uint32 revision = 2;
+}

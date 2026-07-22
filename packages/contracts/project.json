@@ -7,7 +7,7 @@
     "build": {
       "executor": "nx:run-commands",
       "outputs": [
-        "{workspaceRoot}/dist/packages/contracts"
+        "{projectRoot}/dist"
       ],
       "options": {
         "command": "tsc -p packages/contracts/tsconfig.lib.json"
@@ -30,8 +30,34 @@
     },
     "test": {
       "executor": "nx:run-commands",
+      "dependsOn": [
+        "build"
+      ],
       "options": {
-        "command": "vitest run packages/contracts/src/index.spec.ts"
+        "command": "vitest run packages/contracts/src"
+      }
+    },
+    "proto": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "buf lint",
+          "buf build"
+        ],
+        "cwd": "packages/contracts/proto",
+        "parallel": false
+      }
+    },
+    "generate": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build"
+      ],
+      "outputs": [
+        "{workspaceRoot}/packages/contracts/openapi.json"
+      ],
+      "options": {
+        "command": "node packages/contracts/scripts/generate-openapi.mjs"
       }
     }
   },

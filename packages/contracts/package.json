@@ -3,5 +3,16 @@
   "version": "0.0.0",
   "private": true,
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts"
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "contracts:generate": "pnpm --dir ../.. exec nx run contracts:generate"
+  },
+  "dependencies": {
+    "@asteasolutions/zod-to-openapi": "9.1.0",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "12.1.0",
+    "@bufbuild/buf": "1.72.0"
+  }
 }

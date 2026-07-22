@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package alter.adsq.v1;
+
+service AdsqService {
+  rpc Retrieve(RetrieveRequest) returns (RetrieveResponse);
+  rpc Rerank(RerankRequest) returns (RerankResponse);
+  rpc GetProvenance(GetProvenanceRequest) returns (GetProvenanceResponse);
+}
+
+message RetrievalHit {
+  reserved 100 to 199;
+
+  string document_id = 1; // doc_ prefixed UUIDv7
+  string chunk_reference = 2;
+  double score = 3;
+  double confidence = 4;
+  string provenance_json = 5;
+}
+message RetrieveRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workspace_id = 2; // ws_ prefixed UUIDv7
+  string query = 3;
+  repeated string scope_ids = 4; // Alter-prefixed UUIDv7 values
+  uint32 top_k = 5;
+}
+
+message RetrieveResponse {
+  reserved 100 to 199;
+
+  repeated RetrievalHit hits = 1;
+}
+
+message RerankRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workspace_id = 2; // ws_ prefixed UUIDv7
+  string query = 3;
+  repeated RetrievalHit candidates = 4;
+}
+
+message RerankResponse {
+  reserved 100 to 199;
+
+  repeated RetrievalHit hits = 1;
+}
+
+message GetProvenanceRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string document_id = 2; // doc_ prefixed UUIDv7
+}
+
+message GetProvenanceResponse {
+  reserved 100 to 199;
+
+  string provenance_json = 1;
+  double confidence = 2;
+}

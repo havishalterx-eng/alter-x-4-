@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package alter.recovery.v1;
+
+service RecoveryService {
+  rpc ClassifyFailure(ClassifyFailureRequest) returns (ClassifyFailureResponse);
+  rpc SelectStrategy(SelectStrategyRequest) returns (SelectStrategyResponse);
+  rpc RecordOutcome(RecordOutcomeRequest) returns (RecordOutcomeResponse);
+}
+
+message ClassifyFailureRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string error_json = 4;
+}
+
+message ClassifyFailureResponse {
+  reserved 100 to 199;
+
+  string failure_class = 1;
+  double confidence = 2;
+  string root_cause_estimate_json = 3;
+}
+
+message SelectStrategyRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string failure_class = 4;
+  string root_cause_estimate_json = 5;
+}
+
+message SelectStrategyResponse {
+  reserved 100 to 199;
+
+  string recovery_action_id = 1; // rec_ prefixed UUIDv7
+  string strategy = 2;
+  string policy_id = 3; // pol_ prefixed UUIDv7
+  string policy_version = 4;
+}
+
+message RecordOutcomeRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string recovery_action_id = 3; // rec_ prefixed UUIDv7
+  string strategy = 4;
+  string outcome = 5;
+}
+
+message RecordOutcomeResponse {
+  reserved 100 to 199;
+
+  bool recorded = 1;
+}
