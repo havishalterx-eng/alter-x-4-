@@ -62,3 +62,6 @@ jobs:
 
       - name: test platform api database integration
         run: pnpm exec nx test-db-integration platform-api
+
+      - name: test platform api rbac integration
+        run: pnpm exec vitest run tests/integration/rbac/**/*.spec.ts
