@@ -6,8 +6,18 @@
     "@nestjs/common": "11.1.28",
     "@nestjs/core": "11.1.28",
     "@nestjs/platform-fastify": "11.1.28",
+    "drizzle-orm": "^0.44.7",
     "fastify": "5.10.0",
+    "pg": "^8.16.3",
     "reflect-metadata": "0.2.2",
-    "rxjs": "7.8.2"
+    "rxjs": "7.8.2",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.6",
+    "drizzle-kit": "^0.31.8"
+  },
+  "scripts": {
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts"
   }
 }
