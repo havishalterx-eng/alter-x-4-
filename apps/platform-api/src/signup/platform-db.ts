@@ -17,23 +17,23 @@ export class PlatformDb implements SignupPersistence {
       [identityRef],
     );
     const userId = user.rows[0]?.id;
-    if (!userId || !isUuid(tenantHint)) return null;
+    if (!userId) return null;
 
-    return this.withTenant(tenantHint, async (client) => {
-      const result = await client.query<ExistingSignup>(
-        `SELECT tm.user_id AS "userId", tm.tenant_id AS "tenantId",
-                wm.workspace_id AS "workspaceId", tm.role AS "tenantRole",
-                wm.role AS "workspaceRole"
-           FROM tenant_members tm
-           JOIN workspace_members wm
-             ON wm.tenant_id = tm.tenant_id AND wm.user_id = tm.user_id
-          WHERE tm.user_id = $1 AND tm.tenant_id = $2
-          ORDER BY wm.created_at
-          LIMIT 1`,
-        [userId, tenantHint],
-      );
-      return result.rows[0] ?? null;
-    });
+    const validTenantHint = isUuid(tenantHint) ? tenantHint : null;
+    const result = await this.pool.query<ExistingSignup>(
+      `SELECT tm.user_id AS "userId", tm.tenant_id AS "tenantId",
+              wm.workspace_id AS "workspaceId", tm.role AS "tenantRole",
+              wm.role AS "workspaceRole"
+         FROM tenant_members tm
+         JOIN workspace_members wm
+           ON wm.tenant_id = tm.tenant_id AND wm.user_id = tm.user_id
+        WHERE tm.user_id = $1
+        ORDER BY CASE WHEN tm.tenant_id = $2::uuid THEN 0 ELSE 1 END,
+                 tm.created_at DESC, wm.created_at DESC
+        LIMIT 1`,
+      [userId, validTenantHint],
+    );
+    return result.rows[0] ?? null;
   }
 
   async createSignup<T>(
