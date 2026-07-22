@@ -14,6 +14,7 @@ export const platformApiEnvSchema = z
     AUTH0_M2M_CLIENT_ID: z.string().min(1).optional(),
     AUTH0_M2M_CLIENT_SECRET_REF: z.string().min(1).optional(),
     SESSION_COOKIE_SIGNING_KEY_REF: z.string().min(1).optional(),
+    ACTOR_TOKEN_SIGNING_KEY_REF: z.string().min(1),
     ALTER_CONFIG_SOURCE: z.string().optional(),
   })
   .superRefine((env, context) => {

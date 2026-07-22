@@ -12,10 +12,12 @@ describe("platformApiEnvSchema", () => {
     expect(
       validatePlatformApiEnv({
         DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
+        ACTOR_TOKEN_SIGNING_KEY_REF: "local/actor-token-signing-key",
         REDIS_ENDPOINT_PARAM: "/alter/dev/platform-api/redis-endpoint",
       }),
     ).toEqual({
       DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
+      ACTOR_TOKEN_SIGNING_KEY_REF: "local/actor-token-signing-key",
       IDENTITY_PROVIDER: "mock",
       REDIS_ENDPOINT_PARAM: "/alter/dev/platform-api/redis-endpoint",
     });
@@ -25,6 +27,7 @@ describe("platformApiEnvSchema", () => {
     expect(() =>
       validatePlatformApiEnv({
         DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
+        ACTOR_TOKEN_SIGNING_KEY_REF: "local/actor-token-signing-key",
         IDENTITY_PROVIDER: "auth0",
       }),
     ).toThrow("AUTH0_DOMAIN required when IDENTITY_PROVIDER=auth0");
