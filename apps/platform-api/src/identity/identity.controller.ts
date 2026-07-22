@@ -87,7 +87,11 @@ export class IdentityController {
       const accessToken = readCookie(request, accessCookieName);
       if (accessToken) {
         const session = await this.identityService.authenticateAccessToken(accessToken);
-        await this.identityService.revokeSession(session.userId, session.id);
+        await this.identityService.revokeSession(
+          session.tenantId,
+          session.userId,
+          session.id,
+        );
       }
       clearSessionCookies(reply);
       reply.status(204).send();
@@ -98,7 +102,10 @@ export class IdentityController {
   async sessions(@Req() request: FastifyRequest, @Res() reply: FastifyReply): Promise<void> {
     await this.safe(reply, "/api/v1/auth/sessions", async () => {
       const session = await this.requireSession(request);
-      const sessions = await this.identityService.listActiveSessions(session.userId);
+      const sessions = await this.identityService.listActiveSessions(
+        session.tenantId,
+        session.userId,
+      );
       reply.send({ sessions });
     });
   }
@@ -111,7 +118,7 @@ export class IdentityController {
   ): Promise<void> {
     await this.safe(reply, `/api/v1/auth/sessions/${sessionId}`, async () => {
       const session = await this.requireSession(request);
-      await this.identityService.revokeSession(session.userId, sessionId);
+      await this.identityService.revokeSession(session.tenantId, session.userId, sessionId);
       reply.status(204).send();
     });
   }

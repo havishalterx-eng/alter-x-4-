@@ -9,11 +9,21 @@ import type {
   SessionRecord,
   SsoConfig,
 } from "../../identity-provider.interface";
+import { InMemorySessionStore, type SessionStore } from "../../session-store";
+import {
+  InMemorySsoConfigStore,
+  normalizedSsoConfig,
+  type SsoConfigStore,
+} from "../../sso-config-store";
 
 export class MockIdentityProvider implements IdentityProvider {
   private readonly orgs = new Map<string, string>();
-  private readonly ssoConfigs = new Map<string, SsoConfig>();
   private readonly identities = new Map<string, AuthenticatedIdentity>();
+
+  constructor(
+    private readonly sessionStore: SessionStore = new InMemorySessionStore(),
+    private readonly ssoConfigStore: SsoConfigStore = new InMemorySsoConfigStore(),
+  ) {}
 
   async getOrCreateOrgForTenant(tenantId: string, name: string): Promise<string> {
     const existing = this.orgs.get(tenantId);
@@ -72,14 +82,12 @@ export class MockIdentityProvider implements IdentityProvider {
     };
   }
 
-  async listActiveSessions(_userId: string): Promise<SessionRecord[]> {
-    void _userId;
-    return [];
+  async listActiveSessions(tenantId: string, userId: string): Promise<SessionRecord[]> {
+    return this.sessionStore.listActive(tenantId, userId);
   }
 
-  async revokeSession(_userId: string, _sessionId: string): Promise<void> {
-    void _userId;
-    void _sessionId;
+  async revokeSession(tenantId: string, userId: string, sessionId: string): Promise<void> {
+    await this.sessionStore.revoke(tenantId, userId, sessionId);
   }
 
   async enrollMfa(userId: string): Promise<MfaEnrollment> {
@@ -102,7 +110,8 @@ export class MockIdentityProvider implements IdentityProvider {
   }
 
   async configureSso(tenantId: string, config: SsoConfig): Promise<SsoConfig> {
-    this.ssoConfigs.set(tenantId, config);
-    return config;
+    const persistedConfig = normalizedSsoConfig(config);
+    await this.ssoConfigStore.save(tenantId, persistedConfig);
+    return persistedConfig;
   }
 }

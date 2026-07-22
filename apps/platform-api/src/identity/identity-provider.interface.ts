@@ -51,8 +51,8 @@ export interface IdentityProvider {
   loginRedirectUrl(request: LoginRedirectRequest): Promise<string>;
   handleCallback(request: CallbackRequest): Promise<AuthenticatedIdentity>;
   refreshSession(refreshToken: string): Promise<AuthenticatedIdentity>;
-  listActiveSessions(userId: string): Promise<SessionRecord[]>;
-  revokeSession(userId: string, sessionId: string): Promise<void>;
+  listActiveSessions(tenantId: string, userId: string): Promise<SessionRecord[]>;
+  revokeSession(tenantId: string, userId: string, sessionId: string): Promise<void>;
   enrollMfa(userId: string): Promise<MfaEnrollment>;
   challengeMfa(
     userId: string,

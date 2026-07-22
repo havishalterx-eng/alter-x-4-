@@ -13,16 +13,23 @@ export interface CreateSessionInput {
 
 export interface SessionStore {
   create(input: CreateSessionInput): Promise<SessionRecord>;
-  findByRefreshTokenHash(hash: string): Promise<SessionRecord | undefined>;
-  findByAccessTokenHash(hash: string): Promise<SessionRecord | undefined>;
+  findByRefreshTokenHash(
+    tenantId: string,
+    hash: string,
+  ): Promise<SessionRecord | undefined>;
+  findByAccessTokenHash(
+    tenantId: string,
+    hash: string,
+  ): Promise<SessionRecord | undefined>;
   rotateRefreshToken(
+    tenantId: string,
     sessionId: string,
     previousHash: string,
     nextRefreshHash: string,
     nextAccessHash: string,
   ): Promise<boolean>;
-  listActive(userId: string): Promise<SessionRecord[]>;
-  revoke(userId: string, sessionId: string): Promise<void>;
+  listActive(tenantId: string, userId: string): Promise<SessionRecord[]>;
+  revoke(tenantId: string, userId: string, sessionId: string): Promise<void>;
 }
 
 export function hashToken(token: string): string {
@@ -60,9 +67,16 @@ export class InMemorySessionStore implements SessionStore {
     return withoutHashes(session);
   }
 
-  async findByRefreshTokenHash(hash: string): Promise<SessionRecord | undefined> {
+  async findByRefreshTokenHash(
+    tenantId: string,
+    hash: string,
+  ): Promise<SessionRecord | undefined> {
     for (const session of this.sessions.values()) {
-      if (session.refreshTokenHash === hash && !session.revokedAt) {
+      if (
+        session.tenantId === tenantId &&
+        session.refreshTokenHash === hash &&
+        !session.revokedAt
+      ) {
         return withoutHashes(session);
       }
     }
@@ -70,9 +84,16 @@ export class InMemorySessionStore implements SessionStore {
     return undefined;
   }
 
-  async findByAccessTokenHash(hash: string): Promise<SessionRecord | undefined> {
+  async findByAccessTokenHash(
+    tenantId: string,
+    hash: string,
+  ): Promise<SessionRecord | undefined> {
     for (const session of this.sessions.values()) {
-      if (session.accessTokenHash === hash && !session.revokedAt) {
+      if (
+        session.tenantId === tenantId &&
+        session.accessTokenHash === hash &&
+        !session.revokedAt
+      ) {
         return withoutHashes(session);
       }
     }
@@ -81,13 +102,19 @@ export class InMemorySessionStore implements SessionStore {
   }
 
   async rotateRefreshToken(
+    tenantId: string,
     sessionId: string,
     previousHash: string,
     nextRefreshHash: string,
     nextAccessHash: string,
   ): Promise<boolean> {
     const session = this.sessions.get(sessionId);
-    if (!session || session.revokedAt || session.refreshTokenHash !== previousHash) {
+    if (
+      !session ||
+      session.tenantId !== tenantId ||
+      session.revokedAt ||
+      session.refreshTokenHash !== previousHash
+    ) {
       return false;
     }
 
@@ -97,15 +124,24 @@ export class InMemorySessionStore implements SessionStore {
     return true;
   }
 
-  async listActive(userId: string): Promise<SessionRecord[]> {
+  async listActive(tenantId: string, userId: string): Promise<SessionRecord[]> {
     return [...this.sessions.values()]
-      .filter((session) => session.userId === userId && !session.revokedAt)
+      .filter(
+        (session) =>
+          session.tenantId === tenantId &&
+          session.userId === userId &&
+          !session.revokedAt,
+      )
       .map(withoutHashes);
   }
 
-  async revoke(userId: string, sessionId: string): Promise<void> {
+  async revoke(tenantId: string, userId: string, sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
-    if (session?.userId === userId && !session.revokedAt) {
+    if (
+      session?.tenantId === tenantId &&
+      session.userId === userId &&
+      !session.revokedAt
+    ) {
       session.revokedAt = new Date();
     }
   }
@@ -137,61 +173,79 @@ export class PgSessionStore implements SessionStore {
     return mapSessionRow(rows[0]);
   }
 
-  async findByRefreshTokenHash(hash: string): Promise<SessionRecord | undefined> {
-    const { rows } = await this.pool.query<SessionRow>(
-      `SELECT * FROM user_sessions
-       WHERE refresh_token_hash = $1 AND revoked_at IS NULL
-       LIMIT 1`,
-      [hash],
+  async findByRefreshTokenHash(
+    tenantId: string,
+    hash: string,
+  ): Promise<SessionRecord | undefined> {
+    const { rows } = await this.withTenant(tenantId, (client) =>
+      client.query<SessionRow>(
+        `SELECT * FROM user_sessions
+         WHERE tenant_id = $1 AND refresh_token_hash = $2 AND revoked_at IS NULL
+         LIMIT 1`,
+        [tenantId, hash],
+      ),
     );
 
     return rows[0] ? mapSessionRow(rows[0]) : undefined;
   }
 
-  async findByAccessTokenHash(hash: string): Promise<SessionRecord | undefined> {
-    const { rows } = await this.pool.query<SessionRow>(
-      `SELECT * FROM user_sessions
-       WHERE access_token_hash = $1 AND revoked_at IS NULL
-       LIMIT 1`,
-      [hash],
+  async findByAccessTokenHash(
+    tenantId: string,
+    hash: string,
+  ): Promise<SessionRecord | undefined> {
+    const { rows } = await this.withTenant(tenantId, (client) =>
+      client.query<SessionRow>(
+        `SELECT * FROM user_sessions
+         WHERE tenant_id = $1 AND access_token_hash = $2 AND revoked_at IS NULL
+         LIMIT 1`,
+        [tenantId, hash],
+      ),
     );
 
     return rows[0] ? mapSessionRow(rows[0]) : undefined;
   }
 
   async rotateRefreshToken(
+    tenantId: string,
     sessionId: string,
     previousHash: string,
     nextRefreshHash: string,
     nextAccessHash: string,
   ): Promise<boolean> {
-    const { rowCount } = await this.pool.query(
-      `UPDATE user_sessions
-       SET refresh_token_hash = $1, access_token_hash = $2, last_seen_at = now()
-       WHERE id = $3 AND refresh_token_hash = $4 AND revoked_at IS NULL`,
-      [nextRefreshHash, nextAccessHash, sessionId, previousHash],
+    const { rowCount } = await this.withTenant(tenantId, (client) =>
+      client.query(
+        `UPDATE user_sessions
+         SET refresh_token_hash = $1, access_token_hash = $2, last_seen_at = now()
+         WHERE tenant_id = $3 AND id = $4 AND refresh_token_hash = $5
+           AND revoked_at IS NULL`,
+        [nextRefreshHash, nextAccessHash, tenantId, sessionId, previousHash],
+      ),
     );
 
     return rowCount === 1;
   }
 
-  async listActive(userId: string): Promise<SessionRecord[]> {
-    const { rows } = await this.pool.query<SessionRow>(
-      `SELECT * FROM user_sessions
-       WHERE user_id = $1 AND revoked_at IS NULL
-       ORDER BY last_seen_at DESC`,
-      [userId],
+  async listActive(tenantId: string, userId: string): Promise<SessionRecord[]> {
+    const { rows } = await this.withTenant(tenantId, (client) =>
+      client.query<SessionRow>(
+        `SELECT * FROM user_sessions
+         WHERE tenant_id = $1 AND user_id = $2 AND revoked_at IS NULL
+         ORDER BY last_seen_at DESC`,
+        [tenantId, userId],
+      ),
     );
 
     return rows.map(mapSessionRow);
   }
 
-  async revoke(userId: string, sessionId: string): Promise<void> {
-    await this.pool.query(
-      `UPDATE user_sessions
-       SET revoked_at = now()
-       WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`,
-      [sessionId, userId],
+  async revoke(tenantId: string, userId: string, sessionId: string): Promise<void> {
+    await this.withTenant(tenantId, (client) =>
+      client.query(
+        `UPDATE user_sessions
+         SET revoked_at = now()
+         WHERE tenant_id = $1 AND id = $2 AND user_id = $3 AND revoked_at IS NULL`,
+        [tenantId, sessionId, userId],
+      ),
     );
   }
 

@@ -46,7 +46,7 @@
     "test-db-integration": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "vitest run apps/platform-api/src/db/db.migration.spec.ts"
+        "command": "vitest run apps/platform-api/src/db/db.migration.spec.ts apps/platform-api/src/identity/session-store.integration.spec.ts"
       }
     }
   },

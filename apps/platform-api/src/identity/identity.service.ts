@@ -51,15 +51,17 @@ export class IdentityService {
   }
 
   async refreshSession(refreshToken: string): Promise<IssuedSession> {
+    const tenantId = tenantIdFromToken(refreshToken);
     const previousHash = hashToken(refreshToken);
-    const session = await this.sessionStore.findByRefreshTokenHash(previousHash);
+    const session = await this.sessionStore.findByRefreshTokenHash(tenantId, previousHash);
     if (!session) {
       throw new IdentityHttpError(401, "INVALID_REFRESH_TOKEN", "Refresh token rejected");
     }
 
-    const nextAccessToken = newToken();
-    const nextRefreshToken = newToken();
+    const nextAccessToken = newToken(tenantId);
+    const nextRefreshToken = newToken(tenantId);
     const rotated = await this.sessionStore.rotateRefreshToken(
+      tenantId,
       session.id,
       previousHash,
       hashToken(nextRefreshToken),
@@ -81,7 +83,11 @@ export class IdentityService {
   }
 
   async authenticateAccessToken(accessToken: string): Promise<SessionRecord> {
-    const session = await this.sessionStore.findByAccessTokenHash(hashToken(accessToken));
+    const tenantId = tenantIdFromToken(accessToken);
+    const session = await this.sessionStore.findByAccessTokenHash(
+      tenantId,
+      hashToken(accessToken),
+    );
     if (!session) {
       throw new IdentityHttpError(401, "INVALID_ACCESS_TOKEN", "Access token rejected");
     }
@@ -89,13 +95,12 @@ export class IdentityService {
     return session;
   }
 
-  listActiveSessions(userId: string): Promise<SessionRecord[]> {
-    return this.sessionStore.listActive(userId);
+  listActiveSessions(tenantId: string, userId: string): Promise<SessionRecord[]> {
+    return this.identityProvider.listActiveSessions(tenantId, userId);
   }
 
-  async revokeSession(userId: string, sessionId: string): Promise<void> {
-    await this.sessionStore.revoke(userId, sessionId);
-    await this.identityProvider.revokeSession(userId, sessionId);
+  async revokeSession(tenantId: string, userId: string, sessionId: string): Promise<void> {
+    await this.identityProvider.revokeSession(tenantId, userId, sessionId);
   }
 
   enrollMfa(userId: string): Promise<MfaEnrollment> {
@@ -120,8 +125,8 @@ export class IdentityService {
     deviceInfo?: Record<string, unknown>,
     ip?: string,
   ): Promise<IssuedSession> {
-    const accessToken = newToken();
-    const refreshToken = newToken();
+    const accessToken = newToken(tenantId);
+    const refreshToken = newToken(tenantId);
 
     const input: Parameters<SessionStore["create"]>[0] = {
       userId,
@@ -149,6 +154,14 @@ export class IdentityService {
   }
 }
 
-function newToken(): string {
-  return randomBytes(32).toString("base64url");
+function newToken(tenantId: string): string {
+  return `${tenantId}.${randomBytes(32).toString("base64url")}`;
+}
+
+function tenantIdFromToken(token: string): string {
+  const separator = token.indexOf(".");
+  if (separator <= 0) {
+    throw new IdentityHttpError(401, "INVALID_SESSION_TOKEN", "Session token rejected");
+  }
+  return token.slice(0, separator);
 }
