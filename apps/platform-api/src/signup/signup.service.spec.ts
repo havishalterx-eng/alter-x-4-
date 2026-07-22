@@ -6,6 +6,7 @@ import { InternalEntitlementProvider } from "../entitlements/internal-entitlemen
 import type { IdentityProvider } from "../identity/identity-provider.interface";
 import type { IdentityService } from "../identity/identity.service";
 import type { IdentityBrokerService } from "../identity-broker/identity-broker.service";
+import type { OnboardingInitializer } from "../onboarding/onboarding.repository";
 import { ProcessLocalSignupIdempotencyStore } from "./idempotency-store";
 import { SignupService } from "./signup.service";
 import type {
@@ -52,6 +53,7 @@ function setup(
     verified?: boolean;
     entitlementFails?: boolean;
     displayName?: string | null;
+    onboardingFails?: boolean;
   } = {},
 ) {
   const identityProvider = {
@@ -118,6 +120,11 @@ function setup(
     new LocalFileConfigProvider(),
   );
   const persistence = new MemoryPersistence();
+  const onboardingInitializer = {
+    initialize: options.onboardingFails
+      ? vi.fn().mockRejectedValue(new Error("onboarding failed"))
+      : vi.fn().mockResolvedValue({ status: "not_started" }),
+  } as unknown as OnboardingInitializer;
   const service = new SignupService(
     identityProvider,
     identityService,
@@ -125,6 +132,7 @@ function setup(
     entitlementProvider,
     persistence,
     new ProcessLocalSignupIdempotencyStore(),
+    onboardingInitializer,
   );
   return {
     service,
@@ -133,6 +141,7 @@ function setup(
     identityService,
     identityBroker,
     entitlementStore,
+    onboardingInitializer,
   };
 }
 
@@ -147,7 +156,13 @@ describe("SignupService", () => {
   beforeEach(() => vi.restoreAllMocks());
 
   it("creates atomic personal tenant landing with exact free limits", async () => {
-    const { service, persistence, entitlementStore, identityBroker } = setup();
+    const {
+      service,
+      persistence,
+      entitlementStore,
+      identityBroker,
+      onboardingInitializer,
+    } = setup();
     const landing = await service.signup(request);
 
     expect(landing).toMatchObject({
@@ -176,11 +191,23 @@ describe("SignupService", () => {
         sessionId: "signup-session",
       }),
     );
+    expect(onboardingInitializer.initialize).toHaveBeenCalledWith(
+      landing.tenantId,
+      landing.workspaceId,
+      expect.anything(),
+    );
   });
 
   it("rolls back all platform rows when entitlement creation fails", async () => {
     const { service, persistence, identityService } = setup({ entitlementFails: true });
     await expect(service.signup(request)).rejects.toThrow("entitlement failed");
+    expect(persistence.rows).toEqual([]);
+    expect(identityService.issueSignupSession).not.toHaveBeenCalled();
+  });
+
+  it("rolls back all platform rows when onboarding initialization fails", async () => {
+    const { service, persistence, identityService } = setup({ onboardingFails: true });
+    await expect(service.signup(request)).rejects.toThrow("onboarding failed");
     expect(persistence.rows).toEqual([]);
     expect(identityService.issueSignupSession).not.toHaveBeenCalled();
   });

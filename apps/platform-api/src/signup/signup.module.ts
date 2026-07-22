@@ -10,6 +10,11 @@ import type { IdentityProvider } from "../identity/identity-provider.interface";
 import { IdentityService } from "../identity/identity.service";
 import { IdentityBrokerModule } from "../identity-broker/identity-broker.module";
 import { IdentityBrokerService } from "../identity-broker/identity-broker.service";
+import { OnboardingModule } from "../onboarding/onboarding.module";
+import {
+  ONBOARDING_INITIALIZER,
+  type OnboardingInitializer,
+} from "../onboarding/onboarding.repository";
 import {
   ProcessLocalSignupIdempotencyStore,
   type IdempotencyStore,
@@ -20,7 +25,12 @@ import { SignupActorContextMiddleware } from "./signup-actor-context.middleware"
 import { SignupService } from "./signup.service";
 
 @Module({
-  imports: [IdentityModule, IdentityBrokerModule, EntitlementsModule],
+  imports: [
+    IdentityModule,
+    IdentityBrokerModule,
+    EntitlementsModule,
+    OnboardingModule,
+  ],
   controllers: [SignupController],
   providers: [
     {
@@ -42,6 +52,7 @@ import { SignupService } from "./signup.service";
         ENTITLEMENT_PROVIDER,
         PlatformDb,
         ProcessLocalSignupIdempotencyStore,
+        ONBOARDING_INITIALIZER,
       ],
       useFactory: (
         identityProvider: IdentityProvider,
@@ -50,6 +61,7 @@ import { SignupService } from "./signup.service";
         entitlementProvider: EntitlementProvider,
         persistence: PlatformDb,
         idempotency: IdempotencyStore,
+        onboardingInitializer: OnboardingInitializer,
       ) =>
         new SignupService(
           identityProvider,
@@ -58,6 +70,7 @@ import { SignupService } from "./signup.service";
           entitlementProvider,
           persistence,
           idempotency,
+          onboardingInitializer,
         ),
     },
   ],

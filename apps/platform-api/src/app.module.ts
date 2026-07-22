@@ -10,6 +10,7 @@ import { MembersModule } from "./members/members.module";
 import { SignupModule } from "./signup/signup.module";
 import { TenantsModule } from "./tenants/tenants.module";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
+import { OnboardingModule } from "./onboarding/onboarding.module";
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
     TenantsModule,
     WorkspacesModule,
     MembersModule,
+    OnboardingModule,
   ],
   controllers: [HealthController],
 })
