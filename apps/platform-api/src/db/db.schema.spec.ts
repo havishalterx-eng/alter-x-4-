@@ -51,7 +51,7 @@ describe("platform database schema", () => {
     }
 
     expect(foreignKeyNames).toHaveLength(7);
-    expect(getTableConfig(workspaces).indexes).toHaveLength(1);
+    expect(getTableConfig(workspaces).indexes).toHaveLength(2);
     expect(getTableConfig(tenantMembers).indexes).toHaveLength(1);
     expect(getTableConfig(workspaceMembers).indexes).toHaveLength(1);
   });
