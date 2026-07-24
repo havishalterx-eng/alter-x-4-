@@ -22,7 +22,8 @@
         "eslintConfig": "packages/contracts/eslint.config.mjs",
         "lintFilePatterns": [
           "packages/contracts/src/**/*.ts",
-          "packages/contracts/orchestration/**/*.ts"
+          "packages/contracts/orchestration/**/*.ts",
+          "packages/contracts/auth/**/*.ts"
         ]
       }
     },

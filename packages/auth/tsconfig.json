@@ -8,6 +8,8 @@
     ]
   },
   "include": [
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "session-gateway/src/**/*.ts",
+    "session-gateway/test-utils/**/*.ts"
   ]
 }

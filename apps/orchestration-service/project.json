@@ -52,7 +52,7 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "vitest run apps/orchestration-service/src/database/migration-files.spec.ts apps/orchestration-service/src/database/schema-files.spec.ts apps/orchestration-service/src/health/health.controller.spec.ts"
+        "command": "vitest run apps/orchestration-service/src/database/migration-files.spec.ts apps/orchestration-service/src/database/schema-files.spec.ts apps/orchestration-service/src/health/health.controller.spec.ts apps/orchestration-service/src/app.module.spec.ts"
       }
     }
   },

@@ -7,7 +7,7 @@
     "build": {
       "executor": "nx:run-commands",
       "outputs": [
-        "{workspaceRoot}/dist/packages/auth"
+        "{projectRoot}/dist"
       ],
       "options": {
         "command": "tsc -p packages/auth/tsconfig.lib.json"
@@ -18,7 +18,8 @@
       "options": {
         "eslintConfig": "packages/auth/eslint.config.mjs",
         "lintFilePatterns": [
-          "packages/auth/src/**/*.ts"
+          "packages/auth/src/**/*.ts",
+          "packages/auth/session-gateway/**/*.ts"
         ]
       }
     },
@@ -31,7 +32,19 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "vitest run packages/auth/src/index.spec.ts"
+        "command": "vitest run packages/auth/src packages/auth/session-gateway"
+      }
+    },
+    "coverage": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build"
+      ],
+      "outputs": [
+        "{projectRoot}/coverage"
+      ],
+      "options": {
+        "command": "vitest run packages/auth/session-gateway/src --exclude packages/auth/session-gateway/src/session-gateway.rls.integration.spec.ts --coverage --coverage.include=packages/auth/session-gateway/src/m2m-validator.ts --coverage.include=packages/auth/session-gateway/src/actor-token-validator.ts --coverage.include=packages/auth/session-gateway/src/session-gateway.guard.ts --coverage.thresholds.lines=90 --coverage.thresholds.branches=90"
       }
     }
   },

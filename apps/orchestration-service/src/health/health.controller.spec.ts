@@ -1,14 +1,14 @@
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AppModule } from "../app.module";
+import { HealthController } from "./health.controller";
 
 describe("GET /health", () => {
   let app: NestFastifyApplication;
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
+      controllers: [HealthController],
     }).compile();
 
     app = moduleRef.createNestApplication<NestFastifyApplication>(

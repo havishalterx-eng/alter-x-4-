@@ -151,6 +151,9 @@ importers:
       '@alterx/adapters':
         specifier: workspace:*
         version: link:../../packages/adapters
+      '@alterx/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@nestjs/common':
         specifier: 11.1.28
         version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -402,7 +405,27 @@ importers:
         specifier: 5.10.0
         version: 5.10.0
 
-  packages/auth: {}
+  packages/auth:
+    dependencies:
+      '@alterx/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@nestjs/common':
+        specifier: 11.1.28
+        version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2)
+    devDependencies:
+      '@alterx/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@testcontainers/postgresql':
+        specifier: 12.0.4
+        version: 12.0.4
+      '@types/pg':
+        specifier: 8.20.0
+        version: 8.20.0
+      pg:
+        specifier: 8.22.0
+        version: 8.22.0
 
   packages/contracts:
     dependencies:
