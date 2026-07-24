@@ -32,6 +32,13 @@ export {
   type AwsAppConfigConfigProviderConfig,
 } from "./aws/appconfig-config-provider";
 export {
+  TITAN_EMBEDDING_CAPABILITIES,
+  TITAN_TEXT_EMBEDDINGS_V2_MODEL_ID,
+  TitanEmbeddingProvider,
+  type BedrockRuntimeCommandClient,
+  type TitanEmbeddingProviderConfig,
+} from "./aws/titan-embedding-provider";
+export {
   MODELGW_HANDLER,
   ModelgwGrpcController,
   startModelgwGrpcTransport,

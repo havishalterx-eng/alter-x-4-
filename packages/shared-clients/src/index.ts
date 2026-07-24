@@ -45,6 +45,7 @@ export {
 export {
   configProviderContract,
   durableExecutionProviderContract,
+  embeddingProviderContract,
   modelProviderContract,
   observabilityProviderContract,
   secretsProviderContract,
@@ -60,6 +61,9 @@ export {
   type DeploymentProvider,
   type DurableExecutionProvider,
   type DurableWorkflowHandle,
+  type EmbeddingDimensions,
+  type EmbeddingRequest,
+  type EmbeddingResult,
   type EmbeddingProvider,
   type ErrorCapture,
   type EventBusProvider,
@@ -117,6 +121,13 @@ export {
   createMockModelProvider,
   type MockModelProviderOptions,
 } from "./mocks/model-provider";
+export {
+  MOCK_EMBEDDING_CAPABILITIES,
+  createMockEmbeddingProvider,
+  deterministicEmbeddingVector,
+  type MockEmbeddingProvider,
+  type MockEmbeddingProviderOptions,
+} from "./mocks/embedding-provider";
 export {
   MOCK_DURABLE_EXECUTION_CAPABILITIES,
   DurableWorkflowAlreadyExistsError,

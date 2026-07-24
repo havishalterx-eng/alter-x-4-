@@ -3,6 +3,7 @@ import type { ProviderContractSuite } from "./contract-testing";
 import type {
   ConfigProvider,
   DurableExecutionProvider,
+  EmbeddingProvider,
   ModelProvider,
   ObservabilityProvider,
   SecretsProvider,
@@ -318,3 +319,84 @@ export const modelProviderContract: ProviderContractSuite<ModelProvider> = {
     },
   ],
 };
+
+export const embeddingProviderContract: ProviderContractSuite<EmbeddingProvider> =
+  {
+    name: "EmbeddingProvider",
+    cases: [
+      {
+        name: "publishes valid base-provider metadata and capabilities",
+        assert: async (provider) => {
+          ensure(
+            provider.metadata.interfaceName === "EmbeddingProvider",
+            "Embedding adapter must identify its canonical interface",
+          );
+          ProviderCapabilitiesSchema.parse(provider.capabilities);
+          const health = await provider.healthCheck();
+          ensure(
+            health.status === "healthy",
+            "Contract fixture must be healthy",
+          );
+          return {
+            capabilities: provider.capabilities,
+            health,
+            interfaceName: provider.metadata.interfaceName,
+          };
+        },
+      },
+      {
+        name: "returns a 512-dimensional embedding",
+        assert: async (provider) => {
+          const result = await provider.embed({
+            tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+            text: "contract embedding fixture",
+            dimensions: 512,
+          });
+          ensure(
+            result.dimensions === 512,
+            "Embedding result dimensions must match the 512 request",
+          );
+          ensure(
+            result.vector.length === 512,
+            "Embedding vector must contain exactly 512 values",
+          );
+          ensure(
+            result.modelId.length > 0,
+            "Embedding result must include a non-empty model ID",
+          );
+          return {
+            dimensions: result.dimensions,
+            length: result.vector.length,
+            modelId: result.modelId,
+          };
+        },
+      },
+      {
+        name: "returns a 1024-dimensional embedding",
+        assert: async (provider) => {
+          const result = await provider.embed({
+            tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+            text: "contract embedding fixture",
+            dimensions: 1024,
+          });
+          ensure(
+            result.dimensions === 1024,
+            "Embedding result dimensions must match the 1024 request",
+          );
+          ensure(
+            result.vector.length === 1024,
+            "Embedding vector must contain exactly 1024 values",
+          );
+          ensure(
+            result.modelId.length > 0,
+            "Embedding result must include a non-empty model ID",
+          );
+          return {
+            dimensions: result.dimensions,
+            length: result.vector.length,
+            modelId: result.modelId,
+          };
+        },
+      },
+    ],
+  };

@@ -184,8 +184,24 @@ export interface ModelInvocationResult {
 export interface ModelProvider extends BaseProvider<"ModelProvider"> {
   invoke(request: ModelInvocationRequest): Promise<ModelInvocationResult>;
 }
-export interface EmbeddingProvider
-  extends BaseProvider<"EmbeddingProvider"> {}
+
+export type EmbeddingDimensions = 512 | 1024;
+
+export interface EmbeddingRequest {
+  readonly tenantId: string;
+  readonly text: string;
+  readonly dimensions: EmbeddingDimensions;
+}
+
+export interface EmbeddingResult {
+  readonly vector: readonly number[];
+  readonly dimensions: EmbeddingDimensions;
+  readonly modelId: string;
+}
+
+export interface EmbeddingProvider extends BaseProvider<"EmbeddingProvider"> {
+  embed(request: EmbeddingRequest): Promise<EmbeddingResult>;
+}
 export interface PIIRedactionProvider
   extends BaseProvider<"PIIRedactionProvider"> {}
 export interface SearchProvider extends BaseProvider<"SearchProvider"> {}
