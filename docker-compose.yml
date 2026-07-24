@@ -15,17 +15,120 @@ services:
     volumes:
       - platform_db_data:/var/lib/postgresql/data
 
+  engine-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: engine_admin
+      POSTGRES_PASSWORD: ${ENGINE_DB_ADMIN_PASSWORD:?Set ENGINE_DB_ADMIN_PASSWORD in .env.local}
+      AUDIT_DB_PASSWORD: ${AUDIT_DB_PASSWORD:?Set AUDIT_DB_PASSWORD in .env.local}
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "PGPASSWORD=\"$${AUDIT_DB_PASSWORD}\" psql -h 127.0.0.1 -U audit_service -d audit_db -v ON_ERROR_STOP=1 -c 'SELECT 1' >/dev/null",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    volumes:
+      - engine_db_data:/var/lib/postgresql/data
+      - ./infrastructure/local/engine-db-init.sh:/docker-entrypoint-initdb.d/10-engine-databases.sh:ro
+
   # redis:
   #   # added in PLAT-P1-T03
 
-  # localstack:
-  #   # added in ENG foundation/provider-emulation ticket
+  localstack:
+    image: localstack/localstack:4.14.0
+    environment:
+      SERVICES: s3,sqs,secretsmanager,events
+      AWS_DEFAULT_REGION: ap-south-1
+      EAGER_SERVICE_LOADING: "1"
+      LS_LOG: warn
+      AUDIT_DB_PASSWORD: ${AUDIT_DB_PASSWORD:?Set AUDIT_DB_PASSWORD in .env.local}
+      AUDIT_DB_HOST: 127.0.0.1
+      AUDIT_DB_PORT: "5433"
+      AUDIT_DATABASE_NAME: audit_db
+      AUDIT_DATABASE_USER: audit_service
+      DATABASE_SECRET_REF: ${DATABASE_SECRET_REF:-/alter/local/audit-service/system/database_credentials}
+    ports:
+      - "127.0.0.1:4566:4566"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "awslocal sqs get-queue-url --queue-name alter-local-cost-events >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${DATABASE_SECRET_REF}\" >/dev/null 2>&1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    volumes:
+      - ./infrastructure/local/localstack-init:/etc/localstack/init/ready.d:ro
 
-  # temporal:
-  #   # added in Engine durable-substrate ticket
+  temporal:
+    image: temporalio/temporal:1.8.1
+    command:
+      [
+        "server",
+        "start-dev",
+        "--ip",
+        "0.0.0.0",
+        "--port",
+        "7233",
+        "--ui-port",
+        "8233",
+        "--ui-disable-news-fetch",
+      ]
+    ports:
+      - "127.0.0.1:7233:7233"
+      - "127.0.0.1:8233:8233"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "temporal",
+          "operator",
+          "cluster",
+          "health",
+          "--address",
+          "127.0.0.1:7233",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
-  # otel:
-  #   # added in observability foundation ticket
+  otel:
+    image: alterx/otel-collector-local:0.157.0
+    build:
+      context: .
+      dockerfile: infrastructure/local/otel/Dockerfile
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:13133:13133"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1:13133/",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    volumes:
+      - ./infrastructure/local/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
 
 volumes:
   platform_db_data:
+  engine_db_data:
