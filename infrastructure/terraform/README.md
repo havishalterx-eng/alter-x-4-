@@ -25,12 +25,33 @@ Never use `terraform apply` until the management account, Control Tower landing 
 - **Identity Center:** Control Tower owns initial IAM Identity Center enablement and human directory setup. Permission sets, groups, and assignments are deferred until the real identity source and human access model are approved. This Terraform owns machine deployment roles only.
 - **State backend:** local backends are temporary and keep this configuration valid before AWS exists. Before any real plan, create an encrypted/versioned S3 state bucket and DynamoDB-compatible lock strategy in `alter-management`, migrate every state with `terraform init -migrate-state`, and review the migration output. No nonexistent bucket is hardcoded here.
 
+## Data, messaging, configuration, and compute foundation
+
+The `dev`, `staging`, and `prod` account stacks extend the landing zone through four deliberately separate modules. `data` owns Aurora and ElastiCache, `messaging` owns artifacts and event transport, `runtime-config` owns AppConfig and secret-path enforcement, and `compute` owns the environment's ECS Fargate cluster. `shared-services` alone instantiates `ecr`; `sandbox-exec` instantiates only its isolated `compute` cluster. Existing landing-zone resources remain owned by the original `environment` module.
+
+- **Control-plane database separation:** one Aurora PostgreSQL Serverless v2 cluster per workload environment starts with `platform_db`. A Data API bootstrap connects through the stable `postgres` administration database, creates the other six approved databases, creates a unique IAM-authenticated PostgreSQL role for every owning service, changes each database owner to that role, revokes PostgreSQL's default `PUBLIC` `CONNECT` and `TEMPORARY` privileges, and grants `CONNECT` only to the owning role. The bootstrap passes only the RDS-managed admin secret ARN to AWS; it never fetches, prints, or stores the generated master password. Seven distinct Secrets Manager containers and seven one-database IAM policies use `/alter/{env}/{service}/system/database_credentials`. The tests enforce one-to-one Terraform grants and simulate the effective PostgreSQL ACLs through separate Data API calls, allowing the seven owner connections while rejecting all 42 cross-service database connections. Both Aurora clusters export PostgreSQL logs, use enhanced monitoring and Performance Insights, and are selected into a daily AWS Backup plan.
+- **ADS:** a second Aurora Serverless v2 cluster per workload environment has no `database_name` and no schema bootstrap. It is an intentionally empty, separately encrypted ADS shell in the same private data subnets.
+- **Redis:** ElastiCache for Redis is the AWS-native implementation of the Redis/Valkey contract. Each workload environment gets a two-node, Multi-AZ, private-subnet replication group with encryption in transit and at rest. Its default user is disabled; the runtime user uses IAM authentication, so no static Redis password exists.
+- **Artifact lifecycle:** clients tag objects with `retention_class`. `build-log` and `failed-run-diagnostic` expire after 90 days; `preview-artifact` expires after 30 days. `release-artifact` intentionally has no expiration rule and therefore lasts for project lifetime. Versioning, KMS encryption, public-access blocking, TLS-only access, event notifications, incomplete-upload cleanup, and a dedicated access-log bucket are enabled.
+- **Messaging:** each workload environment has one custom EventBridge bus, an ordered canonical FIFO queue with FIFO DLQ, and a cost-event queue with its own DLQ. FOUND-7 is not present on the base commit, so `alter-{env}-cost-events` and source `alter.cost-ledger` are explicit reconciliation placeholders; update both only if FOUND-7 later establishes a different contract.
+- **Runtime configuration and secrets:** AppConfig application/environment/profile scaffolding is created without hosted policy documents. A dedicated rotating KMS key and unattached IAM policy templates enforce `/alter/{env}/{service}/system/{secret_name}` and `/alter/{env}/tenant/{tenant_id}/integration/{integration_id}/{secret_name}`. No generic secret values are provisioned. Each environment uses its own account-scoped key, so no dev or staging identity is named in the production policy.
+- **Compute and images:** dev, staging, production, and sandbox each receive a distinct ECS cluster using Fargate capacity providers and encrypted execute-command logs. The sandbox cluster is tagged as a separate blast radius. Shared-services owns exactly ten immutable, KMS-encrypted, scan-on-push ECR repositories; `platform-web` is excluded because it deploys to Vercel.
+
+Aurora engine versions, Serverless v2 capacity, backup retention, deletion protection, Redis version/node size, and Redis snapshot retention are environment inputs. Example values are planning placeholders and must be rechecked against `ap-south-1` availability and approved by Platform/FinOps before a real plan.
+
+The eventual real apply runner must include AWS CLI v2 because the database bootstrap calls RDS Data API after Aurora becomes available. It requires only the same short-lived AWS role used by Terraform and never resolves the managed master password locally.
+
+### Static-analysis decisions
+
+Checkov exceptions are inline and deliberately narrow. Artifact and access-log buckets do not replicate across regions because FOUND-4's SCP restricts workloads to `ap-south-1` and each environment already has an account-level isolation boundary. The access-log sink does not recursively log itself or emit application events. AWS requires an S3 server-access-log destination to use SSE-S3 rather than SSE-KMS, so only that audit sink uses SSE-S3; the artifact bucket remains customer-KMS encrypted. Database credential containers have no stored password version to rotate because services authenticate with short-lived RDS IAM tokens. These exceptions do not suppress encryption, public-access, TLS, backup, monitoring, or lifecycle checks on workload resources.
+
 ## Validation without AWS
 
 The scripts explicitly unset ambient AWS credential variables and disable EC2 metadata. `mock_provider=true` removes assume-role/account lookups and exists only for offline plans; real variable files must set it to `false`.
 
 ```bash
 ./scripts/validate.sh
+./scripts/test-database-separation.sh
 tflint --init
 tflint --recursive
 checkov --config-file .checkov.yml

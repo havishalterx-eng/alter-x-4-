@@ -12,6 +12,17 @@ configuration = {
     global_actions = ["ecs:RegisterTaskDefinition"]
     resource_arns = ["arn:aws:ecs:ap-south-1:000000000000:service/alter-staging/*", "arn:aws:ecs:ap-south-1:000000000000:task-definition/alter-staging-*", "arn:aws:iam::000000000000:role/alter-staging-*"]
   }
+  foundation = {
+    aurora_engine_version = "16.6"
+    aurora_parameter_group_family = "aurora-postgresql16"
+    aurora_min_capacity = 0.5
+    aurora_max_capacity = 8
+    backup_retention_days = 14
+    deletion_protection = true
+    redis_engine_version = "7.1"
+    redis_node_type = "cache.t4g.medium"
+    redis_snapshot_retention_days = 14
+  }
   network = {
     vpc_cidr = "10.30.0.0/16"
     availability_zones = ["ap-south-1a", "ap-south-1b"]

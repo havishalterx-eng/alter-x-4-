@@ -53,5 +53,13 @@ module "environment" {
   deployment_resource_arns  = var.configuration.ci.resource_arns
   network                   = var.configuration.network
 }
+
+module "ecr" {
+  source = "../../modules/ecr"
+
+  kms_key_arn = module.environment.kms_key_arn
+}
+
 output "kms_key_arn" { value = module.environment.kms_key_arn }
 output "vpc_id" { value = module.environment.vpc_id }
+output "ecr_repository_urls" { value = module.ecr.repository_urls }

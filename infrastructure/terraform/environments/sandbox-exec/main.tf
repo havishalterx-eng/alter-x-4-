@@ -53,6 +53,15 @@ module "environment" {
   deployment_resource_arns  = var.configuration.ci.resource_arns
   network                   = var.configuration.network
 }
+
+module "compute" {
+  source = "../../modules/compute"
+
+  environment             = "sandbox-exec"
+  environment_kms_key_arn = module.environment.kms_key_arn
+}
+
 output "kms_key_arn" { value = module.environment.kms_key_arn }
 output "ci_deployment_role_arn" { value = module.environment.ci_deployment_role_arn }
 output "vpc_id" { value = module.environment.vpc_id }
+output "ecs_cluster_arn" { value = module.compute.cluster_arn }

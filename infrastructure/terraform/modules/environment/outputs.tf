@@ -12,3 +12,8 @@ output "vpc_id" {
   description = "Environment VPC ID when networking is enabled."
   value       = var.network == null ? null : module.network[0].vpc_id
 }
+
+output "private_subnet_ids" {
+  description = "Private subnet IDs keyed by availability zone when networking is enabled."
+  value       = var.network == null ? {} : module.network[0].private_subnet_ids
+}
