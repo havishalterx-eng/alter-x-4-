@@ -107,6 +107,7 @@ export interface ErrorCapture {
   readonly message: string;
   readonly occurredAt: string;
   readonly traceId?: string;
+  readonly spanId?: string;
   readonly attributes?: Readonly<Record<string, string | number | boolean>>;
 }
 

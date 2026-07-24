@@ -90,8 +90,8 @@ export const observabilityProviderContract: ProviderContractSuite<ObservabilityP
         name: "accepts normalized traces",
         assert: (provider) =>
           provider.emitTrace({
-            traceId: "trace-contract",
-            spanId: "span-contract",
+            traceId: "0123456789abcdef0123456789abcdef",
+            spanId: "0123456789abcdef",
             name: "contract.trace",
             startedAt: "2026-07-22T00:00:00.000Z",
           }),
@@ -122,6 +122,8 @@ export const observabilityProviderContract: ProviderContractSuite<ObservabilityP
             name: "ContractError",
             message: "contract error",
             occurredAt: "2026-07-22T00:00:00.000Z",
+            traceId: "0123456789abcdef0123456789abcdef",
+            spanId: "0123456789abcdef",
           }),
       },
     ],

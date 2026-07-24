@@ -54,7 +54,18 @@ export function createMockObservabilityProvider(
         logs.push(Object.freeze({ ...entry }));
       },
       captureError: async (error) => {
-        errors.push(Object.freeze({ ...error }));
+        errors.push(
+          Object.freeze({
+            name: error.name,
+            message: error.message,
+            occurredAt: error.occurredAt,
+            ...(error.traceId === undefined ? {} : { traceId: error.traceId }),
+            ...(error.spanId === undefined ? {} : { spanId: error.spanId }),
+            ...(error.attributes === undefined
+              ? {}
+              : { attributes: Object.freeze({ ...error.attributes }) }),
+          }),
+        );
       },
       getEmissions: () =>
         Object.freeze({
