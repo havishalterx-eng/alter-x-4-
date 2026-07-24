@@ -13,14 +13,9 @@ The orchestration event table mirrors that contract for `signature_status` and p
 
 ## CEO Feature Mapping
 
-No CEO-approved `featureFlag` / feature ID for the INGR-1 `orchestration_db` scaffold is present in the repository feature map.
-
-Current status: **blocked_until_ceo_feature_mapping**.
-Decision owner: CEO session.
-Decision date: pending.
-Rollout semantics while pending: INGR-1 may remain on the branch for audit, but it must not merge to `main`, deploy to a shared environment, or enable production traffic until the CEO records either an approved feature ID / feature flag or explicit ungated foundation-schema approval.
-
-Merge remains blocked until one of these happens:
-
-- CEO maps this provider/schema scaffold to an approved feature ID.
-- CEO records INGR-1 as an ungated foundation schema with an explicit decision note.
+CEO decision: INGR-1 approved as ungated foundation schema.
+Feature ID/flag: none required.
+Reason: schema/contracts/migrations foundation only; no user-facing rollout behavior.
+Owner: CEO
+Decision date: 2026-07-25
+Rollout: merge allowed after CI/audit green; no runtime feature gate required.
