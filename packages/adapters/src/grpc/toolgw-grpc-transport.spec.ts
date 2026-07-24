@@ -31,6 +31,7 @@ import {
   startToolgwGrpcTransport,
   type ToolgwHandler,
 } from "./toolgw-grpc-transport";
+import { SsrfBlockedError } from "../http/ssrf-guard";
 
 interface ToolgwGrpcClient extends Client {
   invokeTool(
@@ -102,10 +103,15 @@ const handler: ToolgwHandler = {
       expires_at: "2026-07-24T00:05:00.000Z",
     };
   }),
-  fetchUrl: vi.fn(async () => ({
-    status_code: 200,
-    content_artifact_id: "art_018f47a2-7b11-7b11-8a11-1234567890ab",
-  })),
+  fetchUrl: vi.fn(async (request: ToolgwFetchUrlRequest) => {
+    if (request.url === "https://blocked.internal/") {
+      throw new SsrfBlockedError("URL host is a blocked private/internal address");
+    }
+    return {
+      status_code: 200,
+      content_artifact_id: "art_018f47a2-7b11-7b11-8a11-1234567890ab",
+    };
+  }),
 };
 
 function invokeRequest(
@@ -287,9 +293,17 @@ describe("toolgw gRPC transport adapter", () => {
     });
   });
 
-  it("reports FetchUrl as not yet implemented", async () => {
-    await expect(fetchUrl(client, fetchRequest())).rejects.toMatchObject({
-      code: 12,
+  it("forwards FetchUrl to the handler and returns its response", async () => {
+    const response = await fetchUrl(client, fetchRequest());
+    expect(response).toEqual({
+      status_code: 200,
+      content_artifact_id: "art_018f47a2-7b11-7b11-8a11-1234567890ab",
     });
+  });
+
+  it("maps a handler-rejected SSRF-blocked URL to PERMISSION_DENIED", async () => {
+    await expect(
+      fetchUrl(client, fetchRequest({ url: "https://blocked.internal/" })),
+    ).rejects.toMatchObject({ code: 7 });
   });
 });

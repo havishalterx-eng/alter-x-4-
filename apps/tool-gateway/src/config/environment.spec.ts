@@ -38,6 +38,9 @@ describe("loadToolGatewayEnvironment", () => {
           APPCONFIG_APPLICATION_ID: "app-1",
           APPCONFIG_ENVIRONMENT_ID: "env-1",
           APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+          TAVILY_API_KEY_SECRET_REF:
+            "/alter/prod/tool-gateway/system/tavily-api-key",
+          AUDIT_SERVICE_GRPC_ADDRESS: "audit-service:50051",
         }),
       ),
     ).toMatchObject({
@@ -45,6 +48,8 @@ describe("loadToolGatewayEnvironment", () => {
       appConfigApplicationId: "app-1",
       appConfigEnvironmentId: "env-1",
       appConfigConfigurationProfileId: "profile-1",
+      tavilyApiKeySecretRef: "/alter/prod/tool-gateway/system/tavily-api-key",
+      auditServiceGrpcAddress: "audit-service:50051",
     });
   });
 
@@ -95,6 +100,34 @@ describe("loadToolGatewayEnvironment", () => {
         APPCONFIG_APPLICATION_ID: "",
         APPCONFIG_ENVIRONMENT_ID: "env-1",
         APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+        TAVILY_API_KEY_SECRET_REF:
+          "/alter/prod/tool-gateway/system/tavily-api-key",
+        AUDIT_SERVICE_GRPC_ADDRESS: "audit-service:50051",
+      },
+    ],
+    [
+      "TAVILY_API_KEY_SECRET_REF",
+      {
+        ALTER_ENV: "dev",
+        ALTER_CONFIG_SOURCE: "appconfig",
+        APPCONFIG_APPLICATION_ID: "app-1",
+        APPCONFIG_ENVIRONMENT_ID: "env-1",
+        APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+        TAVILY_API_KEY_SECRET_REF: "",
+        AUDIT_SERVICE_GRPC_ADDRESS: "audit-service:50051",
+      },
+    ],
+    [
+      "AUDIT_SERVICE_GRPC_ADDRESS",
+      {
+        ALTER_ENV: "dev",
+        ALTER_CONFIG_SOURCE: "appconfig",
+        APPCONFIG_APPLICATION_ID: "app-1",
+        APPCONFIG_ENVIRONMENT_ID: "env-1",
+        APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+        TAVILY_API_KEY_SECRET_REF:
+          "/alter/prod/tool-gateway/system/tavily-api-key",
+        AUDIT_SERVICE_GRPC_ADDRESS: "",
       },
     ],
   ])("rejects invalid %s", (field, override) => {

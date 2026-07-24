@@ -1,16 +1,28 @@
 import {
+  createMockAuditEventHandler,
   createMockConfigProvider,
+  createMockSearchProvider,
   createMockSecretsProvider,
+  type AuditEventHandler,
+  type ConfigProvider,
+  type SearchProvider,
+  type SecretsProvider,
 } from "@alterx/shared-clients";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  SsrfGuardedFetcher,
   ToolGatewayNotImplementedError,
   ToolGatewayPermissionError,
   ToolGatewayRateLimitError,
   ToolGatewayValidationError,
+  type DnsResolver,
+  type FetchFn,
 } from "@alterx/adapters";
-import { ToolGatewayService } from "./tool-gateway.service";
+import {
+  ToolGatewayService,
+  type ToolGatewayServiceOptions,
+} from "./tool-gateway.service";
 
 const RAW_SECRET_VALUE = "raw-tool-api-key-value";
 const TENANT_A = "ten_018f47a2-7b11-7b11-8a11-1234567890ab";
@@ -28,7 +40,7 @@ function invokeRequest(
     tenant_id: TENANT_A,
     run_id: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
     node_execution_id: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
-    tool_name: "search.web",
+    tool_name: "other.tool",
     input_json: JSON.stringify({ query: "hello" }),
     credential_ref: SECRET_REF,
     ...overrides,
@@ -52,13 +64,46 @@ function secretProvider() {
   });
 }
 
+function noopDnsResolver(): DnsResolver {
+  return async () => [{ address: "93.184.216.34", family: 4 }];
+}
+
+function noopFetchFn(): FetchFn {
+  return async () => ({
+    status: 200,
+    headers: { get: () => null },
+    body: undefined,
+    arrayBuffer: async () => new ArrayBuffer(0),
+  });
+}
+
+interface ServiceOverrides {
+  readonly configProvider?: ConfigProvider;
+  readonly secretsProvider?: SecretsProvider;
+  readonly searchProvider?: SearchProvider;
+  readonly urlFetcher?: SsrfGuardedFetcher;
+  readonly auditClient?: AuditEventHandler;
+  readonly options?: ToolGatewayServiceOptions;
+}
+
+function buildService(overrides: ServiceOverrides = {}): ToolGatewayService {
+  return new ToolGatewayService(
+    overrides.configProvider ?? createMockConfigProvider(),
+    overrides.secretsProvider ?? secretProvider(),
+    overrides.searchProvider ?? createMockSearchProvider(),
+    overrides.urlFetcher ??
+      new SsrfGuardedFetcher({}, noopDnsResolver(), noopFetchFn()),
+    overrides.auditClient ?? createMockAuditEventHandler(),
+    overrides.options ?? {},
+  );
+}
+
 describe("ToolGatewayService", () => {
   it("rejects invalid JSON before permission or credential work", async () => {
     const resolveToolPermission = vi.fn();
-    const service = new ToolGatewayService(
-      createMockConfigProvider({ resolveToolPermission }),
-      secretProvider(),
-    );
+    const service = buildService({
+      configProvider: createMockConfigProvider({ resolveToolPermission }),
+    });
 
     await expect(
       service.invokeTool(invokeRequest({ input_json: "{bad" })),
@@ -67,10 +112,7 @@ describe("ToolGatewayService", () => {
   });
 
   it("rejects missing required request fields", async () => {
-    const service = new ToolGatewayService(
-      createMockConfigProvider(),
-      secretProvider(),
-    );
+    const service = buildService();
 
     await expect(
       service.invokeTool(invokeRequest({ tool_name: "" })),
@@ -80,34 +122,37 @@ describe("ToolGatewayService", () => {
     ).rejects.toThrow(/integration_id/);
   });
 
-  it("enforces permission-denied bindings", async () => {
-    const service = new ToolGatewayService(
-      createMockConfigProvider({
+  it("enforces permission-denied bindings and audits the denial", async () => {
+    const auditClient = createMockAuditEventHandler();
+    const service = buildService({
+      configProvider: createMockConfigProvider({
         toolPermission: {
           allowed: false,
           rateLimitPerMinute: 60,
           requiredScopes: ["tools:search"],
         },
       }),
-      secretProvider(),
-    );
+      auditClient,
+    });
 
     await expect(service.invokeTool(invokeRequest())).rejects.toBeInstanceOf(
       ToolGatewayPermissionError,
     );
+    expect(
+      (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
+    ).toContainEqual(expect.objectContaining({ result: "denied" }));
   });
 
   it("enforces per-tenant per-tool rate limits", async () => {
-    const service = new ToolGatewayService(
-      createMockConfigProvider({
+    const service = buildService({
+      configProvider: createMockConfigProvider({
         toolPermission: {
           allowed: true,
           rateLimitPerMinute: 1,
           requiredScopes: [],
         },
       }),
-      secretProvider(),
-    );
+    });
 
     await expect(service.invokeTool(invokeRequest())).rejects.toBeInstanceOf(
       ToolGatewayNotImplementedError,
@@ -118,31 +163,115 @@ describe("ToolGatewayService", () => {
   });
 
   it("rejects malformed permission rate limits", async () => {
-    const service = new ToolGatewayService(
-      createMockConfigProvider({
+    const service = buildService({
+      configProvider: createMockConfigProvider({
         toolPermission: {
           allowed: true,
           rateLimitPerMinute: 0,
           requiredScopes: [],
         },
       }),
-      secretProvider(),
-    );
+    });
 
     await expect(service.invokeTool(invokeRequest())).rejects.toThrow(
       /rateLimitPerMinute/,
     );
   });
 
+  it("dispatches search.web to the real SearchProvider and returns its result", async () => {
+    const search = vi.fn(async () => ({
+      results: [
+        { title: "t", url: "https://example.com", snippet: "s", score: 0.5 },
+      ],
+    }));
+    const auditClient = createMockAuditEventHandler();
+    const service = buildService({
+      searchProvider: { ...createMockSearchProvider(), search },
+      auditClient,
+    });
+
+    const response = await service.invokeTool(
+      invokeRequest({
+        tool_name: "search.web",
+        input_json: JSON.stringify({ query: "hello world", maxResults: 3 }),
+      }),
+    );
+
+    expect(search).toHaveBeenCalledWith({
+      tenantId: TENANT_A,
+      query: "hello world",
+      maxResults: 3,
+    });
+    expect(JSON.parse(response.output_json)).toEqual({
+      results: [
+        { title: "t", url: "https://example.com", snippet: "s", score: 0.5 },
+      ],
+    });
+    expect(
+      (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
+    ).toContainEqual(
+      expect.objectContaining({ target_ref: "search.web", result: "success" }),
+    );
+  });
+
+  it("rejects search.web input missing a query", async () => {
+    const service = buildService();
+
+    await expect(
+      service.invokeTool(
+        invokeRequest({ tool_name: "search.web", input_json: "{}" }),
+      ),
+    ).rejects.toThrow(/non-empty query/);
+  });
+
+  it.each([0, -1, -100])(
+    "rejects search.web input with a non-positive maxResults (%i)",
+    async (maxResults) => {
+      const service = buildService();
+
+      await expect(
+        service.invokeTool(
+          invokeRequest({
+            tool_name: "search.web",
+            input_json: JSON.stringify({ query: "x", maxResults }),
+          }),
+        ),
+      ).rejects.toThrow(/positive integer/);
+    },
+  );
+
+  it("audits an error result when the underlying search call throws", async () => {
+    const auditClient = createMockAuditEventHandler();
+    const service = buildService({
+      searchProvider: {
+        ...createMockSearchProvider(),
+        search: async () => {
+          throw new Error("upstream failure");
+        },
+      },
+      auditClient,
+    });
+
+    await expect(
+      service.invokeTool(
+        invokeRequest({
+          tool_name: "search.web",
+          input_json: JSON.stringify({ query: "x" }),
+        }),
+      ),
+    ).rejects.toThrow("upstream failure");
+    expect(
+      (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
+    ).toContainEqual(expect.objectContaining({ result: "error" }));
+  });
+
   it("accepts a canonical tenant integration secret path and mints an opaque token", async () => {
-    const service = new ToolGatewayService(
-      createMockConfigProvider(),
-      secretProvider(),
-      {
+    const service = buildService({
+      options: {
         now: () => new Date("2026-07-24T00:00:00.000Z"),
         mintCredentialToken: () => "cred_test-token",
       },
-    );
+    });
 
     const response = await service.resolveCredential(resolveRequest());
     const serialized = JSON.stringify(response);
@@ -158,19 +287,13 @@ describe("ToolGatewayService", () => {
 
   it("rejects canonical credential resolution when tenant segment is wrong", async () => {
     const getSecret = vi.fn(secretProvider().getSecret);
-    const service = new ToolGatewayService(
-      createMockConfigProvider(),
-      {
-        ...secretProvider(),
-        getSecret,
-      },
-    );
+    const service = buildService({
+      secretsProvider: { ...secretProvider(), getSecret },
+    });
 
     await expect(
       service.resolveCredential(
-        resolveRequest({
-          credential_ref: WRONG_TENANT_SECRET_REF,
-        }),
+        resolveRequest({ credential_ref: WRONG_TENANT_SECRET_REF }),
       ),
     ).rejects.toThrow(/not owned/);
     expect(getSecret).not.toHaveBeenCalled();
@@ -178,19 +301,13 @@ describe("ToolGatewayService", () => {
 
   it("rejects canonical credential resolution when integration segment is wrong", async () => {
     const getSecret = vi.fn(secretProvider().getSecret);
-    const service = new ToolGatewayService(
-      createMockConfigProvider(),
-      {
-        ...secretProvider(),
-        getSecret,
-      },
-    );
+    const service = buildService({
+      secretsProvider: { ...secretProvider(), getSecret },
+    });
 
     await expect(
       service.resolveCredential(
-        resolveRequest({
-          credential_ref: WRONG_INTEGRATION_SECRET_REF,
-        }),
+        resolveRequest({ credential_ref: WRONG_INTEGRATION_SECRET_REF }),
       ),
     ).rejects.toThrow(/not owned/);
     expect(getSecret).not.toHaveBeenCalled();
@@ -198,13 +315,9 @@ describe("ToolGatewayService", () => {
 
   it("rejects system-shaped secret references for tenant tool credentials", async () => {
     const getSecret = vi.fn(secretProvider().getSecret);
-    const service = new ToolGatewayService(
-      createMockConfigProvider(),
-      {
-        ...secretProvider(),
-        getSecret,
-      },
-    );
+    const service = buildService({
+      secretsProvider: { ...secretProvider(), getSecret },
+    });
 
     await expect(
       service.resolveCredential(
@@ -218,15 +331,13 @@ describe("ToolGatewayService", () => {
 
   it("rejects expired opaque credential tokens", async () => {
     let nowMs = Date.parse("2026-07-24T00:00:00.000Z");
-    const service = new ToolGatewayService(
-      createMockConfigProvider(),
-      secretProvider(),
-      {
+    const service = buildService({
+      options: {
         credentialTokenTtlMs: 1_000,
         now: () => new Date(nowMs),
         mintCredentialToken: () => "cred_expiring-token",
       },
-    );
+    });
     const resolved = await service.resolveCredential(resolveRequest());
     nowMs += 1_001;
 
@@ -238,11 +349,9 @@ describe("ToolGatewayService", () => {
   });
 
   it("rejects cross-tenant opaque credential token consumption", async () => {
-    const service = new ToolGatewayService(
-      createMockConfigProvider(),
-      secretProvider(),
-      { mintCredentialToken: () => "cred_tenant-a-token" },
-    );
+    const service = buildService({
+      options: { mintCredentialToken: () => "cred_tenant-a-token" },
+    });
     const resolved = await service.resolveCredential(resolveRequest());
 
     await expect(
@@ -257,14 +366,10 @@ describe("ToolGatewayService", () => {
 
   it("accepts non-expired opaque credential tokens without resolving SecretsProvider again", async () => {
     const getSecret = vi.fn(secretProvider().getSecret);
-    const service = new ToolGatewayService(
-      createMockConfigProvider(),
-      {
-        ...secretProvider(),
-        getSecret,
-      },
-      { mintCredentialToken: () => "cred_active-token" },
-    );
+    const service = buildService({
+      secretsProvider: { ...secretProvider(), getSecret },
+      options: { mintCredentialToken: () => "cred_active-token" },
+    });
     const resolved = await service.resolveCredential(resolveRequest());
     getSecret.mockClear();
 
@@ -280,19 +385,15 @@ describe("ToolGatewayService", () => {
     let nowMs = Date.parse("2026-07-24T00:00:00.000Z");
     let tokenIndex = 0;
     const getSecret = vi.fn(secretProvider().getSecret);
-    const service = new ToolGatewayService(
-      createMockConfigProvider(),
-      {
-        ...secretProvider(),
-        getSecret,
-      },
-      {
+    const service = buildService({
+      secretsProvider: { ...secretProvider(), getSecret },
+      options: {
         credentialTokenTtlMs: 1_000,
         maxCredentialTokens: 1,
         now: () => new Date(nowMs),
         mintCredentialToken: () => `cred_sweep-${(tokenIndex += 1)}`,
       },
-    );
+    });
     const expired = await service.resolveCredential(resolveRequest());
     nowMs += 1_001;
     await service.resolveCredential(resolveRequest());
@@ -307,11 +408,9 @@ describe("ToolGatewayService", () => {
   });
 
   it("fails loudly if opaque token minting cannot produce a unique value", async () => {
-    const service = new ToolGatewayService(
-      createMockConfigProvider(),
-      secretProvider(),
-      { mintCredentialToken: () => "cred_duplicate" },
-    );
+    const service = buildService({
+      options: { mintCredentialToken: () => "cred_duplicate" },
+    });
 
     await service.resolveCredential(resolveRequest());
     await expect(service.resolveCredential(resolveRequest())).rejects.toThrow(
@@ -319,15 +418,11 @@ describe("ToolGatewayService", () => {
     );
   });
 
-  it("accepts raw canonical SecretsProvider references through invokeTool but never dispatches before GATE-8", async () => {
+  it("accepts raw canonical SecretsProvider references through invokeTool but never dispatches an unimplemented tool", async () => {
     const getSecret = vi.fn(secretProvider().getSecret);
-    const service = new ToolGatewayService(
-      createMockConfigProvider(),
-      {
-        ...secretProvider(),
-        getSecret,
-      },
-    );
+    const service = buildService({
+      secretsProvider: { ...secretProvider(), getSecret },
+    });
 
     await expect(service.invokeTool(invokeRequest())).rejects.toSatisfy(
       (error: unknown) => {
@@ -341,20 +436,73 @@ describe("ToolGatewayService", () => {
     expect(getSecret).toHaveBeenCalledWith(SECRET_REF);
   });
 
-  it("keeps fetchUrl unimplemented until GATE-8", async () => {
-    const service = new ToolGatewayService(
-      createMockConfigProvider(),
-      secretProvider(),
+  it("fetches a public URL through the SSRF-guarded fetcher and stores an artifact", async () => {
+    const auditClient = createMockAuditEventHandler();
+    const urlFetcher = new SsrfGuardedFetcher(
+      {},
+      noopDnsResolver(),
+      async () => ({
+        status: 200,
+        headers: { get: () => null },
+        body: undefined,
+        arrayBuffer: async () => new TextEncoder().encode("hello").buffer as ArrayBuffer,
+      }),
     );
+    const service = buildService({ urlFetcher, auditClient });
+
+    const response = await service.fetchUrl({
+      tenant_id: TENANT_A,
+      run_id: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
+      node_execution_id: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
+      url: "https://example.com",
+      network_policy_json: "{}",
+    });
+
+    expect(response.status_code).toBe(200);
+    expect(response.content_artifact_id).toMatch(/^art_/);
+    expect(
+      (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
+    ).toContainEqual(
+      expect.objectContaining({ action: "url.fetch", result: "success" }),
+    );
+  });
+
+  it("rejects and audits an SSRF-blocked fetchUrl target as denied", async () => {
+    const auditClient = createMockAuditEventHandler();
+    const urlFetcher = new SsrfGuardedFetcher(
+      {},
+      async () => [{ address: "10.0.0.5", family: 4 }],
+      noopFetchFn(),
+    );
+    const service = buildService({ urlFetcher, auditClient });
 
     await expect(
       service.fetchUrl({
-        tenant_id: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+        tenant_id: TENANT_A,
         run_id: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
         node_execution_id: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
-        url: "https://example.com",
+        url: "https://internal.example.com",
         network_policy_json: "{}",
       }),
-    ).rejects.toBeInstanceOf(ToolGatewayNotImplementedError);
+    ).rejects.toThrow(/blocked private\/internal IP/);
+    expect(
+      (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
+    ).toContainEqual(
+      expect.objectContaining({ action: "url.fetch", result: "denied" }),
+    );
+  });
+
+  it("rejects an invalid fetchUrl URL before touching the fetcher", async () => {
+    const service = buildService();
+
+    await expect(
+      service.fetchUrl({
+        tenant_id: TENANT_A,
+        run_id: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
+        node_execution_id: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
+        url: "not-a-url",
+        network_policy_json: "{}",
+      }),
+    ).rejects.toBeInstanceOf(ToolGatewayValidationError);
   });
 });

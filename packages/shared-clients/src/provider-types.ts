@@ -232,7 +232,26 @@ export interface PIIRedactionProvider
   extends BaseProvider<"PIIRedactionProvider"> {
   redact(request: PIIRedactionRequest): Promise<PIIRedactionResult>;
 }
-export interface SearchProvider extends BaseProvider<"SearchProvider"> {}
+export interface SearchRequest {
+  readonly tenantId: string;
+  readonly query: string;
+  readonly maxResults?: number;
+}
+
+export interface SearchResultItem {
+  readonly title: string;
+  readonly url: string;
+  readonly snippet: string;
+  readonly score: number;
+}
+
+export interface SearchResult {
+  readonly results: readonly SearchResultItem[];
+}
+
+export interface SearchProvider extends BaseProvider<"SearchProvider"> {
+  search(request: SearchRequest): Promise<SearchResult>;
+}
 export interface BrowserProvider extends BaseProvider<"BrowserProvider"> {}
 export interface DeploymentProvider
   extends BaseProvider<"DeploymentProvider"> {}

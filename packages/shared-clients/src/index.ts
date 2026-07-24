@@ -49,6 +49,7 @@ export {
   modelProviderContract,
   observabilityProviderContract,
   piiRedactionProviderContract,
+  searchProviderContract,
   secretsProviderContract,
 } from "./provider-contracts";
 export {
@@ -94,6 +95,9 @@ export {
   type RepositoryProvider,
   type SandboxProvider,
   type SearchProvider,
+  type SearchRequest,
+  type SearchResult,
+  type SearchResultItem,
   type SecretReferenceId,
   type SecretsProvider,
   type StartWorkflowRequest,
@@ -153,6 +157,17 @@ export {
   type MockPIIRedactionProvider,
   type MockPIIRedactionProviderOptions,
 } from "./mocks/pii-redaction-provider";
+export {
+  MOCK_SEARCH_CAPABILITIES,
+  createMockSearchProvider,
+  type MockSearchProvider,
+  type MockSearchProviderOptions,
+} from "./mocks/search-provider";
+export {
+  createMockAuditEventHandler,
+  type MockAuditEventHandler,
+  type MockAuditEventHandlerOptions,
+} from "./mocks/audit-event-handler";
 export {
   MOCK_DURABLE_EXECUTION_CAPABILITIES,
   DurableWorkflowAlreadyExistsError,

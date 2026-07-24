@@ -1,7 +1,16 @@
 import { Module, type DynamicModule } from "@nestjs/common";
 
-import { TOOLGW_HANDLER, ToolgwGrpcController } from "@alterx/adapters";
-import type { ConfigProvider, SecretsProvider } from "@alterx/shared-clients";
+import {
+  SsrfGuardedFetcher,
+  TOOLGW_HANDLER,
+  ToolgwGrpcController,
+} from "@alterx/adapters";
+import type {
+  AuditEventHandler,
+  ConfigProvider,
+  SearchProvider,
+  SecretsProvider,
+} from "@alterx/shared-clients";
 
 import { ToolGatewayService } from "./gateway/tool-gateway.service";
 import { HealthController } from "./health/health.controller";
@@ -11,6 +20,9 @@ export class AppModule {
   static register(
     configProvider: ConfigProvider,
     secretsProvider: SecretsProvider,
+    searchProvider: SearchProvider,
+    urlFetcher: SsrfGuardedFetcher,
+    auditClient: AuditEventHandler,
   ): DynamicModule {
     return {
       module: AppModule,
@@ -18,7 +30,13 @@ export class AppModule {
       providers: [
         {
           provide: TOOLGW_HANDLER,
-          useValue: new ToolGatewayService(configProvider, secretsProvider),
+          useValue: new ToolGatewayService(
+            configProvider,
+            secretsProvider,
+            searchProvider,
+            urlFetcher,
+            auditClient,
+          ),
         },
       ],
     };

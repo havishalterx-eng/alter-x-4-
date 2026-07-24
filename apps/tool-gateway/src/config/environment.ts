@@ -14,6 +14,8 @@ export interface ToolGatewayAppConfigEnvironment
   readonly appConfigApplicationId: string;
   readonly appConfigEnvironmentId: string;
   readonly appConfigConfigurationProfileId: string;
+  readonly tavilyApiKeySecretRef: string;
+  readonly auditServiceGrpcAddress: string;
 }
 
 export interface ToolGatewayMockEnvironment
@@ -156,6 +158,11 @@ export function loadToolGatewayEnvironment(
     appConfigConfigurationProfileId: requireValue(
       environment,
       "APPCONFIG_CONFIGURATION_PROFILE_ID",
+    ),
+    tavilyApiKeySecretRef: requireValue(environment, "TAVILY_API_KEY_SECRET_REF"),
+    auditServiceGrpcAddress: requireValue(
+      environment,
+      "AUDIT_SERVICE_GRPC_ADDRESS",
     ),
   };
 }

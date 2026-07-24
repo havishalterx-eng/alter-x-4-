@@ -16,6 +16,8 @@ import type {
   ToolgwResolveCredentialResponse,
 } from "@alterx/contracts";
 
+import { SsrfBlockedError } from "../http/ssrf-guard";
+
 export const TOOLGW_HANDLER = Symbol("TOOLGW_HANDLER");
 
 export class ToolGatewayValidationError extends Error {
@@ -97,11 +99,14 @@ export class ToolgwGrpcController {
   }
 
   @GrpcMethod("ToolgwService", "FetchUrl")
-  fetchUrl(): ToolgwFetchUrlResponse {
-    throw new RpcException({
-      code: status.UNIMPLEMENTED,
-      message: "SSRF-guarded URL fetch ships in GATE-8",
-    });
+  async fetchUrl(
+    request: ToolgwFetchUrlRequest,
+  ): Promise<ToolgwFetchUrlResponse> {
+    try {
+      return await this.handler.fetchUrl(request);
+    } catch (error: unknown) {
+      throw mapToolGatewayError(error, "URL fetch could not be completed");
+    }
   }
 }
 
@@ -143,6 +148,12 @@ function mapToolGatewayError(error: unknown, fallbackMessage: string): RpcExcept
   if (error instanceof ToolGatewayNotImplementedError) {
     return new RpcException({
       code: status.UNIMPLEMENTED,
+      message: error.message,
+    });
+  }
+  if (error instanceof SsrfBlockedError) {
+    return new RpcException({
+      code: status.PERMISSION_DENIED,
       message: error.message,
     });
   }

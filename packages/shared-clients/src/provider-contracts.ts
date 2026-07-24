@@ -7,6 +7,7 @@ import type {
   ModelProvider,
   ObservabilityProvider,
   PIIRedactionProvider,
+  SearchProvider,
   SecretsProvider,
 } from "./provider-types";
 
@@ -493,3 +494,50 @@ export const piiRedactionProviderContract: ProviderContractSuite<PIIRedactionPro
       },
     ],
   };
+
+export const searchProviderContract: ProviderContractSuite<SearchProvider> = {
+  name: "SearchProvider",
+  cases: [
+    {
+      name: "publishes valid base-provider metadata and capabilities",
+      assert: async (provider) => {
+        ensure(
+          provider.metadata.interfaceName === "SearchProvider",
+          "Search adapter must identify its canonical interface",
+        );
+        ProviderCapabilitiesSchema.parse(provider.capabilities);
+        const health = await provider.healthCheck();
+        ensure(
+          health.status === "healthy",
+          "Contract fixture must be healthy",
+        );
+        return {
+          capabilities: provider.capabilities,
+          health,
+          interfaceName: provider.metadata.interfaceName,
+        };
+      },
+    },
+    {
+      name: "returns at least one result for a real query",
+      assert: async (provider) => {
+        const result = await provider.search({
+          tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+          query: "alterx contract test query",
+        });
+        ensure(
+          result.results.length > 0,
+          "Search must return at least one result for the contract fixture",
+        );
+        for (const item of result.results) {
+          ensure(item.url.length > 0, "Every result must carry a URL");
+          ensure(
+            item.score >= 0 && item.score <= 1,
+            "Score must be normalized between 0 and 1",
+          );
+        }
+        return { resultCount: result.results.length };
+      },
+    },
+  ],
+};

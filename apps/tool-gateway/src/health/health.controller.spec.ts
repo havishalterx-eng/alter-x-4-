@@ -1,9 +1,12 @@
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import {
+  createMockAuditEventHandler,
   createMockConfigProvider,
+  createMockSearchProvider,
   createMockSecretsProvider,
 } from "@alterx/shared-clients";
+import { SsrfGuardedFetcher } from "@alterx/adapters";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 
@@ -16,6 +19,18 @@ describe("GET /health", () => {
         AppModule.register(
           createMockConfigProvider(),
           createMockSecretsProvider(),
+          createMockSearchProvider(),
+          new SsrfGuardedFetcher(
+            {},
+            async () => [{ address: "93.184.216.34", family: 4 }],
+            async () => ({
+              status: 200,
+              headers: { get: () => null },
+              body: undefined,
+              arrayBuffer: async () => new ArrayBuffer(0),
+            }),
+          ),
+          createMockAuditEventHandler(),
         ),
       ],
     }).compile();

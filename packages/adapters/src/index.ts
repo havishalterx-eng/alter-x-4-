@@ -83,3 +83,30 @@ export {
   type PresidioHttpClient,
   type PresidioPIIRedactionProviderConfig,
 } from "./presidio/presidio-pii-redaction-provider";
+export {
+  TAVILY_SEARCH_CAPABILITIES,
+  TavilySearchProvider,
+  createFetchTavilyHttpClient,
+  type TavilyHttpClient,
+  type TavilySearchProviderConfig,
+} from "./tavily/tavily-search-provider";
+export {
+  SsrfBlockedError,
+  assertHostnameNotLiteralBlockedIp,
+  assertResolvedAddressesNotBlocked,
+  assertUrlSchemeAllowed,
+  isBlockedIpLiteral,
+  type SsrfGuardPolicy,
+} from "./http/ssrf-guard";
+export {
+  SsrfGuardedFetcher,
+  type DnsResolver,
+  type FetchFn,
+  type ResolvedAddress,
+  type SsrfGuardedFetchResult,
+  type SsrfGuardedFetcherConfig,
+} from "./http/ssrf-guarded-fetcher";
+export {
+  AuditServiceClient,
+  type AuditServiceClientConfig,
+} from "./grpc/audit-client";
