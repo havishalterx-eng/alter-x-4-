@@ -22,6 +22,7 @@ CREATE TABLE "events" (
   CONSTRAINT "events_trigger_tenant_fk" FOREIGN KEY ("tenant_id", "trigger_id") REFERENCES "triggers"("tenant_id", "id"),
   CONSTRAINT "events_trigger_version_tenant_fk" FOREIGN KEY ("tenant_id", "trigger_id", "trigger_version") REFERENCES "trigger_versions"("tenant_id", "trigger_id", "version"),
   CONSTRAINT "events_payload_or_reference_check" CHECK ("payload" IS NOT NULL OR "payload_reference" IS NOT NULL),
+  CONSTRAINT "events_trigger_pair_check" CHECK (("trigger_id" IS NULL AND "trigger_version" IS NULL) OR ("trigger_id" IS NOT NULL AND "trigger_version" IS NOT NULL)),
   CONSTRAINT "events_signature_status_check" CHECK ("signature_status" IN ('verified', 'unverified', 'failed'))
 );
 --> statement-breakpoint

@@ -140,6 +140,6 @@ describe("OpenAPI generation", () => {
     const generated = `${JSON.stringify(createOpenApiDocument(), null, 2)}\n`;
     const committed = await readFile(artifactPath, "utf8");
 
-    expect(committed).toBe(generated);
+    expect(committed.replace(/\r\n/g, "\n")).toBe(generated);
   });
 });

@@ -47,6 +47,15 @@ export const CanonicalEventSchema = z
       message: "At least one of payload or payload_reference is required",
       path: ["payload"],
     },
+  )
+  .refine(
+    ({ trigger_id, trigger_version }) =>
+      (trigger_id === undefined && trigger_version === undefined) ||
+      (trigger_id !== undefined && trigger_version !== undefined),
+    {
+      message: "trigger_id and trigger_version must be provided together",
+      path: ["trigger_id"],
+    },
   );
 
 export type CanonicalEvent = z.infer<typeof CanonicalEventSchema>;

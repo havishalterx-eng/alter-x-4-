@@ -440,6 +440,71 @@ describe.sequential("PostgresOrchestrationStoreProvider integration", () => {
     ).resolves.toMatchObject({ rowCount: 1 });
   });
 
+  it("enforces trigger_id and trigger_version pairing for events", async () => {
+    await expect(
+      adminPool.query(
+        `INSERT INTO events (
+           event_id, event_type, schema_version, tenant_id, workspace_id,
+           source, correlation_id, idempotency_key, occurred_at, payload,
+           signature_status
+         ) VALUES (
+           'evt_untriggered_valid', 'message.received', '1.0.0',
+           $1, $2, 'whatsapp', 'corr_untriggered_valid',
+           'event-untriggered-valid', now(), '{}'::jsonb, 'unverified'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO events (
+           event_id, event_type, schema_version, tenant_id, workspace_id,
+           source, correlation_id, idempotency_key, occurred_at,
+           trigger_id, trigger_version, payload, signature_status
+         ) VALUES (
+           'evt_triggered_valid', 'order.created', '1.0.0',
+           $1, $2, 'shopify', 'corr_triggered_valid',
+           'event-triggered-valid', now(), 'trg_a', 1,
+           '{}'::jsonb, 'verified'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO events (
+           event_id, event_type, schema_version, tenant_id, workspace_id,
+           source, correlation_id, idempotency_key, occurred_at,
+           trigger_id, payload, signature_status
+         ) VALUES (
+           'evt_trigger_without_version', 'order.created', '1.0.0',
+           $1, $2, 'shopify', 'corr_trigger_without_version',
+           'event-trigger-without-version', now(), 'trg_a',
+           '{}'::jsonb, 'verified'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO events (
+           event_id, event_type, schema_version, tenant_id, workspace_id,
+           source, correlation_id, idempotency_key, occurred_at,
+           trigger_version, payload, signature_status
+         ) VALUES (
+           'evt_version_without_trigger', 'order.created', '1.0.0',
+           $1, $2, 'shopify', 'corr_version_without_trigger',
+           'event-version-without-trigger', now(), 1,
+           '{}'::jsonb, 'verified'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+  });
+
   it("keeps signature_status and payload parity with the public contract", async () => {
     for (const signatureStatus of SignatureStatusSchema.options) {
       await expect(

@@ -9,12 +9,16 @@ The orchestration event table mirrors that contract for `signature_status` and p
 - `signature_status`: `verified | unverified | failed`
 - `payload` may be `NULL` only when `payload_reference` is present
 - `payload_reference` may be `NULL` only when `payload` is present
+- `trigger_id` and `trigger_version` must both be present or both be absent; partial trigger linkage is rejected before PostgreSQL composite FK `MATCH SIMPLE` can skip provenance validation.
 
 ## CEO Feature Mapping
 
 No CEO-approved `featureFlag` / feature ID for the INGR-1 `orchestration_db` scaffold is present in the repository feature map.
 
 Current status: **blocked_until_ceo_feature_mapping**.
+Decision owner: CEO session.
+Decision date: pending.
+Rollout semantics while pending: INGR-1 may remain on the branch for audit, but it must not merge to `main`, deploy to a shared environment, or enable production traffic until the CEO records either an approved feature ID / feature flag or explicit ungated foundation-schema approval.
 
 Merge remains blocked until one of these happens:
 

@@ -50,6 +50,10 @@ export const events = pgTable(
       "events_payload_or_reference_check",
       sql`${table.payload} IS NOT NULL OR ${table.payloadReference} IS NOT NULL`,
     ),
+    check(
+      "events_trigger_pair_check",
+      sql`(${table.triggerId} IS NULL AND ${table.triggerVersion} IS NULL) OR (${table.triggerId} IS NOT NULL AND ${table.triggerVersion} IS NOT NULL)`,
+    ),
     foreignKey({
       name: "events_conversation_tenant_fk",
       columns: [table.tenantId, table.conversationId],

@@ -85,6 +85,9 @@ describe("orchestration migration files", () => {
       'CONSTRAINT "events_payload_or_reference_check" CHECK ("payload" IS NOT NULL OR "payload_reference" IS NOT NULL)',
     );
     expect(allSql).toContain(
+      'CONSTRAINT "events_trigger_pair_check" CHECK (("trigger_id" IS NULL AND "trigger_version" IS NULL) OR ("trigger_id" IS NOT NULL AND "trigger_version" IS NOT NULL))',
+    );
+    expect(allSql).toContain(
       `CONSTRAINT "events_signature_status_check" CHECK ("signature_status" IN ('verified', 'unverified', 'failed'))`,
     );
   });
