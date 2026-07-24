@@ -40,7 +40,13 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "vitest run apps/platform-api/src/**/*.spec.ts"
+        "command": "vitest run --config apps/platform-api/vitest.config.ts --coverage"
+      }
+    },
+    "test-db-integration": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run apps/platform-api/src/db/db.migration.spec.ts"
       }
     }
   },
