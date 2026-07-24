@@ -188,6 +188,28 @@ describe("ProjectController routes", () => {
     expect(engine.post).toHaveBeenCalledOnce();
   });
 
+  it("relays clarification answer byte-identically without trimming", async () => {
+    const answer = " Use PostgreSQL\n";
+    const response = await request(
+      "POST",
+      `/api/v1/projects/${projectId}/clarifications/${clarificationId}/answer`,
+      {
+        actor: editor,
+        headers: { "idempotency-key": "exact-answer-key" },
+        payload: { answer },
+      },
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(engine.post).toHaveBeenCalledWith(
+      `/api/v1/projects/${projectId}/clarifications/${clarificationId}/answer`,
+      { answer },
+      expect.any(Object),
+      { idempotencyKey: "exact-answer-key" },
+    );
+    expect(response.json()).toMatchObject({ answer });
+  });
+
   it.each([
     ["approve", {}, approver],
     ["reject", { reason: "Missing test strategy" }, approver],

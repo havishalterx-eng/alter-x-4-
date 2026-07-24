@@ -30,10 +30,10 @@ describe("project validation", () => {
     expect(
       parseProjectInput(
         clarificationAnswerSchema,
-        { answer: " PostgreSQL " },
+        { answer: " Use PostgreSQL\n" },
         "/answer",
       ),
-    ).toEqual({ answer: "PostgreSQL" });
+    ).toEqual({ answer: " Use PostgreSQL\n" });
     expect(
       parseProjectInput(rejectPlanSchema, { reason: " no tests " }, "/reject"),
     ).toEqual({ reason: "no tests" });
@@ -59,6 +59,7 @@ describe("project validation", () => {
   it.each([
     [createProjectSchema, { brief: "" }],
     [clarificationAnswerSchema, { answer: "" }],
+    [clarificationAnswerSchema, { answer: " \n\t " }],
     [rejectPlanSchema, {}],
     [requestPlanChangesSchema, { changes: "", extra: true }],
     [approvePlanSchema, { extra: true }],

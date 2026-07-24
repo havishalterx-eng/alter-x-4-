@@ -21,7 +21,11 @@ export const createProjectSchema: z.ZodType<CreateProjectInput> = z
 
 export const clarificationAnswerSchema: z.ZodType<ClarificationAnswerInput> = z
   .object({
-    answer: z.string().trim().min(1).max(10_000),
+    answer: z
+      .string()
+      .min(1)
+      .max(10_000)
+      .refine((value) => value.trim().length > 0, "answer cannot be blank"),
   })
   .strict();
 
