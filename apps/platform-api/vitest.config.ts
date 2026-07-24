@@ -10,6 +10,7 @@ export default defineConfig({
       "apps/platform-api/src/db/db.migration.spec.ts",
       "apps/platform-api/src/identity/**/*.integration.spec.ts",
       "apps/platform-api/src/signup/**/*.integration.spec.ts",
+      "apps/platform-api/src/idempotency/**/*.integration.spec.ts",
     ],
     coverage: {
       provider: "v8",
@@ -26,6 +27,9 @@ export default defineConfig({
         "apps/platform-api/src/workspaces/**/*.ts",
         "apps/platform-api/src/members/**/*.ts",
         "apps/platform-api/src/onboarding/**/*.ts",
+        "apps/platform-api/src/engine/**/*.ts",
+        "apps/platform-api/src/idempotency/**/*.ts",
+        "apps/platform-api/src/concurrency/**/*.ts",
       ],
       exclude: [
         "apps/platform-api/src/db/**/*.spec.ts",
@@ -39,6 +43,9 @@ export default defineConfig({
         "apps/platform-api/src/workspaces/**/*.spec.ts",
         "apps/platform-api/src/members/**/*.spec.ts",
         "apps/platform-api/src/onboarding/**/*.spec.ts",
+        "apps/platform-api/src/engine/**/*.spec.ts",
+        "apps/platform-api/src/idempotency/**/*.spec.ts",
+        "apps/platform-api/src/concurrency/**/*.spec.ts",
       ],
       thresholds: {
         lines: 90,
@@ -80,6 +87,18 @@ export default defineConfig({
         "apps/platform-api/src/onboarding/**/*.ts": {
           lines: 80,
           branches: 75,
+        },
+        "apps/platform-api/src/engine/**/*.ts": {
+          lines: 90,
+          branches: 90,
+        },
+        "apps/platform-api/src/idempotency/**/*.ts": {
+          lines: 90,
+          branches: 90,
+        },
+        "apps/platform-api/src/concurrency/**/*.ts": {
+          lines: 90,
+          branches: 90,
         },
       },
     },

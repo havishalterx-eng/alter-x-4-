@@ -153,6 +153,9 @@ importers:
 
   apps/platform-api:
     dependencies:
+      '@alterx/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@alterx/shared-clients':
         specifier: workspace:*
         version: link:../../packages/shared-clients

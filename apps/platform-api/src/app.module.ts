@@ -11,6 +11,8 @@ import { SignupModule } from "./signup/signup.module";
 import { TenantsModule } from "./tenants/tenants.module";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
 import { OnboardingModule } from "./onboarding/onboarding.module";
+import { EngineModule } from "./engine/engine.module";
+import { IdempotencyModule } from "./idempotency/idempotency.module";
 
 @Module({
   imports: [
@@ -25,6 +27,8 @@ import { OnboardingModule } from "./onboarding/onboarding.module";
     WorkspacesModule,
     MembersModule,
     OnboardingModule,
+    EngineModule,
+    IdempotencyModule,
   ],
   controllers: [HealthController],
 })

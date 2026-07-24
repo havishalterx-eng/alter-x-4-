@@ -1,0 +1,25 @@
+export {
+  Auth0EngineM2mTokenProvider,
+  ENGINE_AUTH_PROVIDER,
+  ENGINE_M2M_TOKEN_PROVIDER,
+  IdentityBrokerEngineAuthProvider,
+  type EngineAuthProvider,
+  type EngineM2mTokenProvider,
+} from "./auth";
+export {
+  engineConfigFromEnvironment,
+  type EngineConfig,
+} from "./config";
+export { ENGINE_CONFIG, EngineClient } from "./engine-client";
+export { EngineExceptionFilter } from "./engine-exception.filter";
+export { EngineModule } from "./engine.module";
+export { EngineProblemError } from "./problem";
+export type {
+  EngineAuthorization,
+  EngineCallerContext,
+  EngineMutationOptions,
+  EnginePatchOptions,
+  EnginePath,
+  EngineRequestBody,
+  EngineResponse,
+} from "./types";
