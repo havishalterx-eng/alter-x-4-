@@ -6,6 +6,7 @@ import {
   sql,
   text,
   timestamp,
+  unique,
   uuid,
 } from "@alterx/adapters";
 
@@ -36,6 +37,7 @@ export const conversations = pgTable(
       "conversations_status_check",
       sql`${table.status} IN ('active', 'idle', 'closed', 'archived')`,
     ),
+    unique("conversations_tenant_id_id_unique").on(table.tenantId, table.id),
     index("idx_conversations_tenant_status").on(
       table.tenantId,
       table.status,

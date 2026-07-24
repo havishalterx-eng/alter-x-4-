@@ -4,7 +4,9 @@ export {
 } from "./actor-token";
 export {
   CanonicalEventSchema,
+  SignatureStatusSchema,
   type CanonicalEvent,
+  type SignatureStatus,
 } from "./canonical-event";
 export {
   FieldErrorSchema,

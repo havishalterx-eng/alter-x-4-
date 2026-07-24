@@ -4,6 +4,7 @@ import {
   sql,
   text,
   timestamp,
+  unique,
   uuid,
 } from "@alterx/adapters";
 
@@ -27,5 +28,6 @@ export const workflows = pgTable(
       "workflows_status_check",
       sql`${table.status} IN ('draft', 'active', 'archived')`,
     ),
+    unique("workflows_tenant_id_id_unique").on(table.tenantId, table.id),
   ],
 );

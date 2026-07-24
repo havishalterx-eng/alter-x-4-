@@ -7,6 +7,7 @@ import {
 } from "@testcontainers/postgresql";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { SignatureStatusSchema } from "@alterx/contracts";
 import { PostgresOrchestrationStoreProvider } from "./orchestration-store-provider";
 
 const migrationsFolder = resolve(
@@ -65,7 +66,7 @@ async function seed(pool: Pool): Promise<void> {
        ('evt_a', 'order.created', '1.0.0', $1, $2, 'shopify', 'cnv_a',
         'corr_a', 'event-a', now(), 'trg_a', 1, '{}'::jsonb, 'verified'),
        ('evt_b', 'timer.fired', '1.0.0', $3, $4, 'schedule', 'cnv_b',
-        'corr_b', 'event-b', now(), 'trg_b', 1, '{}'::jsonb, 'not_applicable')`,
+        'corr_b', 'event-b', now(), 'trg_b', 1, '{}'::jsonb, 'unverified')`,
     [tenantA, workspaceA, tenantB, workspaceB],
   );
   await pool.query(
@@ -185,6 +186,7 @@ describe.sequential("PostgresOrchestrationStoreProvider integration", () => {
     expect(result.rows).toEqual([
       { table_name: "events", foreign_table_name: "conversations" },
       { table_name: "events", foreign_table_name: "triggers" },
+      { table_name: "events", foreign_table_name: "trigger_versions" },
       { table_name: "runs", foreign_table_name: "conversations" },
       { table_name: "runs", foreign_table_name: "triggers" },
       { table_name: "runs", foreign_table_name: "workflows" },
@@ -281,6 +283,237 @@ describe.sequential("PostgresOrchestrationStoreProvider integration", () => {
         `INSERT INTO runs
            (id, tenant_id, workspace_id, parent_kind)
          VALUES ('run_invalid', $1, $2, 'project')`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("rejects cross-tenant foreign keys and accepts same-tenant graph edges", async () => {
+    await adminPool.query(
+      `INSERT INTO triggers
+         (id, tenant_id, workspace_id, workflow_id, name, type)
+       VALUES ('trg_a_same_tenant', $1, $2, 'wf_a', 'Same Tenant', 'manual')`,
+      [tenantA, workspaceA],
+    );
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO triggers
+           (id, tenant_id, workspace_id, workflow_id, name, type)
+         VALUES ('trg_cross_workflow', $1, $2, 'wf_b', 'Cross Workflow', 'manual')`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO events (
+           event_id, event_type, schema_version, tenant_id, workspace_id,
+           source, conversation_id, correlation_id, idempotency_key,
+           occurred_at, payload, signature_status
+         ) VALUES (
+           'evt_cross_conversation', 'order.created', '1.0.0', $1, $2,
+           'shopify', 'cnv_b', 'corr_cross_conversation',
+           'event-cross-conversation', now(), '{}'::jsonb, 'verified'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO events (
+           event_id, event_type, schema_version, tenant_id, workspace_id,
+           source, correlation_id, idempotency_key, occurred_at,
+           trigger_id, payload, signature_status
+         ) VALUES (
+           'evt_cross_trigger', 'order.created', '1.0.0', $1, $2,
+           'shopify', 'corr_cross_trigger', 'event-cross-trigger',
+           now(), 'trg_b', '{}'::jsonb, 'verified'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO runs (
+           id, tenant_id, workspace_id, parent_kind, workflow_id,
+           conversation_id, trigger_id
+         ) VALUES (
+           'run_cross_edges', $1, $2, 'workflow', 'wf_b', 'cnv_b', 'trg_b'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO runs (
+           id, tenant_id, workspace_id, parent_kind, workflow_id,
+           conversation_id, trigger_id
+         ) VALUES (
+           'run_same_edges', $1, $2, 'workflow', 'wf_a', 'cnv_a',
+           'trg_a_same_tenant'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+  });
+
+  it("enforces trigger version provenance for events", async () => {
+    await adminPool.query(
+      `INSERT INTO triggers
+         (id, tenant_id, workspace_id, workflow_id, name, type)
+       VALUES ('trg_a_other', $1, $2, 'wf_a', 'Other Trigger', 'manual')`,
+      [tenantA, workspaceA],
+    );
+    await adminPool.query(
+      `INSERT INTO trigger_versions
+         (id, tenant_id, trigger_id, version, config)
+       VALUES ('trgv_a_other_2', $1, 'trg_a_other', 2, '{}'::jsonb)`,
+      [tenantA],
+    );
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO events (
+           event_id, event_type, schema_version, tenant_id, workspace_id,
+           source, correlation_id, idempotency_key, occurred_at,
+           trigger_id, trigger_version, payload, signature_status
+         ) VALUES (
+           'evt_missing_trigger_version', 'order.created', '1.0.0',
+           $1, $2, 'shopify', 'corr_missing_trigger_version',
+           'event-missing-trigger-version', now(), 'trg_a', 99,
+           '{}'::jsonb, 'verified'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO events (
+           event_id, event_type, schema_version, tenant_id, workspace_id,
+           source, correlation_id, idempotency_key, occurred_at,
+           trigger_id, trigger_version, payload, signature_status
+         ) VALUES (
+           'evt_wrong_tenant_trigger_version', 'order.created', '1.0.0',
+           $1, $2, 'shopify', 'corr_wrong_tenant_trigger_version',
+           'event-wrong-tenant-trigger-version', now(), 'trg_b', 1,
+           '{}'::jsonb, 'verified'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO events (
+           event_id, event_type, schema_version, tenant_id, workspace_id,
+           source, correlation_id, idempotency_key, occurred_at,
+           trigger_id, trigger_version, payload, signature_status
+         ) VALUES (
+           'evt_wrong_trigger_version', 'order.created', '1.0.0',
+           $1, $2, 'shopify', 'corr_wrong_trigger_version',
+           'event-wrong-trigger-version', now(), 'trg_a', 2,
+           '{}'::jsonb, 'verified'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO events (
+           event_id, event_type, schema_version, tenant_id, workspace_id,
+           source, correlation_id, idempotency_key, occurred_at,
+           trigger_id, trigger_version, payload, signature_status
+         ) VALUES (
+           'evt_valid_trigger_version', 'order.created', '1.0.0',
+           $1, $2, 'shopify', 'corr_valid_trigger_version',
+           'event-valid-trigger-version', now(), 'trg_a', 1,
+           '{}'::jsonb, 'verified'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+  });
+
+  it("keeps signature_status and payload parity with the public contract", async () => {
+    for (const signatureStatus of SignatureStatusSchema.options) {
+      await expect(
+        adminPool.query(
+          `INSERT INTO events (
+             event_id, event_type, schema_version, tenant_id, workspace_id,
+             source, correlation_id, idempotency_key, occurred_at, payload,
+             signature_status
+           ) VALUES (
+             $1, 'order.created', '1.0.0', $2, $3, 'shopify', $4, $5,
+             now(), '{}'::jsonb, $6
+           )`,
+          [
+            `evt_signature_${signatureStatus}`,
+            tenantA,
+            workspaceA,
+            `corr_signature_${signatureStatus}`,
+            `event-signature-${signatureStatus}`,
+            signatureStatus,
+          ],
+        ),
+      ).resolves.toMatchObject({ rowCount: 1 });
+    }
+
+    for (const invalidStatus of ["pending", "not_applicable"]) {
+      await expect(
+        adminPool.query(
+          `INSERT INTO events (
+             event_id, event_type, schema_version, tenant_id, workspace_id,
+             source, correlation_id, idempotency_key, occurred_at, payload,
+             signature_status
+           ) VALUES (
+             $1, 'order.created', '1.0.0', $2, $3, 'shopify', $4, $5,
+             now(), '{}'::jsonb, $6
+           )`,
+          [
+            `evt_signature_invalid_${invalidStatus}`,
+            tenantA,
+            workspaceA,
+            `corr_signature_invalid_${invalidStatus}`,
+            `event-signature-invalid-${invalidStatus}`,
+            invalidStatus,
+          ],
+        ),
+      ).rejects.toMatchObject({ code: "23514" });
+    }
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO events (
+           event_id, event_type, schema_version, tenant_id, workspace_id,
+           source, correlation_id, idempotency_key, occurred_at,
+           payload_reference, signature_status
+         ) VALUES (
+           'evt_payload_reference_only', 'order.created', '1.0.0',
+           $1, $2, 'shopify', 'corr_payload_reference_only',
+           'event-payload-reference-only', now(),
+           'art_00000000-0000-7000-8000-000000000001', 'verified'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO events (
+           event_id, event_type, schema_version, tenant_id, workspace_id,
+           source, correlation_id, idempotency_key, occurred_at,
+           signature_status
+         ) VALUES (
+           'evt_payload_missing', 'order.created', '1.0.0',
+           $1, $2, 'shopify', 'corr_payload_missing',
+           'event-payload-missing', now(), 'verified'
+         )`,
         [tenantA, workspaceA],
       ),
     ).rejects.toMatchObject({ code: "23514" });

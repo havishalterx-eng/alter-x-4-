@@ -1,5 +1,6 @@
 import {
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -12,6 +13,7 @@ import {
 } from "@alterx/adapters";
 import type { CanonicalEvent } from "../../../../packages/contracts/orchestration/v1/canonical-event.schema";
 import { conversations } from "./conversations";
+import { triggerVersions } from "./trigger_versions";
 import { triggers } from "./triggers";
 
 export const events = pgTable(
@@ -25,25 +27,48 @@ export const events = pgTable(
     source: text("source").notNull(),
     sourceAccountId: text("source_account_id"),
     subjectId: text("subject_id"),
-    conversationId: text("conversation_id").references(() => conversations.id),
-    correlationId: text("correlation_id").notNull(),
+    conversationId: text("conversation_id"),
+    correlationId: text("correlation_id"),
     causationId: text("causation_id"),
     idempotencyKey: text("idempotency_key").notNull(),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
-    triggerId: text("trigger_id").references(() => triggers.id),
+    triggerId: text("trigger_id"),
     triggerVersion: integer("trigger_version"),
-    payload: jsonb("payload").$type<CanonicalEvent["payload"]>().notNull(),
+    payload: jsonb("payload").$type<CanonicalEvent["payload"]>(),
     payloadReference: text("payload_reference"),
     signatureStatus: text("signature_status").notNull(),
   },
   (table) => [
     check(
       "events_signature_status_check",
-      sql`${table.signatureStatus} IN ('verified', 'failed', 'not_applicable', 'pending')`,
+      sql`${table.signatureStatus} IN ('verified', 'unverified', 'failed')`,
     ),
+    check(
+      "events_payload_or_reference_check",
+      sql`${table.payload} IS NOT NULL OR ${table.payloadReference} IS NOT NULL`,
+    ),
+    foreignKey({
+      name: "events_conversation_tenant_fk",
+      columns: [table.tenantId, table.conversationId],
+      foreignColumns: [conversations.tenantId, conversations.id],
+    }),
+    foreignKey({
+      name: "events_trigger_tenant_fk",
+      columns: [table.tenantId, table.triggerId],
+      foreignColumns: [triggers.tenantId, triggers.id],
+    }),
+    foreignKey({
+      name: "events_trigger_version_tenant_fk",
+      columns: [table.tenantId, table.triggerId, table.triggerVersion],
+      foreignColumns: [
+        triggerVersions.tenantId,
+        triggerVersions.triggerId,
+        triggerVersions.version,
+      ],
+    }),
     uniqueIndex("idx_events_tenant_idempotency").on(
       table.tenantId,
       table.idempotencyKey,

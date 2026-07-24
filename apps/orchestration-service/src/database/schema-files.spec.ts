@@ -53,9 +53,10 @@ describe("orchestration Drizzle schemas", () => {
       'index("idx_trigger_versions_trigger")',
       'uniqueIndex("idx_events_tenant_idempotency")',
       'index("idx_runs_workflow")',
-      ".references(() => workflows.id)",
-      ".references(() => triggers.id)",
-      ".references(() => conversations.id)",
+      'foreignKey({\n      name: "triggers_workflow_tenant_fk"',
+      'foreignKey({\n      name: "events_trigger_version_tenant_fk"',
+      'foreignKey({\n      name: "runs_workflow_tenant_fk"',
+      'unique("trigger_versions_tenant_trigger_version_unique")',
     ]) {
       expect(allSources).toContain(expected);
     }

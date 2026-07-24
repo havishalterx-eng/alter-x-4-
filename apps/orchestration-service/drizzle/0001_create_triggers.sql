@@ -2,13 +2,15 @@ CREATE TABLE "triggers" (
   "id" text PRIMARY KEY NOT NULL,
   "tenant_id" uuid NOT NULL,
   "workspace_id" uuid NOT NULL,
-  "workflow_id" text NOT NULL REFERENCES "workflows"("id"),
+  "workflow_id" text NOT NULL,
   "name" text NOT NULL,
   "type" text NOT NULL,
   "status" text DEFAULT 'draft' NOT NULL,
   "provider" text,
   "created_at" timestamptz DEFAULT now() NOT NULL,
   "updated_at" timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT "triggers_tenant_id_id_unique" UNIQUE ("tenant_id", "id"),
+  CONSTRAINT "triggers_workflow_tenant_fk" FOREIGN KEY ("tenant_id", "workflow_id") REFERENCES "workflows"("tenant_id", "id"),
   CONSTRAINT "triggers_type_check" CHECK ("type" IN ('webhook', 'cron', 'manual')),
   CONSTRAINT "triggers_status_check" CHECK ("status" IN ('draft', 'enabled', 'disabled', 'archived'))
 );

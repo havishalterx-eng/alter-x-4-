@@ -1,6 +1,9 @@
 import type { Pool, PoolClient, PoolConfig } from "pg";
 import { describe, expect, it, vi } from "vitest";
-import { PostgresOrchestrationStoreProvider } from "./orchestration-store-provider";
+import {
+  POSTGRES_ORCHESTRATION_FEATURE_DECISION,
+  PostgresOrchestrationStoreProvider,
+} from "./orchestration-store-provider";
 
 const migrationsFolder = "apps/orchestration-service/drizzle";
 const tenantId = "00000000-0000-7000-8000-000000000001";
@@ -133,6 +136,28 @@ describe("PostgresOrchestrationStoreProvider", () => {
       migrationsFolder,
     });
     await defaultPoolProvider.close();
+  });
+
+  it("keeps INGR-1 blocked until CEO feature mapping is approved", async () => {
+    const provider = new PostgresOrchestrationStoreProvider(
+      {
+        authentication: "static",
+        connectionString: "postgresql://test.invalid/orchestration",
+        migrationsFolder,
+      },
+      {
+        pool: {
+          end: vi.fn().mockResolvedValue(undefined),
+        } as unknown as Pool,
+      },
+    );
+
+    expect(provider.metadata.featureFlag).toBeUndefined();
+    expect(POSTGRES_ORCHESTRATION_FEATURE_DECISION).toMatchObject({
+      ticket: "INGR-1",
+      status: "blocked_until_ceo_feature_mapping",
+    });
+    await provider.close();
   });
 
   it("runs tenant operations in a transaction and commits", async () => {

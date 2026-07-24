@@ -6,6 +6,7 @@ CREATE TABLE "workflows" (
   "status" text DEFAULT 'draft' NOT NULL,
   "created_at" timestamptz DEFAULT now() NOT NULL,
   "updated_at" timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT "workflows_tenant_id_id_unique" UNIQUE ("tenant_id", "id"),
   CONSTRAINT "workflows_status_check" CHECK ("status" IN ('draft', 'active', 'archived'))
 );
 --> statement-breakpoint

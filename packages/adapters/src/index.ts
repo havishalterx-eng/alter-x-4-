@@ -17,7 +17,9 @@ export {
 } from "./postgres/audit-store-provider";
 export {
   PostgresOrchestrationStoreProvider,
+  POSTGRES_ORCHESTRATION_FEATURE_DECISION,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,

@@ -70,13 +70,22 @@ describe("orchestration migration files", () => {
       'CREATE UNIQUE INDEX "idx_events_tenant_idempotency"',
     );
     expect(allSql).toContain(
-      '"workflow_id" text NOT NULL REFERENCES "workflows"("id")',
+      'CONSTRAINT "triggers_workflow_tenant_fk" FOREIGN KEY ("tenant_id", "workflow_id") REFERENCES "workflows"("tenant_id", "id")',
     );
     expect(allSql).toContain(
-      '"trigger_id" text NOT NULL REFERENCES "triggers"("id")',
+      'CONSTRAINT "trigger_versions_trigger_tenant_fk" FOREIGN KEY ("tenant_id", "trigger_id") REFERENCES "triggers"("tenant_id", "id")',
     );
     expect(allSql).toContain(
-      '"conversation_id" text REFERENCES "conversations"("id")',
+      'CONSTRAINT "events_trigger_version_tenant_fk" FOREIGN KEY ("tenant_id", "trigger_id", "trigger_version") REFERENCES "trigger_versions"("tenant_id", "trigger_id", "version")',
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "runs_workflow_tenant_fk" FOREIGN KEY ("tenant_id", "workflow_id") REFERENCES "workflows"("tenant_id", "id")',
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "events_payload_or_reference_check" CHECK ("payload" IS NOT NULL OR "payload_reference" IS NOT NULL)',
+    );
+    expect(allSql).toContain(
+      `CONSTRAINT "events_signature_status_check" CHECK ("signature_status" IN ('verified', 'unverified', 'failed'))`,
     );
   });
 

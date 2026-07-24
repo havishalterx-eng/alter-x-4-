@@ -9,6 +9,7 @@ CREATE TABLE "conversations" (
   "last_activity_at" timestamptz DEFAULT now() NOT NULL,
   "closed_at" timestamptz,
   "idle_timeout_seconds" integer DEFAULT 1800 NOT NULL,
+  CONSTRAINT "conversations_tenant_id_id_unique" UNIQUE ("tenant_id", "id"),
   CONSTRAINT "conversations_channel_check" CHECK ("channel" IN ('web', 'whatsapp', 'voice', 'api')),
   CONSTRAINT "conversations_status_check" CHECK ("status" IN ('active', 'idle', 'closed', 'archived'))
 );

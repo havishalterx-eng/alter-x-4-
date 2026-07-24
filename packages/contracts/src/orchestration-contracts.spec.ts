@@ -11,16 +11,15 @@ const canonicalEvent = {
   source: "shopify",
   source_account_id: "shop-1",
   subject_id: "order-1",
-  conversation_id: null,
-  correlation_id: "corr-1",
-  causation_id: null,
+  conversation_id: "cnv_00000000-0000-7000-8000-000000000001",
+  correlation_id: "evt_00000000-0000-7000-8000-000000000002",
+  causation_id: "evt_00000000-0000-7000-8000-000000000003",
   idempotency_key: "shopify:event:1",
   occurred_at: "2026-07-24T00:00:00.000Z",
   received_at: "2026-07-24T00:00:01.000Z",
   trigger_id: "trg_00000000-0000-7000-8000-000000000001",
   trigger_version: 1,
   payload: { order_id: "order-1" },
-  payload_reference: null,
   signature_status: "verified" as const,
 };
 
@@ -35,16 +34,35 @@ describe("orchestration v1 contracts", () => {
       "invalid timestamp",
       { ...canonicalEvent, occurred_at: "not-a-timestamp" },
     ],
-    [
-      "invalid signature status",
-      { ...canonicalEvent, signature_status: "unverified" },
-    ],
+    ["invalid signature status", { ...canonicalEvent, signature_status: "pending" }],
     [
       "fractional trigger version",
       { ...canonicalEvent, trigger_version: 1.5 },
     ],
   ])("rejects canonical event with %s", (_name, event) => {
     expect(CanonicalEventSchema.safeParse(event).success).toBe(false);
+  });
+
+  it.each(["verified", "unverified", "failed"] as const)(
+    "accepts canonical event signature_status %s",
+    (signature_status) => {
+      expect(
+        CanonicalEventSchema.safeParse({ ...canonicalEvent, signature_status })
+          .success,
+      ).toBe(true);
+    },
+  );
+
+  it("accepts payload_reference without inline payload", () => {
+    const { payload, ...eventWithoutPayload } = canonicalEvent;
+
+    expect(
+      CanonicalEventSchema.safeParse({
+        ...eventWithoutPayload,
+        payload_reference: "art_00000000-0000-7000-8000-000000000001",
+      }).success,
+    ).toBe(true);
+    expect(payload).toBeDefined();
   });
 
   it.each([

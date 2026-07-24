@@ -20,6 +20,7 @@ import type {
 export { sql } from "drizzle-orm";
 export {
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -92,6 +93,14 @@ const POSTGRES_ORCHESTRATION_CAPABILITIES: ProviderCapabilities = {
   supported_languages: [],
   cost_model: { rates: [] },
 };
+
+export const POSTGRES_ORCHESTRATION_FEATURE_DECISION = {
+  ticket: "INGR-1",
+  component: "Engine component 31 - Event & Trigger Gateway",
+  status: "blocked_until_ceo_feature_mapping",
+  reason:
+    "No CEO-approved featureFlag / feature ID for the orchestration_db scaffold is present in the repository feature map.",
+} as const;
 
 const POSTGRES_ORCHESTRATION_METADATA: ProviderMetadata<"RelationalDatabaseProvider"> =
   {
