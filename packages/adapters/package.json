@@ -17,6 +17,7 @@
   "dependencies": {
     "@alterx/contracts": "workspace:*",
     "@alterx/shared-clients": "workspace:*",
+    "@aws-sdk/client-appconfigdata": "3.1094.0",
     "@aws-sdk/client-secrets-manager": "3.1094.0",
     "@aws-sdk/rds-signer": "3.1094.0",
     "@grpc/grpc-js": "1.14.4",

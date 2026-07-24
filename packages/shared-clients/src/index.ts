@@ -43,7 +43,9 @@ export {
   type StoredAuditEvent,
 } from "./audit-ports";
 export {
+  configProviderContract,
   durableExecutionProviderContract,
+  modelProviderContract,
   observabilityProviderContract,
   secretsProviderContract,
 } from "./provider-contracts";
@@ -64,10 +66,14 @@ export {
   type GPUComputeProvider,
   type HealthStatus,
   type IdentityProvider,
+  InvalidModelAliasError,
   type JsonValue,
   type LogEntry,
   type MetricPoint,
   type MigrationSupport,
+  ModelAliasResolutionError,
+  type ModelInvocationRequest,
+  type ModelInvocationResult,
   type ModelProvider,
   type NetworkConnectivityProvider,
   type ObjectStorageProvider,
@@ -100,6 +106,17 @@ export {
   createMockProvider,
   type MockProviderOptions,
 } from "./mock-provider";
+export {
+  DEFAULT_MODEL_ALIAS_POLICY,
+  MOCK_CONFIG_CAPABILITIES,
+  createMockConfigProvider,
+  type MockConfigProviderOptions,
+} from "./mocks/config-provider";
+export {
+  MOCK_MODEL_CAPABILITIES,
+  createMockModelProvider,
+  type MockModelProviderOptions,
+} from "./mocks/model-provider";
 export {
   MOCK_DURABLE_EXECUTION_CAPABILITIES,
   DurableWorkflowAlreadyExistsError,

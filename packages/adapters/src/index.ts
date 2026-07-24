@@ -25,3 +25,16 @@ export {
   type AwsSecretsManagerConfig,
   type SecretsManagerCommandClient,
 } from "./aws/secrets-manager-provider";
+export {
+  APPCONFIG_CAPABILITIES,
+  AwsAppConfigConfigProvider,
+  type AppConfigDataCommandClient,
+  type AwsAppConfigConfigProviderConfig,
+} from "./aws/appconfig-config-provider";
+export {
+  MODELGW_HANDLER,
+  ModelgwGrpcController,
+  startModelgwGrpcTransport,
+  type ModelgwGrpcTransportConfig,
+  type ModelgwHandler,
+} from "./grpc/modelgw-grpc-transport";

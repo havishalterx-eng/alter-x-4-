@@ -20,6 +20,24 @@ export type {
   RecordEventRequest,
   RecordEventResponse,
 } from "./generated/alter/audit/v1/audit";
+export type {
+  InvokeRequest as ModelgwInvokeRequest,
+  InvokeResponse as ModelgwInvokeResponse,
+  RedactRequest as ModelgwRedactRequest,
+  RedactResponse as ModelgwRedactResponse,
+  SelectFallbackRequest as ModelgwSelectFallbackRequest,
+  SelectFallbackResponse as ModelgwSelectFallbackResponse,
+  StreamRequest as ModelgwStreamRequest,
+  StreamResponse as ModelgwStreamResponse,
+} from "./generated/alter/modelgw/v1/modelgw";
+export {
+  ModelAliasPolicySchema,
+  ModelAliasBindingSchema,
+  ModelAliasSchema,
+  type ModelAlias,
+  type ModelAliasBinding,
+  type ModelAliasPolicy,
+} from "./model-alias-policy";
 export {
   ApprovalRequestedDataSchema,
   ClarificationRequestedDataSchema,

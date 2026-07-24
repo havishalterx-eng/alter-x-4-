@@ -1,4 +1,8 @@
-import type { ProviderCapabilities } from "@alterx/contracts";
+import type {
+  ModelAlias,
+  ModelAliasBinding,
+  ProviderCapabilities,
+} from "@alterx/contracts";
 
 export const CANONICAL_PROVIDER_INTERFACES = [
   "DurableExecutionProvider",
@@ -162,7 +166,24 @@ export interface DurableExecutionProvider
 
 export interface ComputeProvider extends BaseProvider<"ComputeProvider"> {}
 export interface IdentityProvider extends BaseProvider<"IdentityProvider"> {}
-export interface ModelProvider extends BaseProvider<"ModelProvider"> {}
+
+export interface ModelInvocationRequest {
+  readonly tenantId: string;
+  readonly runId: string;
+  readonly nodeExecutionId: string;
+  readonly modelId: string;
+  readonly capabilityTags: readonly string[];
+  readonly inputJson: string;
+}
+
+export interface ModelInvocationResult {
+  readonly outputJson: string;
+  readonly usageJson: string;
+}
+
+export interface ModelProvider extends BaseProvider<"ModelProvider"> {
+  invoke(request: ModelInvocationRequest): Promise<ModelInvocationResult>;
+}
 export interface EmbeddingProvider
   extends BaseProvider<"EmbeddingProvider"> {}
 export interface PIIRedactionProvider
@@ -180,7 +201,23 @@ export interface QueueProvider extends BaseProvider<"QueueProvider"> {
 export interface SandboxProvider extends BaseProvider<"SandboxProvider"> {}
 export interface RepositoryProvider
   extends BaseProvider<"RepositoryProvider"> {}
-export interface ConfigProvider extends BaseProvider<"ConfigProvider"> {}
+export class ModelAliasResolutionError extends Error {
+  constructor(alias: string) {
+    super(`Model alias policy has no binding for alias: ${alias}`);
+    this.name = "ModelAliasResolutionError";
+  }
+}
+
+export class InvalidModelAliasError extends Error {
+  constructor(alias: string) {
+    super(`model_alias is not a recognized alias tier: ${alias}`);
+    this.name = "InvalidModelAliasError";
+  }
+}
+
+export interface ConfigProvider extends BaseProvider<"ConfigProvider"> {
+  resolveModelAlias(alias: ModelAlias): Promise<ModelAliasBinding>;
+}
 export interface RelationalDatabaseProvider
   extends BaseProvider<"RelationalDatabaseProvider"> {}
 export interface VectorStoreProvider

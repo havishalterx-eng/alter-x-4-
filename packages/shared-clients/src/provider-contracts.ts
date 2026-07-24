@@ -1,7 +1,9 @@
 import { ProviderCapabilitiesSchema } from "@alterx/contracts";
 import type { ProviderContractSuite } from "./contract-testing";
 import type {
+  ConfigProvider,
   DurableExecutionProvider,
+  ModelProvider,
   ObservabilityProvider,
   SecretsProvider,
 } from "./provider-types";
@@ -202,3 +204,115 @@ export const durableExecutionProviderContract: ProviderContractSuite<DurableExec
       },
     ],
   };
+
+export const configProviderContract: ProviderContractSuite<ConfigProvider> = {
+  name: "ConfigProvider",
+  cases: [
+    {
+      name: "publishes valid base-provider metadata and capabilities",
+      assert: async (provider) => {
+        ensure(
+          provider.metadata.interfaceName === "ConfigProvider",
+          "Config adapter must identify its canonical interface",
+        );
+        ProviderCapabilitiesSchema.parse(provider.capabilities);
+        const health = await provider.healthCheck();
+        ensure(
+          health.status === "healthy",
+          "Contract fixture must be healthy",
+        );
+        return {
+          capabilities: provider.capabilities,
+          health,
+          interfaceName: provider.metadata.interfaceName,
+        };
+      },
+    },
+    {
+      name: "resolves every alias tier to a non-empty model binding",
+      assert: async (provider) => {
+        const aliases = ["FAST", "STANDARD", "ADVANCED", "CEILING"] as const;
+        const resolved: Record<string, unknown> = {};
+        for (const alias of aliases) {
+          const binding = await provider.resolveModelAlias(alias);
+          ensure(
+            binding.model_id.length > 0,
+            `Alias ${alias} must resolve to a non-empty model_id`,
+          );
+          ensure(
+            Array.isArray(binding.capability_tags),
+            `Alias ${alias} must resolve capability_tags as an array`,
+          );
+          resolved[alias] = binding;
+        }
+        return resolved;
+      },
+    },
+    {
+      name: "rejects an alias with no policy binding",
+      assert: async (provider) => {
+        ensure(
+          await rejects(() =>
+            provider.resolveModelAlias(
+              "UNKNOWN" as Parameters<
+                ConfigProvider["resolveModelAlias"]
+              >[0],
+            ),
+          ),
+          "Unbound aliases must be rejected, never silently substituted",
+        );
+        return { rejected: true };
+      },
+    },
+  ],
+};
+
+export const modelProviderContract: ProviderContractSuite<ModelProvider> = {
+  name: "ModelProvider",
+  cases: [
+    {
+      name: "publishes valid base-provider metadata and capabilities",
+      assert: async (provider) => {
+        ensure(
+          provider.metadata.interfaceName === "ModelProvider",
+          "Model adapter must identify its canonical interface",
+        );
+        ProviderCapabilitiesSchema.parse(provider.capabilities);
+        const health = await provider.healthCheck();
+        ensure(
+          health.status === "healthy",
+          "Contract fixture must be healthy",
+        );
+        return {
+          capabilities: provider.capabilities,
+          health,
+          interfaceName: provider.metadata.interfaceName,
+        };
+      },
+    },
+    {
+      name: "invokes a resolved model and returns usage accounting",
+      assert: async (provider) => {
+        const result = await provider.invoke({
+          tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+          runId: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
+          nodeExecutionId: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
+          modelId: "contract-model",
+          capabilityTags: ["general"],
+          inputJson: JSON.stringify({ prompt: "contract fixture" }),
+        });
+        ensure(
+          typeof result.outputJson === "string" && result.outputJson.length > 0,
+          "Invoke must return non-empty output_json",
+        );
+        ensure(
+          typeof result.usageJson === "string" && result.usageJson.length > 0,
+          "Invoke must return non-empty usage_json",
+        );
+        JSON.parse(result.outputJson);
+        JSON.parse(result.usageJson);
+        return result;
+      },
+    },
+  ],
+};
