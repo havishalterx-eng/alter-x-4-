@@ -10,7 +10,11 @@ export interface EntitlementRow {
 
 export interface EntitlementStore {
   findEffective(tenantId: string): Promise<EntitlementRow | null>;
-  create(tenantId: string, plan: string): Promise<EntitlementRow>;
+  create(
+    tenantId: string,
+    plan: string,
+    client?: PoolClient,
+  ): Promise<EntitlementRow>;
 }
 
 export class PostgresEntitlementStore implements EntitlementStore {
@@ -39,8 +43,12 @@ export class PostgresEntitlementStore implements EntitlementStore {
     });
   }
 
-  async create(tenantId: string, plan: string): Promise<EntitlementRow> {
-    return this.inTenantTransaction(tenantId, async (client) => {
+  async create(
+    tenantId: string,
+    plan: string,
+    transactionClient?: PoolClient,
+  ): Promise<EntitlementRow> {
+    const insert = async (client: PoolClient): Promise<EntitlementRow> => {
       const result = await client.query<{
         tenant_id: string;
         plan: string;
@@ -56,7 +64,11 @@ export class PostgresEntitlementStore implements EntitlementStore {
         throw new Error("Entitlement insert returned no row");
       }
       return { tenantId: row.tenant_id, plan: row.plan, limits: row.limits };
-    });
+    };
+
+    return transactionClient
+      ? insert(transactionClient)
+      : this.inTenantTransaction(tenantId, insert);
   }
 
   private async inTenantTransaction<T>(

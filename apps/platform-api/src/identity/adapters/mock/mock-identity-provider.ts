@@ -64,6 +64,7 @@ export class MockIdentityProvider implements IdentityProvider {
       tenantId,
       identityRef: `auth0|${userId}`,
       email: "mock.user@example.com",
+      emailVerified: true,
       displayName: "Mock User",
     };
 
@@ -78,6 +79,7 @@ export class MockIdentityProvider implements IdentityProvider {
       tenantId: "00000000-0000-7000-8000-000000000001",
       identityRef: "auth0|00000000-0000-7000-8000-000000000101",
       email: "mock.user@example.com",
+      emailVerified: true,
       displayName: "Mock User",
     };
   }

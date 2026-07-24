@@ -3,6 +3,7 @@ import type {
   EntitlementLimitKey,
   LimitCheckResult,
 } from "./types";
+import type { PoolClient } from "pg";
 
 export const ENTITLEMENT_PROVIDER = Symbol("ENTITLEMENT_PROVIDER");
 
@@ -16,5 +17,6 @@ export interface EntitlementProvider {
   createEntitlement(
     tenantId: string,
     plan: string,
+    transactionClient?: PoolClient,
   ): Promise<EffectiveEntitlement>;
 }

@@ -267,6 +267,8 @@ interface Auth0ManagementTokenResponse {
 interface Auth0Profile {
   sub: string;
   email: string;
+  email_verified?: boolean;
+  phone_verified?: boolean;
   name?: string;
   org_id: string;
   "https://alter.dev/user_id"?: string;
@@ -284,7 +286,11 @@ function authenticatedIdentityFromProfile(profile: Auth0Profile): AuthenticatedI
     tenantId: profile["https://alter.dev/tenant_id"] ?? profile.org_id,
     identityRef: profile.sub,
     email: profile.email,
+    emailVerified: profile.email_verified === true,
   };
+  if (profile.phone_verified !== undefined) {
+    identity.phoneVerified = profile.phone_verified;
+  }
   if (profile.name) {
     identity.displayName = profile.name;
   }

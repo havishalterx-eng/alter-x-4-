@@ -12,6 +12,7 @@ import { hashToken, type SessionStore } from "./session-store";
 import type { LoginDto } from "./dto/auth.dto";
 
 export interface IssuedSession {
+  sessionId: string;
   userId: string;
   tenantId: string;
   accessToken: string;
@@ -73,6 +74,7 @@ export class IdentityService {
     }
 
     return {
+      sessionId: session.id,
       userId: session.userId,
       tenantId: session.tenantId,
       accessToken: nextAccessToken,
@@ -93,6 +95,15 @@ export class IdentityService {
     }
 
     return session;
+  }
+
+  issueSignupSession(
+    userId: string,
+    tenantId: string,
+    deviceInfo?: Record<string, unknown>,
+    ip?: string,
+  ): Promise<IssuedSession> {
+    return this.issueSession(userId, tenantId, deviceInfo, ip);
   }
 
   listActiveSessions(tenantId: string, userId: string): Promise<SessionRecord[]> {
@@ -141,9 +152,10 @@ export class IdentityService {
       input.ip = ip;
     }
 
-    await this.sessionStore.create(input);
+    const session = await this.sessionStore.create(input);
 
     return {
+      sessionId: session.id,
       userId,
       tenantId,
       accessToken,
