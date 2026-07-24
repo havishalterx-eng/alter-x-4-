@@ -202,8 +202,27 @@ export interface EmbeddingResult {
 export interface EmbeddingProvider extends BaseProvider<"EmbeddingProvider"> {
   embed(request: EmbeddingRequest): Promise<EmbeddingResult>;
 }
+export interface PIIDetectedEntity {
+  readonly entityType: string;
+  readonly start: number;
+  readonly end: number;
+  readonly score: number;
+}
+
+export interface PIIRedactionRequest {
+  readonly tenantId: string;
+  readonly text: string;
+}
+
+export interface PIIRedactionResult {
+  readonly redactedText: string;
+  readonly entities: readonly PIIDetectedEntity[];
+}
+
 export interface PIIRedactionProvider
-  extends BaseProvider<"PIIRedactionProvider"> {}
+  extends BaseProvider<"PIIRedactionProvider"> {
+  redact(request: PIIRedactionRequest): Promise<PIIRedactionResult>;
+}
 export interface SearchProvider extends BaseProvider<"SearchProvider"> {}
 export interface BrowserProvider extends BaseProvider<"BrowserProvider"> {}
 export interface DeploymentProvider

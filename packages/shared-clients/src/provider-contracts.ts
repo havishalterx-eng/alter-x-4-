@@ -6,6 +6,7 @@ import type {
   EmbeddingProvider,
   ModelProvider,
   ObservabilityProvider,
+  PIIRedactionProvider,
   SecretsProvider,
 } from "./provider-types";
 
@@ -395,6 +396,75 @@ export const embeddingProviderContract: ProviderContractSuite<EmbeddingProvider>
             dimensions: result.dimensions,
             length: result.vector.length,
             modelId: result.modelId,
+          };
+        },
+      },
+    ],
+  };
+
+export const piiRedactionProviderContract: ProviderContractSuite<PIIRedactionProvider> =
+  {
+    name: "PIIRedactionProvider",
+    cases: [
+      {
+        name: "publishes valid base-provider metadata and capabilities",
+        assert: async (provider) => {
+          ensure(
+            provider.metadata.interfaceName === "PIIRedactionProvider",
+            "PII redaction adapter must identify its canonical interface",
+          );
+          ProviderCapabilitiesSchema.parse(provider.capabilities);
+          const health = await provider.healthCheck();
+          ensure(
+            health.status === "healthy",
+            "Contract fixture must be healthy",
+          );
+          return {
+            capabilities: provider.capabilities,
+            health,
+            interfaceName: provider.metadata.interfaceName,
+          };
+        },
+      },
+      {
+        name: "redacts a detected custom Indian PII entity",
+        assert: async (provider) => {
+          const result = await provider.redact({
+            tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+            text: "PAN on file: ABCDE1234F",
+          });
+          ensure(
+            !result.redactedText.includes("ABCDE1234F"),
+            "Redacted text must not contain the original PAN",
+          );
+          ensure(
+            result.entities.some((entity) => entity.entityType === "IN_PAN"),
+            "Redaction result must report an IN_PAN entity",
+          );
+          return {
+            redactedText: result.redactedText,
+            entityTypes: result.entities.map((entity) => entity.entityType),
+          };
+        },
+      },
+      {
+        name: "returns text unchanged when no PII is present",
+        assert: async (provider) => {
+          const result = await provider.redact({
+            tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+            text: "no sensitive content here",
+          });
+          ensure(
+            result.redactedText === "no sensitive content here",
+            "Text without PII must be returned unchanged",
+          );
+          ensure(
+            result.entities.length === 0,
+            "No entities should be reported for PII-free text",
+          );
+          return {
+            redactedText: result.redactedText,
+            entityCount: result.entities.length,
           };
         },
       },

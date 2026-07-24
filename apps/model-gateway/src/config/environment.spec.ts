@@ -38,6 +38,8 @@ describe("loadModelGatewayEnvironment", () => {
           APPCONFIG_APPLICATION_ID: "app-1",
           APPCONFIG_ENVIRONMENT_ID: "env-1",
           APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+          PRESIDIO_ANALYZER_URL: "http://presidio-analyzer.local:5001",
+          PRESIDIO_ANONYMIZER_URL: "http://presidio-anonymizer.local:5002",
         }),
       ),
     ).toMatchObject({
@@ -45,6 +47,8 @@ describe("loadModelGatewayEnvironment", () => {
       appConfigApplicationId: "app-1",
       appConfigEnvironmentId: "env-1",
       appConfigConfigurationProfileId: "profile-1",
+      presidioAnalyzerUrl: "http://presidio-analyzer.local:5001",
+      presidioAnonymizerUrl: "http://presidio-anonymizer.local:5002",
     });
   });
 
@@ -97,6 +101,19 @@ describe("loadModelGatewayEnvironment", () => {
         APPCONFIG_APPLICATION_ID: "",
         APPCONFIG_ENVIRONMENT_ID: "env-1",
         APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+        PRESIDIO_ANALYZER_URL: "http://presidio-analyzer.local:5001",
+        PRESIDIO_ANONYMIZER_URL: "http://presidio-anonymizer.local:5002",
+      },
+    ],
+    [
+      "PRESIDIO_ANALYZER_URL",
+      {
+        ALTER_ENV: "dev",
+        ALTER_CONFIG_SOURCE: "appconfig",
+        APPCONFIG_APPLICATION_ID: "app-1",
+        APPCONFIG_ENVIRONMENT_ID: "env-1",
+        APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+        PRESIDIO_ANONYMIZER_URL: "http://presidio-anonymizer.local:5002",
       },
     ],
   ])("rejects invalid %s", (field, override) => {

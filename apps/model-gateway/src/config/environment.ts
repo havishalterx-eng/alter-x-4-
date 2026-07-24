@@ -14,6 +14,8 @@ export interface ModelGatewayAppConfigEnvironment
   readonly appConfigApplicationId: string;
   readonly appConfigEnvironmentId: string;
   readonly appConfigConfigurationProfileId: string;
+  readonly presidioAnalyzerUrl: string;
+  readonly presidioAnonymizerUrl: string;
 }
 
 export interface ModelGatewayMockEnvironment
@@ -156,6 +158,11 @@ export function loadModelGatewayEnvironment(
     appConfigConfigurationProfileId: requireValue(
       environment,
       "APPCONFIG_CONFIGURATION_PROFILE_ID",
+    ),
+    presidioAnalyzerUrl: requireValue(environment, "PRESIDIO_ANALYZER_URL"),
+    presidioAnonymizerUrl: requireValue(
+      environment,
+      "PRESIDIO_ANONYMIZER_URL",
     ),
   };
 }

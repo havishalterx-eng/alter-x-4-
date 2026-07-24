@@ -6,13 +6,16 @@ import { NestFactory } from "@nestjs/core";
 import {
   AwsAppConfigConfigProvider,
   AwsBedrockModelProvider,
+  PresidioPIIRedactionProvider,
   startModelgwGrpcTransport,
 } from "@alterx/adapters";
 import {
   createMockConfigProvider,
   createMockModelProvider,
+  createMockPIIRedactionProvider,
   type ConfigProvider,
   type ModelProvider,
+  type PIIRedactionProvider,
 } from "@alterx/shared-clients";
 
 import { AppModule } from "./app.module";
@@ -42,13 +45,26 @@ function createModelProvider(
   return new AwsBedrockModelProvider({ region: environment.region });
 }
 
+function createPIIRedactionProvider(
+  environment: ReturnType<typeof loadModelGatewayEnvironment>,
+): PIIRedactionProvider {
+  if (environment.configSource === "mock") {
+    return createMockPIIRedactionProvider();
+  }
+  return new PresidioPIIRedactionProvider({
+    analyzerBaseUrl: environment.presidioAnalyzerUrl,
+    anonymizerBaseUrl: environment.presidioAnonymizerUrl,
+  });
+}
+
 async function bootstrap(): Promise<void> {
   const environment = loadModelGatewayEnvironment(process.env);
   const configProvider = createConfigProvider(environment);
   const modelProvider = createModelProvider(environment);
+  const piiRedactionProvider = createPIIRedactionProvider(environment);
 
   const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule.register(configProvider, modelProvider),
+    AppModule.register(configProvider, modelProvider, piiRedactionProvider),
     new FastifyAdapter(),
   );
   await startModelgwGrpcTransport(app, {

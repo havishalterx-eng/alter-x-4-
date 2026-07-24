@@ -35,7 +35,7 @@ export {
   TITAN_EMBEDDING_CAPABILITIES,
   TITAN_TEXT_EMBEDDINGS_V2_MODEL_ID,
   TitanEmbeddingProvider,
-  type BedrockRuntimeCommandClient,
+  type BedrockRuntimeCommandClient as TitanBedrockRuntimeCommandClient,
   type TitanEmbeddingProviderConfig,
 } from "./aws/titan-embedding-provider";
 export {
@@ -51,3 +51,10 @@ export {
   type AwsBedrockModelProviderConfig,
   type BedrockRuntimeCommandClient,
 } from "./aws/bedrock-model-provider";
+export {
+  PRESIDIO_PII_REDACTION_CAPABILITIES,
+  PresidioPIIRedactionProvider,
+  createFetchPresidioHttpClient,
+  type PresidioHttpClient,
+  type PresidioPIIRedactionProviderConfig,
+} from "./presidio/presidio-pii-redaction-provider";

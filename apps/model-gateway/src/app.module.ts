@@ -1,7 +1,11 @@
 import { Module, type DynamicModule } from "@nestjs/common";
 
 import { MODELGW_HANDLER, ModelgwGrpcController } from "@alterx/adapters";
-import type { ConfigProvider, ModelProvider } from "@alterx/shared-clients";
+import type {
+  ConfigProvider,
+  ModelProvider,
+  PIIRedactionProvider,
+} from "@alterx/shared-clients";
 
 import { ModelGatewayService } from "./gateway/model-gateway.service";
 import { HealthController } from "./health/health.controller";
@@ -11,6 +15,7 @@ export class AppModule {
   static register(
     configProvider: ConfigProvider,
     modelProvider: ModelProvider,
+    piiRedactionProvider: PIIRedactionProvider,
   ): DynamicModule {
     return {
       module: AppModule,
@@ -18,7 +23,11 @@ export class AppModule {
       providers: [
         {
           provide: MODELGW_HANDLER,
-          useValue: new ModelGatewayService(configProvider, modelProvider),
+          useValue: new ModelGatewayService(
+            configProvider,
+            modelProvider,
+            piiRedactionProvider,
+          ),
         },
       ],
     };

@@ -1,4 +1,8 @@
-import { createMockConfigProvider, createMockModelProvider } from "@alterx/shared-clients";
+import {
+  createMockConfigProvider,
+  createMockModelProvider,
+  createMockPIIRedactionProvider,
+} from "@alterx/shared-clients";
 import { describe, expect, it, vi } from "vitest";
 
 import { ModelGatewayService } from "./model-gateway.service";
@@ -21,7 +25,11 @@ describe("ModelGatewayService", () => {
     const configProvider = createMockConfigProvider();
     const invoke = vi.fn(createMockModelProvider().invoke);
     const modelProvider = createMockModelProvider({ invoke });
-    const service = new ModelGatewayService(configProvider, modelProvider);
+    const service = new ModelGatewayService(
+      configProvider,
+      modelProvider,
+      createMockPIIRedactionProvider(),
+    );
 
     const response = await service.invoke(request());
 
@@ -49,7 +57,11 @@ describe("ModelGatewayService", () => {
     const configProvider = createMockConfigProvider();
     const invoke = vi.fn(createMockModelProvider().invoke);
     const modelProvider = createMockModelProvider({ invoke });
-    const service = new ModelGatewayService(configProvider, modelProvider);
+    const service = new ModelGatewayService(
+      configProvider,
+      modelProvider,
+      createMockPIIRedactionProvider(),
+    );
 
     await service.invoke(request({ model_alias: "CEILING" }));
 
@@ -62,10 +74,77 @@ describe("ModelGatewayService", () => {
     const service = new ModelGatewayService(
       createMockConfigProvider(),
       createMockModelProvider(),
+      createMockPIIRedactionProvider(),
     );
 
     await expect(
       service.invoke(request({ model_alias: "ULTRA" })),
     ).rejects.toThrow(/not a recognized alias tier/);
+  });
+
+  it("redacts PII out of input_json before it reaches the model provider -- GATE-1's outbound path", async () => {
+    const configProvider = createMockConfigProvider();
+    const invoke = vi.fn(createMockModelProvider().invoke);
+    const modelProvider = createMockModelProvider({ invoke });
+    const piiRedactionProvider = createMockPIIRedactionProvider();
+    const service = new ModelGatewayService(
+      configProvider,
+      modelProvider,
+      piiRedactionProvider,
+    );
+
+    await service.invoke(
+      request({
+        input_json: JSON.stringify({
+          messages: [{ role: "user", content: "my PAN is ABCDE1234F" }],
+        }),
+      }),
+    );
+
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputJson: JSON.stringify({
+          messages: [{ role: "user", content: "my PAN is <IN_PAN>" }],
+        }),
+      }),
+    );
+  });
+
+  it("redact() delegates to the PIIRedactionProvider and reports a redaction count", async () => {
+    const service = new ModelGatewayService(
+      createMockConfigProvider(),
+      createMockModelProvider(),
+      createMockPIIRedactionProvider(),
+    );
+
+    const response = await service.redact({
+      tenant_id: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+      run_id: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
+      content: "PAN on file: ABCDE1234F",
+    });
+
+    expect(response).toEqual({
+      redacted_content: "PAN on file: <IN_PAN>",
+      redaction_count: 1,
+    });
+  });
+
+  it("redact() returns the text unchanged and a zero count when no PII is present", async () => {
+    const service = new ModelGatewayService(
+      createMockConfigProvider(),
+      createMockModelProvider(),
+      createMockPIIRedactionProvider(),
+    );
+
+    const response = await service.redact({
+      tenant_id: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+      run_id: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
+      content: "nothing sensitive here",
+    });
+
+    expect(response).toEqual({
+      redacted_content: "nothing sensitive here",
+      redaction_count: 0,
+    });
   });
 });

@@ -10,6 +10,7 @@ import {
 import type {
   ModelgwInvokeRequest,
   ModelgwInvokeResponse,
+  ModelgwRedactRequest,
   ModelgwRedactResponse,
   ModelgwSelectFallbackResponse,
 } from "@alterx/contracts";
@@ -22,6 +23,7 @@ export const MODELGW_HANDLER = Symbol("MODELGW_HANDLER");
 
 export interface ModelgwHandler {
   invoke(request: ModelgwInvokeRequest): Promise<ModelgwInvokeResponse>;
+  redact(request: ModelgwRedactRequest): Promise<ModelgwRedactResponse>;
 }
 
 export interface ModelgwGrpcTransportConfig {
@@ -70,13 +72,18 @@ export class ModelgwGrpcController {
     });
   }
 
-  // Presidio-backed PII redaction is a later Gateways ticket.
   @GrpcMethod("ModelgwService", "Redact")
-  redact(): ModelgwRedactResponse {
-    throw new RpcException({
-      code: status.UNIMPLEMENTED,
-      message: "PII redaction ships in a later Gateways ticket",
-    });
+  async redact(
+    request: ModelgwRedactRequest,
+  ): Promise<ModelgwRedactResponse> {
+    try {
+      return await this.handler.redact(request);
+    } catch {
+      throw new RpcException({
+        code: status.INTERNAL,
+        message: "PII redaction could not be completed",
+      });
+    }
   }
 
   // Automatic fallback-chain selection is GATE-3.

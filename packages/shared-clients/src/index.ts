@@ -48,6 +48,7 @@ export {
   embeddingProviderContract,
   modelProviderContract,
   observabilityProviderContract,
+  piiRedactionProviderContract,
   secretsProviderContract,
 } from "./provider-contracts";
 export {
@@ -82,7 +83,10 @@ export {
   type NetworkConnectivityProvider,
   type ObjectStorageProvider,
   type ObservabilityProvider,
+  type PIIDetectedEntity,
   type PIIRedactionProvider,
+  type PIIRedactionRequest,
+  type PIIRedactionResult,
   type ProviderHealth,
   type ProviderMetadata,
   type QueueProvider,
@@ -111,6 +115,18 @@ export {
   type MockProviderOptions,
 } from "./mock-provider";
 export {
+  IN_AADHAAR_PATTERN,
+  IN_BANK_IFSC_PATTERN,
+  IN_GSTIN_PATTERN,
+  IN_PAN_PATTERN,
+  IN_PHONE_NUMBER_PATTERN,
+  INDIAN_PII_RECOGNIZER_PATTERNS,
+  isValidAadhaar,
+  isValidVerhoeffChecksum,
+  validateRecognizedEntity,
+  type PIIRecognizerPattern,
+} from "./pii-recognizers";
+export {
   DEFAULT_MODEL_ALIAS_POLICY,
   MOCK_CONFIG_CAPABILITIES,
   createMockConfigProvider,
@@ -128,6 +144,12 @@ export {
   type MockEmbeddingProvider,
   type MockEmbeddingProviderOptions,
 } from "./mocks/embedding-provider";
+export {
+  MOCK_PII_REDACTION_CAPABILITIES,
+  createMockPIIRedactionProvider,
+  type MockPIIRedactionProvider,
+  type MockPIIRedactionProviderOptions,
+} from "./mocks/pii-redaction-provider";
 export {
   MOCK_DURABLE_EXECUTION_CAPABILITIES,
   DurableWorkflowAlreadyExistsError,
