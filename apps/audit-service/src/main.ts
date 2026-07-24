@@ -1,0 +1,67 @@
+import "reflect-metadata";
+
+import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
+import { NestFactory } from "@nestjs/core";
+
+import {
+  AwsSecretsManagerProvider,
+  PostgresAuditStoreProvider,
+  startAuditGrpcTransport,
+} from "@alterx/adapters";
+
+import { AppModule } from "./app.module";
+import { AUDIT_PROTO_PATH } from "./audit/grpc.constants";
+import { loadAuditEnvironment } from "./config/environment";
+import { AUDIT_MIGRATIONS_PATH } from "./database/migrations-path";
+import { resolveDatabaseConnectionString } from "./database/resolve-database-secret";
+
+async function bootstrap(): Promise<void> {
+  const environment = loadAuditEnvironment(process.env);
+  let secretsProvider: AwsSecretsManagerProvider | undefined;
+  let store: PostgresAuditStoreProvider | undefined;
+
+  try {
+    if (environment.databaseAuthentication === "iam") {
+      store = new PostgresAuditStoreProvider({
+        authentication: "iam",
+        host: environment.databaseHost,
+        port: environment.databasePort,
+        database: environment.databaseName,
+        user: environment.databaseUser,
+        region: environment.region,
+        migrationsFolder: AUDIT_MIGRATIONS_PATH,
+      });
+    } else {
+      secretsProvider = new AwsSecretsManagerProvider({
+        region: environment.region,
+      });
+      const connectionString = await resolveDatabaseConnectionString(
+        secretsProvider,
+        environment.databaseSecretReference,
+      );
+      store = new PostgresAuditStoreProvider({
+        authentication: "static",
+        connectionString,
+        migrationsFolder: AUDIT_MIGRATIONS_PATH,
+      });
+    }
+    await store.migrate();
+    const app = await NestFactory.create<NestFastifyApplication>(
+      AppModule.register(store),
+      new FastifyAdapter(),
+    );
+    await startAuditGrpcTransport(app, {
+      bindAddress: environment.grpcBindAddress,
+      protoPath: AUDIT_PROTO_PATH,
+    });
+    app.enableShutdownHooks();
+    await app.listen(environment.httpPort, "0.0.0.0");
+  } catch (error: unknown) {
+    await store?.close();
+    throw error;
+  } finally {
+    secretsProvider?.close();
+  }
+}
+
+void bootstrap();

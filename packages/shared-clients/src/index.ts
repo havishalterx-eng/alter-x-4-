@@ -25,13 +25,30 @@ export {
   type ProviderContractSuite,
 } from "./contract-testing";
 export {
+  AUDIT_GENESIS_HASH_HEX,
+  AUDIT_EVENT_HANDLER,
+  AUDIT_STORE_PROVIDER,
+  AuditValidationError,
+  auditGenesisHash,
+  calculateAuditEntryHash,
+  canonicalAuditEvent,
+  verifyAuditChain,
+  type AuditActorType,
+  type AuditChainVerificationIssue,
+  type AuditChainVerificationResult,
+  type AuditEventHandler,
+  type AuditEventToAppend,
+  type AuditResult,
+  type AuditStoreProvider,
+  type StoredAuditEvent,
+} from "./audit-ports";
+export {
   durableExecutionProviderContract,
   observabilityProviderContract,
   secretsProviderContract,
 } from "./provider-contracts";
 export {
   CANONICAL_PROVIDER_INTERFACES,
-  type AuditStoreProvider,
   type BaseProvider,
   type BrowserProvider,
   type CacheProvider,
@@ -73,6 +90,12 @@ export {
   type WorkflowQueryRequest,
   type WorkflowQueryResult,
 } from "./provider-types";
+export {
+  MOCK_AUDIT_STORE_CAPABILITIES,
+  createMockAuditStoreProvider,
+  type MockAuditStoreProvider,
+  type MockAuditStoreProviderOptions,
+} from "./mocks/audit-store-provider";
 export {
   createMockProvider,
   type MockProviderOptions,

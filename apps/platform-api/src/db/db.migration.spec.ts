@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import pg from "pg";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -22,10 +22,12 @@ const workspaceA = "00000000-0000-7000-8000-000000000021";
 const workspaceB = "00000000-0000-7000-8000-000000000022";
 
 function migrationStatements(): string[] {
-  const sql = readFileSync(
-    join(__dirname, "migrations", "0000_platform_db_identity_foundation.sql"),
-    "utf8",
-  );
+  const migrationsPath = join(__dirname, "migrations");
+  const sql = readdirSync(migrationsPath)
+    .filter((file) => file.endsWith(".sql"))
+    .sort()
+    .map((file) => readFileSync(join(migrationsPath, file), "utf8"))
+    .join("\n--> statement-breakpoint\n");
 
   return sql
     .split("--> statement-breakpoint")
@@ -79,6 +81,13 @@ async function seedRows(client: pg.Client): Promise<void> {
     `INSERT INTO entitlements (id, tenant_id, plan)
      VALUES ($1, $2, 'free'), ($3, $4, 'free')`,
     [randomUUID(), tenantA, randomUUID(), tenantB],
+  );
+  await client.query(
+    `INSERT INTO user_sessions
+       (id, user_id, tenant_id, refresh_token_hash, access_token_hash)
+     VALUES ($1, $2, $3, 'refresh-a', 'access-a'),
+            ($4, $5, $6, 'refresh-b', 'access-b')`,
+    [randomUUID(), userA, tenantA, randomUUID(), userB, tenantB],
   );
 }
 
@@ -141,6 +150,7 @@ describe("platform_db migration", () => {
       "entitlements",
       "tenant_members",
       "tenants",
+      "user_sessions",
       "users",
       "workspace_members",
       "workspaces",
@@ -172,6 +182,16 @@ describe("platform_db migration", () => {
       table_name: "entitlements",
       column_name: "limits",
       data_type: "jsonb",
+    });
+    expect(columns).toContainEqual({
+      table_name: "tenants",
+      column_name: "sso_config",
+      data_type: "jsonb",
+    });
+    expect(columns).toContainEqual({
+      table_name: "user_sessions",
+      column_name: "refresh_token_hash",
+      data_type: "text",
     });
   });
 
@@ -213,6 +233,7 @@ describe("platform_db migration", () => {
         "tenant_members",
         "workspace_members",
         "entitlements",
+        "user_sessions",
       ]) {
         await rlsClient.query("RESET app.current_tenant_id");
         const unset = await rlsClient.query<{ count: string }>(
@@ -239,7 +260,7 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
-    expect(rows[0]?.count).toBe("6");
+    expect(rows[0]?.count).toBe("7");
   });
 
   it("prevents tenant_id mutation on tenant-owned rows", async () => {

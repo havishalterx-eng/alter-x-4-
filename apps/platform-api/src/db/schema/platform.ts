@@ -23,6 +23,7 @@ export const tenants = pgTable("tenants", {
   dataResidency: jsonb("data_residency"),
   retentionOverrides: jsonb("retention_overrides"),
   securityPolicy: jsonb("security_policy"),
+  ssoConfig: jsonb("sso_config"),
   billingProfileId: uuid("billing_profile_id"),
   createdAt,
   updatedAt,
@@ -114,4 +115,23 @@ export const entitlements = pgTable("entitlements", {
   effectiveFrom: timestamp("effective_from", { withTimezone: true }),
   effectiveTo: timestamp("effective_to", { withTimezone: true }),
   createdAt,
+});
+
+export const userSessions = pgTable("user_sessions", {
+  id: uuid("id").primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id),
+  refreshTokenHash: text("refresh_token_hash").notNull(),
+  accessTokenHash: text("access_token_hash").notNull(),
+  deviceInfo: jsonb("device_info"),
+  ip: text("ip"),
+  createdAt,
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
 });

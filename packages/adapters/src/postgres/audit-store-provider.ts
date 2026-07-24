@@ -1,0 +1,301 @@
+import { Signer } from "@aws-sdk/rds-signer";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import {
+  Pool,
+  type PoolClient,
+  type PoolConfig,
+  type QueryResultRow,
+} from "pg";
+
+import type { ProviderCapabilities } from "@alterx/contracts";
+import {
+  auditGenesisHash,
+  calculateAuditEntryHash,
+  type AuditEventToAppend,
+  type AuditStoreProvider,
+  type ProviderHealth,
+  type ProviderMetadata,
+  type StoredAuditEvent,
+} from "@alterx/shared-clients";
+
+interface PostgresAuditStoreBaseConfig {
+  readonly migrationsFolder: string;
+}
+
+export interface PostgresAuditStoreStaticConfig
+  extends PostgresAuditStoreBaseConfig {
+  readonly authentication: "static";
+  readonly connectionString: string;
+}
+
+export interface PostgresAuditStoreIamConfig
+  extends PostgresAuditStoreBaseConfig {
+  readonly authentication: "iam";
+  readonly host: string;
+  readonly port: number;
+  readonly database: string;
+  readonly user: string;
+  readonly region: string;
+}
+
+export type PostgresAuditStoreConfig =
+  | PostgresAuditStoreStaticConfig
+  | PostgresAuditStoreIamConfig;
+
+interface IamAuthTokenProvider {
+  getAuthToken(): Promise<string>;
+}
+
+interface PostgresAuditStoreDependencies {
+  readonly pool?: Pool;
+  readonly iamAuthTokenProvider?: IamAuthTokenProvider;
+  readonly poolFactory?: (config: PoolConfig) => Pool;
+}
+
+interface DatabaseAuditRow extends QueryResultRow {
+  readonly id: string;
+  readonly tenant_id: string | null;
+  readonly tenant_pseudonym: string | null;
+  readonly actor_type: StoredAuditEvent["actorType"];
+  readonly actor_ref: string;
+  readonly action: string;
+  readonly target_type: string | null;
+  readonly target_ref: string | null;
+  readonly result: StoredAuditEvent["result"];
+  readonly reason_code: string | null;
+  readonly context: StoredAuditEvent["context"];
+  readonly occurred_at: Date;
+  readonly prev_hash: Buffer;
+  readonly entry_hash: Buffer;
+}
+
+const POSTGRES_AUDIT_CAPABILITIES: ProviderCapabilities = {
+  streaming: false,
+  tool_calling: false,
+  vision: false,
+  structured_output: true,
+  long_context: false,
+  regional_availability: ["ap-south-1"],
+  data_residency: ["IN"],
+  batch_support: false,
+  maximum_payload: 8_192,
+  supported_languages: [],
+  cost_model: { rates: [] },
+};
+
+const POSTGRES_AUDIT_METADATA: ProviderMetadata<"AuditStoreProvider"> = {
+  providerId: "postgres-audit-store",
+  interfaceName: "AuditStoreProvider",
+  displayName: "PostgreSQL Audit Store",
+  version: "foundation-v1",
+  telemetryNamespace: "alterx.adapters.postgres.audit-store",
+  supportsTenantOverrides: false,
+  migration: {
+    strategyVersion: "audit-events-v1",
+    rollbackSupported: true,
+  },
+};
+
+function requireConfig(field: string, value: string): void {
+  if (value.trim().length === 0) {
+    throw new Error(`Postgres audit store config field ${field} is required`);
+  }
+}
+
+function createPoolConfig(
+  config: PostgresAuditStoreConfig,
+  iamAuthTokenProvider?: IamAuthTokenProvider,
+): PoolConfig {
+  if (config.authentication === "static") {
+    requireConfig("connectionString", config.connectionString);
+    return { connectionString: config.connectionString };
+  }
+
+  requireConfig("host", config.host);
+  requireConfig("database", config.database);
+  requireConfig("user", config.user);
+  requireConfig("region", config.region);
+  if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65_535) {
+    throw new Error(
+      "Postgres audit store config field port must be an integer from 1 to 65535",
+    );
+  }
+
+  const tokenProvider =
+    iamAuthTokenProvider ??
+    new Signer({
+      hostname: config.host,
+      port: config.port,
+      username: config.user,
+      region: config.region,
+    });
+
+  return {
+    host: config.host,
+    port: config.port,
+    database: config.database,
+    user: config.user,
+    password: () => tokenProvider.getAuthToken(),
+    ssl: { rejectUnauthorized: true },
+  };
+}
+
+function toStoredAuditEvent(row: DatabaseAuditRow): StoredAuditEvent {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    tenantPseudonym: row.tenant_pseudonym,
+    actorType: row.actor_type,
+    actorRef: row.actor_ref,
+    action: row.action,
+    targetType: row.target_type,
+    targetRef: row.target_ref,
+    result: row.result,
+    reasonCode: row.reason_code,
+    context: row.context,
+    occurredAt: row.occurred_at,
+    prevHash: row.prev_hash,
+    entryHash: row.entry_hash,
+  };
+}
+
+async function enableInternalAuditAccess(client: PoolClient): Promise<void> {
+  await client.query("SELECT set_config('app.audit_internal', 'on', true)");
+}
+
+export class PostgresAuditStoreProvider implements AuditStoreProvider {
+  readonly metadata = POSTGRES_AUDIT_METADATA;
+  readonly capabilities = POSTGRES_AUDIT_CAPABILITIES;
+
+  readonly #pool: Pool;
+  readonly #migrationsFolder: string;
+
+  constructor(
+    config: PostgresAuditStoreConfig,
+    dependencies: PostgresAuditStoreDependencies = {},
+  ) {
+    requireConfig("migrationsFolder", config.migrationsFolder);
+    this.#pool =
+      dependencies.pool ??
+      (dependencies.poolFactory ?? ((poolConfig) => new Pool(poolConfig)))(
+        createPoolConfig(config, dependencies.iamAuthTokenProvider),
+      );
+    this.#migrationsFolder = config.migrationsFolder;
+  }
+
+  async migrate(): Promise<void> {
+    await migrate(drizzle(this.#pool), {
+      migrationsFolder: this.#migrationsFolder,
+    });
+  }
+
+  async append(event: AuditEventToAppend): Promise<StoredAuditEvent> {
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN");
+      await enableInternalAuditAccess(client);
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('alter.audit.global-chain.v1', 0))",
+      );
+
+      const tipResult = await client.query<{ entry_hash: Buffer }>(`
+        SELECT current_event.entry_hash
+        FROM audit_events AS current_event
+        LEFT JOIN audit_events AS next_event
+          ON next_event.prev_hash = current_event.entry_hash
+        WHERE next_event.id IS NULL
+        LIMIT 2
+      `);
+      if (tipResult.rowCount !== 0 && tipResult.rowCount !== 1) {
+        throw new Error("Audit chain has multiple tips");
+      }
+
+      const prevHash = tipResult.rows[0]?.entry_hash ?? auditGenesisHash();
+      const pendingEvent = { ...event, prevHash };
+      const entryHash = calculateAuditEntryHash(pendingEvent);
+      const inserted = await client.query<DatabaseAuditRow>(
+        `
+          INSERT INTO audit_events (
+            id, tenant_id, tenant_pseudonym, actor_type, actor_ref, action,
+            target_type, target_ref, result, reason_code, context, occurred_at,
+            prev_hash, entry_hash
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, $10, $11, $12,
+            $13, $14
+          )
+          RETURNING *
+        `,
+        [
+          event.id,
+          event.tenantId,
+          event.tenantPseudonym,
+          event.actorType,
+          event.actorRef,
+          event.action,
+          event.targetType,
+          event.targetRef,
+          event.result,
+          event.reasonCode,
+          event.context,
+          event.occurredAt,
+          prevHash,
+          entryHash,
+        ],
+      );
+      const row = inserted.rows[0];
+      if (row === undefined) {
+        throw new Error("Audit insert returned no row");
+      }
+
+      await client.query("COMMIT");
+      return toStoredAuditEvent(row);
+    } catch (error: unknown) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async readGlobalChain(): Promise<readonly StoredAuditEvent[]> {
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN READ ONLY");
+      await enableInternalAuditAccess(client);
+      const result = await client.query<DatabaseAuditRow>(
+        "SELECT * FROM audit_events",
+      );
+      await client.query("COMMIT");
+      return result.rows.map(toStoredAuditEvent);
+    } catch (error: unknown) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async healthCheck(): Promise<ProviderHealth> {
+    const startedAt = process.hrtime.bigint();
+    try {
+      await this.#pool.query("SELECT 1");
+      return {
+        status: "healthy",
+        checkedAt: new Date().toISOString(),
+        latencyMs: Number(process.hrtime.bigint() - startedAt) / 1_000_000,
+      };
+    } catch {
+      return {
+        status: "unhealthy",
+        checkedAt: new Date().toISOString(),
+        latencyMs: Number(process.hrtime.bigint() - startedAt) / 1_000_000,
+      };
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.#pool.end();
+  }
+}

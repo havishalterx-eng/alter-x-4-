@@ -6,20 +6,29 @@ export default defineConfig({
       "apps/platform-api/src/**/*.spec.ts",
       "tests/integration/rbac/**/*.spec.ts",
     ],
-    exclude: ["apps/platform-api/src/db/db.migration.spec.ts"],
+    exclude: [
+      "apps/platform-api/src/db/db.migration.spec.ts",
+      "apps/platform-api/src/identity/**/*.integration.spec.ts",
+    ],
     coverage: {
       provider: "v8",
       all: true,
       include: [
         "apps/platform-api/src/db/**/*.ts",
+        "apps/platform-api/src/identity/**/*.ts",
         "apps/platform-api/src/rbac/**/*.ts",
       ],
       exclude: [
         "apps/platform-api/src/db/**/*.spec.ts",
+        "apps/platform-api/src/identity/**/*.spec.ts",
         "apps/platform-api/src/rbac/**/*.spec.ts",
       ],
       thresholds: {
         lines: 90,
+        "apps/platform-api/src/identity/**/*.ts": {
+          lines: 90,
+          branches: 90,
+        },
         "apps/platform-api/src/rbac/**/*.ts": {
           lines: 90,
           branches: 90,

@@ -1,0 +1,73 @@
+{
+  "name": "audit-service",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/audit-service/src",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "{workspaceRoot}/dist/apps/audit-service"
+      ],
+      "options": {
+        "commands": [
+          "tsc -p apps/audit-service/tsconfig.app.json",
+          "node apps/audit-service/scripts/copy-build-assets.mjs"
+        ],
+        "parallel": false
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build"
+      ],
+      "options": {
+        "command": "node dist/apps/audit-service/main.js"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "eslintConfig": "apps/audit-service/eslint.config.mjs",
+        "lintFilePatterns": [
+          "apps/audit-service/src/**/*.ts"
+        ]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build"
+      ],
+      "options": {
+        "command": "tsc --noEmit -p apps/audit-service/tsconfig.json"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build"
+      ],
+      "options": {
+        "command": "vitest run --config apps/audit-service/vitest.config.ts"
+      }
+    },
+    "coverage": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{projectRoot}/coverage"
+      ],
+      "options": {
+        "command": "vitest run --coverage --config apps/audit-service/vitest.config.ts"
+      }
+    }
+  },
+  "tags": [
+    "type:service",
+    "security-critical"
+  ]
+}

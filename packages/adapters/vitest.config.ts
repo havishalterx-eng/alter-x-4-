@@ -9,10 +9,13 @@ export default defineConfig({
       provider: "v8",
       reportsDirectory: "packages/adapters/coverage",
       include: [
+        "packages/adapters/src/aws/secrets-manager-provider.ts",
+        "packages/adapters/src/grpc/audit-grpc-transport.ts",
+        "packages/adapters/src/postgres/audit-store-provider.ts",
         "packages/adapters/src/temporal/durable-execution-provider.ts",
       ],
       thresholds: {
-        branches: 85,
+        branches: 90,
       },
     },
   },

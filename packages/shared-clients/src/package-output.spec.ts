@@ -20,6 +20,8 @@ describe("@alterx/shared-clients built package", () => {
             "createMockSecretsProvider",
             "createMockObservabilityProvider",
             "createMockDurableExecutionProvider",
+            "createMockAuditStoreProvider",
+            "verifyAuditChain",
           ]) {
             if (!(name in builtPackage)) process.exit(2);
           }
