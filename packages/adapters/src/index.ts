@@ -38,3 +38,9 @@ export {
   type ModelgwGrpcTransportConfig,
   type ModelgwHandler,
 } from "./grpc/modelgw-grpc-transport";
+export {
+  BEDROCK_CAPABILITIES,
+  AwsBedrockModelProvider,
+  type AwsBedrockModelProviderConfig,
+  type BedrockRuntimeCommandClient,
+} from "./aws/bedrock-model-provider";

@@ -116,14 +116,21 @@ describe("ModelProvider mock", () => {
       nodeExecutionId: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
       modelId: "mock.standard.v1",
       capabilityTags: ["general"],
-      inputJson: JSON.stringify({ prompt: "hello" }),
+      inputJson: JSON.stringify({
+        messages: [{ role: "user", content: "hello" }],
+      }),
     });
 
     expect(JSON.parse(result.outputJson)).toEqual({
-      echo: { prompt: "hello" },
+      message: {
+        role: "assistant",
+        content: "mock response to: hello",
+      },
+      stop_reason: "end_turn",
     });
-    expect(JSON.parse(result.usageJson)).toMatchObject({
-      model_id: "mock.standard.v1",
+    expect(JSON.parse(result.usageJson)).toEqual({
+      input_tokens: 0,
+      output_tokens: 0,
     });
   });
 });

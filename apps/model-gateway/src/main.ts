@@ -3,11 +3,16 @@ import "reflect-metadata";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { NestFactory } from "@nestjs/core";
 
-import { AwsAppConfigConfigProvider, startModelgwGrpcTransport } from "@alterx/adapters";
+import {
+  AwsAppConfigConfigProvider,
+  AwsBedrockModelProvider,
+  startModelgwGrpcTransport,
+} from "@alterx/adapters";
 import {
   createMockConfigProvider,
   createMockModelProvider,
   type ConfigProvider,
+  type ModelProvider,
 } from "@alterx/shared-clients";
 
 import { AppModule } from "./app.module";
@@ -28,12 +33,19 @@ function createConfigProvider(
   });
 }
 
+function createModelProvider(
+  environment: ReturnType<typeof loadModelGatewayEnvironment>,
+): ModelProvider {
+  if (environment.configSource === "mock") {
+    return createMockModelProvider();
+  }
+  return new AwsBedrockModelProvider({ region: environment.region });
+}
+
 async function bootstrap(): Promise<void> {
   const environment = loadModelGatewayEnvironment(process.env);
   const configProvider = createConfigProvider(environment);
-  // Real Bedrock invocation is GATE-2; GATE-1 wires the skeleton and alias
-  // resolution against a mock ModelProvider so the service is swap-ready.
-  const modelProvider = createMockModelProvider();
+  const modelProvider = createModelProvider(environment);
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule.register(configProvider, modelProvider),

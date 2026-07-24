@@ -9,7 +9,9 @@ function request(overrides: Partial<Parameters<ModelGatewayService["invoke"]>[0]
     run_id: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
     node_execution_id: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
     model_alias: "STANDARD",
-    input_json: JSON.stringify({ prompt: "hello" }),
+    input_json: JSON.stringify({
+      messages: [{ role: "user", content: "hello" }],
+    }),
     ...overrides,
   };
 }
@@ -29,11 +31,17 @@ describe("ModelGatewayService", () => {
       nodeExecutionId: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
       modelId: "mock.standard.v1",
       capabilityTags: ["general"],
-      inputJson: JSON.stringify({ prompt: "hello" }),
+      inputJson: JSON.stringify({
+        messages: [{ role: "user", content: "hello" }],
+      }),
     });
     expect(response.resolved_capability).toBe("STANDARD");
     expect(JSON.parse(response.output_json)).toEqual({
-      echo: { prompt: "hello" },
+      message: {
+        role: "assistant",
+        content: "mock response to: hello",
+      },
+      stop_reason: "end_turn",
     });
   });
 

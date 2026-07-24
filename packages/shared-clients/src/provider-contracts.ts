@@ -299,7 +299,9 @@ export const modelProviderContract: ProviderContractSuite<ModelProvider> = {
           nodeExecutionId: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
           modelId: "contract-model",
           capabilityTags: ["general"],
-          inputJson: JSON.stringify({ prompt: "contract fixture" }),
+          inputJson: JSON.stringify({
+            messages: [{ role: "user", content: "contract fixture" }],
+          }),
         });
         ensure(
           typeof result.outputJson === "string" && result.outputJson.length > 0,

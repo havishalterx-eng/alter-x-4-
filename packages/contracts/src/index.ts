@@ -39,6 +39,18 @@ export {
   type ModelAliasPolicy,
 } from "./model-alias-policy";
 export {
+  ModelInvocationPayloadSchema,
+  ModelInvocationResultPayloadSchema,
+  ModelInvocationUsageSchema,
+  ModelMessageRoleSchema,
+  ModelMessageSchema,
+  type ModelInvocationPayload,
+  type ModelInvocationResultPayload,
+  type ModelInvocationUsage,
+  type ModelMessage,
+  type ModelMessageRole,
+} from "./model-invocation-payload";
+export {
   ApprovalRequestedDataSchema,
   ClarificationRequestedDataSchema,
   DeploymentStatusDataSchema,
