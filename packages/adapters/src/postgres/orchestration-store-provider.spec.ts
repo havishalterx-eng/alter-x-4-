@@ -151,7 +151,10 @@ describe.sequential("PostgresOrchestrationStoreProvider integration", () => {
     }>(
       `SELECT relname, relrowsecurity, relforcerowsecurity
        FROM pg_class
-       WHERE relname = ANY($1::text[])
+       JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+       WHERE pg_namespace.nspname = 'public'
+         AND pg_class.relkind = 'r'
+         AND relname = ANY($1::text[])
        ORDER BY relname`,
       [tables],
     );
@@ -183,7 +186,8 @@ describe.sequential("PostgresOrchestrationStoreProvider integration", () => {
       ORDER BY source.relname, target.relname
     `);
 
-    expect(result.rows).toEqual([
+    expect(result.rows).toHaveLength(8);
+    expect(result.rows).toEqual(expect.arrayContaining([
       { table_name: "events", foreign_table_name: "conversations" },
       { table_name: "events", foreign_table_name: "triggers" },
       { table_name: "events", foreign_table_name: "trigger_versions" },
@@ -192,7 +196,7 @@ describe.sequential("PostgresOrchestrationStoreProvider integration", () => {
       { table_name: "runs", foreign_table_name: "workflows" },
       { table_name: "trigger_versions", foreign_table_name: "triggers" },
       { table_name: "triggers", foreign_table_name: "workflows" },
-    ]);
+    ]));
   });
 
   it("defaults to deny and isolates reads and writes for every table", async () => {
@@ -325,11 +329,11 @@ describe.sequential("PostgresOrchestrationStoreProvider integration", () => {
         `INSERT INTO events (
            event_id, event_type, schema_version, tenant_id, workspace_id,
            source, correlation_id, idempotency_key, occurred_at,
-           trigger_id, payload, signature_status
+           trigger_id, trigger_version, payload, signature_status
          ) VALUES (
            'evt_cross_trigger', 'order.created', '1.0.0', $1, $2,
            'shopify', 'corr_cross_trigger', 'event-cross-trigger',
-           now(), 'trg_b', '{}'::jsonb, 'verified'
+           now(), 'trg_b', 1, '{}'::jsonb, 'verified'
          )`,
         [tenantA, workspaceA],
       ),
