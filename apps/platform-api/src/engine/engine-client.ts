@@ -11,11 +11,14 @@ import {
 } from "./problem";
 import type {
   EngineCallerContext,
+  EngineEventStream,
   EngineMutationOptions,
   EnginePatchOptions,
   EnginePath,
   EngineRequestBody,
   EngineResponse,
+  EngineSseMessage,
+  EngineStreamOptions,
 } from "./types";
 
 export const ENGINE_CONFIG = Symbol("ENGINE_CONFIG");
@@ -78,6 +81,69 @@ export class EngineClient {
     return this.request("DELETE", path, context, {
       idempotencyKey: options.idempotencyKey,
     });
+  }
+
+  async stream(
+    path: EnginePath,
+    context: EngineCallerContext,
+    options: EngineStreamOptions = {},
+  ): Promise<EngineEventStream> {
+    assertEnginePath(path);
+    let authorization;
+    try {
+      authorization = await this.authProvider.authorize(context);
+    } catch {
+      throw new EngineProblemError(
+        upstreamProblem(502, path, "UPSTREAM_SERVICE_ERROR"),
+      );
+    }
+
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    options.signal?.addEventListener("abort", abort, { once: true });
+
+    try {
+      const response = await this.openGetStream(
+        `${this.config.baseUrl}${path}`,
+        {
+          method: "GET",
+          headers: {
+            ...requestHeaders(context, authorization, {}),
+            Accept: "text/event-stream, application/problem+json",
+            ...(options.lastEventId
+              ? { "Last-Event-ID": options.lastEventId }
+              : {}),
+          },
+          signal: controller.signal,
+        },
+        path,
+      );
+      if (!response.body) {
+        throw new EngineProblemError(
+          upstreamProblem(502, path, "UPSTREAM_SERVICE_ERROR"),
+        );
+      }
+
+      return {
+        messages: parseSse(response.body),
+        close: () => {
+          options.signal?.removeEventListener("abort", abort);
+          controller.abort();
+        },
+      };
+    } catch (error) {
+      options.signal?.removeEventListener("abort", abort);
+      if (error instanceof EngineProblemError) {
+        throw error;
+      }
+      throw new EngineProblemError(
+        upstreamProblem(
+          isAbortError(error) ? 504 : 502,
+          path,
+          isAbortError(error) ? "UPSTREAM_TIMEOUT" : "UPSTREAM_SERVICE_ERROR",
+        ),
+      );
+    }
   }
 
   private async request<TResponse>(
@@ -162,11 +228,45 @@ export class EngineClient {
     try {
       return await this.fetchImpl(url, {
         ...init,
-        signal: controller.signal,
+        signal: init.signal
+          ? AbortSignal.any([controller.signal, init.signal])
+          : controller.signal,
       });
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private async openGetStream(
+    url: string,
+    init: RequestInit,
+    path: EnginePath,
+  ): Promise<Response> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await this.fetchWithTimeout(url, init);
+        if (response.ok) {
+          return response;
+        }
+        if (attempt === 0 && isRetryableStatus(response.status)) {
+          await this.retryDelay(25);
+          continue;
+        }
+        throw new EngineProblemError(
+          await engineProblemFromResponse(response, path),
+        );
+      } catch (error) {
+        if (error instanceof EngineProblemError) {
+          throw error;
+        }
+        if (attempt === 0) {
+          await this.retryDelay(25);
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error("Engine stream request exhausted without result");
   }
 }
 
@@ -235,4 +335,80 @@ function isAbortError(error: unknown): boolean {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function* parseSse(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<EngineSseMessage> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let id: string | undefined;
+  let event: string | undefined;
+  let data: string[] = [];
+
+  const dispatch = (): EngineSseMessage | undefined => {
+    if (data.length === 0) {
+      id = undefined;
+      event = undefined;
+      return undefined;
+    }
+    const message: EngineSseMessage = {
+      data: JSON.parse(data.join("\n")) as unknown,
+    };
+    if (id !== undefined) {
+      message.id = id;
+    }
+    if (event !== undefined) {
+      message.event = event;
+    }
+    id = undefined;
+    event = undefined;
+    data = [];
+    return message;
+  };
+
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? "";
+      if (chunk.done && buffer) {
+        lines.push(buffer);
+        buffer = "";
+      }
+      for (const line of lines) {
+        if (line === "") {
+          const message = dispatch();
+          if (message) {
+            yield message;
+          }
+        } else if (!line.startsWith(":")) {
+          const separator = line.indexOf(":");
+          const field = separator < 0 ? line : line.slice(0, separator);
+          const value =
+            separator < 0
+              ? ""
+              : line.slice(separator + 1).replace(/^ /, "");
+          if (field === "id") {
+            id = value;
+          } else if (field === "event") {
+            event = value;
+          } else if (field === "data") {
+            data.push(value);
+          }
+        }
+      }
+      if (chunk.done) {
+        const message = dispatch();
+        if (message) {
+          yield message;
+        }
+        return;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }

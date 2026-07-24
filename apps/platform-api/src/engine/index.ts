@@ -17,9 +17,12 @@ export { EngineProblemError } from "./problem";
 export type {
   EngineAuthorization,
   EngineCallerContext,
+  EngineEventStream,
   EngineMutationOptions,
   EnginePatchOptions,
   EnginePath,
   EngineRequestBody,
   EngineResponse,
+  EngineSseMessage,
+  EngineStreamOptions,
 } from "./types";

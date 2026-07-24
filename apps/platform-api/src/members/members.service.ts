@@ -3,6 +3,10 @@ import type { ActorContext } from "../rbac/types";
 import { tenantRoleAllows } from "../rbac/types";
 import { PlatformDb } from "../signup/platform-db";
 import { PlatformHttpError } from "../signup/problem";
+import {
+  streamRevocationBus,
+  type StreamRevocationBus,
+} from "../streaming/revocation";
 
 export interface MemberView {
   id: string;
@@ -20,7 +24,10 @@ export interface InviteMemberInput {
 }
 
 export class MembersService {
-  constructor(private readonly db: PlatformDb) {}
+  constructor(
+    private readonly db: PlatformDb,
+    private readonly revocations: StreamRevocationBus = streamRevocationBus,
+  ) {}
 
   async list(actor: ActorContext): Promise<MemberView[]> {
     const tenant = await this.db.queryTenant<MemberView>(
@@ -76,11 +83,19 @@ export class MembersService {
   async remove(actor: ActorContext, memberId: string, scope: string): Promise<void> {
     assertAdmin(actor);
     const table = scope === "workspace" ? "workspace_members" : "tenant_members";
-    await this.db.queryTenant(
+    const removed = await this.db.queryTenant<{ userId: string }>(
       actor.tenant_id,
-      `DELETE FROM ${table} WHERE id = $1 AND tenant_id = $2`,
+      `DELETE FROM ${table} WHERE id = $1 AND tenant_id = $2
+       RETURNING user_id AS "userId"`,
       [memberId, actor.tenant_id],
     );
+    const member = removed[0];
+    if (member) {
+      this.revocations.publish({
+        tenantId: actor.tenant_id,
+        userId: member.userId,
+      });
+    }
   }
 }
 

@@ -30,6 +30,7 @@ export default defineConfig({
         "apps/platform-api/src/engine/**/*.ts",
         "apps/platform-api/src/idempotency/**/*.ts",
         "apps/platform-api/src/concurrency/**/*.ts",
+        "apps/platform-api/src/streaming/**/*.ts",
       ],
       exclude: [
         "apps/platform-api/src/db/**/*.spec.ts",
@@ -46,6 +47,7 @@ export default defineConfig({
         "apps/platform-api/src/engine/**/*.spec.ts",
         "apps/platform-api/src/idempotency/**/*.spec.ts",
         "apps/platform-api/src/concurrency/**/*.spec.ts",
+        "apps/platform-api/src/streaming/**/*.spec.ts",
       ],
       thresholds: {
         lines: 90,
@@ -97,6 +99,14 @@ export default defineConfig({
           branches: 90,
         },
         "apps/platform-api/src/concurrency/**/*.ts": {
+          lines: 90,
+          branches: 90,
+        },
+        "apps/platform-api/src/streaming/**/*.ts": {
+          lines: 85,
+          branches: 80,
+        },
+        "apps/platform-api/src/streaming/{revocation,stream-gateway}.ts": {
           lines: 90,
           branches: 90,
         },

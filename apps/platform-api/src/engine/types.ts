@@ -35,4 +35,20 @@ export interface EnginePatchOptions extends EngineMutationOptions {
   ifMatch: string;
 }
 
+export interface EngineSseMessage {
+  id?: string;
+  event?: string;
+  data: unknown;
+}
+
+export interface EngineEventStream {
+  messages: AsyncIterable<EngineSseMessage>;
+  close(): void;
+}
+
+export interface EngineStreamOptions {
+  signal?: AbortSignal;
+  lastEventId?: string;
+}
+
 export type EngineRequestBody = JsonValue;

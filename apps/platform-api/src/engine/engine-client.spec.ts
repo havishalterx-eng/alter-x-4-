@@ -261,6 +261,147 @@ describe("EngineClient", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("opens typed SSE streams with caller context and parses frames", async () => {
+    let requestSignal: AbortSignal | undefined;
+    const fetchImpl = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        requestSignal = init?.signal ?? undefined;
+        return new Response(
+          ': keepalive\n\nid: 7\nevent: run.status\ndata: {"seq":7,"event":"run.status","run_id":"run_018f47a5-7b2c-7d10-8f11-123456789abc","ts":"2026-07-24T10:00:00.000Z","data":{"status":"running"}}\n\n',
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      },
+    );
+    const client = new EngineClient(config, authProvider, fetchImpl, noDelay);
+    const stream = await client.stream(
+      "/api/v1/runs/run_018f47a5-7b2c-7d10-8f11-123456789abc/stream",
+      context,
+      { lastEventId: "6" },
+    );
+
+    const messages = [];
+    for await (const message of stream.messages) {
+      messages.push(message);
+    }
+    expect(messages).toEqual([
+      {
+        id: "7",
+        event: "run.status",
+        data: expect.objectContaining({ seq: 7, event: "run.status" }),
+      },
+    ]);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/runs/"),
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          Authorization: "Bearer m2m-token",
+          "X-Alter-Actor-Token": "actor-token",
+          "Last-Event-ID": "6",
+          Accept: "text/event-stream, application/problem+json",
+        }),
+      }),
+    );
+    stream.close();
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
+  it("retries initial SSE connection once and maps terminal failure", async () => {
+    const retryingFetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(503, { unavailable: true }))
+      .mockResolvedValueOnce(
+        new Response("data: {\"ok\":true}\n\n", {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        }),
+      );
+    const client = new EngineClient(
+      config,
+      authProvider,
+      retryingFetch,
+      noDelay,
+    );
+    await expect(
+      client.stream("/api/v1/runs/run-1/stream", context),
+    ).resolves.toEqual(
+      expect.objectContaining({ messages: expect.anything() }),
+    );
+    expect(retryingFetch).toHaveBeenCalledTimes(2);
+
+    const failed = new EngineClient(
+      config,
+      authProvider,
+      vi.fn().mockResolvedValue(problemResponse(validProblem(403))),
+      noDelay,
+    );
+    await expect(
+      failed.stream("/api/v1/runs/run-1/stream", context),
+    ).rejects.toMatchObject({ problem: { status: 403 } });
+  });
+
+  it("maps SSE auth, network, abort, and bodyless failures", async () => {
+    const authFailure = new EngineClient(
+      config,
+      { authorize: vi.fn().mockRejectedValue(new Error("secret")) },
+      vi.fn(),
+      noDelay,
+    );
+    await expect(
+      authFailure.stream("/api/v1/runs/run-1/stream", context),
+    ).rejects.toMatchObject({
+      problem: { status: 502, error_code: "UPSTREAM_SERVICE_ERROR" },
+    });
+
+    const networkFetch = vi.fn().mockRejectedValue(new Error("offline"));
+    await expect(
+      new EngineClient(config, authProvider, networkFetch, noDelay).stream(
+        "/api/v1/runs/run-1/stream",
+        context,
+      ),
+    ).rejects.toMatchObject({ problem: { status: 502 } });
+    expect(networkFetch).toHaveBeenCalledTimes(2);
+
+    const abortFetch = vi
+      .fn()
+      .mockRejectedValue(new DOMException("timed out", "AbortError"));
+    await expect(
+      new EngineClient(config, authProvider, abortFetch, noDelay).stream(
+        "/api/v1/runs/run-1/stream",
+        context,
+      ),
+    ).rejects.toMatchObject({ problem: { status: 504 } });
+
+    await expect(
+      new EngineClient(
+        config,
+        authProvider,
+        vi.fn().mockResolvedValue(new Response(null, { status: 204 })),
+        noDelay,
+      ).stream("/api/v1/runs/run-1/stream", context),
+    ).rejects.toMatchObject({ problem: { status: 502 } });
+  });
+
+  it("parses data-only final SSE frames without trailing newline", async () => {
+    const client = new EngineClient(
+      config,
+      authProvider,
+      vi.fn().mockResolvedValue(
+        new Response('retry\ndata: {"ok":true}', {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        }),
+      ),
+      noDelay,
+    );
+    const stream = await client.stream("/api/v1/runs/run-1/stream", context);
+    const messages = [];
+    for await (const message of stream.messages) {
+      messages.push(message);
+    }
+    expect(messages).toEqual([{ data: { ok: true } }]);
+  });
+
   it("renders Engine errors as application/problem+json", () => {
     const problem = validProblem(409);
     const reply = filterReply();

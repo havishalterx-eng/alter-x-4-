@@ -13,6 +13,7 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
 import { OnboardingModule } from "./onboarding/onboarding.module";
 import { EngineModule } from "./engine/engine.module";
 import { IdempotencyModule } from "./idempotency/idempotency.module";
+import { StreamingModule } from "./streaming/streaming.module";
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { IdempotencyModule } from "./idempotency/idempotency.module";
     OnboardingModule,
     EngineModule,
     IdempotencyModule,
+    StreamingModule,
   ],
   controllers: [HealthController],
 })

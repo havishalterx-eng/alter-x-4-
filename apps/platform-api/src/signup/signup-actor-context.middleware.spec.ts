@@ -16,6 +16,7 @@ describe("SignupActorContextMiddleware", () => {
         id: "session",
         userId: "user",
         tenantId: "tenant",
+        createdAt: new Date("2026-07-24T10:00:00.000Z"),
       }),
     } as unknown as IdentityService;
     const db = {
@@ -36,6 +37,7 @@ describe("SignupActorContextMiddleware", () => {
       roles: ["owner", "admin"],
       permissions: [],
       session_id: "session",
+      auth_time: 1_784_887_200,
     });
     expect(next).toHaveBeenCalledOnce();
   });
@@ -60,6 +62,7 @@ describe("SignupActorContextMiddleware", () => {
         id: "session",
         userId: "user",
         tenantId: "tenant",
+        createdAt: new Date("2026-07-24T10:00:00.000Z"),
       }),
     } as unknown as IdentityService;
     const db = {
@@ -77,5 +80,35 @@ describe("SignupActorContextMiddleware", () => {
     expect(req.actorContext).toEqual(
       expect.not.objectContaining({ workspace_id: expect.anything() }),
     );
+  });
+
+  it("revalidates access token on every reconnect", async () => {
+    const identity = {
+      authenticateAccessToken: vi
+        .fn()
+        .mockResolvedValueOnce({
+          id: "session",
+          userId: "user",
+          tenantId: "tenant",
+          createdAt: new Date("2026-07-24T10:00:00.000Z"),
+        })
+        .mockRejectedValueOnce(new Error("expired")),
+    } as unknown as IdentityService;
+    const db = {
+      queryTenant: vi
+        .fn()
+        .mockResolvedValueOnce([{ role: "member", workspaceId: null }])
+        .mockResolvedValueOnce([{ role: "viewer", workspaceId: "workspace" }]),
+    } as unknown as PlatformDb;
+    const middleware = new SignupActorContextMiddleware(identity, db);
+    const first = request("alter_access=token");
+    const reconnect = request("alter_access=token");
+
+    await middleware.use(first, {} as FastifyReply, vi.fn());
+    await middleware.use(reconnect, {} as FastifyReply, vi.fn());
+
+    expect(identity.authenticateAccessToken).toHaveBeenCalledTimes(2);
+    expect(first.actorContext).toBeDefined();
+    expect(reconnect.actorContext).toBeUndefined();
   });
 });

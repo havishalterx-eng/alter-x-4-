@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { IdentityProvider } from "./identity-provider.interface";
 import { IdentityService } from "./identity.service";
 import { hashToken, InMemorySessionStore } from "./session-store";
+import type { StreamRevocationBus } from "../streaming/revocation";
 
 const tenantId = "00000000-0000-7000-8000-000000000001";
 const userId = "00000000-0000-7000-8000-000000000101";
@@ -10,7 +11,10 @@ describe("IdentityService", () => {
   it("forwards provider operations and issues a session without optional metadata", async () => {
     const provider = providerStub();
     const store = new InMemorySessionStore();
-    const service = new IdentityService(provider, store);
+    const revocations = {
+      publish: vi.fn(),
+    } as unknown as StreamRevocationBus;
+    const service = new IdentityService(provider, store, revocations);
 
     await expect(
       service.loginRedirectUrl({ redirectUri: "https://app.test", state: "s", codeChallenge: "c" }),
@@ -22,6 +26,11 @@ describe("IdentityService", () => {
     });
     await expect(service.listActiveSessions(tenantId, userId)).resolves.toEqual([]);
     await service.revokeSession(tenantId, userId, "session-id");
+    expect(revocations.publish).toHaveBeenCalledWith({
+      tenantId,
+      userId,
+      sessionId: "session-id",
+    });
     await expect(service.enrollMfa(userId)).resolves.toMatchObject({ enrollmentId: "mfa" });
     await expect(service.challengeMfa(userId, "mfa", "123456")).resolves.toMatchObject({
       status: "verified",

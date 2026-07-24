@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ActorContext } from "../rbac/types";
 import { PlatformDb } from "../signup/platform-db";
+import { StreamRevocationBus } from "../streaming/revocation";
 import { MembersService } from "./members.service";
 
 const owner: ActorContext = {
@@ -73,12 +74,34 @@ describe("MembersService RBAC", () => {
   });
 
   it("removes membership for owner and blocks member", async () => {
-    const queryTenant = vi.fn().mockResolvedValue([]);
-    const service = new MembersService({ queryTenant } as unknown as PlatformDb);
+    const queryTenant = vi.fn().mockResolvedValue([{ userId: "removed-user" }]);
+    const revocations = new StreamRevocationBus();
+    const publish = vi.spyOn(revocations, "publish");
+    const service = new MembersService(
+      { queryTenant } as unknown as PlatformDb,
+      revocations,
+    );
     await expect(service.remove(owner, "member", "workspace")).resolves.toBeUndefined();
+    expect(publish).toHaveBeenCalledWith({
+      tenantId: owner.tenant_id,
+      userId: "removed-user",
+    });
     await expect(
       service.remove({ ...owner, roles: ["member"] }, "member", "tenant"),
     ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("does not publish revocation when no membership was removed", async () => {
+    const revocations = new StreamRevocationBus();
+    const publish = vi.spyOn(revocations, "publish");
+    const service = new MembersService(
+      { queryTenant: vi.fn().mockResolvedValue([]) } as unknown as PlatformDb,
+      revocations,
+    );
+
+    await service.remove(owner, "missing", "tenant");
+
+    expect(publish).not.toHaveBeenCalled();
   });
 
   it("fails when insert returns no membership", async () => {
