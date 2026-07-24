@@ -1,12 +1,43 @@
 import { z } from "zod";
 
-export const platformApiEnvSchema = z.object({
-  DATABASE_URL: z.string().url(),
-  // Reserved for platform cache wiring in a later ticket.
-  REDIS_ENDPOINT_PARAM: z.string().optional(),
-  // Production DB wiring resolves through SecretsProvider in a later ticket.
-  DATABASE_SECRET_REF: z.string().optional(),
-});
+export const platformApiEnvSchema = z
+  .object({
+    DATABASE_URL: z.string().url(),
+    // Reserved for platform cache wiring in a later ticket.
+    REDIS_ENDPOINT_PARAM: z.string().optional(),
+    // Production DB wiring resolves through SecretsProvider in a later ticket.
+    DATABASE_SECRET_REF: z.string().optional(),
+    IDENTITY_PROVIDER: z.enum(["auth0", "mock"]).default("mock"),
+    AUTH0_DOMAIN: z.string().min(1).optional(),
+    AUTH0_CLIENT_ID: z.string().min(1).optional(),
+    AUTH0_CLIENT_SECRET_REF: z.string().min(1).optional(),
+    AUTH0_M2M_CLIENT_ID: z.string().min(1).optional(),
+    AUTH0_M2M_CLIENT_SECRET_REF: z.string().min(1).optional(),
+    SESSION_COOKIE_SIGNING_KEY_REF: z.string().min(1).optional(),
+    ALTER_CONFIG_SOURCE: z.string().optional(),
+  })
+  .superRefine((env, context) => {
+    if (env.IDENTITY_PROVIDER !== "auth0") {
+      return;
+    }
+
+    for (const field of [
+      "AUTH0_DOMAIN",
+      "AUTH0_CLIENT_ID",
+      "AUTH0_CLIENT_SECRET_REF",
+      "AUTH0_M2M_CLIENT_ID",
+      "AUTH0_M2M_CLIENT_SECRET_REF",
+      "SESSION_COOKIE_SIGNING_KEY_REF",
+    ] as const) {
+      if (!env[field]) {
+        context.addIssue({
+          code: "custom",
+          path: [field],
+          message: `${field} required when IDENTITY_PROVIDER=auth0`,
+        });
+      }
+    }
+  });
 
 export type PlatformApiEnv = z.infer<typeof platformApiEnvSchema>;
 
