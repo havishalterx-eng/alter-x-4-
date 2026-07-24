@@ -29,6 +29,13 @@
       "when": 1784733600000,
       "tag": "0003_onboarding_states",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784860200000,
+      "tag": "0004_idempotency_keys",
+      "breakpoints": true
     }
   ]
 }

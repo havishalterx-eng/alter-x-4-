@@ -12,6 +12,11 @@ describe("GET /health", () => {
       "postgres://platform_api:platform_api_local@localhost:5432/platform_db";
     process.env.NODE_ENV = "test";
     process.env.SIGNING_KEY_PROVIDER = "mock";
+    process.env.ENGINE_BASE_URL = "http://engine.test";
+    process.env.ENGINE_M2M_TOKEN_URL = "https://identity.test/oauth/token";
+    process.env.ENGINE_M2M_AUDIENCE = "https://engine.test";
+    process.env.ENGINE_M2M_CLIENT_ID = "platform-api";
+    process.env.ENGINE_M2M_CLIENT_SECRET_REF = "env:ENGINE_M2M_CLIENT_SECRET";
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();

@@ -96,6 +96,14 @@ async function seedRows(client: pg.Client): Promise<void> {
             ($4, $5, $6, '[]'::jsonb, NULL, 'not_started')`,
     [randomUUID(), tenantA, workspaceA, randomUUID(), tenantB, workspaceB],
   );
+  await client.query(
+    `INSERT INTO idempotency_keys
+       (tenant_id, idempotency_key, request_fingerprint,
+        response_status, response_body, expires_at)
+     VALUES ($1, 'key-a', 'hash-a', 200, '{}'::jsonb, now() + interval '1 hour'),
+            ($2, 'key-b', 'hash-b', 200, '{}'::jsonb, now() + interval '1 hour')`,
+    [tenantA, tenantB],
+  );
 }
 
 async function createRlsClient(
@@ -155,6 +163,7 @@ describe("platform_db migration", () => {
 
     expect(tables.map((row) => row.table_name)).toEqual([
       "entitlements",
+      "idempotency_keys",
       "onboarding_states",
       "tenant_members",
       "tenants",
@@ -263,6 +272,7 @@ describe("platform_db migration", () => {
         "entitlements",
         "user_sessions",
         "onboarding_states",
+        "idempotency_keys",
       ]) {
         await rlsClient.query("RESET app.current_tenant_id");
         const unset = await rlsClient.query<{ count: string }>(
@@ -289,7 +299,7 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
-    expect(rows[0]?.count).toBe("8");
+    expect(rows[0]?.count).toBe("9");
   });
 
   it("prevents tenant_id mutation on tenant-owned rows", async () => {
@@ -306,6 +316,14 @@ describe("platform_db migration", () => {
       adminClient.query(
         `UPDATE onboarding_states SET tenant_id = $1 WHERE workspace_id = $2`,
         [tenantB, workspaceA],
+      ),
+    ).rejects.toThrow("tenant_id is immutable");
+
+    await expect(
+      adminClient.query(
+        `UPDATE idempotency_keys SET tenant_id = $1
+          WHERE tenant_id = $2 AND idempotency_key = 'key-a'`,
+        [tenantB, tenantA],
       ),
     ).rejects.toThrow("tenant_id is immutable");
   });

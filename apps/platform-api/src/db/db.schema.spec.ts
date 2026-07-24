@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { DbModule } from "./db.module";
 import {
   entitlements,
+  idempotencyKeys,
   onboardingStates,
   tenantMembers,
   tenants,
@@ -19,6 +20,7 @@ describe("platform database schema", () => {
     expect(
       [
         entitlements,
+        idempotencyKeys,
         onboardingStates,
         tenantMembers,
         tenants,
@@ -29,6 +31,7 @@ describe("platform database schema", () => {
       ].map(getTableName),
     ).toEqual([
       "entitlements",
+      "idempotency_keys",
       "onboarding_states",
       "tenant_members",
       "tenants",
@@ -44,6 +47,7 @@ describe("platform database schema", () => {
 
     for (const table of [
       entitlements,
+      idempotencyKeys,
       tenantMembers,
       workspaceMembers,
       workspaces,
@@ -56,7 +60,8 @@ describe("platform database schema", () => {
       );
     }
 
-    expect(foreignKeyNames).toHaveLength(7);
+    expect(foreignKeyNames).toHaveLength(8);
+    expect(getTableConfig(idempotencyKeys).indexes).toHaveLength(2);
     expect(getTableConfig(workspaces).indexes).toHaveLength(2);
     expect(getTableConfig(tenantMembers).indexes).toHaveLength(1);
     expect(getTableConfig(workspaceMembers).indexes).toHaveLength(1);

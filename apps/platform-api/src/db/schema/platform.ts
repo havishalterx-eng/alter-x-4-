@@ -1,5 +1,7 @@
 import {
   foreignKey,
+  index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -163,3 +165,25 @@ export const userSessions = pgTable("user_sessions", {
     .defaultNow(),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
 });
+
+export const idempotencyKeys = pgTable(
+  "idempotency_keys",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestFingerprint: text("request_fingerprint").notNull(),
+    responseStatus: integer("response_status").notNull(),
+    responseBody: jsonb("response_body").notNull(),
+    createdAt,
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idempotency_keys_tenant_key_unique").on(
+      table.tenantId,
+      table.idempotencyKey,
+    ),
+    index("idempotency_keys_expires_at_idx").on(table.expiresAt),
+  ],
+);
