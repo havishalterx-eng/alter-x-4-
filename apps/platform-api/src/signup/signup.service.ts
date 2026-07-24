@@ -3,6 +3,7 @@ import type { EntitlementProvider } from "../entitlements/entitlement-provider.i
 import type { IdentityProvider } from "../identity/identity-provider.interface";
 import type { IdentityService } from "../identity/identity.service";
 import type { IdentityBrokerService } from "../identity-broker/identity-broker.service";
+import type { OnboardingInitializer } from "../onboarding/onboarding.repository";
 import type { IdempotencyStore } from "./idempotency-store";
 import { PlatformHttpError } from "./problem";
 import type { SignupLanding, SignupPersistence, SignupRequest } from "./types";
@@ -15,6 +16,7 @@ export class SignupService {
     private readonly entitlementProvider: EntitlementProvider,
     private readonly persistence: SignupPersistence,
     private readonly idempotency: IdempotencyStore,
+    private readonly onboardingInitializer: OnboardingInitializer,
   ) {}
 
   signup(request: SignupRequest): Promise<SignupLanding> {
@@ -74,8 +76,15 @@ export class SignupService {
           tenantName,
           identityOrgRef,
         },
-        (client) =>
-          this.entitlementProvider.createEntitlement(tenantId, "free", client),
+        async (client) => {
+          const entitlement = await this.entitlementProvider.createEntitlement(
+            tenantId,
+            "free",
+            client,
+          );
+          await this.onboardingInitializer.initialize(tenantId, workspaceId, client);
+          return entitlement;
+        },
       );
 
       return this.landing(

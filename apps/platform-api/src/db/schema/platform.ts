@@ -1,4 +1,5 @@
 import {
+  foreignKey,
   jsonb,
   pgTable,
   text,
@@ -47,6 +48,7 @@ export const workspaces = pgTable(
   },
   (table) => [
     uniqueIndex("workspaces_tenant_id_name_unique").on(table.tenantId, table.name),
+    uniqueIndex("workspaces_tenant_id_id_unique").on(table.tenantId, table.id),
   ],
 );
 
@@ -116,6 +118,32 @@ export const entitlements = pgTable("entitlements", {
   effectiveTo: timestamp("effective_to", { withTimezone: true }),
   createdAt,
 });
+
+export const onboardingStates = pgTable(
+  "onboarding_states",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    steps: jsonb("steps").notNull(),
+    currentStep: text("current_step"),
+    status: text("status").notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("onboarding_states_workspace_id_unique").on(table.workspaceId),
+    foreignKey({
+      columns: [table.tenantId, table.workspaceId],
+      foreignColumns: [workspaces.tenantId, workspaces.id],
+      name: "onboarding_states_tenant_workspace_fk",
+    }),
+  ],
+);
 
 export const userSessions = pgTable("user_sessions", {
   id: uuid("id").primaryKey(),

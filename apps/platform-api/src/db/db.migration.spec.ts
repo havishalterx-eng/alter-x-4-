@@ -89,6 +89,13 @@ async function seedRows(client: pg.Client): Promise<void> {
             ($4, $5, $6, 'refresh-b', 'access-b')`,
     [randomUUID(), userA, tenantA, randomUUID(), userB, tenantB],
   );
+  await client.query(
+    `INSERT INTO onboarding_states
+       (id, tenant_id, workspace_id, steps, current_step, status)
+     VALUES ($1, $2, $3, '[]'::jsonb, NULL, 'not_started'),
+            ($4, $5, $6, '[]'::jsonb, NULL, 'not_started')`,
+    [randomUUID(), tenantA, workspaceA, randomUUID(), tenantB, workspaceB],
+  );
 }
 
 async function createRlsClient(
@@ -137,7 +144,7 @@ describe("platform_db migration", () => {
     }
   });
 
-  it("creates all six tables with expected core columns", async () => {
+  it("creates identity tables with expected core columns", async () => {
     const { rows: tables } = await adminClient.query<{ table_name: string }>(
       `SELECT table_name
        FROM information_schema.tables
@@ -148,6 +155,7 @@ describe("platform_db migration", () => {
 
     expect(tables.map((row) => row.table_name)).toEqual([
       "entitlements",
+      "onboarding_states",
       "tenant_members",
       "tenants",
       "user_sessions",
@@ -174,6 +182,11 @@ describe("platform_db migration", () => {
       data_type: "text",
     });
     expect(columns).toContainEqual({
+      table_name: "onboarding_states",
+      column_name: "steps",
+      data_type: "jsonb",
+    });
+    expect(columns).toContainEqual({
       table_name: "workspaces",
       column_name: "tenant_id",
       data_type: "uuid",
@@ -198,6 +211,12 @@ describe("platform_db migration", () => {
   it("enforces unique workspace and membership scopes", async () => {
     await seedRows(adminClient);
 
+    const tenantBOnlyWorkspace = randomUUID();
+    await adminClient.query(
+      `INSERT INTO workspaces (id, tenant_id, name, status)
+       VALUES ($1, $2, 'Secondary', 'active')`,
+      [tenantBOnlyWorkspace, tenantB],
+    );
     await expect(
       adminClient.query(
         `INSERT INTO workspaces (id, tenant_id, name, status)
@@ -221,6 +240,15 @@ describe("platform_db migration", () => {
         [randomUUID(), tenantA, workspaceA, userA],
       ),
     ).rejects.toMatchObject({ code: "23505" });
+
+    await expect(
+      adminClient.query(
+        `INSERT INTO onboarding_states
+          (id, tenant_id, workspace_id, steps, status)
+         VALUES ($1, $2, $3, '[]'::jsonb, 'not_started')`,
+        [randomUUID(), tenantA, tenantBOnlyWorkspace],
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
   });
 
   it("applies tenant RLS and default-denies without context", async () => {
@@ -234,6 +262,7 @@ describe("platform_db migration", () => {
         "workspace_members",
         "entitlements",
         "user_sessions",
+        "onboarding_states",
       ]) {
         await rlsClient.query("RESET app.current_tenant_id");
         const unset = await rlsClient.query<{ count: string }>(
@@ -260,7 +289,7 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
-    expect(rows[0]?.count).toBe("7");
+    expect(rows[0]?.count).toBe("8");
   });
 
   it("prevents tenant_id mutation on tenant-owned rows", async () => {
@@ -271,6 +300,13 @@ describe("platform_db migration", () => {
         tenantB,
         workspaceA,
       ]),
+    ).rejects.toThrow("tenant_id is immutable");
+
+    await expect(
+      adminClient.query(
+        `UPDATE onboarding_states SET tenant_id = $1 WHERE workspace_id = $2`,
+        [tenantB, workspaceA],
+      ),
     ).rejects.toThrow("tenant_id is immutable");
   });
 });

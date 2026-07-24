@@ -25,6 +25,7 @@ export default defineConfig({
         "apps/platform-api/src/tenants/**/*.ts",
         "apps/platform-api/src/workspaces/**/*.ts",
         "apps/platform-api/src/members/**/*.ts",
+        "apps/platform-api/src/onboarding/**/*.ts",
       ],
       exclude: [
         "apps/platform-api/src/db/**/*.spec.ts",
@@ -37,9 +38,13 @@ export default defineConfig({
         "apps/platform-api/src/tenants/**/*.spec.ts",
         "apps/platform-api/src/workspaces/**/*.spec.ts",
         "apps/platform-api/src/members/**/*.spec.ts",
+        "apps/platform-api/src/onboarding/**/*.spec.ts",
       ],
       thresholds: {
         lines: 90,
+        "apps/platform-api/src/db/**/*.ts": {
+          lines: 90,
+        },
         "apps/platform-api/src/identity/**/*.ts": {
           lines: 90,
           branches: 90,
@@ -71,6 +76,10 @@ export default defineConfig({
         "apps/platform-api/src/members/**/*.ts": {
           lines: 85,
           branches: 85,
+        },
+        "apps/platform-api/src/onboarding/**/*.ts": {
+          lines: 80,
+          branches: 75,
         },
       },
     },

@@ -26,15 +26,9 @@ export class PlatformDb implements SignupPersistence {
   ): Promise<T> {
     return this.transaction(input.tenantId, async (client) => {
       await client.query(
-        `INSERT INTO tenants
-          (id, name, status, identity_org_ref, security_policy)
-         VALUES ($1, $2, 'active', $3, $4::jsonb)`,
-        [
-          input.tenantId,
-          input.tenantName,
-          input.identityOrgRef,
-          JSON.stringify({ onboarding: { status: "not_started" } }),
-        ],
+        `INSERT INTO tenants (id, name, status, identity_org_ref)
+         VALUES ($1, $2, 'active', $3)`,
+        [input.tenantId, input.tenantName, input.identityOrgRef],
       );
       await client.query(
         `INSERT INTO users (id, identity_ref, email, display_name, status)
