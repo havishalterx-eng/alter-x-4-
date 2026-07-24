@@ -5,8 +5,13 @@ import { AppModule } from "../app.module";
 
 describe("GET /health", () => {
   let app: NestFastifyApplication;
+  const originalEnvironment = { ...process.env };
 
   beforeEach(async () => {
+    process.env.DATABASE_URL =
+      "postgres://platform_api:platform_api_local@localhost:5432/platform_db";
+    process.env.NODE_ENV = "test";
+    process.env.SIGNING_KEY_PROVIDER = "mock";
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -20,6 +25,7 @@ describe("GET /health", () => {
 
   afterEach(async () => {
     await app.close();
+    process.env = { ...originalEnvironment };
   });
 
   it("returns the service health response", async () => {

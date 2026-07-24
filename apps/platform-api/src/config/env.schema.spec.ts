@@ -12,12 +12,17 @@ describe("platformApiEnvSchema", () => {
     expect(
       validatePlatformApiEnv({
         DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
+        ACTOR_TOKEN_SIGNING_KEY_REF: "env:ACTOR_TOKEN_PRIVATE_KEY",
         REDIS_ENDPOINT_PARAM: "/alter/dev/platform-api/redis-endpoint",
+        ALTER_CONFIG_SOURCE: "local-file",
       }),
     ).toEqual({
       DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
+      ACTOR_TOKEN_SIGNING_KEY_REF: "env:ACTOR_TOKEN_PRIVATE_KEY",
       IDENTITY_PROVIDER: "mock",
       REDIS_ENDPOINT_PARAM: "/alter/dev/platform-api/redis-endpoint",
+      SIGNING_KEY_PROVIDER: "secrets",
+      ALTER_CONFIG_SOURCE: "local-file",
     });
   });
 
@@ -25,8 +30,27 @@ describe("platformApiEnvSchema", () => {
     expect(() =>
       validatePlatformApiEnv({
         DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
+        ACTOR_TOKEN_SIGNING_KEY_REF: "env:ACTOR_TOKEN_PRIVATE_KEY",
         IDENTITY_PROVIDER: "auth0",
       }),
     ).toThrow("AUTH0_DOMAIN required when IDENTITY_PROVIDER=auth0");
+  });
+
+  it("allows explicit test mock mode without a secret reference", () => {
+    expect(
+      validatePlatformApiEnv({
+        DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
+        SIGNING_KEY_PROVIDER: "mock",
+      }),
+    ).toMatchObject({ SIGNING_KEY_PROVIDER: "mock" });
+  });
+
+  it("requires AppConfig identifiers in appconfig mode", () => {
+    expect(() =>
+      validatePlatformApiEnv({
+        DATABASE_URL: "postgres://localhost/platform_db",
+        ALTER_CONFIG_SOURCE: "appconfig",
+      }),
+    ).toThrow("APPCONFIG_APP_ID required");
   });
 });

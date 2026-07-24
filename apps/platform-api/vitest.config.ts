@@ -17,11 +17,17 @@ export default defineConfig({
         "apps/platform-api/src/db/**/*.ts",
         "apps/platform-api/src/identity/**/*.ts",
         "apps/platform-api/src/rbac/**/*.ts",
+        "apps/platform-api/src/identity-broker/**/*.ts",
+        "apps/platform-api/src/entitlements/**/*.ts",
+        "apps/platform-api/src/abuse/**/*.ts",
       ],
       exclude: [
         "apps/platform-api/src/db/**/*.spec.ts",
         "apps/platform-api/src/identity/**/*.spec.ts",
         "apps/platform-api/src/rbac/**/*.spec.ts",
+        "apps/platform-api/src/identity-broker/**/*.spec.ts",
+        "apps/platform-api/src/entitlements/**/*.spec.ts",
+        "apps/platform-api/src/abuse/**/*.spec.ts",
       ],
       thresholds: {
         lines: 90,
@@ -32,6 +38,14 @@ export default defineConfig({
         "apps/platform-api/src/rbac/**/*.ts": {
           lines: 90,
           branches: 90,
+        },
+        "apps/platform-api/src/identity-broker/**/*.ts": {
+          lines: 90,
+          branches: 90,
+        },
+        "apps/platform-api/src/{entitlements,abuse}/**/*.ts": {
+          lines: 85,
+          branches: 85,
         },
       },
     },

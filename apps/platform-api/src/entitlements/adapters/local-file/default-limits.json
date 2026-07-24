@@ -1,0 +1,20 @@
+{
+  "plans": {
+    "free": {
+      "maxWorkflows": 3,
+      "maxProjects": 1,
+      "maxRunsPerDay": 10,
+      "maxConcurrentRuns": 1,
+      "maxSandboxMinutesPerMonth": 30,
+      "maxAdsStorageMb": 500,
+      "maxIntegrations": 3
+    }
+  },
+  "abuse": {
+    "tenantRequestsPerMinute": 120,
+    "userRequestsPerMinute": 60,
+    "verificationScoreThreshold": 50,
+    "purchasesPerDay": 10,
+    "purchaseAmountPerDay": 1000
+  }
+}
