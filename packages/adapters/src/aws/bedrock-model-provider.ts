@@ -133,6 +133,7 @@ export class AwsBedrockModelProvider implements ModelProvider {
     return {
       outputJson: JSON.stringify(result),
       usageJson: JSON.stringify(usage),
+      servedBy: this.metadata.providerId,
     };
   }
 

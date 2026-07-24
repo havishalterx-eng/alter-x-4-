@@ -28,24 +28,27 @@ export interface MockModelProviderOptions {
   ) => Promise<ModelInvocationResult>;
 }
 
-const DEFAULT_INVOKE = async (
-  request: ModelInvocationRequest,
-): Promise<ModelInvocationResult> => {
-  const payload = ModelInvocationPayloadSchema.parse(
-    JSON.parse(request.inputJson),
-  );
-  const lastMessage = payload.messages[payload.messages.length - 1];
-  return {
-    outputJson: JSON.stringify({
-      message: {
-        role: "assistant",
-        content: `mock response to: ${lastMessage?.content ?? ""}`,
-      },
-      stop_reason: "end_turn",
-    }),
-    usageJson: JSON.stringify({ input_tokens: 0, output_tokens: 0 }),
+function defaultInvoke(
+  providerId: string,
+): (request: ModelInvocationRequest) => Promise<ModelInvocationResult> {
+  return async (request) => {
+    const payload = ModelInvocationPayloadSchema.parse(
+      JSON.parse(request.inputJson),
+    );
+    const lastMessage = payload.messages[payload.messages.length - 1];
+    return {
+      outputJson: JSON.stringify({
+        message: {
+          role: "assistant",
+          content: `mock response to: ${lastMessage?.content ?? ""}`,
+        },
+        stop_reason: "end_turn",
+      }),
+      usageJson: JSON.stringify({ input_tokens: 0, output_tokens: 0 }),
+      servedBy: providerId,
+    };
   };
-};
+}
 
 export function createMockModelProvider(
   options: MockModelProviderOptions = {},
@@ -57,7 +60,7 @@ export function createMockModelProvider(
     capabilities: options.capabilities ?? MOCK_MODEL_CAPABILITIES,
     ...(options.health === undefined ? {} : { health: options.health }),
     implementation: {
-      invoke: options.invoke ?? DEFAULT_INVOKE,
+      invoke: options.invoke ?? defaultInvoke(providerId),
     },
   });
 }

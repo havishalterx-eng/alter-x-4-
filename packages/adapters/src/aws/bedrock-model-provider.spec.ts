@@ -62,6 +62,7 @@ function equivalentMockProvider(): ModelProvider {
         stop_reason: "end_turn",
       }),
       usageJson: JSON.stringify({ input_tokens: 3, output_tokens: 4 }),
+      servedBy: "aws-bedrock",
     }),
   });
 }

@@ -42,16 +42,19 @@ export class ModelGatewayService implements ModelgwHandler {
       modelId: binding.model_id,
       capabilityTags: binding.capability_tags,
       inputJson: redacted.redactedText,
+      ...(binding.fallback_chain === undefined
+        ? {}
+        : { fallbackChain: binding.fallback_chain }),
     });
 
     return {
       output_json: result.outputJson,
       usage_json: result.usageJson,
-      // Echoes the alias tier actually resolved and served for this
-      // invocation. GATE-3 will divert this to the fallback tier's alias
-      // when the primary provider fails over, so callers can always see
-      // which capability class was really used -- never a silent downgrade.
-      resolved_capability: alias,
+      // Always names both the alias tier resolved AND the concrete
+      // provider that actually served it, e.g. "STANDARD:aws-bedrock" on
+      // the normal path or "STANDARD:anthropic-direct" when GATE-3's
+      // failover chain kicked in -- never a silent downgrade.
+      resolved_capability: `${alias}:${result.servedBy}`,
     };
   }
 

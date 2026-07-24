@@ -17,6 +17,7 @@
   "dependencies": {
     "@alterx/contracts": "workspace:*",
     "@alterx/shared-clients": "workspace:*",
+    "@anthropic-ai/sdk": "^0.114.0",
     "@aws-sdk/client-appconfigdata": "3.1094.0",
     "@aws-sdk/client-bedrock-runtime": "3.1094.0",
     "@aws-sdk/client-secrets-manager": "3.1094.0",
@@ -39,6 +40,7 @@
     "@temporalio/worker": "1.20.3",
     "@temporalio/workflow": "1.20.3",
     "drizzle-orm": "0.45.2",
+    "openai": "^6.49.0",
     "pg": "8.22.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2"

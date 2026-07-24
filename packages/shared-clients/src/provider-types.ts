@@ -1,4 +1,5 @@
 import type {
+  FallbackBinding,
   ModelAlias,
   ModelAliasBinding,
   ProviderCapabilities,
@@ -174,11 +175,19 @@ export interface ModelInvocationRequest {
   readonly modelId: string;
   readonly capabilityTags: readonly string[];
   readonly inputJson: string;
+  // Ordered fallback providers to try, in order, only after modelId (the
+  // primary, Bedrock-hosted model) fails. Empty/absent = no failover.
+  readonly fallbackChain?: readonly FallbackBinding[];
 }
 
 export interface ModelInvocationResult {
   readonly outputJson: string;
   readonly usageJson: string;
+  // The providerId (BaseProvider.metadata.providerId) that actually served
+  // this invocation -- the primary adapter, or whichever fallbackChain
+  // entry succeeded. Never silently absent: callers must always be able to
+  // see whether a downgrade happened.
+  readonly servedBy: string;
 }
 
 export interface ModelProvider extends BaseProvider<"ModelProvider"> {

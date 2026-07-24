@@ -14,6 +14,8 @@ export interface ModelGatewayAppConfigEnvironment
   readonly appConfigApplicationId: string;
   readonly appConfigEnvironmentId: string;
   readonly appConfigConfigurationProfileId: string;
+  readonly anthropicApiKeySecretReference: string;
+  readonly openaiApiKeySecretReference: string;
   readonly presidioAnalyzerUrl: string;
   readonly presidioAnonymizerUrl: string;
 }
@@ -158,6 +160,14 @@ export function loadModelGatewayEnvironment(
     appConfigConfigurationProfileId: requireValue(
       environment,
       "APPCONFIG_CONFIGURATION_PROFILE_ID",
+    ),
+    anthropicApiKeySecretReference: requireValue(
+      environment,
+      "ANTHROPIC_API_KEY_SECRET_REF",
+    ),
+    openaiApiKeySecretReference: requireValue(
+      environment,
+      "OPENAI_API_KEY_SECRET_REF",
     ),
     presidioAnalyzerUrl: requireValue(environment, "PRESIDIO_ANALYZER_URL"),
     presidioAnonymizerUrl: requireValue(

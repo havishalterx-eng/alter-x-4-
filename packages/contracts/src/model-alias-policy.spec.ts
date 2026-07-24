@@ -91,4 +91,38 @@ describe("ModelAliasPolicySchema", () => {
         .success,
     ).toBe(false);
   });
+
+  it("accepts a binding with an ordered fallback chain", () => {
+    const withFallback = {
+      ...validPolicy,
+      bindings: {
+        ...validPolicy.bindings,
+        STANDARD: {
+          model_id: "mock.standard.v1",
+          capability_tags: ["general"],
+          fallback_chain: [
+            { provider: "anthropic", model_id: "claude-sonnet-5" },
+            { provider: "openai", model_id: "gpt-5" },
+          ],
+        },
+      },
+    };
+    expect(ModelAliasPolicySchema.parse(withFallback)).toEqual(withFallback);
+  });
+
+  it("rejects a fallback entry with an unknown provider", () => {
+    expect(
+      ModelAliasPolicySchema.safeParse({
+        ...validPolicy,
+        bindings: {
+          ...validPolicy.bindings,
+          STANDARD: {
+            model_id: "mock.standard.v1",
+            capability_tags: ["general"],
+            fallback_chain: [{ provider: "azure", model_id: "gpt-5" }],
+          },
+        },
+      }).success,
+    ).toBe(false);
+  });
 });

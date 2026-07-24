@@ -63,6 +63,20 @@ export {
   type BedrockRuntimeCommandClient,
 } from "./aws/bedrock-model-provider";
 export {
+  AnthropicModelProvider,
+  type AnthropicMessagesCommandClient,
+  type AnthropicModelProviderConfig,
+} from "./anthropic/anthropic-model-provider";
+export {
+  OpenAiModelProvider,
+  type OpenAiChatCompletionsCommandClient,
+  type OpenAiModelProviderConfig,
+} from "./openai/openai-model-provider";
+export {
+  FailoverModelProvider,
+  type FallbackProviderMap,
+} from "./failover/failover-model-provider";
+export {
   PRESIDIO_PII_REDACTION_CAPABILITIES,
   PresidioPIIRedactionProvider,
   createFetchPresidioHttpClient,

@@ -39,9 +39,13 @@ export type {
   ResolveCredentialResponse as ToolgwResolveCredentialResponse,
 } from "./generated/alter/toolgw/v1/toolgw";
 export {
+  FallbackBindingSchema,
+  FallbackProviderSchema,
   ModelAliasPolicySchema,
   ModelAliasBindingSchema,
   ModelAliasSchema,
+  type FallbackBinding,
+  type FallbackProvider,
   ToolPermissionBindingSchema,
   type ModelAlias,
   type ModelAliasBinding,

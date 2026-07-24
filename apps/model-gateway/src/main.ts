@@ -4,8 +4,12 @@ import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fa
 import { NestFactory } from "@nestjs/core";
 
 import {
+  AnthropicModelProvider,
   AwsAppConfigConfigProvider,
   AwsBedrockModelProvider,
+  AwsSecretsManagerProvider,
+  FailoverModelProvider,
+  OpenAiModelProvider,
   PresidioPIIRedactionProvider,
   startModelgwGrpcTransport,
 } from "@alterx/adapters";
@@ -19,7 +23,10 @@ import {
 } from "@alterx/shared-clients";
 
 import { AppModule } from "./app.module";
-import { loadModelGatewayEnvironment } from "./config/environment";
+import {
+  loadModelGatewayEnvironment,
+  type ModelGatewayAppConfigEnvironment,
+} from "./config/environment";
 import { MODELGW_PROTO_PATH } from "./gateway/grpc.constants";
 
 function createConfigProvider(
@@ -36,13 +43,35 @@ function createConfigProvider(
   });
 }
 
-function createModelProvider(
+async function createModelProvider(
   environment: ReturnType<typeof loadModelGatewayEnvironment>,
-): ModelProvider {
+): Promise<ModelProvider> {
   if (environment.configSource === "mock") {
     return createMockModelProvider();
   }
-  return new AwsBedrockModelProvider({ region: environment.region });
+
+  const appConfigEnvironment: ModelGatewayAppConfigEnvironment = environment;
+  const secretsProvider = new AwsSecretsManagerProvider({
+    region: environment.region,
+  });
+  try {
+    const [anthropicApiKey, openaiApiKey] = await Promise.all([
+      secretsProvider.getSecret(
+        appConfigEnvironment.anthropicApiKeySecretReference,
+      ),
+      secretsProvider.getSecret(
+        appConfigEnvironment.openaiApiKeySecretReference,
+      ),
+    ]);
+
+    const primary = new AwsBedrockModelProvider({ region: environment.region });
+    const anthropic = new AnthropicModelProvider({ apiKey: anthropicApiKey });
+    const openai = new OpenAiModelProvider({ apiKey: openaiApiKey });
+
+    return new FailoverModelProvider(primary, { anthropic, openai });
+  } finally {
+    secretsProvider.close();
+  }
 }
 
 function createPIIRedactionProvider(
@@ -60,7 +89,7 @@ function createPIIRedactionProvider(
 async function bootstrap(): Promise<void> {
   const environment = loadModelGatewayEnvironment(process.env);
   const configProvider = createConfigProvider(environment);
-  const modelProvider = createModelProvider(environment);
+  const modelProvider = await createModelProvider(environment);
   const piiRedactionProvider = createPIIRedactionProvider(environment);
 
   const app = await NestFactory.create<NestFastifyApplication>(
