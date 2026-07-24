@@ -27,12 +27,10 @@ jobs:
       SIGNING_KEY_PROVIDER: mock
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      # Placeholder gate — replaced with the full merge-gate pipeline
-      # (lint, typecheck, unit, contract, integration, migration check,
-      # tenant-isolation tests, secret scan, dependency scan,
-      # architecture-boundary check) during the Foundation Phase.
-      - name: skeleton check
+      - name: repository skeleton check
         run: |
           test -f README.md
           test -f .github/CODEOWNERS
@@ -49,11 +47,59 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
-      - name: install dependencies
-        run: pnpm install
+      - name: install ripgrep
+        run: |
+          curl -sSfL https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz -o /tmp/ripgrep.tar.gz
+          tar -xzf /tmp/ripgrep.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/ripgrep-14.1.1-x86_64-unknown-linux-musl/rg /usr/local/bin/rg
+          rg --version
 
-      - name: build
-        run: pnpm -w build
+      - name: architecture boundary check
+        run: scripts/check-architecture-boundaries.sh
+
+      - name: secret scan
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --redact --verbose
+
+      - name: dependency scan
+        run: |
+          set +e
+          pnpm audit --audit-level high --json > audit-current.json
+          audit_status=$?
+          set -e
+          node -e '
+            const fs = require("fs");
+            const baseline = JSON.parse(fs.readFileSync(".audit-baseline.json", "utf8"));
+            const current = JSON.parse(fs.readFileSync("audit-current.json", "utf8"));
+            const baselineIds = new Set((baseline.advisoryIds || []).map(String));
+            const currentIds = new Set(Object.keys(current.advisories || {}));
+            const newIds = [...currentIds].filter((id) => !baselineIds.has(id)).sort();
+            const removedIds = [...baselineIds].filter((id) => !currentIds.has(id)).sort();
+            if (newIds.length > 0) {
+              console.error(`New pnpm audit advisories detected: ${newIds.join(", ")}`);
+              process.exit(1);
+            }
+            console.log(`pnpm audit baseline ok: ${currentIds.size} advisories match checked-in baseline`);
+            if (removedIds.length > 0) {
+              console.log(`Baseline contains advisories no longer present: ${removedIds.join(", ")}`);
+            }
+          '
+          if [ "$audit_status" -ne 0 ]; then
+            echo "pnpm audit exited nonzero because baseline advisories exist"
+          fi
+
+      - uses: bufbuild/buf-setup-action@v1
+
+      - name: contract breaking-change check
+        run: buf breaking packages/contracts/proto --against '.git#branch=origin/main,subdir=packages/contracts/proto'
+
+      - name: install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: full monorepo sweep
+        run: pnpm exec nx run-many -t lint,typecheck,test,build --all
 
       - name: migrate platform db
         run: pnpm --filter @alterx/platform-api db:migrate
