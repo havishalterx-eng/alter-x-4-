@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" != "rds-data" || "${2:-}" != "execute-statement" ]]; then
+  printf 'Unexpected fake AWS command: %s\n' "$*" >&2
+  exit 1
+fi
+
+if [[ -z "${FAKE_RDS_STATE_DIR:-}" ]]; then
+  printf 'FAKE_RDS_STATE_DIR is required.\n' >&2
+  exit 1
+fi
+
+shift 2
+sql=""
+connection_database=""
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --sql)
+      sql="${2:-}"
+      shift 2
+      ;;
+    --database)
+      connection_database="${2:-}"
+      shift 2
+      ;;
+    --region | --resource-arn | --secret-arn | --query | --output)
+      shift 2
+      ;;
+    *)
+      printf 'Unexpected fake AWS argument: %s\n' "$1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+mkdir -p \
+  "$FAKE_RDS_STATE_DIR/owners" \
+  "$FAKE_RDS_STATE_DIR/public-revoked" \
+  "$FAKE_RDS_STATE_DIR/connect-grants" \
+  "$FAKE_RDS_STATE_DIR/connection-attempts"
+
+validate_identifier() {
+  if [[ ! "$1" =~ ^[a-z][a-z0-9_]*$ ]]; then
+    printf 'Unexpected PostgreSQL identifier in SQL: %s\n' "$1" >&2
+    exit 1
+  fi
+}
+
+if [[ -z "$sql" || -z "$connection_database" ]]; then
+  printf 'Every fake Data API call requires --database and --sql.\n' >&2
+  exit 1
+fi
+
+caller_role="${FAKE_RDS_CALLER_ROLE:-rds_admin}"
+validate_identifier "$caller_role"
+validate_identifier "$connection_database"
+
+attempt_number="$(find "$FAKE_RDS_STATE_DIR/connection-attempts" -type f | wc -l | tr -d ' ')"
+printf '%s|%s\n' "$caller_role" "$connection_database" \
+  >"$FAKE_RDS_STATE_DIR/connection-attempts/$((attempt_number + 1))"
+
+can_connect() {
+  local database_user="$1"
+  local database_name="$2"
+  local database_owner=""
+
+  if [[ ! -f "$FAKE_RDS_STATE_DIR/public-revoked/$database_name" ]]; then
+    return 0
+  fi
+
+  if [[ -f "$FAKE_RDS_STATE_DIR/owners/$database_name" ]]; then
+    database_owner="$(<"$FAKE_RDS_STATE_DIR/owners/$database_name")"
+  fi
+
+  [[ "$database_user" == "$database_owner" || -f "$FAKE_RDS_STATE_DIR/connect-grants/${database_name}__${database_user}" ]]
+}
+
+if ! can_connect "$caller_role" "$connection_database"; then
+  printf 'FATAL: permission denied for database "%s"\n' "$connection_database" >&2
+  printf 'DETAIL: User %s does not have CONNECT privilege.\n' "$caller_role" >&2
+  exit 1
+fi
+
+select_prefix="SELECT 1 FROM pg_database WHERE datname = '"
+alter_prefix="ALTER DATABASE "
+alter_separator=" OWNER TO "
+revoke_prefix="REVOKE CONNECT, TEMPORARY ON DATABASE "
+revoke_suffix=" FROM PUBLIC"
+grant_prefix="GRANT CONNECT ON DATABASE "
+grant_separator=" TO "
+
+if [[ "$sql" == "SELECT 1" ]]; then
+  printf '1\n'
+  exit 0
+fi
+
+if [[ "$sql" == DO\ \$alter\$* ]]; then
+  exit 0
+fi
+
+if [[ "$sql" == GRANT\ rds_iam\ TO\ * ]]; then
+  exit 0
+fi
+
+if [[ "$sql" == "$select_prefix"* ]]; then
+  printf '1\n'
+  exit 0
+fi
+
+if [[ "$sql" == "$alter_prefix"*"$alter_separator"* ]]; then
+  ownership="${sql#"$alter_prefix"}"
+  database_name="${ownership%%"$alter_separator"*}"
+  database_user="${ownership#*"$alter_separator"}"
+  validate_identifier "$database_name"
+  validate_identifier "$database_user"
+  printf '%s\n' "$database_user" >"$FAKE_RDS_STATE_DIR/owners/$database_name"
+  exit 0
+fi
+
+if [[ "$sql" == "$revoke_prefix"*"$revoke_suffix" ]]; then
+  database_name="${sql#"$revoke_prefix"}"
+  database_name="${database_name%"$revoke_suffix"}"
+  validate_identifier "$database_name"
+  : >"$FAKE_RDS_STATE_DIR/public-revoked/$database_name"
+  exit 0
+fi
+
+if [[ "$sql" == "$grant_prefix"*"$grant_separator"* ]]; then
+  grant="${sql#"$grant_prefix"}"
+  database_name="${grant%%"$grant_separator"*}"
+  database_user="${grant#*"$grant_separator"}"
+  validate_identifier "$database_name"
+  validate_identifier "$database_user"
+  : >"$FAKE_RDS_STATE_DIR/connect-grants/${database_name}__${database_user}"
+  exit 0
+fi
+
+printf 'Unexpected SQL sent to fake RDS Data API: %s\n' "$sql" >&2
+exit 1

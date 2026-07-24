@@ -16,6 +16,10 @@ export {
   ProviderCapabilitiesSchema,
   type ProviderCapabilities,
 } from "./provider-capabilities";
+export type {
+  RecordEventRequest,
+  RecordEventResponse,
+} from "./generated/alter/audit/v1/audit";
 export {
   ApprovalRequestedDataSchema,
   ClarificationRequestedDataSchema,
