@@ -12,6 +12,7 @@ import {
   OpenAiModelProvider,
   PresidioPIIRedactionProvider,
   RedisCacheProvider,
+  SqsQueueProvider,
   TitanEmbeddingProvider,
   startModelgwGrpcTransport,
 } from "@alterx/adapters";
@@ -21,11 +22,13 @@ import {
   createMockEmbeddingProvider,
   createMockModelProvider,
   createMockPIIRedactionProvider,
+  createMockQueueProvider,
   type CacheProvider,
   type ConfigProvider,
   type EmbeddingProvider,
   type ModelProvider,
   type PIIRedactionProvider,
+  type QueueProvider,
 } from "@alterx/shared-clients";
 
 import { AppModule } from "./app.module";
@@ -113,6 +116,15 @@ function createCacheProvider(
   });
 }
 
+function createQueueProvider(
+  environment: ReturnType<typeof loadModelGatewayEnvironment>,
+): QueueProvider {
+  if (environment.configSource === "mock") {
+    return createMockQueueProvider();
+  }
+  return new SqsQueueProvider({ region: environment.region });
+}
+
 async function bootstrap(): Promise<void> {
   const environment = loadModelGatewayEnvironment(process.env);
   const configProvider = createConfigProvider(environment);
@@ -120,6 +132,8 @@ async function bootstrap(): Promise<void> {
   const piiRedactionProvider = createPIIRedactionProvider(environment);
   const embeddingProvider = createEmbeddingProvider(environment);
   const cacheProvider = createCacheProvider(environment);
+  const queueProvider = createQueueProvider(environment);
+  const costEventsQueueName = `alter-${environment.alterEnvironment}-cost-events`;
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule.register(
@@ -128,6 +142,8 @@ async function bootstrap(): Promise<void> {
       piiRedactionProvider,
       embeddingProvider,
       cacheProvider,
+      queueProvider,
+      costEventsQueueName,
     ),
     new FastifyAdapter(),
   );

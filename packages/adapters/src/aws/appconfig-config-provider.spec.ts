@@ -43,6 +43,10 @@ const VALID_POLICY = {
       required_scopes: ["tools:admin"],
     },
   },
+  cost_limits: {
+    "tenant-1": { max_tokens_per_call: 50_000, max_cost_usd_per_call: 2.5 },
+    "*": { max_tokens_per_call: 10_000, max_cost_usd_per_call: 0.5 },
+  },
 };
 
 function encodedPolicy(policy: unknown): Uint8Array {
@@ -102,6 +106,16 @@ function equivalentMockProvider(): ConfigProvider {
         allowed: binding.allowed,
         rateLimitPerMinute: binding.rate_limit_per_minute,
         requiredScopes: binding.required_scopes,
+      };
+    },
+    resolveCostLimit: async ({ tenantId }) => {
+      const binding =
+        VALID_POLICY.cost_limits[
+          tenantId as keyof typeof VALID_POLICY.cost_limits
+        ] ?? VALID_POLICY.cost_limits["*"];
+      return {
+        maxTokensPerCall: binding.max_tokens_per_call,
+        maxCostUsdPerCall: binding.max_cost_usd_per_call,
       };
     },
     capabilities: APPCONFIG_CAPABILITIES,
@@ -257,6 +271,51 @@ describe("AwsAppConfigConfigProvider", () => {
     });
   });
 
+  it("resolves cost limits from the fetched AppConfig policy, falling back to tenant then global then a conservative default", async () => {
+    const send = vi
+      .fn()
+      .mockImplementationOnce(async () => ({
+        InitialConfigurationToken: "token-1",
+      }))
+      .mockImplementation(async () => ({
+        Configuration: encodedPolicy(VALID_POLICY),
+        NextPollConfigurationToken: "token-2",
+      }));
+    const provider = new AwsAppConfigConfigProvider(baseConfig(), {
+      send,
+    } as unknown as AppConfigDataCommandClient);
+
+    await expect(
+      provider.resolveCostLimit({ tenantId: "tenant-1", runId: "run-1" }),
+    ).resolves.toEqual({ maxTokensPerCall: 50_000, maxCostUsdPerCall: 2.5 });
+    await expect(
+      provider.resolveCostLimit({ tenantId: "tenant-unknown", runId: "run-1" }),
+    ).resolves.toEqual({ maxTokensPerCall: 10_000, maxCostUsdPerCall: 0.5 });
+  });
+
+  it("falls back to the hardcoded default when the policy declares no cost_limits at all", async () => {
+    const policyWithoutCostLimits = {
+      version: VALID_POLICY.version,
+      bindings: VALID_POLICY.bindings,
+    };
+    const send = vi
+      .fn()
+      .mockImplementationOnce(async () => ({
+        InitialConfigurationToken: "token-1",
+      }))
+      .mockImplementation(async () => ({
+        Configuration: encodedPolicy(policyWithoutCostLimits),
+        NextPollConfigurationToken: "token-2",
+      }));
+    const provider = new AwsAppConfigConfigProvider(baseConfig(), {
+      send,
+    } as unknown as AppConfigDataCommandClient);
+
+    await expect(
+      provider.resolveCostLimit({ tenantId: "tenant-1", runId: "run-1" }),
+    ).resolves.toEqual({ maxTokensPerCall: 20_000, maxCostUsdPerCall: 1 });
+  });
+
   it("validates required identifiers at construction", () => {
     expect(
       () =>
@@ -290,7 +349,7 @@ describe("ConfigProvider contract", () => {
     ]);
 
     expect(report.passed).toBe(true);
-    expect(report.results).toHaveLength(8);
+    expect(report.results).toHaveLength(10);
   });
 
   it("passes the unmodified shared contract suite across the real adapter and the mock", async () => {
@@ -300,6 +359,6 @@ describe("ConfigProvider contract", () => {
     ]);
 
     expect(report.passed).toBe(true);
-    expect(report.results).toHaveLength(8);
+    expect(report.results).toHaveLength(10);
   });
 });

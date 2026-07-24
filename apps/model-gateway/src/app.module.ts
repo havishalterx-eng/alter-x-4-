@@ -7,6 +7,7 @@ import type {
   EmbeddingProvider,
   ModelProvider,
   PIIRedactionProvider,
+  QueueProvider,
 } from "@alterx/shared-clients";
 
 import { ModelGatewayService } from "./gateway/model-gateway.service";
@@ -20,6 +21,8 @@ export class AppModule {
     piiRedactionProvider: PIIRedactionProvider,
     embeddingProvider: EmbeddingProvider,
     cacheProvider: CacheProvider,
+    queueProvider: QueueProvider,
+    costEventsQueueName: string,
   ): DynamicModule {
     return {
       module: AppModule,
@@ -33,6 +36,8 @@ export class AppModule {
             piiRedactionProvider,
             embeddingProvider,
             cacheProvider,
+            queueProvider,
+            costEventsQueueName,
           ),
         },
       ],

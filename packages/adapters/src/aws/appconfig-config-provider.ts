@@ -13,11 +13,21 @@ import {
 import {
   ModelAliasResolutionError,
   type ConfigProvider,
+  type CostLimitBinding,
+  type CostLimitRequest,
   type ProviderHealth,
   type ProviderMetadata,
   type ToolPermissionBinding,
   type ToolPermissionRequest,
 } from "@alterx/shared-clients";
+
+// Applied when the policy has no cost_limits entry for the tenant or "*".
+// Conservative on purpose -- an unconfigured tenant should be capped, never
+// unlimited.
+const DEFAULT_COST_LIMIT_BINDING: CostLimitBinding = {
+  maxTokensPerCall: 20_000,
+  maxCostUsdPerCall: 1,
+};
 
 export interface AwsAppConfigConfigProviderConfig {
   readonly region: string;
@@ -125,6 +135,19 @@ export class AwsAppConfigConfigProvider implements ConfigProvider {
       allowed: binding.allowed,
       rateLimitPerMinute: binding.rate_limit_per_minute,
       requiredScopes: binding.required_scopes,
+    };
+  }
+
+  async resolveCostLimit(request: CostLimitRequest): Promise<CostLimitBinding> {
+    const policy = await this.#fetchPolicy();
+    const binding =
+      policy.cost_limits?.[request.tenantId] ?? policy.cost_limits?.["*"];
+    if (binding === undefined) {
+      return DEFAULT_COST_LIMIT_BINDING;
+    }
+    return {
+      maxTokensPerCall: binding.max_tokens_per_call,
+      maxCostUsdPerCall: binding.max_cost_usd_per_call,
     };
   }
 

@@ -105,6 +105,12 @@ export {
   type PresidioPIIRedactionProviderConfig,
 } from "./presidio/presidio-pii-redaction-provider";
 export {
+  SQS_QUEUE_CAPABILITIES,
+  SqsQueueProvider,
+  type SqsCommandClient,
+  type SqsQueueProviderConfig,
+} from "./aws/sqs-queue-provider";
+export {
   TAVILY_SEARCH_CAPABILITIES,
   TavilySearchProvider,
   createFetchTavilyHttpClient,

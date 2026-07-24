@@ -289,11 +289,36 @@ export interface ToolPermissionBinding {
   readonly requiredScopes: readonly string[];
 }
 
+export interface CostLimitRequest {
+  readonly tenantId: string;
+  readonly runId: string;
+}
+
+export interface CostLimitBinding {
+  readonly maxTokensPerCall: number;
+  readonly maxCostUsdPerCall: number;
+}
+
 export interface ConfigProvider extends BaseProvider<"ConfigProvider"> {
   resolveModelAlias(alias: ModelAlias): Promise<ModelAliasBinding>;
   resolveToolPermission(
     request: ToolPermissionRequest,
   ): Promise<ToolPermissionBinding>;
+  resolveCostLimit(request: CostLimitRequest): Promise<CostLimitBinding>;
+}
+
+export class ModelGatewayCostLimitExceededError extends Error {
+  constructor(reason: string) {
+    super(`Model invocation exceeded its resolved cost limit: ${reason}`);
+    this.name = "ModelGatewayCostLimitExceededError";
+  }
+}
+
+export class ModelGatewayInvalidResponseError extends Error {
+  constructor(reason: string) {
+    super(`Model response failed validation: ${reason}`);
+    this.name = "ModelGatewayInvalidResponseError";
+  }
 }
 export interface RelationalDatabaseProvider
   extends BaseProvider<"RelationalDatabaseProvider"> {}

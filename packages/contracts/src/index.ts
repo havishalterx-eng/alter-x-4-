@@ -41,11 +41,13 @@ export type {
   ResolveCredentialResponse as ToolgwResolveCredentialResponse,
 } from "./generated/alter/toolgw/v1/toolgw";
 export {
+  CostLimitBindingSchema,
   FallbackBindingSchema,
   FallbackProviderSchema,
   ModelAliasPolicySchema,
   ModelAliasBindingSchema,
   ModelAliasSchema,
+  type CostLimitPolicyBinding,
   type FallbackBinding,
   type FallbackProvider,
   ToolPermissionBindingSchema,

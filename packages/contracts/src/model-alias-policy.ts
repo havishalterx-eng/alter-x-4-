@@ -37,6 +37,13 @@ export const ToolPermissionBindingSchema = z
   })
   .strict();
 
+export const CostLimitBindingSchema = z
+  .object({
+    max_tokens_per_call: z.number().int().positive(),
+    max_cost_usd_per_call: z.number().positive(),
+  })
+  .strict();
+
 export const ModelAliasPolicySchema = z
   .object({
     version: NonEmptyStringSchema,
@@ -51,6 +58,10 @@ export const ModelAliasPolicySchema = z
     tool_permissions: z
       .record(NonEmptyStringSchema, ToolPermissionBindingSchema)
       .optional(),
+    // Keyed by tenant_id, with "*" as the global fallback when no
+    // tenant-specific limit is configured. Per-call, not per-tenant-total --
+    // aggregate spend tracking lives in the Cost Ledger (Output phase).
+    cost_limits: z.record(NonEmptyStringSchema, CostLimitBindingSchema).optional(),
   })
   .strict();
 
@@ -61,4 +72,5 @@ export type ModelAliasBinding = z.infer<typeof ModelAliasBindingSchema>;
 export type ToolPermissionPolicyBinding = z.infer<
   typeof ToolPermissionBindingSchema
 >;
+export type CostLimitPolicyBinding = z.infer<typeof CostLimitBindingSchema>;
 export type ModelAliasPolicy = z.infer<typeof ModelAliasPolicySchema>;

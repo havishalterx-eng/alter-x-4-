@@ -3,6 +3,8 @@ import { createMockProvider } from "../mock-provider";
 import {
   ModelAliasResolutionError,
   type ConfigProvider,
+  type CostLimitBinding,
+  type CostLimitRequest,
   type ProviderHealth,
   type ProviderMetadata,
   type ToolPermissionBinding,
@@ -44,6 +46,10 @@ export interface MockConfigProviderOptions {
   readonly resolveToolPermission?: (
     request: ToolPermissionRequest,
   ) => Promise<ToolPermissionBinding>;
+  readonly costLimit?: CostLimitBinding;
+  readonly resolveCostLimit?: (
+    request: CostLimitRequest,
+  ) => Promise<CostLimitBinding>;
   readonly health?: ProviderHealth;
 }
 
@@ -51,6 +57,11 @@ export const DEFAULT_TOOL_PERMISSION: ToolPermissionBinding = Object.freeze({
   allowed: true,
   rateLimitPerMinute: 60,
   requiredScopes: [],
+});
+
+export const DEFAULT_COST_LIMIT: CostLimitBinding = Object.freeze({
+  maxTokensPerCall: 100_000,
+  maxCostUsdPerCall: 5,
 });
 
 export function createMockConfigProvider(
@@ -74,6 +85,9 @@ export function createMockConfigProvider(
       resolveToolPermission:
         options.resolveToolPermission ??
         (async () => options.toolPermission ?? DEFAULT_TOOL_PERMISSION),
+      resolveCostLimit:
+        options.resolveCostLimit ??
+        (async () => options.costLimit ?? DEFAULT_COST_LIMIT),
     },
   });
 }

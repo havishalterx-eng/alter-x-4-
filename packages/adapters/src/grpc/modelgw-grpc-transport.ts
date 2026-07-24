@@ -17,6 +17,8 @@ import type {
 import {
   InvalidModelAliasError,
   ModelAliasResolutionError,
+  ModelGatewayCostLimitExceededError,
+  ModelGatewayInvalidResponseError,
 } from "@alterx/shared-clients";
 
 export const MODELGW_HANDLER = Symbol("MODELGW_HANDLER");
@@ -51,6 +53,18 @@ export class ModelgwGrpcController {
       ) {
         throw new RpcException({
           code: status.INVALID_ARGUMENT,
+          message: error.message,
+        });
+      }
+      if (error instanceof ModelGatewayCostLimitExceededError) {
+        throw new RpcException({
+          code: status.RESOURCE_EXHAUSTED,
+          message: error.message,
+        });
+      }
+      if (error instanceof ModelGatewayInvalidResponseError) {
+        throw new RpcException({
+          code: status.INTERNAL,
           message: error.message,
         });
       }

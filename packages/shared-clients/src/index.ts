@@ -61,6 +61,8 @@ export {
   type CanonicalProviderInterfaceName,
   type ComputeProvider,
   type ConfigProvider,
+  type CostLimitBinding,
+  type CostLimitRequest,
   type DeploymentProvider,
   type DurableExecutionProvider,
   type DurableWorkflowHandle,
@@ -79,6 +81,8 @@ export {
   type MetricPoint,
   type MigrationSupport,
   ModelAliasResolutionError,
+  ModelGatewayCostLimitExceededError,
+  ModelGatewayInvalidResponseError,
   type ModelInvocationRequest,
   type ModelInvocationResult,
   type ModelProvider,
@@ -138,6 +142,7 @@ export {
   type PIIRecognizerPattern,
 } from "./pii-recognizers";
 export {
+  DEFAULT_COST_LIMIT,
   DEFAULT_TOOL_PERMISSION,
   DEFAULT_MODEL_ALIAS_POLICY,
   MOCK_CONFIG_CAPABILITIES,
@@ -149,6 +154,11 @@ export {
   createMockModelProvider,
   type MockModelProviderOptions,
 } from "./mocks/model-provider";
+export {
+  MOCK_QUEUE_CAPABILITIES,
+  createMockQueueProvider,
+  type MockQueueProviderOptions,
+} from "./mocks/queue-provider";
 export {
   MOCK_EMBEDDING_CAPABILITIES,
   createMockEmbeddingProvider,

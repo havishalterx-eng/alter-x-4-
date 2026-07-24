@@ -291,6 +291,26 @@ export const configProviderContract: ProviderContractSuite<ConfigProvider> = {
         return binding;
       },
     },
+    {
+      name: "resolves a cost limit binding",
+      assert: async (provider) => {
+        const binding = await provider.resolveCostLimit({
+          tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+          runId: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
+        });
+        ensure(
+          Number.isInteger(binding.maxTokensPerCall) &&
+            binding.maxTokensPerCall > 0,
+          "Cost limit must return a positive integer token cap",
+        );
+        ensure(
+          typeof binding.maxCostUsdPerCall === "number" &&
+            binding.maxCostUsdPerCall > 0,
+          "Cost limit must return a positive USD cap",
+        );
+        return binding;
+      },
+    },
   ],
 };
 

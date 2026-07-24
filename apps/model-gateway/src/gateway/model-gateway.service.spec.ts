@@ -4,15 +4,19 @@ import {
   createMockEmbeddingProvider,
   createMockModelProvider,
   createMockPIIRedactionProvider,
+  createMockQueueProvider,
   type CacheProvider,
   type ConfigProvider,
   type EmbeddingProvider,
   type ModelProvider,
   type PIIRedactionProvider,
+  type QueueProvider,
 } from "@alterx/shared-clients";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 
 import { ModelGatewayService } from "./model-gateway.service";
+
+const COST_EVENTS_QUEUE_NAME = "alter-dev-cost-events";
 
 function request(overrides: Partial<Parameters<ModelGatewayService["invoke"]>[0]> = {}) {
   return {
@@ -33,6 +37,8 @@ interface ServiceOverrides {
   readonly piiRedactionProvider?: PIIRedactionProvider;
   readonly embeddingProvider?: EmbeddingProvider;
   readonly cacheProvider?: CacheProvider;
+  readonly queueProvider?: QueueProvider;
+  readonly costEventsQueueName?: string;
 }
 
 function buildService(overrides: ServiceOverrides = {}): ModelGatewayService {
@@ -42,6 +48,8 @@ function buildService(overrides: ServiceOverrides = {}): ModelGatewayService {
     overrides.piiRedactionProvider ?? createMockPIIRedactionProvider(),
     overrides.embeddingProvider ?? createMockEmbeddingProvider(),
     overrides.cacheProvider ?? createMockCacheProvider(),
+    overrides.queueProvider ?? createMockQueueProvider(),
+    overrides.costEventsQueueName ?? COST_EVENTS_QUEUE_NAME,
   );
 }
 
@@ -205,6 +213,136 @@ describe("ModelGatewayService", () => {
       redacted_content: "nothing sensitive here",
       redaction_count: 0,
     });
+  });
+
+  it("emits a cost event to the configured queue on a successful invocation", async () => {
+    const publish: Mock<(queueName: string, message: unknown) => Promise<void>> =
+      vi.fn(async () => undefined);
+    const queueProvider = createMockQueueProvider({ publish });
+    const modelProvider = createMockModelProvider({
+      invoke: async () => ({
+        outputJson: JSON.stringify({
+          message: { role: "assistant", content: "hi" },
+          stop_reason: "end_turn",
+        }),
+        usageJson: JSON.stringify({ input_tokens: 100, output_tokens: 50 }),
+        servedBy: "aws-bedrock",
+      }),
+    });
+    const service = buildService({ modelProvider, queueProvider });
+
+    await service.invoke(request());
+
+    expect(publish).toHaveBeenCalledTimes(1);
+    const call = publish.mock.calls[0];
+    if (call === undefined) {
+      throw new Error("publish was not called");
+    }
+    const [queueName, message] = call;
+    const messageRecord = message as Record<string, string>;
+    expect(queueName).toBe(COST_EVENTS_QUEUE_NAME);
+    expect(messageRecord).toMatchObject({
+      tenant_id: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+      run_id: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
+      node_execution_id: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
+      provider_reference: "aws-bedrock",
+      usage_json: JSON.stringify({ input_tokens: 100, output_tokens: 50 }),
+    });
+    expect(messageRecord.cost_event_id).toMatch(/^cst_/);
+    expect(JSON.parse(messageRecord.amount_json ?? "")).toMatchObject({
+      estimated: true,
+    });
+  });
+
+  it("returns a successful response even when cost-event publish fails -- best-effort, never blocks", async () => {
+    const queueProvider = createMockQueueProvider({
+      publish: async () => {
+        throw new Error("queue unreachable");
+      },
+    });
+    const service = buildService({ queueProvider });
+
+    await expect(service.invoke(request())).resolves.toMatchObject({
+      resolved_capability: "STANDARD:mock.model",
+    });
+  });
+
+  it("rejects an over-limit call with RESOURCE_EXHAUSTED-mapped error, after still emitting the cost event", async () => {
+    const publish = vi.fn(async () => undefined);
+    const queueProvider = createMockQueueProvider({ publish });
+    const configProvider = createMockConfigProvider({
+      costLimit: { maxTokensPerCall: 10, maxCostUsdPerCall: 5 },
+    });
+    const modelProvider = createMockModelProvider({
+      invoke: async () => ({
+        outputJson: JSON.stringify({
+          message: { role: "assistant", content: "hi" },
+          stop_reason: "end_turn",
+        }),
+        usageJson: JSON.stringify({ input_tokens: 5_000, output_tokens: 5_000 }),
+        servedBy: "aws-bedrock",
+      }),
+    });
+    const service = buildService({ configProvider, modelProvider, queueProvider });
+
+    await expect(service.invoke(request())).rejects.toThrow(
+      /exceeds the resolved limit/,
+    );
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a call whose estimated cost exceeds the resolved USD limit", async () => {
+    const configProvider = createMockConfigProvider({
+      costLimit: { maxTokensPerCall: 1_000_000, maxCostUsdPerCall: 0.0001 },
+    });
+    const modelProvider = createMockModelProvider({
+      invoke: async () => ({
+        outputJson: JSON.stringify({
+          message: { role: "assistant", content: "hi" },
+          stop_reason: "end_turn",
+        }),
+        usageJson: JSON.stringify({ input_tokens: 1_000, output_tokens: 1_000 }),
+        servedBy: "aws-bedrock",
+      }),
+    });
+    const service = buildService({ configProvider, modelProvider });
+
+    await expect(service.invoke(request())).rejects.toThrow(
+      /exceeds the resolved limit/,
+    );
+  });
+
+  it("rejects a response whose output_json is not a JSON object", async () => {
+    const modelProvider = createMockModelProvider({
+      invoke: async () => ({
+        outputJson: JSON.stringify("just a string"),
+        usageJson: JSON.stringify({ input_tokens: 1, output_tokens: 1 }),
+        servedBy: "aws-bedrock",
+      }),
+    });
+    const service = buildService({ modelProvider });
+
+    await expect(service.invoke(request())).rejects.toThrow(
+      /output_json must decode to a JSON object/,
+    );
+  });
+
+  it("rejects a response whose usage_json does not conform to the shared usage contract", async () => {
+    const modelProvider = createMockModelProvider({
+      invoke: async () => ({
+        outputJson: JSON.stringify({
+          message: { role: "assistant", content: "hi" },
+          stop_reason: "end_turn",
+        }),
+        usageJson: JSON.stringify({ totally: "wrong shape" }),
+        servedBy: "aws-bedrock",
+      }),
+    });
+    const service = buildService({ modelProvider });
+
+    await expect(service.invoke(request())).rejects.toThrow(
+      /usage_json does not conform/,
+    );
   });
 
   it("misses the cache on the first call, invokes the real model, then stores the result", async () => {

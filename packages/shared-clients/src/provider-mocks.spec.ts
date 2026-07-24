@@ -6,6 +6,7 @@ import {
   createMockDurableExecutionProvider,
 } from "./mocks/durable-execution-provider";
 import { createMockModelProvider } from "./mocks/model-provider";
+import { createMockQueueProvider } from "./mocks/queue-provider";
 import { createMockObservabilityProvider } from "./mocks/observability-provider";
 import {
   InvalidSecretReferenceError,
@@ -92,6 +93,9 @@ describe("ConfigProvider mock", () => {
       rateLimitPerMinute: 60,
       requiredScopes: [],
     });
+    await expect(
+      provider.resolveCostLimit({ tenantId: "tenant-1", runId: "run-1" }),
+    ).resolves.toEqual({ maxTokensPerCall: 100_000, maxCostUsdPerCall: 5 });
   });
 
   it("rejects an alias absent from the policy instead of silently downgrading", async () => {
@@ -143,6 +147,29 @@ describe("ModelProvider mock", () => {
     expect(JSON.parse(result.usageJson)).toEqual({
       input_tokens: 0,
       output_tokens: 0,
+    });
+  });
+});
+
+describe("QueueProvider mock", () => {
+  it("publishes then consumes in FIFO order, per queue name", async () => {
+    const provider = createMockQueueProvider();
+
+    await provider.publish("alter-dev-cost-events", { seq: 1 });
+    await provider.publish("alter-dev-cost-events", { seq: 2 });
+    await provider.publish("other-queue", { seq: "other" });
+
+    await expect(provider.consume("alter-dev-cost-events")).resolves.toEqual({
+      seq: 1,
+    });
+    await expect(provider.consume("alter-dev-cost-events")).resolves.toEqual({
+      seq: 2,
+    });
+    await expect(
+      provider.consume("alter-dev-cost-events"),
+    ).resolves.toBeUndefined();
+    await expect(provider.consume("other-queue")).resolves.toEqual({
+      seq: "other",
     });
   });
 });

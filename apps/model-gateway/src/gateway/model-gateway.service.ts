@@ -1,5 +1,6 @@
 import {
   ModelAliasSchema,
+  ModelInvocationUsageSchema,
   type ModelgwInvokeRequest,
   type ModelgwInvokeResponse,
   type ModelgwRedactRequest,
@@ -8,12 +9,23 @@ import {
 import type { ModelgwHandler } from "@alterx/adapters";
 import {
   InvalidModelAliasError,
+  ModelGatewayCostLimitExceededError,
+  ModelGatewayInvalidResponseError,
   type CacheProvider,
   type ConfigProvider,
   type EmbeddingProvider,
   type ModelProvider,
   type PIIRedactionProvider,
+  type QueueProvider,
 } from "@alterx/shared-clients";
+
+import { costEventId } from "./cost-event-id";
+
+// Rough per-token estimate used only to enforce a spend ceiling before real
+// provider billing data is available. NOT a billing-accurate figure --
+// Cost Ledger (Output phase, OUT-4) will replace this with real per-model,
+// per-provider rates once they exist.
+const ESTIMATED_USD_PER_TOKEN = 0.00001;
 
 const CACHE_EMBEDDING_DIMENSIONS = 512;
 
@@ -52,6 +64,8 @@ export class ModelGatewayService implements ModelgwHandler {
     private readonly piiRedactionProvider: PIIRedactionProvider,
     private readonly embeddingProvider: EmbeddingProvider,
     private readonly cacheProvider: CacheProvider,
+    private readonly queueProvider: QueueProvider,
+    private readonly costEventsQueueName: string,
   ) {}
 
   async invoke(request: ModelgwInvokeRequest): Promise<ModelgwInvokeResponse> {
@@ -101,6 +115,43 @@ export class ModelGatewayService implements ModelgwHandler {
         : { fallbackChain: binding.fallback_chain }),
     });
 
+    // Validation floor: the response must be well-formed JSON that decodes
+    // to an object (not a bare string/number/array/null). This is a shape
+    // check, not a content check -- it catches a provider adapter returning
+    // garbage, not a "wrong answer" from the model itself.
+    this.#validateOutputShape(result.outputJson);
+
+    const usage = this.#parseUsage(result.usageJson);
+    const totalTokens = usage.input_tokens + usage.output_tokens;
+    const estimatedCostUsd = totalTokens * ESTIMATED_USD_PER_TOKEN;
+
+    const limit = await this.configProvider.resolveCostLimit({
+      tenantId: request.tenant_id,
+      runId: request.run_id,
+    });
+
+    // The spend already happened by the time we can measure it -- emit the
+    // cost event for what was actually used before deciding whether to
+    // reject the call, so an over-limit call is never invisible to the
+    // (future) Cost Ledger.
+    await this.#emitCostEventBestEffort(
+      request,
+      result.servedBy,
+      result.usageJson,
+      estimatedCostUsd,
+    );
+
+    if (totalTokens > limit.maxTokensPerCall) {
+      throw new ModelGatewayCostLimitExceededError(
+        `${totalTokens} tokens exceeds the resolved limit of ${limit.maxTokensPerCall} tokens for tenant ${request.tenant_id}`,
+      );
+    }
+    if (estimatedCostUsd > limit.maxCostUsdPerCall) {
+      throw new ModelGatewayCostLimitExceededError(
+        `estimated $${estimatedCostUsd.toFixed(4)} exceeds the resolved limit of $${limit.maxCostUsdPerCall} for tenant ${request.tenant_id}`,
+      );
+    }
+
     const response: ModelgwInvokeResponse = {
       output_json: result.outputJson,
       usage_json: result.usageJson,
@@ -125,6 +176,71 @@ export class ModelGatewayService implements ModelgwHandler {
       redacted_content: result.redactedText,
       redaction_count: result.entities.length,
     };
+  }
+
+  #validateOutputShape(outputJson: string): void {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(outputJson);
+    } catch {
+      throw new ModelGatewayInvalidResponseError(
+        "output_json is not valid JSON",
+      );
+    }
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      throw new ModelGatewayInvalidResponseError(
+        "output_json must decode to a JSON object",
+      );
+    }
+  }
+
+  #parseUsage(usageJson: string) {
+    const parsedResult = ModelInvocationUsageSchema.safeParse(
+      (() => {
+        try {
+          return JSON.parse(usageJson);
+        } catch {
+          return undefined;
+        }
+      })(),
+    );
+    if (!parsedResult.success) {
+      throw new ModelGatewayInvalidResponseError(
+        "usage_json does not conform to the shared token-usage contract",
+      );
+    }
+    return parsedResult.data;
+  }
+
+  async #emitCostEventBestEffort(
+    request: ModelgwInvokeRequest,
+    providerReference: string,
+    usageJson: string,
+    estimatedCostUsd: number,
+  ): Promise<void> {
+    try {
+      await this.queueProvider.publish(this.costEventsQueueName, {
+        tenant_id: request.tenant_id,
+        cost_event_id: costEventId(),
+        run_id: request.run_id,
+        node_execution_id: request.node_execution_id,
+        provider_reference: providerReference,
+        usage_json: usageJson,
+        amount_json: JSON.stringify({
+          usd: estimatedCostUsd,
+          estimated: true,
+        }),
+      });
+    } catch {
+      // Cost-event emission is best-effort: an unreachable or throttled
+      // queue must never block returning an otherwise-successful model
+      // response to the caller. The Cost Ledger will simply be missing
+      // this event -- acceptable, unlike blocking the whole gateway.
+    }
   }
 
   async #lookupCacheBestEffort(
