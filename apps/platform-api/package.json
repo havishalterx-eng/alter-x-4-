@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "dependencies": {
+    "@alterx/contracts": "workspace:*",
     "@alterx/shared-clients": "workspace:*",
     "@aws-sdk/client-appconfigdata": "^3.1092.0",
     "@nestjs/common": "11.1.28",

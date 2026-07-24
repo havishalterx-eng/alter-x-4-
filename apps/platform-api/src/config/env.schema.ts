@@ -20,6 +20,13 @@ export const platformApiEnvSchema = z
     APPCONFIG_APP_ID: z.string().min(1).optional(),
     APPCONFIG_ENV_ID: z.string().min(1).optional(),
     APPCONFIG_PROFILE_ID: z.string().min(1).optional(),
+    ENGINE_BASE_URL: z.string().url().optional(),
+    ENGINE_M2M_TOKEN_URL: z.string().url().optional(),
+    ENGINE_M2M_AUDIENCE: z.string().min(1).optional(),
+    ENGINE_M2M_CLIENT_ID: z.string().min(1).optional(),
+    ENGINE_M2M_CLIENT_SECRET_REF: z.string().min(1).optional(),
+    ENGINE_REQUEST_TIMEOUT_MS: z.string().regex(/^[1-9]\d*$/).optional(),
+    IDEMPOTENCY_TTL_SECONDS: z.string().regex(/^[1-9]\d*$/).optional(),
   })
   .superRefine((env, context) => {
     if (env.SIGNING_KEY_PROVIDER === "secrets" && !env.ACTOR_TOKEN_SIGNING_KEY_REF) {
