@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import type { ProblemDetails } from "@alterx/contracts";
 import type { ActorTokenValidator } from "./actor-token-validator";
+import { SESSION_GATEWAY_FEATURE_DECISION } from "./feature-decision";
 import type { M2mValidator } from "./m2m-validator";
 import {
   SessionGatewayAuthError,
@@ -28,6 +29,8 @@ const SAFE_DETAILS: Record<SessionGatewayErrorCode, string> = {
 
 @Injectable()
 export class SessionGatewayGuard implements CanActivate {
+  readonly featureDecision = SESSION_GATEWAY_FEATURE_DECISION;
+
   constructor(
     private readonly m2mValidator: M2mValidator,
     private readonly actorTokenValidator: ActorTokenValidator,

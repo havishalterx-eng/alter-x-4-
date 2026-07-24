@@ -67,6 +67,8 @@ interface SessionGatewayEnvironment {
 function sessionGatewayEnvironment(
   env: NodeJS.ProcessEnv,
 ): SessionGatewayEnvironment {
+  assertProductionSessionGatewayConfiguration(env);
+
   return {
     auth0Domain: requiredEnvironment(env, "AUTH0_DOMAIN"),
     apiAudience: requiredEnvironment(env, "AUTH0_API_AUDIENCE"),
@@ -80,6 +82,22 @@ function sessionGatewayEnvironment(
     databaseUser: requiredEnvironment(env, "ORCHESTRATION_DATABASE_USER"),
     awsRegion: requiredEnvironment(env, "AWS_REGION"),
   };
+}
+
+function assertProductionSessionGatewayConfiguration(
+  env: NodeJS.ProcessEnv,
+): void {
+  if (env.NODE_ENV !== "production") {
+    return;
+  }
+  if (env.INGRESS_SESSION_GATEWAY_CORE_ENABLED !== "true") {
+    throw new Error(
+      "Production Session Gateway requires feature flag ingress.sessionGatewayCore",
+    );
+  }
+  if (env.ACTOR_TOKEN_TEST_SIGNER_ENABLED === "true") {
+    throw new Error("Actor-token test signer cannot be enabled in production");
+  }
 }
 
 function requiredEnvironment(

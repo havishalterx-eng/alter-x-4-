@@ -113,7 +113,7 @@ describe.sequential("Session Gateway PostgreSQL RLS integration", () => {
       {
         issuer: "alter-platform-api.identity-broker",
         audience: "alter-engine",
-        jwksUrl: "https://identity.alter.dev/.well-known/jwks.json",
+        jwksUrl: "https://identity.example.test/actor-jwks",
       },
       { setIfAbsent: vi.fn() } satisfies ReplayStore,
       { fetch: jwksFetch(signingKey), nowSeconds: () => TEST_NOW },

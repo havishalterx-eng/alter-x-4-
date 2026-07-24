@@ -27,13 +27,24 @@ describe("Session Gateway contract and production boundary", () => {
   });
 
   it("does not export the test-only signer from production", async () => {
-    const productionIndex = await readFile(
-      resolve(
-        process.cwd(),
-        "packages/auth/session-gateway/src/index.ts",
+    const [productionIndex, buildConfig] = await Promise.all([
+      readFile(
+        resolve(
+          process.cwd(),
+          "packages/auth/session-gateway/src/index.ts",
+        ),
+        "utf8",
       ),
-      "utf8",
-    );
+      readFile(
+        resolve(process.cwd(), "packages/auth/tsconfig.lib.json"),
+        "utf8",
+      ),
+    ]);
     expect(productionIndex).not.toContain("mint-test-actor-token");
+    expect(JSON.parse(buildConfig)).toMatchObject({
+      exclude: expect.arrayContaining([
+        "session-gateway/test-utils/**/*.ts",
+      ]),
+    });
   });
 });

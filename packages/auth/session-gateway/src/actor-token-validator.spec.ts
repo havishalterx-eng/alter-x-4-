@@ -29,7 +29,7 @@ function setup(replayResult = true) {
       {
         issuer: "alter-platform-api.identity-broker",
         audience: "alter-engine",
-        jwksUrl: "https://identity.alter.dev/.well-known/jwks.json",
+        jwksUrl: "https://identity.example.test/actor-jwks",
       },
       replayStore,
       { fetch: jwksFetch(key), nowSeconds: () => TEST_NOW },
