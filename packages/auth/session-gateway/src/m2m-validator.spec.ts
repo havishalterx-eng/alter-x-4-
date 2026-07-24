@@ -8,7 +8,10 @@ import {
   testSigningKey,
   type TestSigningKey,
 } from "../test-utils/jwt-fixture";
-import { M2mValidator } from "./m2m-validator";
+import {
+  M2M_CLOCK_SKEW_SECONDS,
+  M2mValidator,
+} from "./m2m-validator";
 
 const issuer = "https://tenant.auth0.com/";
 const audience = "https://engine.alter.dev";
@@ -33,6 +36,7 @@ function claims(overrides: Record<string, unknown> = {}) {
     iss: issuer,
     aud: audience,
     exp: TEST_NOW + 60,
+    iat: TEST_NOW,
     sub: "client-id",
     ...overrides,
   };
@@ -56,6 +60,40 @@ describe("M2mValidator", () => {
     const result = await validator().validate(`Bearer ${mintJwt(claims(), key)}`);
     expect(result.serviceActor).toBeNull();
     expect(result.claims.sub).toBe("client-id");
+  });
+
+  it.each([
+    ["missing iat", { iat: undefined }],
+    ["non-integer iat", { iat: TEST_NOW - 0.5 }],
+    [
+      "future iat beyond clock skew",
+      { iat: TEST_NOW + M2M_CLOCK_SKEW_SECONDS + 1 },
+    ],
+    ["non-integer nbf", { nbf: TEST_NOW - 0.5 }],
+    [
+      "future nbf beyond clock skew",
+      { nbf: TEST_NOW + M2M_CLOCK_SKEW_SECONDS + 1 },
+    ],
+  ])("rejects machine tokens with %s", async (_name, override) => {
+    await expect(
+      validator().validate(`Bearer ${mintJwt(claims(override), key)}`),
+    ).rejects.toMatchObject({ errorCode: "AUTH_INVALID_M2M_TOKEN" });
+  });
+
+  it.each([
+    ["past nbf", { nbf: TEST_NOW - 1 }],
+    ["current nbf", { nbf: TEST_NOW }],
+    [
+      "iat and nbf at clock-skew boundary",
+      {
+        iat: TEST_NOW + M2M_CLOCK_SKEW_SECONDS,
+        nbf: TEST_NOW + M2M_CLOCK_SKEW_SECONDS,
+      },
+    ],
+  ])("accepts machine tokens with %s", async (_name, override) => {
+    await expect(
+      validator().validate(`Bearer ${mintJwt(claims(override), key)}`),
+    ).resolves.toMatchObject({ serviceActor: null });
   });
 
   it.each([
@@ -90,7 +128,11 @@ describe("M2mValidator", () => {
     await expect(
       value.validate(
         `Bearer ${mintJwt(
-          claims({ aud: ["other", audience], exp: current + 60 }),
+          claims({
+            aud: ["other", audience],
+            exp: current + 60,
+            iat: current,
+          }),
           key,
         )}`,
       ),

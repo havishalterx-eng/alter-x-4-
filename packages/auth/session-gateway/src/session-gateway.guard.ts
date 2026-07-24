@@ -9,6 +9,7 @@ import type { ProblemDetails } from "@alterx/contracts";
 import type { ActorTokenValidator } from "./actor-token-validator";
 import { SESSION_GATEWAY_FEATURE_DECISION } from "./feature-decision";
 import type { M2mValidator } from "./m2m-validator";
+import { PUBLIC_ROUTE_METADATA } from "./public-route";
 import {
   SessionGatewayAuthError,
   type SessionGatewayErrorCode,
@@ -38,6 +39,14 @@ export class SessionGatewayGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    if (
+      Reflect.getMetadata(PUBLIC_ROUTE_METADATA, context.getHandler()) ===
+        true ||
+      Reflect.getMetadata(PUBLIC_ROUTE_METADATA, context.getClass()) === true
+    ) {
+      return true;
+    }
+
     const http = context.switchToHttp();
     const request = http.getRequest<SessionGatewayRequest>();
     const response = http.getResponse<SessionGatewayResponse>();

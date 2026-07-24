@@ -6,6 +6,8 @@ import {
 } from "./types";
 
 const ACTOR_TYPE_CLAIM = "https://alter.dev/claims/actor_type";
+// Small tolerance for clock drift between Auth0 and Session Gateway hosts.
+export const M2M_CLOCK_SKEW_SECONDS = 30;
 
 export interface M2mValidatorConfig {
   readonly auth0Domain: string;
@@ -45,12 +47,17 @@ export class M2mValidator {
     try {
       const token = bearerToken(authorization);
       const claims = await verifyRs256(token, this.#jwks);
+      const now = this.#nowSeconds();
       if (
         claims.iss !== this.#issuer ||
         !hasAudience(claims.aud, this.#audience) ||
         typeof claims.exp !== "number" ||
         !Number.isInteger(claims.exp) ||
-        claims.exp <= this.#nowSeconds()
+        claims.exp <= now ||
+        typeof claims.iat !== "number" ||
+        !Number.isInteger(claims.iat) ||
+        claims.iat > now + M2M_CLOCK_SKEW_SECONDS ||
+        !validNotBefore(claims.nbf, now)
       ) {
         throw new Error("Invalid machine token claims");
       }
@@ -66,6 +73,15 @@ export class M2mValidator {
       throw new SessionGatewayAuthError("AUTH_INVALID_M2M_TOKEN");
     }
   }
+}
+
+function validNotBefore(value: unknown, now: number): boolean {
+  return (
+    value === undefined ||
+    (typeof value === "number" &&
+      Number.isInteger(value) &&
+      value <= now + M2M_CLOCK_SKEW_SECONDS)
+  );
 }
 
 function bearerToken(authorization: string | undefined): string {

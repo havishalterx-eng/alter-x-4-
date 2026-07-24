@@ -7,6 +7,7 @@ export {
   type SessionGatewayFeatureDecision,
 } from "./feature-decision";
 export { M2mValidator, type M2mValidatorConfig } from "./m2m-validator";
+export { Public, PUBLIC_ROUTE_METADATA } from "./public-route";
 export {
   RedisReplayStore,
   type RedisSetClient,

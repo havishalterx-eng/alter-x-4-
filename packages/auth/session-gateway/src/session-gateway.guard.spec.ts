@@ -2,6 +2,7 @@ import { HttpException, type ExecutionContext } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { ActorTokenValidator } from "./actor-token-validator";
 import type { M2mValidator } from "./m2m-validator";
+import { PUBLIC_ROUTE_METADATA } from "./public-route";
 import { SessionGatewayGuard } from "./session-gateway.guard";
 import {
   SessionGatewayAuthError,
@@ -33,6 +34,7 @@ function setup(options: {
   serviceActor?: ActorContext | null;
   m2mError?: unknown;
   actorError?: unknown;
+  publicRoute?: boolean;
 } = {}) {
   const m2mValidator = {
     validate: options.m2mError
@@ -65,7 +67,13 @@ function setup(options: {
     url: "/v1/workflows",
   };
   const response = { header: vi.fn() };
+  const handler = () => undefined;
+  if (options.publicRoute) {
+    Reflect.defineMetadata(PUBLIC_ROUTE_METADATA, true, handler);
+  }
   const executionContext = {
+    getHandler: () => handler,
+    getClass: () => class TestController {},
     switchToHttp: () => ({
       getRequest: () => request,
       getResponse: () => response,
@@ -81,12 +89,36 @@ function setup(options: {
     databaseScope,
     executionContext,
     guard,
+    m2mValidator,
     request,
     response,
   };
 }
 
 describe("SessionGatewayGuard", () => {
+  it("bypasses authentication only for explicitly public routes", async () => {
+    const { actorTokenValidator, executionContext, guard, m2mValidator } =
+      setup({
+        publicRoute: true,
+        m2mError: new SessionGatewayAuthError("AUTH_INVALID_M2M_TOKEN"),
+      });
+
+    await expect(guard.canActivate(executionContext)).resolves.toBe(true);
+    expect(m2mValidator.validate).not.toHaveBeenCalled();
+    expect(actorTokenValidator.validate).not.toHaveBeenCalled();
+  });
+
+  it("does not bypass authentication for protected routes", async () => {
+    const { executionContext, guard } = setup({
+      m2mError: new SessionGatewayAuthError("AUTH_INVALID_M2M_TOKEN"),
+    });
+
+    await expectProblem(
+      guard.canActivate(executionContext),
+      "AUTH_INVALID_M2M_TOKEN",
+    );
+  });
+
   it("attaches trusted user context and a tenant-bound database callback", async () => {
     const { databaseScope, executionContext, guard, request } = setup();
     await expect(guard.canActivate(executionContext)).resolves.toBe(true);
