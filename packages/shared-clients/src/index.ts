@@ -99,6 +99,8 @@ export {
   type StartWorkflowRequest,
   type SignalWorkflowRequest,
   type TerminateWorkflowRequest,
+  type ToolPermissionBinding,
+  type ToolPermissionRequest,
   type TraceSpan,
   type VectorStoreProvider,
   type WorkflowQueryRequest,
@@ -127,6 +129,7 @@ export {
   type PIIRecognizerPattern,
 } from "./pii-recognizers";
 export {
+  DEFAULT_TOOL_PERMISSION,
   DEFAULT_MODEL_ALIAS_POLICY,
   MOCK_CONFIG_CAPABILITIES,
   createMockConfigProvider,

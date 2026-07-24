@@ -266,6 +266,29 @@ export const configProviderContract: ProviderContractSuite<ConfigProvider> = {
         return { rejected: true };
       },
     },
+    {
+      name: "resolves a tool permission binding",
+      assert: async (provider) => {
+        const binding = await provider.resolveToolPermission({
+          tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+          toolName: "contract.search",
+        });
+        ensure(
+          typeof binding.allowed === "boolean",
+          "Tool permission must return an explicit allowed flag",
+        );
+        ensure(
+          Number.isInteger(binding.rateLimitPerMinute) &&
+            binding.rateLimitPerMinute > 0,
+          "Tool permission must return a positive integer rate limit",
+        );
+        ensure(
+          Array.isArray(binding.requiredScopes),
+          "Tool permission must return requiredScopes as an array",
+        );
+        return binding;
+      },
+    },
   ],
 };
 

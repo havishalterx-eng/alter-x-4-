@@ -46,6 +46,17 @@ export {
   type ModelgwHandler,
 } from "./grpc/modelgw-grpc-transport";
 export {
+  TOOLGW_HANDLER,
+  ToolGatewayNotImplementedError,
+  ToolGatewayPermissionError,
+  ToolGatewayRateLimitError,
+  ToolGatewayValidationError,
+  ToolgwGrpcController,
+  startToolgwGrpcTransport,
+  type ToolgwGrpcTransportConfig,
+  type ToolgwHandler,
+} from "./grpc/toolgw-grpc-transport";
+export {
   BEDROCK_CAPABILITIES,
   AwsBedrockModelProvider,
   type AwsBedrockModelProviderConfig,

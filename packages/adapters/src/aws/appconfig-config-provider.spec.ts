@@ -26,6 +26,23 @@ const VALID_POLICY = {
     ADVANCED: { model_id: "anthropic.claude-opus-4-8", capability_tags: ["reasoning"] },
     CEILING: { model_id: "anthropic.claude-fable-5", capability_tags: ["frontier"] },
   },
+  tool_permissions: {
+    "*:contract.search": {
+      allowed: true,
+      rate_limit_per_minute: 60,
+      required_scopes: [],
+    },
+    "tenant-1:search.web": {
+      allowed: true,
+      rate_limit_per_minute: 30,
+      required_scopes: ["tools:search"],
+    },
+    "*:admin.tool": {
+      allowed: false,
+      rate_limit_per_minute: 1,
+      required_scopes: ["tools:admin"],
+    },
+  },
 };
 
 function encodedPolicy(policy: unknown): Uint8Array {
@@ -73,6 +90,20 @@ function equivalentMockProvider(): ConfigProvider {
   // implementation-for-implementation, not just each against itself.
   return createMockConfigProvider({
     policy: VALID_POLICY,
+    resolveToolPermission: async ({ tenantId, toolName }) => {
+      const binding =
+        VALID_POLICY.tool_permissions[
+          `${tenantId}:${toolName}` as keyof typeof VALID_POLICY.tool_permissions
+        ] ??
+        VALID_POLICY.tool_permissions[
+          `*:${toolName}` as keyof typeof VALID_POLICY.tool_permissions
+        ];
+      return {
+        allowed: binding.allowed,
+        rateLimitPerMinute: binding.rate_limit_per_minute,
+        requiredScopes: binding.required_scopes,
+      };
+    },
     capabilities: APPCONFIG_CAPABILITIES,
     health: {
       status: "healthy",
@@ -181,6 +212,51 @@ describe("AwsAppConfigConfigProvider", () => {
     });
   });
 
+  it("resolves tool permissions from the fetched AppConfig policy and fails closed by default", async () => {
+    const send = vi
+      .fn()
+      .mockImplementationOnce(async () => ({
+        InitialConfigurationToken: "token-1",
+      }))
+      .mockImplementation(async () => ({
+        Configuration: encodedPolicy(VALID_POLICY),
+        NextPollConfigurationToken: "token-2",
+      }));
+    const provider = new AwsAppConfigConfigProvider(baseConfig(), {
+      send,
+    } as unknown as AppConfigDataCommandClient);
+    await expect(
+      provider.resolveToolPermission({
+        tenantId: "tenant-1",
+        toolName: "search.web",
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      rateLimitPerMinute: 30,
+      requiredScopes: ["tools:search"],
+    });
+    await expect(
+      provider.resolveToolPermission({
+        tenantId: "tenant-1",
+        toolName: "admin.tool",
+      }),
+    ).resolves.toEqual({
+      allowed: false,
+      rateLimitPerMinute: 1,
+      requiredScopes: ["tools:admin"],
+    });
+    await expect(
+      provider.resolveToolPermission({
+        tenantId: "tenant-1",
+        toolName: "unknown.tool",
+      }),
+    ).resolves.toEqual({
+      allowed: false,
+      rateLimitPerMinute: 1,
+      requiredScopes: [],
+    });
+  });
+
   it("validates required identifiers at construction", () => {
     expect(
       () =>
@@ -214,7 +290,7 @@ describe("ConfigProvider contract", () => {
     ]);
 
     expect(report.passed).toBe(true);
-    expect(report.results).toHaveLength(6);
+    expect(report.results).toHaveLength(8);
   });
 
   it("passes the unmodified shared contract suite across the real adapter and the mock", async () => {
@@ -224,6 +300,6 @@ describe("ConfigProvider contract", () => {
     ]);
 
     expect(report.passed).toBe(true);
-    expect(report.results).toHaveLength(6);
+    expect(report.results).toHaveLength(8);
   });
 });

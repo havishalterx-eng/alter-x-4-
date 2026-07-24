@@ -30,13 +30,23 @@ export type {
   StreamRequest as ModelgwStreamRequest,
   StreamResponse as ModelgwStreamResponse,
 } from "./generated/alter/modelgw/v1/modelgw";
+export type {
+  FetchUrlRequest as ToolgwFetchUrlRequest,
+  FetchUrlResponse as ToolgwFetchUrlResponse,
+  InvokeToolRequest as ToolgwInvokeToolRequest,
+  InvokeToolResponse as ToolgwInvokeToolResponse,
+  ResolveCredentialRequest as ToolgwResolveCredentialRequest,
+  ResolveCredentialResponse as ToolgwResolveCredentialResponse,
+} from "./generated/alter/toolgw/v1/toolgw";
 export {
   ModelAliasPolicySchema,
   ModelAliasBindingSchema,
   ModelAliasSchema,
+  ToolPermissionBindingSchema,
   type ModelAlias,
   type ModelAliasBinding,
   type ModelAliasPolicy,
+  type ToolPermissionPolicyBinding,
 } from "./model-alias-policy";
 export {
   ModelInvocationPayloadSchema,

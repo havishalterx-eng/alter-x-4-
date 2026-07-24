@@ -250,8 +250,22 @@ export class InvalidModelAliasError extends Error {
   }
 }
 
+export interface ToolPermissionRequest {
+  readonly tenantId: string;
+  readonly toolName: string;
+}
+
+export interface ToolPermissionBinding {
+  readonly allowed: boolean;
+  readonly rateLimitPerMinute: number;
+  readonly requiredScopes: readonly string[];
+}
+
 export interface ConfigProvider extends BaseProvider<"ConfigProvider"> {
   resolveModelAlias(alias: ModelAlias): Promise<ModelAliasBinding>;
+  resolveToolPermission(
+    request: ToolPermissionRequest,
+  ): Promise<ToolPermissionBinding>;
 }
 export interface RelationalDatabaseProvider
   extends BaseProvider<"RelationalDatabaseProvider"> {}

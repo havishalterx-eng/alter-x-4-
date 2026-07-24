@@ -3,6 +3,7 @@
   "compilerOptions": {
     "noEmit": false,
     "outDir": "../../dist/apps/tool-gateway",
+    "paths": {},
     "rootDir": "./src",
     "sourceMap": true
   },

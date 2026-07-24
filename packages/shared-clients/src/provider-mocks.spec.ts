@@ -12,7 +12,6 @@ import {
   SecretNotFoundError,
   createMockSecretsProvider,
 } from "./mocks/secrets-provider";
-import { ModelAliasResolutionError } from "./provider-types";
 
 describe("SecretsProvider mock", () => {
   it("resolves configured references deterministically without exposing values in metadata", async () => {
@@ -83,6 +82,16 @@ describe("ConfigProvider mock", () => {
     await expect(
       provider.resolveModelAlias("CEILING"),
     ).resolves.toMatchObject({ model_id: "mock.ceiling.v1" });
+    await expect(
+      provider.resolveToolPermission({
+        tenantId: "tenant-1",
+        toolName: "contract.search",
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      rateLimitPerMinute: 60,
+      requiredScopes: [],
+    });
   });
 
   it("rejects an alias absent from the policy instead of silently downgrading", async () => {
@@ -102,7 +111,10 @@ describe("ConfigProvider mock", () => {
       provider.resolveModelAlias(
         "UNKNOWN" as Parameters<typeof provider.resolveModelAlias>[0],
       ),
-    ).rejects.toBeInstanceOf(ModelAliasResolutionError);
+    ).rejects.toMatchObject({
+      name: "ModelAliasResolutionError",
+      message: expect.stringContaining("UNKNOWN"),
+    });
   });
 });
 

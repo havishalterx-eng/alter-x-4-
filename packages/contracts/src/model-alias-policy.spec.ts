@@ -31,6 +31,36 @@ describe("ModelAliasPolicySchema", () => {
     expect(ModelAliasPolicySchema.parse(validPolicy)).toEqual(validPolicy);
   });
 
+  it("accepts optional tool permissions in the same AppConfig policy", () => {
+    const policy = {
+      ...validPolicy,
+      tool_permissions: {
+        "*:search.web": {
+          allowed: true,
+          rate_limit_per_minute: 60,
+          required_scopes: ["tools:search"],
+        },
+      },
+    };
+
+    expect(ModelAliasPolicySchema.parse(policy)).toEqual(policy);
+  });
+
+  it("rejects malformed tool permissions", () => {
+    expect(
+      ModelAliasPolicySchema.safeParse({
+        ...validPolicy,
+        tool_permissions: {
+          "*:search.web": {
+            allowed: true,
+            rate_limit_per_minute: 0,
+            required_scopes: [],
+          },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects a policy missing a tier binding", () => {
     const rest = {
       FAST: validPolicy.bindings.FAST,

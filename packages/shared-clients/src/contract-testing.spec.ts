@@ -74,7 +74,7 @@ describe("provider contract runner", () => {
     ]);
 
     expect(report.passed).toBe(true);
-    expect(report.results).toHaveLength(6);
+    expect(report.results).toHaveLength(8);
   });
 
   it("proves mock-vs-mock parity for ModelProvider", async () => {

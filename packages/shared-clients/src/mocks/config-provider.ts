@@ -5,6 +5,8 @@ import {
   type ConfigProvider,
   type ProviderHealth,
   type ProviderMetadata,
+  type ToolPermissionBinding,
+  type ToolPermissionRequest,
 } from "../provider-types";
 import { mockCapabilities, mockMetadata } from "./shared";
 
@@ -38,8 +40,18 @@ export interface MockConfigProviderOptions {
   readonly metadata?: ProviderMetadata<"ConfigProvider">;
   readonly capabilities?: ProviderCapabilities;
   readonly policy?: ModelAliasPolicy;
+  readonly toolPermission?: ToolPermissionBinding;
+  readonly resolveToolPermission?: (
+    request: ToolPermissionRequest,
+  ) => Promise<ToolPermissionBinding>;
   readonly health?: ProviderHealth;
 }
+
+export const DEFAULT_TOOL_PERMISSION: ToolPermissionBinding = Object.freeze({
+  allowed: true,
+  rateLimitPerMinute: 60,
+  requiredScopes: [],
+});
 
 export function createMockConfigProvider(
   options: MockConfigProviderOptions = {},
@@ -59,6 +71,9 @@ export function createMockConfigProvider(
         }
         return binding;
       },
+      resolveToolPermission:
+        options.resolveToolPermission ??
+        (async () => options.toolPermission ?? DEFAULT_TOOL_PERMISSION),
     },
   });
 }

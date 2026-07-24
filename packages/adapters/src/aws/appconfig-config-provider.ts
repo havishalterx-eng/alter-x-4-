@@ -15,6 +15,8 @@ import {
   type ConfigProvider,
   type ProviderHealth,
   type ProviderMetadata,
+  type ToolPermissionBinding,
+  type ToolPermissionRequest,
 } from "@alterx/shared-clients";
 
 export interface AwsAppConfigConfigProviderConfig {
@@ -102,6 +104,28 @@ export class AwsAppConfigConfigProvider implements ConfigProvider {
       throw new ModelAliasResolutionError(alias);
     }
     return binding;
+  }
+
+  async resolveToolPermission(
+    request: ToolPermissionRequest,
+  ): Promise<ToolPermissionBinding> {
+    const policy = await this.#fetchPolicy();
+    const tenantSpecific =
+      policy.tool_permissions?.[`${request.tenantId}:${request.toolName}`];
+    const globalForTool = policy.tool_permissions?.[`*:${request.toolName}`];
+    const binding = tenantSpecific ?? globalForTool;
+    if (binding === undefined) {
+      return {
+        allowed: false,
+        rateLimitPerMinute: 1,
+        requiredScopes: [],
+      };
+    }
+    return {
+      allowed: binding.allowed,
+      rateLimitPerMinute: binding.rate_limit_per_minute,
+      requiredScopes: binding.required_scopes,
+    };
   }
 
   async healthCheck(): Promise<ProviderHealth> {
