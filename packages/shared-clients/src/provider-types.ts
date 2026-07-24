@@ -172,7 +172,10 @@ export interface DeploymentProvider
   extends BaseProvider<"DeploymentProvider"> {}
 export interface ObjectStorageProvider
   extends BaseProvider<"ObjectStorageProvider"> {}
-export interface QueueProvider extends BaseProvider<"QueueProvider"> {}
+export interface QueueProvider extends BaseProvider<"QueueProvider"> {
+  publish(queueName: string, message: JsonValue): Promise<void>;
+  consume(queueName: string): Promise<JsonValue | undefined>;
+}
 export interface SandboxProvider extends BaseProvider<"SandboxProvider"> {}
 export interface RepositoryProvider
   extends BaseProvider<"RepositoryProvider"> {}
@@ -187,5 +190,3 @@ export interface GPUComputeProvider
   extends BaseProvider<"GPUComputeProvider"> {}
 export interface NetworkConnectivityProvider
   extends BaseProvider<"NetworkConnectivityProvider"> {}
-export interface AuditStoreProvider
-  extends BaseProvider<"AuditStoreProvider"> {}

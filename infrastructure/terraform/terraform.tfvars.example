@@ -1,0 +1,74 @@
+aws_region = "ap-south-1"
+
+management_account_id = "000000000000"
+management_role_arn   = "arn:aws:iam::000000000000:role/REPLACE_WITH_TERRAFORM_ROLE"
+
+mock_provider                  = false
+enable_existing_account_imports = true
+account_role_name              = "OrganizationAccountAccessRole"
+
+existing_account_ids = {
+  alter-management  = "000000000000"
+  alter-log-archive = "000000000000"
+  alter-security    = "000000000000"
+}
+
+accounts = {
+  alter-management = {
+    email     = "aws-management@example.invalid"
+    parent_id = null
+    purpose   = "Organizations, billing, Control Tower. NO application workloads."
+  }
+  alter-log-archive = {
+    email     = "aws-log-archive@example.invalid"
+    parent_id = "ou-abcd-security0001"
+    purpose   = "Central CloudTrail, AWS Config, immutable security logs"
+  }
+  alter-security = {
+    email     = "aws-security@example.invalid"
+    parent_id = "ou-abcd-security0001"
+    purpose   = "Security tooling, GuardDuty/Security Hub admin, audit access, break-glass"
+  }
+  alter-shared-services = {
+    email     = "aws-shared-services@example.invalid"
+    parent_id = "ou-abcd-infrastructure0001"
+    purpose   = "CI/CD support, shared DNS, container registry (ECR), common networking"
+  }
+  alter-dev = {
+    email     = "aws-dev@example.invalid"
+    parent_id = "ou-abcd-nonproduction0001"
+    purpose   = "dev workloads"
+  }
+  alter-staging = {
+    email     = "aws-staging@example.invalid"
+    parent_id = "ou-abcd-nonproduction0001"
+    purpose   = "staging workloads"
+  }
+  alter-prod = {
+    email     = "aws-prod@example.invalid"
+    parent_id = "ou-abcd-production0001"
+    purpose   = "prod workloads"
+  }
+  alter-sandbox-exec = {
+    email     = "aws-sandbox-exec@example.invalid"
+    parent_id = "ou-abcd-sandbox0001"
+    purpose   = "High-risk browser + code-execution workloads, external sandbox-provider integration. Separate blast radius from control plane."
+  }
+}
+
+scp_target_ids = {
+  baseline   = ["ou-abcd-security0001", "ou-abcd-infrastructure0001", "ou-abcd-nonproduction0001"]
+  production = ["ou-abcd-production0001"]
+  sandbox    = ["ou-abcd-sandbox0001"]
+}
+
+environment_vpc_cidrs = {
+  shared-services = "10.10.0.0/16"
+  dev             = "10.20.0.0/16"
+  staging         = "10.30.0.0/16"
+  prod            = "10.40.0.0/16"
+  sandbox-exec    = "10.50.0.0/16"
+}
+
+break_glass_role_arns      = ["arn:aws:iam::000000000000:role/REPLACE_WITH_BREAK_GLASS_ROLE"]
+root_principal_arn_pattern = "arn:aws:iam::*:root"

@@ -1,0 +1,19 @@
+{
+  "name": "@alterx/audit-service",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@alterx/adapters": "workspace:*",
+    "@alterx/contracts": "workspace:*",
+    "@alterx/shared-clients": "workspace:*",
+    "@nestjs/common": "11.1.28",
+    "@nestjs/core": "11.1.28",
+    "@nestjs/platform-fastify": "11.1.28",
+    "fastify": "5.10.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "4.1.10"
+  }
+}

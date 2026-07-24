@@ -1,0 +1,299 @@
+import { randomBytes, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+
+import {
+  PostgreSqlContainer,
+  type StartedPostgreSqlContainer,
+} from "@testcontainers/postgresql";
+import { Pool } from "pg";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import {
+  AUDIT_GENESIS_HASH_HEX,
+  verifyAuditChain,
+  type AuditEventToAppend,
+} from "@alterx/shared-clients";
+import { PostgresAuditStoreProvider } from "./audit-store-provider";
+
+function event(index: number): AuditEventToAppend {
+  return {
+    id: randomUUID(),
+    tenantId: "018f47a2-7b11-7b11-8a11-1234567890ab",
+    tenantPseudonym: null,
+    actorType: "service",
+    actorRef: `svc_${index}`,
+    action: "tool.invoke",
+    targetType: "integration",
+    targetRef: `integration-${index}`,
+    result: "success",
+    reasonCode: null,
+    context: { request_id: `request-${index}`, ip_class: "private" },
+    occurredAt: new Date(`2026-07-24T06:31:${String(index).padStart(2, "0")}.000Z`),
+  };
+}
+
+describe.sequential("PostgresAuditStoreProvider", () => {
+  let container: StartedPostgreSqlContainer;
+  let pool: Pool;
+  let provider: PostgresAuditStoreProvider;
+
+  beforeAll(async () => {
+    container = await new PostgreSqlContainer("postgres:16.6-alpine")
+      .withDatabase("audit_db")
+      .withUsername("audit_test_admin")
+      .withPassword(randomBytes(24).toString("hex"))
+      .start();
+    pool = new Pool({ connectionString: container.getConnectionUri() });
+    provider = new PostgresAuditStoreProvider(
+      {
+        authentication: "static",
+        connectionString: container.getConnectionUri(),
+        migrationsFolder: resolve(process.cwd(), "apps/audit-service/drizzle"),
+      },
+      { pool },
+    );
+    await provider.migrate();
+  });
+
+  afterAll(async () => {
+    await provider.close();
+    await container.stop();
+  });
+
+  it("applies exact immutable audit_events schema with forced RLS", async () => {
+    const columns = await pool.query<{ column_name: string }>(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'audit_events'
+      ORDER BY ordinal_position
+    `);
+    expect(columns.rows.map(({ column_name }) => column_name)).toEqual([
+      "id",
+      "tenant_id",
+      "tenant_pseudonym",
+      "actor_type",
+      "actor_ref",
+      "action",
+      "target_type",
+      "target_ref",
+      "result",
+      "reason_code",
+      "context",
+      "occurred_at",
+      "prev_hash",
+      "entry_hash",
+    ]);
+
+    const table = await pool.query<{
+      relrowsecurity: boolean;
+      relforcerowsecurity: boolean;
+    }>(`
+      SELECT relrowsecurity, relforcerowsecurity
+      FROM pg_class
+      WHERE oid = 'audit_events'::regclass
+    `);
+    expect(table.rows[0]).toEqual({
+      relrowsecurity: true,
+      relforcerowsecurity: true,
+    });
+  });
+
+  it("validates config and reports unreachable database health", async () => {
+    expect(
+      () =>
+        new PostgresAuditStoreProvider({
+          authentication: "static",
+          connectionString: "",
+          migrationsFolder: "migrations",
+        }),
+    ).toThrow(/connectionString/);
+    expect(
+      () =>
+        new PostgresAuditStoreProvider({
+          authentication: "static",
+          connectionString: "postgresql://127.0.0.1:1/audit",
+          migrationsFolder: "",
+        }),
+    ).toThrow(/migrationsFolder/);
+
+    const unreachable = new PostgresAuditStoreProvider({
+      authentication: "static",
+      connectionString: "postgresql://127.0.0.1:1/audit",
+      migrationsFolder: resolve(process.cwd(), "apps/audit-service/drizzle"),
+    });
+    await expect(unreachable.healthCheck()).resolves.toMatchObject({
+      status: "unhealthy",
+    });
+    await unreachable.close();
+  });
+
+  it("appends genesis and serializes concurrent writes", async () => {
+    const first = await provider.append(event(0));
+    expect(first.prevHash.toString("hex")).toBe(AUDIT_GENESIS_HASH_HEX);
+    expect(first.entryHash).toHaveLength(32);
+
+    await Promise.all(
+      Array.from({ length: 8 }, (_, index) => provider.append(event(index + 1))),
+    );
+    expect(verifyAuditChain(await provider.readGlobalChain())).toEqual({
+      valid: true,
+      checkedEvents: 9,
+    });
+    await expect(provider.healthCheck()).resolves.toMatchObject({
+      status: "healthy",
+    });
+  });
+
+  it("keeps RLS default-deny and allows internal audit_service reads only", async () => {
+    const password = randomBytes(24).toString("hex");
+    const otherRole = `other_service_${randomBytes(6).toString("hex")}`;
+    await pool.query(`CREATE ROLE audit_service LOGIN PASSWORD '${password}'`);
+    await pool.query(`CREATE ROLE ${otherRole} LOGIN PASSWORD '${password}'`);
+    await pool.query("GRANT CONNECT ON DATABASE audit_db TO audit_service");
+    await pool.query(`GRANT CONNECT ON DATABASE audit_db TO ${otherRole}`);
+    await pool.query("GRANT USAGE ON SCHEMA public TO audit_service");
+    await pool.query(`GRANT USAGE ON SCHEMA public TO ${otherRole}`);
+    await pool.query("GRANT SELECT ON audit_events TO audit_service");
+    await pool.query(`GRANT SELECT ON audit_events TO ${otherRole}`);
+
+    const rolePool = (user: string) =>
+      new Pool({
+        host: container.getHost(),
+        port: container.getPort(),
+        database: container.getDatabase(),
+        user,
+        password,
+      });
+    const auditRolePool = rolePool("audit_service");
+    const otherRolePool = rolePool(otherRole);
+    try {
+      await expect(
+        auditRolePool.query<{ count: string }>(
+          "SELECT count(*) FROM audit_events",
+        ),
+      ).resolves.toMatchObject({ rows: [{ count: "0" }] });
+
+      const auditClient = await auditRolePool.connect();
+      try {
+        await auditClient.query("BEGIN");
+        await auditClient.query(
+          "SELECT set_config('app.audit_internal', 'on', true)",
+        );
+        const visible = await auditClient.query<{ count: string }>(
+          "SELECT count(*) FROM audit_events",
+        );
+        expect(visible.rows[0]?.count).toBe("9");
+        await auditClient.query("ROLLBACK");
+      } finally {
+        auditClient.release();
+      }
+
+      const otherClient = await otherRolePool.connect();
+      try {
+        await otherClient.query("BEGIN");
+        await otherClient.query(
+          "SELECT set_config('app.audit_internal', 'on', true)",
+        );
+        const visible = await otherClient.query<{ count: string }>(
+          "SELECT count(*) FROM audit_events",
+        );
+        expect(visible.rows[0]?.count).toBe("0");
+        await otherClient.query("ROLLBACK");
+      } finally {
+        otherClient.release();
+      }
+    } finally {
+      await auditRolePool.end();
+      await otherRolePool.end();
+      await pool.query("DROP OWNED BY audit_service");
+      await pool.query(`DROP OWNED BY ${otherRole}`);
+      await pool.query("DROP ROLE audit_service");
+      await pool.query(`DROP ROLE ${otherRole}`);
+    }
+  });
+
+  it("rejects UPDATE, DELETE, and missing break-glass reason", async () => {
+    await expect(
+      pool.query(
+        "UPDATE audit_events SET action = 'tampered' WHERE id = (SELECT id FROM audit_events LIMIT 1)",
+      ),
+    ).rejects.toMatchObject({ code: "55000" });
+    await expect(
+      pool.query(
+        "DELETE FROM audit_events WHERE id = (SELECT id FROM audit_events LIMIT 1)",
+      ),
+    ).rejects.toMatchObject({ code: "55000" });
+    await expect(
+      pool.query(
+        `
+          INSERT INTO audit_events (
+            id, actor_type, actor_ref, action, result, occurred_at,
+            prev_hash, entry_hash
+          ) VALUES ($1, 'admin', 'admin-1', 'support.access.grant', 'success', now(), $2, $3)
+        `,
+        [randomUUID(), randomBytes(32), randomBytes(32)],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("detects privileged corruption through shared verifier", async () => {
+    const selected = await pool.query<{
+      id: string;
+      context: Readonly<Record<string, unknown>>;
+    }>("SELECT id, context FROM audit_events ORDER BY id LIMIT 1");
+    const row = selected.rows[0];
+    expect(row).toBeDefined();
+
+    await pool.query(
+      "ALTER TABLE audit_events DISABLE TRIGGER audit_events_immutable",
+    );
+    await pool.query("UPDATE audit_events SET context = $1 WHERE id = $2", [
+      { request_id: "privileged-corruption" },
+      row?.id,
+    ]);
+    await pool.query(
+      "ALTER TABLE audit_events ENABLE TRIGGER audit_events_immutable",
+    );
+    expect(verifyAuditChain(await provider.readGlobalChain())).toMatchObject({
+      valid: false,
+      issue: "hash-mismatch",
+    });
+
+    await pool.query(
+      "ALTER TABLE audit_events DISABLE TRIGGER audit_events_immutable",
+    );
+    await pool.query("UPDATE audit_events SET context = $1 WHERE id = $2", [
+      row?.context,
+      row?.id,
+    ]);
+    await pool.query(
+      "ALTER TABLE audit_events ENABLE TRIGGER audit_events_immutable",
+    );
+    expect(verifyAuditChain(await provider.readGlobalChain())).toEqual({
+      valid: true,
+      checkedEvents: 9,
+    });
+  });
+
+  it("executes rollback migration", async () => {
+    const rollback = await readFile(
+      resolve(
+        process.cwd(),
+        "apps/audit-service/drizzle/rollback/0000_drop_audit_events.sql",
+      ),
+      "utf8",
+    );
+    await pool.query(rollback);
+    const result = await pool.query<{ table_name: string | null }>(
+      "SELECT to_regclass('public.audit_events')::text AS table_name",
+    );
+    expect(result.rows[0]?.table_name).toBeNull();
+    await expect(provider.readGlobalChain()).rejects.toMatchObject({
+      code: "42P01",
+    });
+    await expect(provider.append(event(10))).rejects.toMatchObject({
+      code: "42P01",
+    });
+  });
+});
