@@ -4,11 +4,13 @@
     "noEmit": false,
     "declaration": true,
     "declarationMap": true,
-    "outDir": "../../dist/packages/auth",
-    "rootDir": "./src",
+    "outDir": "./dist",
+    "paths": {},
+    "rootDir": ".",
     "sourceMap": true
   },
   "exclude": [
-    "src/**/*.spec.ts"
+    "**/*.spec.ts",
+    "session-gateway/test-utils/**/*.ts"
   ]
 }
