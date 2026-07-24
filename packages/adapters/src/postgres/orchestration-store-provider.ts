@@ -94,13 +94,31 @@ const POSTGRES_ORCHESTRATION_CAPABILITIES: ProviderCapabilities = {
   cost_model: { rates: [] },
 };
 
+export interface PostgresOrchestrationFeatureDecision {
+  readonly ticket: "INGR-1";
+  readonly component: "Engine component 31 - Event & Trigger Gateway";
+  readonly status: "approved_ungated_foundation_schema";
+  readonly featureId: null;
+  readonly featureFlag: null;
+  readonly reason: "schema/contracts/migrations foundation only; no user-facing rollout behavior";
+  readonly owner: "CEO";
+  readonly decisionDate: "2026-07-25";
+  readonly rollout: "merge allowed after CI/audit green; no runtime feature gate required";
+}
+
 export const POSTGRES_ORCHESTRATION_FEATURE_DECISION = {
   ticket: "INGR-1",
   component: "Engine component 31 - Event & Trigger Gateway",
-  status: "blocked_until_ceo_feature_mapping",
+  status: "approved_ungated_foundation_schema",
+  featureId: null,
+  featureFlag: null,
   reason:
-    "No CEO-approved featureFlag / feature ID for the orchestration_db scaffold is present in the repository feature map.",
-} as const;
+    "schema/contracts/migrations foundation only; no user-facing rollout behavior",
+  owner: "CEO",
+  decisionDate: "2026-07-25",
+  rollout:
+    "merge allowed after CI/audit green; no runtime feature gate required",
+} as const satisfies PostgresOrchestrationFeatureDecision;
 
 const POSTGRES_ORCHESTRATION_METADATA: ProviderMetadata<"RelationalDatabaseProvider"> =
   {

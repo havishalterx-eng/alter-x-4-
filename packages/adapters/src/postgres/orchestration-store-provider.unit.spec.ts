@@ -138,7 +138,7 @@ describe("PostgresOrchestrationStoreProvider", () => {
     await defaultPoolProvider.close();
   });
 
-  it("keeps INGR-1 blocked until CEO feature mapping is approved", async () => {
+  it("records the CEO-approved ungated INGR-1 foundation decision", async () => {
     const provider = new PostgresOrchestrationStoreProvider(
       {
         authentication: "static",
@@ -153,9 +153,18 @@ describe("PostgresOrchestrationStoreProvider", () => {
     );
 
     expect(provider.metadata.featureFlag).toBeUndefined();
-    expect(POSTGRES_ORCHESTRATION_FEATURE_DECISION).toMatchObject({
+    expect(POSTGRES_ORCHESTRATION_FEATURE_DECISION).toEqual({
       ticket: "INGR-1",
-      status: "blocked_until_ceo_feature_mapping",
+      component: "Engine component 31 - Event & Trigger Gateway",
+      status: "approved_ungated_foundation_schema",
+      featureId: null,
+      featureFlag: null,
+      reason:
+        "schema/contracts/migrations foundation only; no user-facing rollout behavior",
+      owner: "CEO",
+      decisionDate: "2026-07-25",
+      rollout:
+        "merge allowed after CI/audit green; no runtime feature gate required",
     });
     await provider.close();
   });
