@@ -16,6 +16,25 @@ export {
   type PostgresAuditStoreStaticConfig,
 } from "./postgres/audit-store-provider";
 export {
+  PostgresOrchestrationStoreProvider,
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  sql,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+  type OrchestrationQueryResult,
+  type OrchestrationTransaction,
+  type PostgresOrchestrationStoreConfig,
+  type PostgresOrchestrationStoreIamConfig,
+  type PostgresOrchestrationStoreStaticConfig,
+} from "./postgres/orchestration-store-provider";
+export {
   AuditGrpcController,
   startAuditGrpcTransport,
   type AuditGrpcTransportConfig,

@@ -8,6 +8,7 @@ export type TenantIdPrefix =
   | "node"
   | "evt"
   | "trg"
+  | "trgv"
   | "agt"
   | "pol"
   | "cst"

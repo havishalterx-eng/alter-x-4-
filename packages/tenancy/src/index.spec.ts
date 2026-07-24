@@ -10,6 +10,7 @@ describe("@alterx/tenancy", () => {
     const id = "00000000-0000-7000-8000-000000000001";
 
     expect(toPrefixedId("ten", id)).toBe(`ten_${id}`);
+    expect(toPrefixedId("trgv", id)).toBe(`trgv_${id}`);
     expect(fromPrefixedId("usr", `usr_${id}`)).toBe(id);
   });
 

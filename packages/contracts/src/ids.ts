@@ -21,6 +21,7 @@ export const RunIdSchema = prefixedUuidV7("run");
 export const NodeExecutionIdSchema = prefixedUuidV7("node");
 export const EventIdSchema = prefixedUuidV7("evt");
 export const TriggerIdSchema = prefixedUuidV7("trg");
+export const TriggerVersionIdSchema = prefixedUuidV7("trgv");
 export const AgentIdSchema = prefixedUuidV7("agt");
 export const PolicyIdSchema = prefixedUuidV7("pol");
 export const CostIdSchema = prefixedUuidV7("cst");

@@ -1,0 +1,308 @@
+import { randomBytes } from "node:crypto";
+import { resolve } from "node:path";
+
+import {
+  PostgreSqlContainer,
+  type StartedPostgreSqlContainer,
+} from "@testcontainers/postgresql";
+import { Pool } from "pg";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { PostgresOrchestrationStoreProvider } from "./orchestration-store-provider";
+
+const migrationsFolder = resolve(
+  process.cwd(),
+  "apps/orchestration-service/drizzle",
+);
+const tenantA = "00000000-0000-7000-8000-000000000001";
+const tenantB = "00000000-0000-7000-8000-000000000002";
+const workspaceA = "00000000-0000-7000-8000-000000000011";
+const workspaceB = "00000000-0000-7000-8000-000000000012";
+const tables = [
+  "workflows",
+  "triggers",
+  "trigger_versions",
+  "conversations",
+  "events",
+  "runs",
+] as const;
+
+async function seed(pool: Pool): Promise<void> {
+  await pool.query(
+    `INSERT INTO workflows (id, tenant_id, workspace_id, name)
+     VALUES ('wf_a', $1, $2, 'Workflow A'), ('wf_b', $3, $4, 'Workflow B')`,
+    [tenantA, workspaceA, tenantB, workspaceB],
+  );
+  await pool.query(
+    `INSERT INTO triggers
+       (id, tenant_id, workspace_id, workflow_id, name, type)
+     VALUES
+       ('trg_a', $1, $2, 'wf_a', 'Trigger A', 'webhook'),
+       ('trg_b', $3, $4, 'wf_b', 'Trigger B', 'cron')`,
+    [tenantA, workspaceA, tenantB, workspaceB],
+  );
+  await pool.query(
+    `INSERT INTO trigger_versions
+       (id, tenant_id, trigger_id, version, config)
+     VALUES
+       ('trgv_a', $1, 'trg_a', 1, '{"kind":"webhook","provider":"shopify","dedup_window_seconds":300}'::jsonb),
+       ('trgv_b', $2, 'trg_b', 1, '{"kind":"cron","cron_expression":"0 * * * *","timezone":"UTC"}'::jsonb)`,
+    [tenantA, tenantB],
+  );
+  await pool.query(
+    `INSERT INTO conversations
+       (id, tenant_id, workspace_id, channel, temporal_workflow_id)
+     VALUES
+       ('cnv_a', $1, $2, 'web', 'tenant:a:channel:web:conversation:a'),
+       ('cnv_b', $3, $4, 'api', 'tenant:b:channel:api:conversation:b')`,
+    [tenantA, workspaceA, tenantB, workspaceB],
+  );
+  await pool.query(
+    `INSERT INTO events (
+       event_id, event_type, schema_version, tenant_id, workspace_id,
+       source, conversation_id, correlation_id, idempotency_key, occurred_at,
+       trigger_id, trigger_version, payload, signature_status
+     ) VALUES
+       ('evt_a', 'order.created', '1.0.0', $1, $2, 'shopify', 'cnv_a',
+        'corr_a', 'event-a', now(), 'trg_a', 1, '{}'::jsonb, 'verified'),
+       ('evt_b', 'timer.fired', '1.0.0', $3, $4, 'schedule', 'cnv_b',
+        'corr_b', 'event-b', now(), 'trg_b', 1, '{}'::jsonb, 'not_applicable')`,
+    [tenantA, workspaceA, tenantB, workspaceB],
+  );
+  await pool.query(
+    `INSERT INTO runs (
+       id, tenant_id, workspace_id, parent_kind, workflow_id,
+       conversation_id, trigger_id
+     ) VALUES
+       ('run_a', $1, $2, 'workflow', 'wf_a', 'cnv_a', 'trg_a'),
+       ('run_b', $3, $4, 'workflow', 'wf_b', 'cnv_b', 'trg_b')`,
+    [tenantA, workspaceA, tenantB, workspaceB],
+  );
+}
+
+describe.sequential("PostgresOrchestrationStoreProvider integration", () => {
+  let container: StartedPostgreSqlContainer;
+  let adminPool: Pool;
+  let rolePool: Pool;
+  let provider: PostgresOrchestrationStoreProvider;
+  let roleProvider: PostgresOrchestrationStoreProvider;
+  const role = `orchestration_test_${randomBytes(6).toString("hex")}`;
+  const password = randomBytes(24).toString("hex");
+
+  beforeAll(async () => {
+    container = await new PostgreSqlContainer("postgres:16.6-alpine")
+      .withDatabase("orchestration_db")
+      .withUsername("orchestration_test_admin")
+      .withPassword(randomBytes(24).toString("hex"))
+      .start();
+    adminPool = new Pool({ connectionString: container.getConnectionUri() });
+    provider = new PostgresOrchestrationStoreProvider(
+      {
+        authentication: "static",
+        connectionString: container.getConnectionUri(),
+        migrationsFolder,
+      },
+      { pool: adminPool },
+    );
+    await provider.migrate();
+    await seed(adminPool);
+
+    await adminPool.query(`CREATE ROLE ${role} LOGIN PASSWORD '${password}'`);
+    await adminPool.query(
+      `GRANT CONNECT ON DATABASE orchestration_db TO ${role}`,
+    );
+    await adminPool.query(`GRANT USAGE ON SCHEMA public TO ${role}`);
+    await adminPool.query(
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role}`,
+    );
+
+    rolePool = new Pool({
+      host: container.getHost(),
+      port: container.getPort(),
+      database: container.getDatabase(),
+      user: role,
+      password,
+    });
+    roleProvider = new PostgresOrchestrationStoreProvider(
+      {
+        authentication: "static",
+        connectionString: "postgresql://unused/orchestration_db",
+        migrationsFolder,
+      },
+      { pool: rolePool },
+    );
+  });
+
+  afterAll(async () => {
+    await roleProvider?.close();
+    if (adminPool) {
+      await adminPool.query(`DROP OWNED BY ${role}`);
+      await adminPool.query(`DROP ROLE IF EXISTS ${role}`);
+    }
+    await provider?.close();
+    await container?.stop();
+  });
+
+  it("applies all six tables with forced RLS", async () => {
+    const result = await adminPool.query<{
+      relname: string;
+      relrowsecurity: boolean;
+      relforcerowsecurity: boolean;
+    }>(
+      `SELECT relname, relrowsecurity, relforcerowsecurity
+       FROM pg_class
+       WHERE relname = ANY($1::text[])
+       ORDER BY relname`,
+      [tables],
+    );
+
+    expect(result.rows).toHaveLength(6);
+    for (const row of result.rows) {
+      expect(row).toMatchObject({
+        relrowsecurity: true,
+        relforcerowsecurity: true,
+      });
+    }
+  });
+
+  it("enforces all declared foreign keys without cross-database references", async () => {
+    const result = await adminPool.query<{
+      table_name: string;
+      foreign_table_name: string;
+    }>(`
+      SELECT
+        source.relname AS table_name,
+        target.relname AS foreign_table_name
+      FROM pg_constraint constraint_record
+      JOIN pg_class source ON source.oid = constraint_record.conrelid
+      JOIN pg_class target ON target.oid = constraint_record.confrelid
+      WHERE constraint_record.contype = 'f'
+        AND source.relname = ANY(ARRAY[
+          'triggers', 'trigger_versions', 'events', 'runs'
+        ])
+      ORDER BY source.relname, target.relname
+    `);
+
+    expect(result.rows).toEqual([
+      { table_name: "events", foreign_table_name: "conversations" },
+      { table_name: "events", foreign_table_name: "triggers" },
+      { table_name: "runs", foreign_table_name: "conversations" },
+      { table_name: "runs", foreign_table_name: "triggers" },
+      { table_name: "runs", foreign_table_name: "workflows" },
+      { table_name: "trigger_versions", foreign_table_name: "triggers" },
+      { table_name: "triggers", foreign_table_name: "workflows" },
+    ]);
+  });
+
+  it("defaults to deny and isolates reads and writes for every table", async () => {
+    for (const table of tables) {
+      const unset = await rolePool.query<{ count: string }>(
+        `SELECT count(*) FROM ${table}`,
+      );
+      expect(unset.rows[0]?.count).toBe("0");
+    }
+    await expect(
+      rolePool.query(
+        `INSERT INTO workflows (id, tenant_id, workspace_id, name)
+         VALUES ('wf_unscoped', $1, $2, 'Unscoped')`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "42501" });
+
+    await roleProvider.withTenant(tenantA, async (client) => {
+      for (const table of tables) {
+        const visible = await client.query<{ count: string }>(
+          `SELECT count(*) FROM ${table}`,
+        );
+        expect(visible.rows[0]?.count).toBe("1");
+
+        const blockedWrite = await client.query(
+          `UPDATE ${table} SET tenant_id = tenant_id WHERE tenant_id = $1`,
+          [tenantB],
+        );
+        expect(blockedWrite.rowCount).toBe(0);
+
+        const ownWrite = await client.query(
+          `UPDATE ${table} SET tenant_id = tenant_id WHERE tenant_id = $1`,
+          [tenantA],
+        );
+        expect(ownWrite.rowCount).toBe(1);
+      }
+    });
+  });
+
+  it("rejects tenant_id mutation on every table", async () => {
+    for (const table of tables) {
+      await expect(
+        roleProvider.withTenant(tenantA, async (client) =>
+          client.query(
+            `UPDATE ${table} SET tenant_id = $1 WHERE tenant_id = $2`,
+            [tenantB, tenantA],
+          ),
+        ),
+      ).rejects.toThrow("tenant_id is immutable");
+    }
+  });
+
+  it("enforces dedup, trigger type, trigger version, and run parent constraints", async () => {
+    await expect(
+      adminPool.query(
+        `INSERT INTO events (
+           event_id, event_type, schema_version, tenant_id, workspace_id,
+           source, correlation_id, idempotency_key, occurred_at, payload,
+           signature_status
+         ) VALUES (
+           'evt_duplicate', 'order.created', '1.0.0', $1, $2, 'shopify',
+           'corr_duplicate', 'event-a', now(), '{}'::jsonb, 'verified'
+         )`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "23505" });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO triggers
+           (id, tenant_id, workspace_id, workflow_id, name, type)
+         VALUES ('trg_invalid', $1, $2, 'wf_a', 'Invalid', 'queue')`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO trigger_versions
+           (id, tenant_id, trigger_id, version, config)
+         VALUES ('trgv_duplicate', $1, 'trg_a', 1, '{}'::jsonb)`,
+        [tenantA],
+      ),
+    ).rejects.toMatchObject({ code: "23505" });
+
+    await expect(
+      adminPool.query(
+        `INSERT INTO runs
+           (id, tenant_id, workspace_id, parent_kind)
+         VALUES ('run_invalid', $1, $2, 'project')`,
+        [tenantA, workspaceA],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("rolls back and reapplies the complete migration chain", async () => {
+    await provider.rollback();
+    for (const table of tables) {
+      const result = await adminPool.query<{ table_name: string | null }>(
+        "SELECT to_regclass($1)::text AS table_name",
+        [`public.${table}`],
+      );
+      expect(result.rows[0]?.table_name).toBeNull();
+    }
+
+    await provider.migrate();
+    const reapplied = await adminPool.query<{ count: string }>(
+      `SELECT count(*) FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = ANY($1::text[])`,
+      [tables],
+    );
+    expect(reapplied.rows[0]?.count).toBe("6");
+    await provider.rollback();
+  });
+});

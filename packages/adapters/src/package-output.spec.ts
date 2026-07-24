@@ -12,7 +12,7 @@ describe("@alterx/adapters package output", () => {
       process.execPath,
       [
         "-e",
-        `const adapters = require(${JSON.stringify(builtEntryPoint)}); for (const name of ["TemporalDurableExecutionProvider", "PostgresAuditStoreProvider", "AuditGrpcController", "AwsSecretsManagerProvider"]) { if (typeof adapters[name] !== "function") process.exit(2); } process.stdout.write("function");`,
+        `const adapters = require(${JSON.stringify(builtEntryPoint)}); for (const name of ["TemporalDurableExecutionProvider", "PostgresAuditStoreProvider", "PostgresOrchestrationStoreProvider", "AuditGrpcController", "AwsSecretsManagerProvider"]) { if (typeof adapters[name] !== "function") process.exit(2); } process.stdout.write("function");`,
       ],
       { encoding: "utf8" },
     );
