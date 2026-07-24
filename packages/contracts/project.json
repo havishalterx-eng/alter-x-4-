@@ -6,6 +6,9 @@
   "targets": {
     "build": {
       "executor": "nx:run-commands",
+      "dependsOn": [
+        "proto-types"
+      ],
       "outputs": [
         "{projectRoot}/dist"
       ],
@@ -42,10 +45,21 @@
       "options": {
         "commands": [
           "buf lint",
-          "buf build"
+          "buf build",
+          "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto"
         ],
         "cwd": "packages/contracts/proto",
         "parallel": false
+      }
+    },
+    "proto-types": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{projectRoot}/src/generated/alter/audit/v1/audit.ts"
+      ],
+      "options": {
+        "command": "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto",
+        "cwd": "packages/contracts/proto"
       }
     },
     "generate": {

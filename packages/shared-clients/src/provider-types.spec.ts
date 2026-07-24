@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import type { AuditStoreProvider } from "./audit-ports";
 import {
   CANONICAL_PROVIDER_INTERFACES,
-  type AuditStoreProvider,
   type BaseProvider,
   type BrowserProvider,
   type CacheProvider,

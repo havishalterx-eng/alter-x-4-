@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package alter.audit.v1;
+
+service AuditService {
+  rpc RecordEvent(RecordEventRequest) returns (RecordEventResponse);
+}
+
+message RecordEventRequest {
+  string tenant_id = 1; // Optional; empty for system-level events.
+  string actor_type = 2; // user | service | admin | support | system
+  string actor_ref = 3;
+  string action = 4; // For example: trigger.enable or policy.promote.
+  string target_type = 5;
+  string target_ref = 6;
+  string result = 7; // success | denied | error
+  string reason_code = 8; // Required for support or break-glass access; otherwise empty.
+  string context_json = 9; // Request ID, IP class, and scope only; never content, prompts, or files.
+  string occurred_at = 10; // ISO 8601 timestamp.
+}
+
+message RecordEventResponse {
+  string id = 1; // aud_ prefixed UUIDv7
+  string entry_hash = 2; // Hex-encoded SHA-256 digest.
+}

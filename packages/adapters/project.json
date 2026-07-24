@@ -6,6 +6,9 @@
   "targets": {
     "build": {
       "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build"
+      ],
       "outputs": [
         "{projectRoot}/dist"
       ],
@@ -24,6 +27,9 @@
     },
     "typecheck": {
       "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build"
+      ],
       "options": {
         "command": "tsc --noEmit -p packages/adapters/tsconfig.json"
       }
