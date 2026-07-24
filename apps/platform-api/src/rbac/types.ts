@@ -18,6 +18,7 @@ export interface ActorContext {
   roles: string[];
   permissions: string[];
   session_id: string;
+  auth_time?: number;
 }
 
 export interface RbacRequest {

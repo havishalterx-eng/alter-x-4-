@@ -53,6 +53,7 @@ export class SignupActorContextMiddleware implements NestMiddleware {
         roles: [...tenantRoles, ...workspaceRoles].map((row) => row.role),
         permissions: [],
         session_id: session.id,
+        auth_time: Math.floor(session.createdAt.getTime() / 1000),
       };
     } catch {
       // RBAC guard returns standard denial for invalid or revoked sessions.

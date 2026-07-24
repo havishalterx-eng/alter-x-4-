@@ -10,6 +10,10 @@ import type {
 import { IdentityHttpError } from "./problem";
 import { hashToken, type SessionStore } from "./session-store";
 import type { LoginDto } from "./dto/auth.dto";
+import {
+  streamRevocationBus,
+  type StreamRevocationBus,
+} from "../streaming/revocation";
 
 export interface IssuedSession {
   sessionId: string;
@@ -29,6 +33,7 @@ export class IdentityService {
   constructor(
     private readonly identityProvider: IdentityProvider,
     private readonly sessionStore: SessionStore,
+    private readonly revocations: StreamRevocationBus = streamRevocationBus,
   ) {}
 
   loginRedirectUrl(request: LoginDto): Promise<string> {
@@ -112,6 +117,7 @@ export class IdentityService {
 
   async revokeSession(tenantId: string, userId: string, sessionId: string): Promise<void> {
     await this.identityProvider.revokeSession(tenantId, userId, sessionId);
+    this.revocations.publish({ tenantId, userId, sessionId });
   }
 
   enrollMfa(userId: string): Promise<MfaEnrollment> {
