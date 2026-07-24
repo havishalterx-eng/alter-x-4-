@@ -21,6 +21,7 @@ export const defaultStreamingConfig: StreamingConfig = {
   replayBufferSize: 256,
   subscriberQueueSize: 32,
   heartbeatMs: 15_000,
+  replayGraceMs: 15_000,
 };
 
 @Injectable()
@@ -75,6 +76,7 @@ class StreamChannel {
   private closed = false;
   private started = false;
   private latestEventId: string | undefined;
+  private idleTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly target: StreamTarget,
@@ -92,6 +94,10 @@ class StreamChannel {
   }
 
   add(input: StreamSubscriptionInput): StreamConnection {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = undefined;
+    }
     if (this.subscribers.has(input.tabId)) {
       throw new StreamProblemError(
         streamProblem(409, "STREAM_TAB_ALREADY_CONNECTED", input.tabId),
@@ -170,7 +176,12 @@ class StreamChannel {
   private remove(tabId: string): void {
     this.subscribers.delete(tabId);
     if (this.subscribers.size === 0) {
-      this.close();
+      if (this.config.replayGraceMs <= 0) {
+        this.close();
+        return;
+      }
+      this.idleTimer = setTimeout(() => this.close(), this.config.replayGraceMs);
+      this.idleTimer.unref();
     }
   }
 
@@ -179,6 +190,10 @@ class StreamChannel {
       return;
     }
     this.closed = true;
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = undefined;
+    }
     this.stopRevocationWatch();
     this.upstream.close();
     for (const subscriber of [...this.subscribers.values()]) {

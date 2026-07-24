@@ -24,6 +24,7 @@ const config: StreamingConfig = {
   replayBufferSize: 2,
   subscriberQueueSize: 2,
   heartbeatMs: 60_000,
+  replayGraceMs: 0,
 };
 
 describe("StreamGateway", () => {
@@ -93,6 +94,61 @@ describe("StreamGateway", () => {
     primary.close();
     replay.close();
     stale.close();
+  });
+
+  it("retains replay across last-tab refresh for a bounded grace window", async () => {
+    const source = new PushStream<EngineSseMessage>();
+    const close = vi.fn(() => source.end());
+    const engine = engineStub(source, close);
+    const gateway = new StreamGateway(
+      engine.value,
+      { ...config, replayGraceMs: 50 },
+      new StreamRevocationBus(),
+    );
+    const initialFrames: StreamFrame[] = [];
+    const initial = await gateway.connect(subscription("initial", initialFrames));
+    initial.start();
+    source.push(runStatus(1, "running"));
+    await vi.waitFor(() => expect(initialFrames).toHaveLength(1));
+
+    initial.close();
+    expect(gateway.activeChannelCount()).toBe(1);
+    expect(close).not.toHaveBeenCalled();
+    source.push(runStatus(2, "paused"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const resumedFrames: StreamFrame[] = [];
+    const resumed = await gateway.connect(
+      subscription("resumed", resumedFrames, `${runId}:1`),
+    );
+    resumed.start();
+    await vi.waitFor(() => expect(resumedFrames).toHaveLength(1));
+    expect(eventIds(resumedFrames)).toEqual([`${runId}:2`]);
+    expect(engine.stream).toHaveBeenCalledOnce();
+
+    resumed.close();
+    await vi.waitFor(() => expect(gateway.activeChannelCount()).toBe(0));
+    expect(close).toHaveBeenCalledOnce();
+
+    const nextSource = new PushStream<EngineSseMessage>();
+    const closeNext = vi.fn(() => nextSource.end());
+    engine.stream.mockResolvedValueOnce(stream(nextSource, closeNext));
+    const expiredFrames: StreamFrame[] = [];
+    const expired = await gateway.connect(
+      subscription("expired", expiredFrames, `${runId}:2`),
+    );
+    expired.start();
+    await vi.waitFor(() => expect(expiredFrames).toHaveLength(1));
+    expect(eventTypes(expiredFrames)).toEqual(["stream.resync"]);
+    expect(eventData(expiredFrames)[0]).toMatchObject({
+      reason: "stale_event_id",
+      refetch: true,
+    });
+    expect(engine.stream).toHaveBeenCalledTimes(2);
+
+    expired.close();
+    await vi.waitFor(() => expect(gateway.activeChannelCount()).toBe(0));
+    expect(closeNext).toHaveBeenCalledOnce();
   });
 
   it("closes active streams on session revocation or Engine revocation signal", async () => {

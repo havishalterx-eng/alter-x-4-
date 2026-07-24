@@ -41,4 +41,5 @@ export interface StreamingConfig {
   replayBufferSize: number;
   subscriberQueueSize: number;
   heartbeatMs: number;
+  replayGraceMs: number;
 }
