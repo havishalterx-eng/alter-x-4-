@@ -121,6 +121,37 @@ describe.skipIf(!databaseUrl)("PgIdempotencyStore PostgreSQL RLS", () => {
     }
   });
 
+  it("denies reads when tenant context is not set", async () => {
+    await seedTenantAKey(pool, "default-deny-key");
+
+    const client = await pool.connect();
+    try {
+      await client.query("RESET app.current_tenant_id");
+      const visible = await client.query("SELECT * FROM idempotency_keys");
+      expect(visible.rows).toHaveLength(0);
+    } finally {
+      client.release();
+    }
+  });
+
+  it("hides tenant A rows from tenant B", async () => {
+    await seedTenantAKey(pool, "cross-tenant-key");
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "SELECT set_config('app.current_tenant_id', $1, true)",
+        [tenantB],
+      );
+      const visible = await client.query("SELECT * FROM idempotency_keys");
+      expect(visible.rows).toHaveLength(0);
+      await client.query("COMMIT");
+    } finally {
+      client.release();
+    }
+  });
+
   it("collapses concurrent duplicates into one operation", async () => {
     let release!: () => void;
     let started!: () => void;
@@ -155,6 +186,31 @@ describe.skipIf(!databaseUrl)("PgIdempotencyStore PostgreSQL RLS", () => {
     ]);
   });
 });
+
+async function seedTenantAKey(pool: pg.Pool, key: string): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "SELECT set_config('app.current_tenant_id', $1, true)",
+      [tenantA],
+    );
+    await client.query(
+      `INSERT INTO idempotency_keys (
+        tenant_id,
+        idempotency_key,
+        request_fingerprint,
+        response_status,
+        response_body,
+        expires_at
+      ) VALUES ($1, $2, 'seed-hash', 201, '{"seeded":true}', now() + interval '1 hour')`,
+      [tenantA, key],
+    );
+    await client.query("COMMIT");
+  } finally {
+    client.release();
+  }
+}
 
 async function applyMigrations(client: pg.Client): Promise<void> {
   const directory = join(__dirname, "../db/migrations");
