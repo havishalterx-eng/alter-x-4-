@@ -8,11 +8,15 @@ import {
   type ProviderContractSuite,
 } from "./contract-testing";
 import {
+  configProviderContract,
   durableExecutionProviderContract,
+  modelProviderContract,
   observabilityProviderContract,
   secretsProviderContract,
 } from "./provider-contracts";
+import { createMockConfigProvider } from "./mocks/config-provider";
 import { createMockDurableExecutionProvider } from "./mocks/durable-execution-provider";
+import { createMockModelProvider } from "./mocks/model-provider";
 import { createMockObservabilityProvider } from "./mocks/observability-provider";
 import { createMockSecretsProvider } from "./mocks/secrets-provider";
 import type { SecretsProvider } from "./provider-types";
@@ -58,6 +62,26 @@ describe("provider contract runner", () => {
         },
       ],
     );
+
+    expect(report.passed).toBe(true);
+    expect(report.results).toHaveLength(4);
+  });
+
+  it("proves mock-vs-mock parity for ConfigProvider", async () => {
+    const report = await assertProviderContractParity(configProviderContract, [
+      { name: "mock-primary", create: createMockConfigProvider },
+      { name: "mock-parity", create: createMockConfigProvider },
+    ]);
+
+    expect(report.passed).toBe(true);
+    expect(report.results).toHaveLength(8);
+  });
+
+  it("proves mock-vs-mock parity for ModelProvider", async () => {
+    const report = await assertProviderContractParity(modelProviderContract, [
+      { name: "mock-primary", create: createMockModelProvider },
+      { name: "mock-parity", create: createMockModelProvider },
+    ]);
 
     expect(report.passed).toBe(true);
     expect(report.results).toHaveLength(4);

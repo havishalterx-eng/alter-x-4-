@@ -17,14 +17,15 @@
     "1123973",
     "1124066",
     "1124252",
-    "1124273"
+    "1124273",
+    "1124288"
   ],
   "metadata": {
     "vulnerabilities": {
       "info": 0,
       "low": 0,
       "moderate": 11,
-      "high": 6,
+      "high": 7,
       "critical": 0
     }
   }

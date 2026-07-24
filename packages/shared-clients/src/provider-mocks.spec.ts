@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { createMockConfigProvider } from "./mocks/config-provider";
 import {
   DurableWorkflowAlreadyExistsError,
   DurableWorkflowNotFoundError,
   createMockDurableExecutionProvider,
 } from "./mocks/durable-execution-provider";
+import { createMockModelProvider } from "./mocks/model-provider";
 import { createMockObservabilityProvider } from "./mocks/observability-provider";
 import {
   InvalidSecretReferenceError,
@@ -66,6 +68,81 @@ describe("ObservabilityProvider mock", () => {
       metrics: [{ name: "workflow.completed", value: 1 }],
       logs: [{ severity: "info", message: "workflow complete" }],
       errors: [{ name: "WorkflowError", traceId: "trace-1" }],
+    });
+  });
+});
+
+describe("ConfigProvider mock", () => {
+  it("resolves each alias tier to a distinct model binding", async () => {
+    const provider = createMockConfigProvider();
+
+    await expect(provider.resolveModelAlias("FAST")).resolves.toMatchObject({
+      model_id: "mock.fast.v1",
+    });
+    await expect(
+      provider.resolveModelAlias("CEILING"),
+    ).resolves.toMatchObject({ model_id: "mock.ceiling.v1" });
+    await expect(
+      provider.resolveToolPermission({
+        tenantId: "tenant-1",
+        toolName: "contract.search",
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      rateLimitPerMinute: 60,
+      requiredScopes: [],
+    });
+  });
+
+  it("rejects an alias absent from the policy instead of silently downgrading", async () => {
+    const provider = createMockConfigProvider({
+      policy: {
+        version: "partial.1",
+        bindings: {
+          FAST: { model_id: "mock.fast.v1", capability_tags: [] },
+          STANDARD: { model_id: "mock.standard.v1", capability_tags: [] },
+          ADVANCED: { model_id: "mock.advanced.v1", capability_tags: [] },
+          CEILING: { model_id: "mock.ceiling.v1", capability_tags: [] },
+        },
+      },
+    });
+
+    await expect(
+      provider.resolveModelAlias(
+        "UNKNOWN" as Parameters<typeof provider.resolveModelAlias>[0],
+      ),
+    ).rejects.toMatchObject({
+      name: "ModelAliasResolutionError",
+      message: expect.stringContaining("UNKNOWN"),
+    });
+  });
+});
+
+describe("ModelProvider mock", () => {
+  it("invokes and returns parseable output and usage JSON", async () => {
+    const provider = createMockModelProvider();
+
+    const result = await provider.invoke({
+      tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+      runId: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
+      nodeExecutionId: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
+      modelId: "mock.standard.v1",
+      capabilityTags: ["general"],
+      inputJson: JSON.stringify({
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(JSON.parse(result.outputJson)).toEqual({
+      message: {
+        role: "assistant",
+        content: "mock response to: hello",
+      },
+      stop_reason: "end_turn",
+    });
+    expect(JSON.parse(result.usageJson)).toEqual({
+      input_tokens: 0,
+      output_tokens: 0,
     });
   });
 });

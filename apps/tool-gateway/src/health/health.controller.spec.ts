@@ -1,5 +1,9 @@
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import {
+  createMockConfigProvider,
+  createMockSecretsProvider,
+} from "@alterx/shared-clients";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 
@@ -8,7 +12,12 @@ describe("GET /health", () => {
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
+      imports: [
+        AppModule.register(
+          createMockConfigProvider(),
+          createMockSecretsProvider(),
+        ),
+      ],
     }).compile();
 
     app = moduleRef.createNestApplication<NestFastifyApplication>(

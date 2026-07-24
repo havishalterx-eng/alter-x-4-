@@ -1,8 +1,12 @@
 import { ProviderCapabilitiesSchema } from "@alterx/contracts";
 import type { ProviderContractSuite } from "./contract-testing";
 import type {
+  ConfigProvider,
   DurableExecutionProvider,
+  EmbeddingProvider,
+  ModelProvider,
   ObservabilityProvider,
+  PIIRedactionProvider,
   SecretsProvider,
 } from "./provider-types";
 
@@ -198,6 +202,293 @@ export const durableExecutionProviderContract: ProviderContractSuite<DurableExec
             "Workflow termination must be queryable",
           );
           return { handle, running, terminated };
+        },
+      },
+    ],
+  };
+
+export const configProviderContract: ProviderContractSuite<ConfigProvider> = {
+  name: "ConfigProvider",
+  cases: [
+    {
+      name: "publishes valid base-provider metadata and capabilities",
+      assert: async (provider) => {
+        ensure(
+          provider.metadata.interfaceName === "ConfigProvider",
+          "Config adapter must identify its canonical interface",
+        );
+        ProviderCapabilitiesSchema.parse(provider.capabilities);
+        const health = await provider.healthCheck();
+        ensure(
+          health.status === "healthy",
+          "Contract fixture must be healthy",
+        );
+        return {
+          capabilities: provider.capabilities,
+          health,
+          interfaceName: provider.metadata.interfaceName,
+        };
+      },
+    },
+    {
+      name: "resolves every alias tier to a non-empty model binding",
+      assert: async (provider) => {
+        const aliases = ["FAST", "STANDARD", "ADVANCED", "CEILING"] as const;
+        const resolved: Record<string, unknown> = {};
+        for (const alias of aliases) {
+          const binding = await provider.resolveModelAlias(alias);
+          ensure(
+            binding.model_id.length > 0,
+            `Alias ${alias} must resolve to a non-empty model_id`,
+          );
+          ensure(
+            Array.isArray(binding.capability_tags),
+            `Alias ${alias} must resolve capability_tags as an array`,
+          );
+          resolved[alias] = binding;
+        }
+        return resolved;
+      },
+    },
+    {
+      name: "rejects an alias with no policy binding",
+      assert: async (provider) => {
+        ensure(
+          await rejects(() =>
+            provider.resolveModelAlias(
+              "UNKNOWN" as Parameters<
+                ConfigProvider["resolveModelAlias"]
+              >[0],
+            ),
+          ),
+          "Unbound aliases must be rejected, never silently substituted",
+        );
+        return { rejected: true };
+      },
+    },
+    {
+      name: "resolves a tool permission binding",
+      assert: async (provider) => {
+        const binding = await provider.resolveToolPermission({
+          tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+          toolName: "contract.search",
+        });
+        ensure(
+          typeof binding.allowed === "boolean",
+          "Tool permission must return an explicit allowed flag",
+        );
+        ensure(
+          Number.isInteger(binding.rateLimitPerMinute) &&
+            binding.rateLimitPerMinute > 0,
+          "Tool permission must return a positive integer rate limit",
+        );
+        ensure(
+          Array.isArray(binding.requiredScopes),
+          "Tool permission must return requiredScopes as an array",
+        );
+        return binding;
+      },
+    },
+  ],
+};
+
+export const modelProviderContract: ProviderContractSuite<ModelProvider> = {
+  name: "ModelProvider",
+  cases: [
+    {
+      name: "publishes valid base-provider metadata and capabilities",
+      assert: async (provider) => {
+        ensure(
+          provider.metadata.interfaceName === "ModelProvider",
+          "Model adapter must identify its canonical interface",
+        );
+        ProviderCapabilitiesSchema.parse(provider.capabilities);
+        const health = await provider.healthCheck();
+        ensure(
+          health.status === "healthy",
+          "Contract fixture must be healthy",
+        );
+        return {
+          capabilities: provider.capabilities,
+          health,
+          interfaceName: provider.metadata.interfaceName,
+        };
+      },
+    },
+    {
+      name: "invokes a resolved model and returns usage accounting",
+      assert: async (provider) => {
+        const result = await provider.invoke({
+          tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+          runId: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
+          nodeExecutionId: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
+          modelId: "contract-model",
+          capabilityTags: ["general"],
+          inputJson: JSON.stringify({
+            messages: [{ role: "user", content: "contract fixture" }],
+          }),
+        });
+        ensure(
+          typeof result.outputJson === "string" && result.outputJson.length > 0,
+          "Invoke must return non-empty output_json",
+        );
+        ensure(
+          typeof result.usageJson === "string" && result.usageJson.length > 0,
+          "Invoke must return non-empty usage_json",
+        );
+        JSON.parse(result.outputJson);
+        JSON.parse(result.usageJson);
+        return result;
+      },
+    },
+  ],
+};
+
+export const embeddingProviderContract: ProviderContractSuite<EmbeddingProvider> =
+  {
+    name: "EmbeddingProvider",
+    cases: [
+      {
+        name: "publishes valid base-provider metadata and capabilities",
+        assert: async (provider) => {
+          ensure(
+            provider.metadata.interfaceName === "EmbeddingProvider",
+            "Embedding adapter must identify its canonical interface",
+          );
+          ProviderCapabilitiesSchema.parse(provider.capabilities);
+          const health = await provider.healthCheck();
+          ensure(
+            health.status === "healthy",
+            "Contract fixture must be healthy",
+          );
+          return {
+            capabilities: provider.capabilities,
+            health,
+            interfaceName: provider.metadata.interfaceName,
+          };
+        },
+      },
+      {
+        name: "returns a 512-dimensional embedding",
+        assert: async (provider) => {
+          const result = await provider.embed({
+            tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+            text: "contract embedding fixture",
+            dimensions: 512,
+          });
+          ensure(
+            result.dimensions === 512,
+            "Embedding result dimensions must match the 512 request",
+          );
+          ensure(
+            result.vector.length === 512,
+            "Embedding vector must contain exactly 512 values",
+          );
+          ensure(
+            result.modelId.length > 0,
+            "Embedding result must include a non-empty model ID",
+          );
+          return {
+            dimensions: result.dimensions,
+            length: result.vector.length,
+            modelId: result.modelId,
+          };
+        },
+      },
+      {
+        name: "returns a 1024-dimensional embedding",
+        assert: async (provider) => {
+          const result = await provider.embed({
+            tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+            text: "contract embedding fixture",
+            dimensions: 1024,
+          });
+          ensure(
+            result.dimensions === 1024,
+            "Embedding result dimensions must match the 1024 request",
+          );
+          ensure(
+            result.vector.length === 1024,
+            "Embedding vector must contain exactly 1024 values",
+          );
+          ensure(
+            result.modelId.length > 0,
+            "Embedding result must include a non-empty model ID",
+          );
+          return {
+            dimensions: result.dimensions,
+            length: result.vector.length,
+            modelId: result.modelId,
+          };
+        },
+      },
+    ],
+  };
+
+export const piiRedactionProviderContract: ProviderContractSuite<PIIRedactionProvider> =
+  {
+    name: "PIIRedactionProvider",
+    cases: [
+      {
+        name: "publishes valid base-provider metadata and capabilities",
+        assert: async (provider) => {
+          ensure(
+            provider.metadata.interfaceName === "PIIRedactionProvider",
+            "PII redaction adapter must identify its canonical interface",
+          );
+          ProviderCapabilitiesSchema.parse(provider.capabilities);
+          const health = await provider.healthCheck();
+          ensure(
+            health.status === "healthy",
+            "Contract fixture must be healthy",
+          );
+          return {
+            capabilities: provider.capabilities,
+            health,
+            interfaceName: provider.metadata.interfaceName,
+          };
+        },
+      },
+      {
+        name: "redacts a detected custom Indian PII entity",
+        assert: async (provider) => {
+          const result = await provider.redact({
+            tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+            text: "PAN on file: ABCDE1234F",
+          });
+          ensure(
+            !result.redactedText.includes("ABCDE1234F"),
+            "Redacted text must not contain the original PAN",
+          );
+          ensure(
+            result.entities.some((entity) => entity.entityType === "IN_PAN"),
+            "Redaction result must report an IN_PAN entity",
+          );
+          return {
+            redactedText: result.redactedText,
+            entityTypes: result.entities.map((entity) => entity.entityType),
+          };
+        },
+      },
+      {
+        name: "returns text unchanged when no PII is present",
+        assert: async (provider) => {
+          const result = await provider.redact({
+            tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+            text: "no sensitive content here",
+          });
+          ensure(
+            result.redactedText === "no sensitive content here",
+            "Text without PII must be returned unchanged",
+          );
+          ensure(
+            result.entities.length === 0,
+            "No entities should be reported for PII-free text",
+          );
+          return {
+            redactedText: result.redactedText,
+            entityCount: result.entities.length,
+          };
         },
       },
     ],

@@ -43,8 +43,12 @@ export {
   type StoredAuditEvent,
 } from "./audit-ports";
 export {
+  configProviderContract,
   durableExecutionProviderContract,
+  embeddingProviderContract,
+  modelProviderContract,
   observabilityProviderContract,
+  piiRedactionProviderContract,
   secretsProviderContract,
 } from "./provider-contracts";
 export {
@@ -58,21 +62,31 @@ export {
   type DeploymentProvider,
   type DurableExecutionProvider,
   type DurableWorkflowHandle,
+  type EmbeddingDimensions,
+  type EmbeddingRequest,
+  type EmbeddingResult,
   type EmbeddingProvider,
   type ErrorCapture,
   type EventBusProvider,
   type GPUComputeProvider,
   type HealthStatus,
   type IdentityProvider,
+  InvalidModelAliasError,
   type JsonValue,
   type LogEntry,
   type MetricPoint,
   type MigrationSupport,
+  ModelAliasResolutionError,
+  type ModelInvocationRequest,
+  type ModelInvocationResult,
   type ModelProvider,
   type NetworkConnectivityProvider,
   type ObjectStorageProvider,
   type ObservabilityProvider,
+  type PIIDetectedEntity,
   type PIIRedactionProvider,
+  type PIIRedactionRequest,
+  type PIIRedactionResult,
   type ProviderHealth,
   type ProviderMetadata,
   type QueueProvider,
@@ -85,6 +99,8 @@ export {
   type StartWorkflowRequest,
   type SignalWorkflowRequest,
   type TerminateWorkflowRequest,
+  type ToolPermissionBinding,
+  type ToolPermissionRequest,
   type TraceSpan,
   type VectorStoreProvider,
   type WorkflowQueryRequest,
@@ -100,6 +116,43 @@ export {
   createMockProvider,
   type MockProviderOptions,
 } from "./mock-provider";
+export {
+  IN_AADHAAR_PATTERN,
+  IN_BANK_IFSC_PATTERN,
+  IN_GSTIN_PATTERN,
+  IN_PAN_PATTERN,
+  IN_PHONE_NUMBER_PATTERN,
+  INDIAN_PII_RECOGNIZER_PATTERNS,
+  isValidAadhaar,
+  isValidVerhoeffChecksum,
+  validateRecognizedEntity,
+  type PIIRecognizerPattern,
+} from "./pii-recognizers";
+export {
+  DEFAULT_TOOL_PERMISSION,
+  DEFAULT_MODEL_ALIAS_POLICY,
+  MOCK_CONFIG_CAPABILITIES,
+  createMockConfigProvider,
+  type MockConfigProviderOptions,
+} from "./mocks/config-provider";
+export {
+  MOCK_MODEL_CAPABILITIES,
+  createMockModelProvider,
+  type MockModelProviderOptions,
+} from "./mocks/model-provider";
+export {
+  MOCK_EMBEDDING_CAPABILITIES,
+  createMockEmbeddingProvider,
+  deterministicEmbeddingVector,
+  type MockEmbeddingProvider,
+  type MockEmbeddingProviderOptions,
+} from "./mocks/embedding-provider";
+export {
+  MOCK_PII_REDACTION_CAPABILITIES,
+  createMockPIIRedactionProvider,
+  type MockPIIRedactionProvider,
+  type MockPIIRedactionProviderOptions,
+} from "./mocks/pii-redaction-provider";
 export {
   MOCK_DURABLE_EXECUTION_CAPABILITIES,
   DurableWorkflowAlreadyExistsError,

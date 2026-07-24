@@ -28,7 +28,7 @@ function resourceVersion(body: unknown): string | number | undefined {
   if (body === null || typeof body !== "object") {
     return undefined;
   }
-  const version = Reflect.get(body, "version");
+  const version = Reflect.get(body, "version") ?? Reflect.get(body, "revision");
   return typeof version === "string" || typeof version === "number"
     ? version
     : undefined;

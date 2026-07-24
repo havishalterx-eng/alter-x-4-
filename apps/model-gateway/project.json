@@ -10,7 +10,11 @@
         "{workspaceRoot}/dist/apps/model-gateway"
       ],
       "options": {
-        "command": "tsc -p apps/model-gateway/tsconfig.app.json"
+        "commands": [
+          "tsc -p apps/model-gateway/tsconfig.app.json",
+          "node apps/model-gateway/scripts/copy-build-assets.mjs"
+        ],
+        "parallel": false
       }
     },
     "serve": {

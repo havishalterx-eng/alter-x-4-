@@ -22,6 +22,50 @@ export type {
   RecordEventRequest,
   RecordEventResponse,
 } from "./generated/alter/audit/v1/audit";
+export type {
+  InvokeRequest as ModelgwInvokeRequest,
+  InvokeResponse as ModelgwInvokeResponse,
+  RedactRequest as ModelgwRedactRequest,
+  RedactResponse as ModelgwRedactResponse,
+  SelectFallbackRequest as ModelgwSelectFallbackRequest,
+  SelectFallbackResponse as ModelgwSelectFallbackResponse,
+  StreamRequest as ModelgwStreamRequest,
+  StreamResponse as ModelgwStreamResponse,
+} from "./generated/alter/modelgw/v1/modelgw";
+export type {
+  FetchUrlRequest as ToolgwFetchUrlRequest,
+  FetchUrlResponse as ToolgwFetchUrlResponse,
+  InvokeToolRequest as ToolgwInvokeToolRequest,
+  InvokeToolResponse as ToolgwInvokeToolResponse,
+  ResolveCredentialRequest as ToolgwResolveCredentialRequest,
+  ResolveCredentialResponse as ToolgwResolveCredentialResponse,
+} from "./generated/alter/toolgw/v1/toolgw";
+export {
+  FallbackBindingSchema,
+  FallbackProviderSchema,
+  ModelAliasPolicySchema,
+  ModelAliasBindingSchema,
+  ModelAliasSchema,
+  type FallbackBinding,
+  type FallbackProvider,
+  ToolPermissionBindingSchema,
+  type ModelAlias,
+  type ModelAliasBinding,
+  type ModelAliasPolicy,
+  type ToolPermissionPolicyBinding,
+} from "./model-alias-policy";
+export {
+  ModelInvocationPayloadSchema,
+  ModelInvocationResultPayloadSchema,
+  ModelInvocationUsageSchema,
+  ModelMessageRoleSchema,
+  ModelMessageSchema,
+  type ModelInvocationPayload,
+  type ModelInvocationResultPayload,
+  type ModelInvocationUsage,
+  type ModelMessage,
+  type ModelMessageRole,
+} from "./model-invocation-payload";
 export {
   ApprovalRequestedDataSchema,
   ClarificationRequestedDataSchema,

@@ -103,6 +103,22 @@ describe("EtagResponseInterceptor", () => {
     );
   });
 
+  it("uses draft revision as the concurrency version", async () => {
+    const fixture = httpFixture("*");
+    const body = { id: "workflow-1", revision: 4 };
+
+    await firstValueFrom(
+      new EtagResponseInterceptor().intercept(fixture.context, {
+        handle: () => of(body),
+      }),
+    );
+
+    expect(fixture.header).toHaveBeenCalledWith(
+      "ETag",
+      computeEtag(body, 4),
+    );
+  });
+
   it("hashes primitive response bodies", async () => {
     const fixture = httpFixture("*");
     await firstValueFrom(

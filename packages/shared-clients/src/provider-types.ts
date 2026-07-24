@@ -1,4 +1,9 @@
-import type { ProviderCapabilities } from "@alterx/contracts";
+import type {
+  FallbackBinding,
+  ModelAlias,
+  ModelAliasBinding,
+  ProviderCapabilities,
+} from "@alterx/contracts";
 
 export const CANONICAL_PROVIDER_INTERFACES = [
   "DurableExecutionProvider",
@@ -162,11 +167,71 @@ export interface DurableExecutionProvider
 
 export interface ComputeProvider extends BaseProvider<"ComputeProvider"> {}
 export interface IdentityProvider extends BaseProvider<"IdentityProvider"> {}
-export interface ModelProvider extends BaseProvider<"ModelProvider"> {}
-export interface EmbeddingProvider
-  extends BaseProvider<"EmbeddingProvider"> {}
+
+export interface ModelInvocationRequest {
+  readonly tenantId: string;
+  readonly runId: string;
+  readonly nodeExecutionId: string;
+  readonly modelId: string;
+  readonly capabilityTags: readonly string[];
+  readonly inputJson: string;
+  // Ordered fallback providers to try, in order, only after modelId (the
+  // primary, Bedrock-hosted model) fails. Empty/absent = no failover.
+  readonly fallbackChain?: readonly FallbackBinding[];
+}
+
+export interface ModelInvocationResult {
+  readonly outputJson: string;
+  readonly usageJson: string;
+  // The providerId (BaseProvider.metadata.providerId) that actually served
+  // this invocation -- the primary adapter, or whichever fallbackChain
+  // entry succeeded. Never silently absent: callers must always be able to
+  // see whether a downgrade happened.
+  readonly servedBy: string;
+}
+
+export interface ModelProvider extends BaseProvider<"ModelProvider"> {
+  invoke(request: ModelInvocationRequest): Promise<ModelInvocationResult>;
+}
+
+export type EmbeddingDimensions = 512 | 1024;
+
+export interface EmbeddingRequest {
+  readonly tenantId: string;
+  readonly text: string;
+  readonly dimensions: EmbeddingDimensions;
+}
+
+export interface EmbeddingResult {
+  readonly vector: readonly number[];
+  readonly dimensions: EmbeddingDimensions;
+  readonly modelId: string;
+}
+
+export interface EmbeddingProvider extends BaseProvider<"EmbeddingProvider"> {
+  embed(request: EmbeddingRequest): Promise<EmbeddingResult>;
+}
+export interface PIIDetectedEntity {
+  readonly entityType: string;
+  readonly start: number;
+  readonly end: number;
+  readonly score: number;
+}
+
+export interface PIIRedactionRequest {
+  readonly tenantId: string;
+  readonly text: string;
+}
+
+export interface PIIRedactionResult {
+  readonly redactedText: string;
+  readonly entities: readonly PIIDetectedEntity[];
+}
+
 export interface PIIRedactionProvider
-  extends BaseProvider<"PIIRedactionProvider"> {}
+  extends BaseProvider<"PIIRedactionProvider"> {
+  redact(request: PIIRedactionRequest): Promise<PIIRedactionResult>;
+}
 export interface SearchProvider extends BaseProvider<"SearchProvider"> {}
 export interface BrowserProvider extends BaseProvider<"BrowserProvider"> {}
 export interface DeploymentProvider
@@ -180,7 +245,37 @@ export interface QueueProvider extends BaseProvider<"QueueProvider"> {
 export interface SandboxProvider extends BaseProvider<"SandboxProvider"> {}
 export interface RepositoryProvider
   extends BaseProvider<"RepositoryProvider"> {}
-export interface ConfigProvider extends BaseProvider<"ConfigProvider"> {}
+export class ModelAliasResolutionError extends Error {
+  constructor(alias: string) {
+    super(`Model alias policy has no binding for alias: ${alias}`);
+    this.name = "ModelAliasResolutionError";
+  }
+}
+
+export class InvalidModelAliasError extends Error {
+  constructor(alias: string) {
+    super(`model_alias is not a recognized alias tier: ${alias}`);
+    this.name = "InvalidModelAliasError";
+  }
+}
+
+export interface ToolPermissionRequest {
+  readonly tenantId: string;
+  readonly toolName: string;
+}
+
+export interface ToolPermissionBinding {
+  readonly allowed: boolean;
+  readonly rateLimitPerMinute: number;
+  readonly requiredScopes: readonly string[];
+}
+
+export interface ConfigProvider extends BaseProvider<"ConfigProvider"> {
+  resolveModelAlias(alias: ModelAlias): Promise<ModelAliasBinding>;
+  resolveToolPermission(
+    request: ToolPermissionRequest,
+  ): Promise<ToolPermissionBinding>;
+}
 export interface RelationalDatabaseProvider
   extends BaseProvider<"RelationalDatabaseProvider"> {}
 export interface VectorStoreProvider
