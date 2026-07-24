@@ -11,13 +11,19 @@ import {
   FailoverModelProvider,
   OpenAiModelProvider,
   PresidioPIIRedactionProvider,
+  RedisCacheProvider,
+  TitanEmbeddingProvider,
   startModelgwGrpcTransport,
 } from "@alterx/adapters";
 import {
+  createMockCacheProvider,
   createMockConfigProvider,
+  createMockEmbeddingProvider,
   createMockModelProvider,
   createMockPIIRedactionProvider,
+  type CacheProvider,
   type ConfigProvider,
+  type EmbeddingProvider,
   type ModelProvider,
   type PIIRedactionProvider,
 } from "@alterx/shared-clients";
@@ -86,14 +92,43 @@ function createPIIRedactionProvider(
   });
 }
 
+function createEmbeddingProvider(
+  environment: ReturnType<typeof loadModelGatewayEnvironment>,
+): EmbeddingProvider {
+  if (environment.configSource === "mock") {
+    return createMockEmbeddingProvider();
+  }
+  return new TitanEmbeddingProvider({ region: environment.region });
+}
+
+function createCacheProvider(
+  environment: ReturnType<typeof loadModelGatewayEnvironment>,
+): CacheProvider {
+  if (environment.configSource === "mock") {
+    return createMockCacheProvider();
+  }
+  return new RedisCacheProvider({
+    host: environment.cacheRedisHost,
+    port: environment.cacheRedisPort,
+  });
+}
+
 async function bootstrap(): Promise<void> {
   const environment = loadModelGatewayEnvironment(process.env);
   const configProvider = createConfigProvider(environment);
   const modelProvider = await createModelProvider(environment);
   const piiRedactionProvider = createPIIRedactionProvider(environment);
+  const embeddingProvider = createEmbeddingProvider(environment);
+  const cacheProvider = createCacheProvider(environment);
 
   const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule.register(configProvider, modelProvider, piiRedactionProvider),
+    AppModule.register(
+      configProvider,
+      modelProvider,
+      piiRedactionProvider,
+      embeddingProvider,
+      cacheProvider,
+    ),
     new FastifyAdapter(),
   );
   await startModelgwGrpcTransport(app, {

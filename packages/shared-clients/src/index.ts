@@ -47,6 +47,7 @@ export {
   durableExecutionProviderContract,
   embeddingProviderContract,
   modelProviderContract,
+  cacheProviderContract,
   observabilityProviderContract,
   piiRedactionProviderContract,
   searchProviderContract,
@@ -98,6 +99,9 @@ export {
   type SearchRequest,
   type SearchResult,
   type SearchResultItem,
+  type SemanticCacheLookupRequest,
+  type SemanticCacheLookupResult,
+  type SemanticCacheStoreRequest,
   type SecretReferenceId,
   type SecretsProvider,
   type StartWorkflowRequest,
@@ -120,6 +124,7 @@ export {
   createMockProvider,
   type MockProviderOptions,
 } from "./mock-provider";
+export { cosineSimilarity } from "./semantic-cache";
 export {
   IN_AADHAAR_PATTERN,
   IN_BANK_IFSC_PATTERN,
@@ -163,6 +168,12 @@ export {
   type MockSearchProvider,
   type MockSearchProviderOptions,
 } from "./mocks/search-provider";
+export {
+  MOCK_CACHE_CAPABILITIES,
+  createMockCacheProvider,
+  type MockCacheProvider,
+  type MockCacheProviderOptions,
+} from "./mocks/cache-provider";
 export {
   createMockAuditEventHandler,
   type MockAuditEventHandler,

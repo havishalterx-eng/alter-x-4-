@@ -2,7 +2,9 @@ import { Module, type DynamicModule } from "@nestjs/common";
 
 import { MODELGW_HANDLER, ModelgwGrpcController } from "@alterx/adapters";
 import type {
+  CacheProvider,
   ConfigProvider,
+  EmbeddingProvider,
   ModelProvider,
   PIIRedactionProvider,
 } from "@alterx/shared-clients";
@@ -16,6 +18,8 @@ export class AppModule {
     configProvider: ConfigProvider,
     modelProvider: ModelProvider,
     piiRedactionProvider: PIIRedactionProvider,
+    embeddingProvider: EmbeddingProvider,
+    cacheProvider: CacheProvider,
   ): DynamicModule {
     return {
       module: AppModule,
@@ -27,6 +31,8 @@ export class AppModule {
             configProvider,
             modelProvider,
             piiRedactionProvider,
+            embeddingProvider,
+            cacheProvider,
           ),
         },
       ],

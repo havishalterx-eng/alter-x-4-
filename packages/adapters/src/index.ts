@@ -131,3 +131,9 @@ export {
   AuditServiceClient,
   type AuditServiceClientConfig,
 } from "./grpc/audit-client";
+export {
+  REDIS_CACHE_CAPABILITIES,
+  RedisCacheProvider,
+  type RedisCacheProviderConfig,
+  type RedisCommandClient,
+} from "./redis/redis-cache-provider";

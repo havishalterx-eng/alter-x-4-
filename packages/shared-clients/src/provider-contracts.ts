@@ -1,6 +1,7 @@
 import { ProviderCapabilitiesSchema } from "@alterx/contracts";
 import type { ProviderContractSuite } from "./contract-testing";
 import type {
+  CacheProvider,
   ConfigProvider,
   DurableExecutionProvider,
   EmbeddingProvider,
@@ -537,6 +538,82 @@ export const searchProviderContract: ProviderContractSuite<SearchProvider> = {
           );
         }
         return { resultCount: result.results.length };
+      },
+    },
+  ],
+};
+
+export const cacheProviderContract: ProviderContractSuite<CacheProvider> = {
+  name: "CacheProvider",
+  cases: [
+    {
+      name: "publishes valid base-provider metadata and capabilities",
+      assert: async (provider) => {
+        ensure(
+          provider.metadata.interfaceName === "CacheProvider",
+          "Cache adapter must identify its canonical interface",
+        );
+        ProviderCapabilitiesSchema.parse(provider.capabilities);
+        const health = await provider.healthCheck();
+        ensure(
+          health.status === "healthy",
+          "Contract fixture must be healthy",
+        );
+        return {
+          capabilities: provider.capabilities,
+          health,
+          interfaceName: provider.metadata.interfaceName,
+        };
+      },
+    },
+    {
+      name: "misses on a lookup before anything is stored",
+      assert: async (provider) => {
+        const result = await provider.lookupSemantic({
+          tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+          embedding: [1, 0, 0, 0],
+        });
+        ensure(!result.hit, "A fresh tenant cache must start empty");
+        return { hit: result.hit };
+      },
+    },
+    {
+      name: "hits on an identical embedding after storing it",
+      assert: async (provider) => {
+        const tenantId = "ten_018f47a2-7b11-7b11-8a11-2222222222bb";
+        const embedding = [0.6, 0.8, 0, 0];
+        await provider.storeSemantic({
+          tenantId,
+          embedding,
+          valueJson: JSON.stringify({ cached: true }),
+        });
+        const result = await provider.lookupSemantic({
+          tenantId,
+          embedding,
+        });
+        ensure(result.hit, "An identical embedding must hit after storing");
+        ensure(
+          result.valueJson === JSON.stringify({ cached: true }),
+          "Cache hit must return the exact stored value",
+        );
+        return { hit: result.hit, valueJson: result.valueJson };
+      },
+    },
+    {
+      name: "misses across different tenants even with the same embedding",
+      assert: async (provider) => {
+        const embedding = [0, 1, 0, 0];
+        await provider.storeSemantic({
+          tenantId: "ten_018f47a2-7b11-7b11-8a11-3333333333cc",
+          embedding,
+          valueJson: JSON.stringify({ scoped: "tenant-a" }),
+        });
+        const result = await provider.lookupSemantic({
+          tenantId: "ten_018f47a2-7b11-7b11-8a11-4444444444dd",
+          embedding,
+        });
+        ensure(!result.hit, "Cache must never leak across tenants");
+        return { hit: result.hit };
       },
     },
   ],

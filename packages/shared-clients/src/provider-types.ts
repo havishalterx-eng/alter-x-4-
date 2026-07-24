@@ -299,7 +299,31 @@ export interface RelationalDatabaseProvider
   extends BaseProvider<"RelationalDatabaseProvider"> {}
 export interface VectorStoreProvider
   extends BaseProvider<"VectorStoreProvider"> {}
-export interface CacheProvider extends BaseProvider<"CacheProvider"> {}
+export interface SemanticCacheLookupRequest {
+  readonly tenantId: string;
+  readonly embedding: readonly number[];
+  readonly similarityThreshold?: number;
+}
+
+export interface SemanticCacheLookupResult {
+  readonly hit: boolean;
+  readonly valueJson?: string;
+  readonly similarity?: number;
+}
+
+export interface SemanticCacheStoreRequest {
+  readonly tenantId: string;
+  readonly embedding: readonly number[];
+  readonly valueJson: string;
+  readonly ttlSeconds?: number;
+}
+
+export interface CacheProvider extends BaseProvider<"CacheProvider"> {
+  lookupSemantic(
+    request: SemanticCacheLookupRequest,
+  ): Promise<SemanticCacheLookupResult>;
+  storeSemantic(request: SemanticCacheStoreRequest): Promise<void>;
+}
 export interface EventBusProvider extends BaseProvider<"EventBusProvider"> {}
 export interface GPUComputeProvider
   extends BaseProvider<"GPUComputeProvider"> {}

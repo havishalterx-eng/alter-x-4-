@@ -42,6 +42,8 @@ describe("loadModelGatewayEnvironment", () => {
           OPENAI_API_KEY_SECRET_REF: "/alter/prod/model-gateway/system/openai_api_key",
           PRESIDIO_ANALYZER_URL: "http://presidio-analyzer.local:5001",
           PRESIDIO_ANONYMIZER_URL: "http://presidio-anonymizer.local:5002",
+          CACHE_REDIS_HOST: "cache.model-gateway.local",
+          CACHE_REDIS_PORT: "6379",
         }),
       ),
     ).toMatchObject({
@@ -55,6 +57,8 @@ describe("loadModelGatewayEnvironment", () => {
         "/alter/prod/model-gateway/system/openai_api_key",
       presidioAnalyzerUrl: "http://presidio-analyzer.local:5001",
       presidioAnonymizerUrl: "http://presidio-anonymizer.local:5002",
+      cacheRedisHost: "cache.model-gateway.local",
+      cacheRedisPort: 6379,
     });
   });
 
@@ -146,6 +150,38 @@ describe("loadModelGatewayEnvironment", () => {
         APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
         ANTHROPIC_API_KEY_SECRET_REF: "/alter/dev/model-gateway/system/anthropic_api_key",
         OPENAI_API_KEY_SECRET_REF: "",
+      },
+    ],
+    [
+      "CACHE_REDIS_HOST",
+      {
+        ALTER_ENV: "dev",
+        ALTER_CONFIG_SOURCE: "appconfig",
+        APPCONFIG_APPLICATION_ID: "app-1",
+        APPCONFIG_ENVIRONMENT_ID: "env-1",
+        APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+        ANTHROPIC_API_KEY_SECRET_REF: "/alter/dev/model-gateway/system/anthropic_api_key",
+        OPENAI_API_KEY_SECRET_REF: "/alter/dev/model-gateway/system/openai_api_key",
+        PRESIDIO_ANALYZER_URL: "http://presidio-analyzer.local:5001",
+        PRESIDIO_ANONYMIZER_URL: "http://presidio-anonymizer.local:5002",
+        CACHE_REDIS_HOST: "",
+        CACHE_REDIS_PORT: "6379",
+      },
+    ],
+    [
+      "CACHE_REDIS_PORT",
+      {
+        ALTER_ENV: "dev",
+        ALTER_CONFIG_SOURCE: "appconfig",
+        APPCONFIG_APPLICATION_ID: "app-1",
+        APPCONFIG_ENVIRONMENT_ID: "env-1",
+        APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+        ANTHROPIC_API_KEY_SECRET_REF: "/alter/dev/model-gateway/system/anthropic_api_key",
+        OPENAI_API_KEY_SECRET_REF: "/alter/dev/model-gateway/system/openai_api_key",
+        PRESIDIO_ANALYZER_URL: "http://presidio-analyzer.local:5001",
+        PRESIDIO_ANONYMIZER_URL: "http://presidio-anonymizer.local:5002",
+        CACHE_REDIS_HOST: "cache.model-gateway.local",
+        CACHE_REDIS_PORT: "0",
       },
     ],
   ])("rejects invalid %s", (field, override) => {
