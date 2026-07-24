@@ -76,4 +76,19 @@ describe("CanonicalEventSchema", () => {
       }).success,
     ).toBe(true);
   });
+
+  it("accepts untriggered events only when both trigger fields are absent", () => {
+    const event: Record<string, unknown> = { ...validEvent };
+    delete event.trigger_id;
+    delete event.trigger_version;
+
+    expect(CanonicalEventSchema.safeParse(event).success).toBe(true);
+  });
+
+  it.each([
+    ["missing trigger_version", { ...validEvent, trigger_version: undefined }],
+    ["missing trigger_id", { ...validEvent, trigger_id: undefined }],
+  ])("rejects partial trigger linkage with %s", (_name, event) => {
+    expect(CanonicalEventSchema.safeParse(event).success).toBe(false);
+  });
 });

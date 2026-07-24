@@ -1,6 +1,6 @@
 version: v2
 plugins:
-  - local: ../node_modules/.bin/protoc-gen-ts_proto
+  - local: ["node", "../node_modules/ts-proto/protoc-gen-ts_proto"]
     out: ../src/generated
     opt:
       - onlyTypes=true

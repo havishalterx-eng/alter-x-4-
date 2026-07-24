@@ -37,6 +37,9 @@
       ],
       "@alterx/shared-clients": [
         "packages/shared-clients/src/index.ts"
+      ],
+      "@alterx/adapters": [
+        "packages/adapters/src/index.ts"
       ]
     }
   }

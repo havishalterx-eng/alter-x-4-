@@ -12,10 +12,12 @@ export default defineConfig({
         "packages/adapters/src/aws/secrets-manager-provider.ts",
         "packages/adapters/src/grpc/audit-grpc-transport.ts",
         "packages/adapters/src/postgres/audit-store-provider.ts",
+        "packages/adapters/src/postgres/orchestration-store-provider.ts",
         "packages/adapters/src/temporal/durable-execution-provider.ts",
       ],
       thresholds: {
         branches: 90,
+        lines: 90,
       },
     },
   },

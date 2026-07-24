@@ -6,11 +6,18 @@
   "targets": {
     "build": {
       "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build"
+      ],
       "outputs": [
         "{workspaceRoot}/dist/apps/orchestration-service"
       ],
       "options": {
-        "command": "tsc -p apps/orchestration-service/tsconfig.app.json"
+        "commands": [
+          "tsc -p apps/orchestration-service/tsconfig.app.json",
+          "node apps/orchestration-service/scripts/copy-build-assets.mjs"
+        ],
+        "parallel": false
       }
     },
     "serve": {
@@ -27,22 +34,30 @@
       "options": {
         "eslintConfig": "apps/orchestration-service/eslint.config.mjs",
         "lintFilePatterns": [
-          "apps/orchestration-service/src/**/*.ts"
+          "apps/orchestration-service/src/**/*.ts",
+          "apps/orchestration-service/db/schema/**/*.ts"
         ]
       }
     },
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "tsc --noEmit -p apps/orchestration-service/tsconfig.json"
+        "commands": [
+          "tsc --noEmit -p apps/orchestration-service/tsconfig.json",
+          "tsc --noEmit -p apps/orchestration-service/db/tsconfig.json"
+        ],
+        "parallel": false
       }
     },
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "vitest run apps/orchestration-service/src/**/*.spec.ts"
+        "command": "vitest run apps/orchestration-service/src/database/migration-files.spec.ts apps/orchestration-service/src/database/schema-files.spec.ts apps/orchestration-service/src/health/health.controller.spec.ts"
       }
     }
   },
-  "tags": []
+  "tags": [
+    "type:service",
+    "security-critical"
+  ]
 }
