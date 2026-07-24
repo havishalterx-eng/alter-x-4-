@@ -129,6 +129,7 @@ describe.sequential("Session Gateway PostgreSQL RLS integration", () => {
           {
             iss: "https://tenant.auth0.com/",
             aud: "alter-engine",
+            iat: TEST_NOW,
             exp: TEST_NOW + 60,
             "https://alter.dev/claims/actor_type": "service",
             tenant_id: TEST_TENANT,
@@ -141,7 +142,10 @@ describe.sequential("Session Gateway PostgreSQL RLS integration", () => {
       },
       url: "/v1/workflows",
     };
+    const handler = () => undefined;
     const context = {
+      getHandler: () => handler,
+      getClass: () => class TestController {},
       switchToHttp: () => ({
         getRequest: () => request,
         getResponse: () => ({ header: vi.fn() }),
