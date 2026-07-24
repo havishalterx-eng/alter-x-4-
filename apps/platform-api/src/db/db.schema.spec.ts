@@ -4,29 +4,35 @@ import { describe, expect, it } from "vitest";
 import { DbModule } from "./db.module";
 import {
   entitlements,
+  onboardingStates,
   tenantMembers,
   tenants,
+  userSessions,
   users,
   workspaceMembers,
   workspaces,
 } from "./schema";
 
 describe("platform database schema", () => {
-  it("exports the database module and all identity tables", () => {
+  it("exports the database module and all platform tables", () => {
     expect(DbModule).toBeDefined();
     expect(
       [
         entitlements,
+        onboardingStates,
         tenantMembers,
         tenants,
+        userSessions,
         users,
         workspaceMembers,
         workspaces,
       ].map(getTableName),
     ).toEqual([
       "entitlements",
+      "onboarding_states",
       "tenant_members",
       "tenants",
+      "user_sessions",
       "users",
       "workspace_members",
       "workspaces",
@@ -54,5 +60,22 @@ describe("platform database schema", () => {
     expect(getTableConfig(workspaces).indexes).toHaveLength(2);
     expect(getTableConfig(tenantMembers).indexes).toHaveLength(1);
     expect(getTableConfig(workspaceMembers).indexes).toHaveLength(1);
+  });
+
+  it("defines onboarding and session tenant constraints", () => {
+    expect(getTableColumns(onboardingStates)).toHaveProperty("tenantId");
+    expect(getTableConfig(onboardingStates).indexes).toHaveLength(1);
+    expect(
+      getTableConfig(onboardingStates).foreignKeys.map((foreignKey) =>
+        foreignKey.getName(),
+      ),
+    ).toHaveLength(3);
+
+    expect(getTableColumns(userSessions)).toHaveProperty("tenantId");
+    expect(
+      getTableConfig(userSessions).foreignKeys.map((foreignKey) =>
+        foreignKey.getName(),
+      ),
+    ).toHaveLength(2);
   });
 });

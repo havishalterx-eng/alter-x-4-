@@ -42,6 +42,9 @@ export default defineConfig({
       ],
       thresholds: {
         lines: 90,
+        "apps/platform-api/src/db/**/*.ts": {
+          lines: 90,
+        },
         "apps/platform-api/src/identity/**/*.ts": {
           lines: 90,
           branches: 90,
