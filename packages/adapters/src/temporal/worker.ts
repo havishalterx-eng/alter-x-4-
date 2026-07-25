@@ -26,3 +26,25 @@ export function createFoundationWorker(
     workflowsPath: foundationWorkflowsPath(),
   });
 }
+
+function conversationLifecycleWorkflowsPath(): string {
+  const basePath = join(
+    __dirname,
+    "workflows",
+    "conversation-lifecycle-workflow",
+  );
+  const compiledPath = `${basePath}.js`;
+  return existsSync(compiledPath) ? compiledPath : `${basePath}.ts`;
+}
+
+export function createConversationLifecycleWorker(
+  config: TemporalConnectionConfig,
+  connection: NativeConnection,
+): Promise<Worker> {
+  return Worker.create({
+    connection,
+    namespace: config.namespace,
+    taskQueue: config.taskQueue,
+    workflowsPath: conversationLifecycleWorkflowsPath(),
+  });
+}

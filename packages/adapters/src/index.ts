@@ -4,11 +4,27 @@ export {
   TemporalDurableExecutionProvider,
   type TemporalConnectionConfig,
 } from "./temporal/durable-execution-provider";
-export { createFoundationWorker } from "./temporal/worker";
+export {
+  createConversationLifecycleWorker,
+  createFoundationWorker,
+} from "./temporal/worker";
 export {
   foundationNoopWorkflow,
   type FoundationWorkflowStatus,
 } from "./temporal/workflows/foundation-noop-workflow";
+export {
+  childRunIdsQuery,
+  closeSignal,
+  conversationLifecycleWorkflow,
+  messageSignal,
+  messagesQuery,
+  spawnChildRunSignal,
+  statusQuery as conversationLifecycleStatusQuery,
+  type ConversationLifecycleInput,
+  type ConversationLifecycleStatus,
+  type IncomingConversationMessage,
+  type SpawnChildRunSignalPayload,
+} from "./temporal/workflows/conversation-lifecycle-workflow";
 export {
   PostgresAuditStoreProvider,
   type PostgresAuditStoreConfig,
