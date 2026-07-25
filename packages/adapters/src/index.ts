@@ -138,6 +138,11 @@ export {
   type AuditServiceClientConfig,
 } from "./grpc/audit-client";
 export {
+  ModelGatewayClient,
+  type ModelGatewayClientConfig,
+  type ModelGatewayHandler,
+} from "./grpc/modelgw-client";
+export {
   REDIS_CACHE_CAPABILITIES,
   RedisCacheProvider,
   type RedisCacheProviderConfig,

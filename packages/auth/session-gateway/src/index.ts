@@ -14,6 +14,25 @@ export {
 } from "./redis-replay-store";
 export { RedisRespSetClient } from "./redis-resp-client";
 export { SessionGatewayGuard } from "./session-gateway.guard";
+export {
+  SessionGatewayRateLimitGuard,
+  type RateLimitBucket,
+  type SessionGatewayRateLimitOptions,
+} from "./rate-limit.guard";
+export {
+  SessionGatewayUploadAllowlistGuard,
+  type SessionGatewayUploadAllowlistOptions,
+} from "./upload-allowlist.guard";
+export {
+  PromptInjectionClassifier,
+  type ModelGatewayInvokeLike,
+  type PromptInjectionClassificationRequest,
+  type PromptInjectionClassificationResult,
+} from "./prompt-injection-classifier";
+export {
+  SessionGatewayPromptInjectionGuard,
+  type SessionGatewayPromptInjectionOptions,
+} from "./prompt-injection.guard";
 export type {
   ActorContext,
   ReplayStore,
