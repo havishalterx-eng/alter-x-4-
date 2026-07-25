@@ -302,10 +302,11 @@ describe("PostgresOrchestrationStoreProvider", () => {
       .mocked(client.query)
       .mock.calls.map(([statement]) => String(statement));
     expect(statements[0]).toBe("BEGIN");
-    expect(statements[1]).toContain("runs_reject_tenant_id_change");
-    expect(statements[6]).toContain("workflows_reject_tenant_id_change");
-    expect(statements[7]).toBe("DROP SCHEMA IF EXISTS drizzle CASCADE");
-    expect(statements[8]).toBe("COMMIT");
+    expect(statements[1]).toContain("conversation_goal_states_reject_tenant_id_change");
+    expect(statements[2]).toContain("runs_reject_tenant_id_change");
+    expect(statements[7]).toContain("workflows_reject_tenant_id_change");
+    expect(statements[8]).toBe("DROP SCHEMA IF EXISTS drizzle CASCADE");
+    expect(statements[9]).toBe("COMMIT");
     expect(client.release).toHaveBeenCalledOnce();
   });
 

@@ -24,6 +24,7 @@ export {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   sql,
   text,
   timestamp,
@@ -142,6 +143,13 @@ export {
   type ModelGatewayClientConfig,
   type ModelGatewayHandler,
 } from "./grpc/modelgw-client";
+export {
+  CONVERSATION_HANDLER,
+  ConversationGrpcController,
+  startConversationGrpcTransport,
+  type ConversationGrpcTransportConfig,
+  type ConversationHandler,
+} from "./grpc/conversation-grpc-transport";
 export {
   REDIS_CACHE_CAPABILITIES,
   RedisCacheProvider,

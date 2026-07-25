@@ -10,3 +10,18 @@ await cp(
   resolve(output, "drizzle"),
   { recursive: true, force: true },
 );
+
+await mkdir(resolve(output, "proto"), { recursive: true });
+await cp(
+  resolve(
+    root,
+    "packages/contracts/proto/alter/conversation/v1/conversation.proto",
+  ),
+  resolve(output, "proto/conversation.proto"),
+  { force: true },
+);
+await cp(
+  resolve(root, "packages/contracts/proto/alter/modelgw/v1/modelgw.proto"),
+  resolve(output, "proto/modelgw.proto"),
+  { force: true },
+);

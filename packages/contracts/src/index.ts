@@ -40,6 +40,14 @@ export type {
   ResolveCredentialRequest as ToolgwResolveCredentialRequest,
   ResolveCredentialResponse as ToolgwResolveCredentialResponse,
 } from "./generated/alter/toolgw/v1/toolgw";
+export type {
+  ClassifyIntentRequest as ConversationClassifyIntentRequest,
+  ClassifyIntentResponse as ConversationClassifyIntentResponse,
+  GetGoalStateRequest as ConversationGetGoalStateRequest,
+  GetGoalStateResponse as ConversationGetGoalStateResponse,
+  MergeClarificationRequest as ConversationMergeClarificationRequest,
+  MergeClarificationResponse as ConversationMergeClarificationResponse,
+} from "./generated/alter/conversation/v1/conversation";
 export {
   CostLimitBindingSchema,
   FallbackBindingSchema,

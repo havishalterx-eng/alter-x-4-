@@ -21,6 +21,8 @@ describe("GET /health", () => {
       ORCHESTRATION_DATABASE_NAME: "orchestration_db",
       ORCHESTRATION_DATABASE_USER: "orchestration_service",
       AWS_REGION: "ap-south-1",
+      ALTER_ENV: "prod",
+      MODEL_GATEWAY_ADDRESS: "127.0.0.1:50051",
     };
     for (const [name, value] of Object.entries(config)) {
       vi.stubEnv(name, value);

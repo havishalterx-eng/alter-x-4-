@@ -20,6 +20,7 @@ describe("orchestration migration files", () => {
       "0003_create_conversations.sql",
       "0004_create_events.sql",
       "0005_create_runs.sql",
+      "0006_create_conversation_goal_states.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -32,6 +33,7 @@ describe("orchestration migration files", () => {
       "0003_drop_conversations.sql",
       "0004_drop_events.sql",
       "0005_drop_runs.sql",
+      "0006_drop_conversation_goal_states.sql",
     ]);
   });
 
@@ -48,13 +50,13 @@ describe("orchestration migration files", () => {
     },
   );
 
-  it("defines immutability function once and reuses it six times", () => {
+  it("defines immutability function once and reuses it seven times", () => {
     const allSql = migrationSql.map(({ sql }) => sql).join("\n");
 
     expect(allSql.match(/CREATE OR REPLACE FUNCTION reject_tenant_id_change/g))
       .toHaveLength(1);
     expect(allSql.match(/EXECUTE FUNCTION reject_tenant_id_change\(\)/g))
-      .toHaveLength(6);
+      .toHaveLength(7);
   });
 
   it("contains no cross-database references", () => {
@@ -80,6 +82,9 @@ describe("orchestration migration files", () => {
     );
     expect(allSql).toContain(
       'CONSTRAINT "runs_workflow_tenant_fk" FOREIGN KEY ("tenant_id", "workflow_id") REFERENCES "workflows"("tenant_id", "id")',
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "conversation_goal_states_conversation_tenant_fk" FOREIGN KEY ("tenant_id", "conversation_id") REFERENCES "conversations"("tenant_id", "id")',
     );
     expect(allSql).toContain(
       'CONSTRAINT "events_payload_or_reference_check" CHECK ("payload" IS NOT NULL OR "payload_reference" IS NOT NULL)',

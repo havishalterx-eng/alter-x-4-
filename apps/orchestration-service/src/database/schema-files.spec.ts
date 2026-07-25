@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { conversationGoalStates } from "../../db/schema/conversation_goal_states";
 import { conversations } from "../../db/schema/conversations";
 import { events } from "../../db/schema/events";
 import { runs } from "../../db/schema/runs";
@@ -20,10 +21,11 @@ const schemas = [
   ["events.ts", "events"],
   ["conversations.ts", "conversations"],
   ["runs.ts", "runs"],
+  ["conversation_goal_states.ts", "conversation_goal_states"],
 ] as const;
 
 describe("orchestration Drizzle schemas", () => {
-  it("loads all six executable Drizzle table definitions", () => {
+  it("loads all seven executable Drizzle table definitions", () => {
     for (const table of [
       workflows,
       triggers,
@@ -31,6 +33,7 @@ describe("orchestration Drizzle schemas", () => {
       conversations,
       events,
       runs,
+      conversationGoalStates,
     ]) {
       expect(table).toBeDefined();
     }
@@ -57,6 +60,7 @@ describe("orchestration Drizzle schemas", () => {
       'foreignKey({\n      name: "events_trigger_version_tenant_fk"',
       'foreignKey({\n      name: "runs_workflow_tenant_fk"',
       'unique("trigger_versions_tenant_trigger_version_unique")',
+      'foreignKey({\n      name: "conversation_goal_states_conversation_tenant_fk"',
     ]) {
       expect(allSources).toContain(expected);
     }

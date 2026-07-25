@@ -48,7 +48,7 @@
         "commands": [
           "buf lint",
           "buf build",
-          "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto"
+          "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto"
         ],
         "cwd": "packages/contracts/proto",
         "parallel": false
@@ -58,10 +58,12 @@
       "executor": "nx:run-commands",
       "outputs": [
         "{projectRoot}/src/generated/alter/audit/v1/audit.ts",
-        "{projectRoot}/src/generated/alter/modelgw/v1/modelgw.ts"
+        "{projectRoot}/src/generated/alter/modelgw/v1/modelgw.ts",
+        "{projectRoot}/src/generated/alter/toolgw/v1/toolgw.ts",
+        "{projectRoot}/src/generated/alter/conversation/v1/conversation.ts"
       ],
       "options": {
-        "command": "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto",
+        "command": "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto",
         "cwd": "packages/contracts/proto"
       }
     },

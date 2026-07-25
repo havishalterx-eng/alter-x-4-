@@ -1,6 +1,11 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
-import { PostgresOrchestrationStoreProvider } from "@alterx/adapters";
+import {
+  CONVERSATION_HANDLER,
+  ConversationGrpcController,
+  ModelGatewayClient,
+  PostgresOrchestrationStoreProvider,
+} from "@alterx/adapters";
 import {
   ActorTokenValidator,
   M2mValidator,
@@ -8,11 +13,14 @@ import {
   RedisRespSetClient,
   SessionGatewayGuard,
 } from "@alterx/auth";
+import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
+import { ConversationManagerService } from "./conversation/conversation-manager.service";
+import { loadConversationManagerEnvironment } from "./config/environment";
 import { ORCHESTRATION_MIGRATIONS_PATH } from "./database/migrations-path";
 import { HealthController } from "./health/health.controller";
 
 @Module({
-  controllers: [HealthController],
+  controllers: [HealthController, ConversationGrpcController],
   providers: [
     {
       provide: APP_GUARD,
@@ -44,6 +52,37 @@ import { HealthController } from "./health/health.controller";
             migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
           }),
         );
+      },
+    },
+    {
+      provide: CONVERSATION_HANDLER,
+      useFactory: () => {
+        // Session Gateway's own PostgresOrchestrationStoreProvider (above)
+        // isn't reachable from this factory -- its instance lives entirely
+        // inside the APP_GUARD factory's closure, and INGR-2's guard
+        // wiring is out of scope to refactor here. This constructs a
+        // second provider (its own Pool) against the same database. Not
+        // maximally efficient, but correct and isolated; sharing a single
+        // pool across both is a reasonable follow-up once the guard
+        // wiring itself is revisited.
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const conversationConfig = loadConversationManagerEnvironment(
+          process.env,
+        );
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        const modelGateway = new ModelGatewayClient({
+          address: conversationConfig.modelGatewayAddress,
+          protoPath: MODELGW_CLIENT_PROTO_PATH,
+        });
+        return new ConversationManagerService(store, modelGateway);
       },
     },
   ],
