@@ -18,9 +18,15 @@ import { ConversationManagerService } from "./conversation/conversation-manager.
 import { loadConversationManagerEnvironment } from "./config/environment";
 import { ORCHESTRATION_MIGRATIONS_PATH } from "./database/migrations-path";
 import { HealthController } from "./health/health.controller";
+import { TriggerRegistryController } from "./trigger-registry/trigger-registry.controller";
+import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
 
 @Module({
-  controllers: [HealthController, ConversationGrpcController],
+  controllers: [
+    HealthController,
+    ConversationGrpcController,
+    TriggerRegistryController,
+  ],
   providers: [
     {
       provide: APP_GUARD,
@@ -83,6 +89,26 @@ import { HealthController } from "./health/health.controller";
           protoPath: MODELGW_CLIENT_PROTO_PATH,
         });
         return new ConversationManagerService(store, modelGateway);
+      },
+    },
+    {
+      provide: TriggerRegistryService,
+      useFactory: () => {
+        // Same reasoning as CONVERSATION_HANDLER above: the guard's store
+        // instance is not reachable from this factory, so this constructs
+        // its own PostgresOrchestrationStoreProvider against the same
+        // database rather than refactoring the guard wiring.
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        return new TriggerRegistryService(store);
       },
     },
   ],
