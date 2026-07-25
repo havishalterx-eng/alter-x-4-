@@ -16,16 +16,20 @@ import {
 import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import { ConversationManagerService } from "./conversation/conversation-manager.service";
 import { loadConversationManagerEnvironment } from "./config/environment";
+import { loadWhatsappWebhookEnvironment } from "./config/whatsapp-webhook-environment";
 import { ORCHESTRATION_MIGRATIONS_PATH } from "./database/migrations-path";
 import { HealthController } from "./health/health.controller";
 import { TriggerRegistryController } from "./trigger-registry/trigger-registry.controller";
 import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
+import { WhatsappWebhookController } from "./webhooks/whatsapp-webhook.controller";
+import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
 
 @Module({
   controllers: [
     HealthController,
     ConversationGrpcController,
     TriggerRegistryController,
+    WhatsappWebhookController,
   ],
   providers: [
     {
@@ -109,6 +113,26 @@ import { TriggerRegistryService } from "./trigger-registry/trigger-registry.serv
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
         return new TriggerRegistryService(store);
+      },
+    },
+    {
+      provide: WhatsappWebhookService,
+      useFactory: () => {
+        // Same reasoning as CONVERSATION_HANDLER/TriggerRegistryService
+        // above: constructs its own PostgresOrchestrationStoreProvider
+        // rather than reaching into the guard's private instance.
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        const whatsappConfig = loadWhatsappWebhookEnvironment(process.env);
+        return new WhatsappWebhookService(store, whatsappConfig);
       },
     },
   ],

@@ -12,6 +12,12 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter(),
+    // rawBody: true makes Fastify retain the exact pre-parse body bytes on
+    // request.rawBody for every route -- Nest/Fastify have no native
+    // per-route scoping for this. Only the WhatsApp webhook route reads
+    // request.rawBody (required for HMAC-SHA256 signature verification);
+    // every other route's behavior is unaffected.
+    { rawBody: true },
   );
   await startConversationGrpcTransport(app, {
     bindAddress: conversationConfig.grpcBindAddress,
