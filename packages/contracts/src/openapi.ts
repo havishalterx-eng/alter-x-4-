@@ -33,6 +33,7 @@ export interface V1RouteSpec {
   readonly tag: string;
   readonly collection?: boolean;
   readonly statusFilter?: boolean;
+  readonly runsFilter?: boolean;
   readonly sse?: boolean;
   readonly successStatus?: 200 | 201 | 202;
 }
@@ -71,7 +72,7 @@ export const V1_ROUTE_SPECS: readonly V1RouteSpec[] = [
   { method: "post", path: "/projects/{id}/actions/rollback", summary: "Roll back project deployment", tag: "Projects" },
 
   { method: "post", path: "/runs", summary: "Start run", tag: "Runs", successStatus: 202 },
-  { method: "get", path: "/runs", summary: "List runs", tag: "Runs", collection: true },
+  { method: "get", path: "/runs", summary: "List runs", tag: "Runs", collection: true, runsFilter: true },
   { method: "get", path: "/runs/{id}", summary: "Get run", tag: "Runs" },
   { method: "get", path: "/runs/{id}/stream", summary: "Stream run events", tag: "Runs", sse: true },
   { method: "get", path: "/runs/{id}/node-executions", summary: "List node executions", tag: "Runs", collection: true },
@@ -182,6 +183,20 @@ const ApprovalQuerySchema = CursorQuerySchema.extend({
   status: z.literal("pending").optional(),
 });
 
+// Matches apps/orchestration-service/db/schema/runs.ts's real CHECK
+// constraints exactly -- runs_status_check and the started_at column.
+// No "mode" filter: runs.parent_kind is CHECK-restricted to the single
+// value 'workflow' today (runs_parent_kind_check), so a mode filter would
+// have exactly one possible value. Add it once Execution/Planning phases
+// widen that constraint (e.g. adding 'project'), not before.
+const RunsQuerySchema = CursorQuerySchema.extend({
+  status: z
+    .enum(["pending", "running", "paused", "completed", "failed", "cancelled"])
+    .optional(),
+  started_after: z.string().datetime({ offset: true }).optional(),
+  started_before: z.string().datetime({ offset: true }).optional(),
+});
+
 const TraceHeadersSchema = z.object({
   traceparent: z.string().min(1),
 });
@@ -281,7 +296,9 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
     if (route.collection) {
       request.query = route.statusFilter
         ? ApprovalQuerySchema
-        : CursorQuerySchema;
+        : route.runsFilter
+          ? RunsQuerySchema
+          : CursorQuerySchema;
     }
     if (mutation) {
       request.body = {
