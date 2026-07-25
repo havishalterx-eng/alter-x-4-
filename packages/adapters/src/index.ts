@@ -5,6 +5,14 @@ export {
   type TemporalConnectionConfig,
 } from "./temporal/durable-execution-provider";
 export {
+  ConversationDispatchClient,
+  ConversationDispatchConfigurationError,
+  type ConversationDispatchConfig,
+  type ConversationDispatchHandler,
+  type DispatchConversationMessageRequest,
+  type DispatchConversationMessageResult,
+} from "./temporal/conversation-dispatch-client";
+export {
   createConversationLifecycleWorker,
   createFoundationWorker,
 } from "./temporal/worker";

@@ -138,7 +138,19 @@ describe("WhatsappWebhookService.processWebhook", () => {
 
     const result = await service.processWebhook(body, signatureFor(body));
 
-    expect(result).toEqual({ received: 1, persisted: 1, duplicates: 0 });
+    expect(result).toEqual({
+      received: 1,
+      persisted: 1,
+      duplicates: 0,
+      messages: [
+        {
+          idempotencyKey: "wamid.ABC123",
+          subjectId: "16505551234",
+          occurredAt: NOW.toISOString(),
+          payload: message(),
+        },
+      ],
+    });
     expect(inserts).toHaveLength(1);
     const [insertValues] = inserts;
     expect(insertValues![3]).toBe(TENANT_ID);
@@ -157,7 +169,19 @@ describe("WhatsappWebhookService.processWebhook", () => {
 
     const result = await service.processWebhook(body, signatureFor(body));
 
-    expect(result).toEqual({ received: 1, persisted: 0, duplicates: 1 });
+    expect(result).toEqual({
+      received: 1,
+      persisted: 0,
+      duplicates: 1,
+      messages: [
+        {
+          idempotencyKey: "wamid.ABC123",
+          subjectId: "16505551234",
+          occurredAt: NOW.toISOString(),
+          payload: message(),
+        },
+      ],
+    });
   });
 
   it("handles a mix of new and duplicate messages in one payload", async () => {
@@ -170,7 +194,25 @@ describe("WhatsappWebhookService.processWebhook", () => {
 
     const result = await service.processWebhook(body, signatureFor(body));
 
-    expect(result).toEqual({ received: 2, persisted: 1, duplicates: 1 });
+    expect(result).toEqual({
+      received: 2,
+      persisted: 1,
+      duplicates: 1,
+      messages: [
+        {
+          idempotencyKey: "wamid.OLD",
+          subjectId: "16505551234",
+          occurredAt: NOW.toISOString(),
+          payload: message({ id: "wamid.OLD" }),
+        },
+        {
+          idempotencyKey: "wamid.NEW",
+          subjectId: "16505551234",
+          occurredAt: NOW.toISOString(),
+          payload: message({ id: "wamid.NEW" }),
+        },
+      ],
+    });
   });
 
   it("rejects a message whose timestamp is outside the skew window", async () => {
@@ -197,7 +239,19 @@ describe("WhatsappWebhookService.processWebhook", () => {
 
     await expect(
       service.processWebhook(body, signatureFor(body)),
-    ).resolves.toEqual({ received: 1, persisted: 1, duplicates: 0 });
+    ).resolves.toEqual({
+      received: 1,
+      persisted: 1,
+      duplicates: 0,
+      messages: [
+        {
+          idempotencyKey: "wamid.ABC123",
+          subjectId: "16505551234",
+          occurredAt: new Date(Number(edgeTimestamp) * 1000).toISOString(),
+          payload: message({ timestamp: edgeTimestamp }),
+        },
+      ],
+    });
   });
 
   it("rejects malformed JSON after a valid signature", async () => {
@@ -250,7 +304,12 @@ describe("WhatsappWebhookService.processWebhook", () => {
       signatureFor(statusPayload),
     );
 
-    expect(result).toEqual({ received: 0, persisted: 0, duplicates: 0 });
+    expect(result).toEqual({
+      received: 0,
+      persisted: 0,
+      duplicates: 0,
+      messages: [],
+    });
     expect(inserts).toHaveLength(0);
   });
 

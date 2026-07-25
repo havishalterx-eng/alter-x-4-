@@ -1,0 +1,14 @@
+title = "ALTERX gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secret test fixture values"
+regexes = [
+  # WhatsApp message ids (format "wamid.XXXX") used as idempotency-key test
+  # fixtures across the webhook/dispatch test suites. Public message
+  # identifiers, not secrets -- the "...Key" property name they're paired
+  # with false-positives against gitleaks' generic-api-key heuristic.
+  '''wamid\.[A-Za-z0-9._-]+''',
+]

@@ -54,10 +54,23 @@ export interface WhatsappWebhookConfig {
   readonly timestampSkewSeconds: number;
 }
 
+// Dispatch input for INGR-7 (webhook -> canonical event -> conversation
+// dispatch), independent of whether the underlying event row was newly
+// persisted or a duplicate -- Temporal's signal-with-start plus the
+// conversation workflow's own messageId dedup make re-dispatch safe, so
+// dispatch is attempted for every inbound message in this delivery.
+export interface DispatchableInboundMessage {
+  readonly idempotencyKey: string;
+  readonly subjectId: string;
+  readonly occurredAt: string;
+  readonly payload: Readonly<Record<string, unknown>>;
+}
+
 export interface ProcessWebhookResult {
   readonly received: number;
   readonly persisted: number;
   readonly duplicates: number;
+  readonly messages: readonly DispatchableInboundMessage[];
 }
 
 interface InboundMessage {
@@ -172,6 +185,14 @@ export class WhatsappWebhookService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
+  get tenantId(): string {
+    return this.config.tenantId;
+  }
+
+  get workspaceId(): string {
+    return this.config.workspaceId;
+  }
+
   // Meta's GET verification handshake: hub.mode must be "subscribe" and
   // hub.verify_token must match the configured token (constant-time
   // compared, since it's attacker-suppliable and matched against a
@@ -217,7 +238,7 @@ export class WhatsappWebhookService {
     }
 
     if (messages.length === 0) {
-      return { received: 0, persisted: 0, duplicates: 0 };
+      return { received: 0, persisted: 0, duplicates: 0, messages: [] };
     }
 
     let persisted = 0;
@@ -254,6 +275,16 @@ export class WhatsappWebhookService {
       }
     });
 
-    return { received: messages.length, persisted, duplicates };
+    return {
+      received: messages.length,
+      persisted,
+      duplicates,
+      messages: messages.map((inbound) => ({
+        idempotencyKey: inbound.id,
+        subjectId: inbound.from,
+        occurredAt: new Date(inbound.timestampSeconds * 1000).toISOString(),
+        payload: inbound.message,
+      })),
+    };
   }
 }

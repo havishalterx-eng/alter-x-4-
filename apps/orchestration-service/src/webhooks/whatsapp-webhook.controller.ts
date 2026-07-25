@@ -12,6 +12,7 @@ import {
 import type { FastifyReply } from "fastify";
 import { Public } from "@alterx/auth";
 import type { ProblemDetails } from "@alterx/contracts";
+import { ConversationDispatchService } from "./conversation-dispatch.service";
 import {
   WhatsappPayloadValidationError,
   WhatsappReplayError,
@@ -28,7 +29,10 @@ interface RawBodyRequest {
 
 @Controller("v1/webhooks/whatsapp")
 export class WhatsappWebhookController {
-  constructor(private readonly service: WhatsappWebhookService) {}
+  constructor(
+    private readonly service: WhatsappWebhookService,
+    private readonly dispatchService: ConversationDispatchService,
+  ) {}
 
   @Get()
   @Public()
@@ -56,11 +60,32 @@ export class WhatsappWebhookController {
     if (request.rawBody === undefined) {
       throw mapWebhookError(new WhatsappSignatureInvalidError(), request.url);
     }
+    let result: ProcessWebhookResult;
     try {
-      return await this.service.processWebhook(request.rawBody, signature);
+      result = await this.service.processWebhook(request.rawBody, signature);
     } catch (error: unknown) {
       throw mapWebhookError(error, request.url);
     }
+
+    if (result.messages.length > 0) {
+      try {
+        await this.dispatchService.dispatchInboundMessages(
+          this.service.tenantId,
+          this.service.workspaceId,
+          "whatsapp",
+          result.messages,
+        );
+      } catch (error: unknown) {
+        // The event row is already durably persisted (or was already a
+        // duplicate) at this point -- only dispatch failed. Fail closed
+        // with a retryable 500 so Meta redelivers; re-dispatch of an
+        // already-processed message is safe (see
+        // ConversationDispatchService's dispatchInboundMessages doc).
+        throw dispatchFailedProblem(request.url, error);
+      }
+    }
+
+    return result;
   }
 }
 
@@ -195,6 +220,31 @@ function internalProblem(
     field_errors: [],
     documentation_key: "webhooks.whatsapp.internal-error",
   };
+}
+
+function dispatchFailedProblem(
+  requestUrl: string | undefined,
+  error: unknown,
+): HttpException {
+  return new HttpException(
+    {
+      type: "https://alter.dev/problems/whatsapp-webhook-dispatch-failed",
+      title: "Internal Server Error",
+      status: 500,
+      detail:
+        error instanceof Error
+          ? error.message
+          : "WhatsApp webhook message could not be dispatched",
+      instance: instanceOrRoot(requestUrl),
+      error_code: "WHATSAPP_WEBHOOK_DISPATCH_FAILED",
+      trace_id: prefixedUuidV7("trc"),
+      request_id: prefixedUuidV7("req"),
+      retryable: true,
+      field_errors: [],
+      documentation_key: "webhooks.whatsapp.dispatch-failed",
+    } satisfies ProblemDetails,
+    500,
+  );
 }
 
 function prefixedUuidV7(prefix: "trc" | "req"): `${typeof prefix}_${string}` {

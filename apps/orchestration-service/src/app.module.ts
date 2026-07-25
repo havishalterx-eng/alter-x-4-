@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import {
   CONVERSATION_HANDLER,
+  ConversationDispatchClient,
   ConversationGrpcController,
   ModelGatewayClient,
   PostgresOrchestrationStoreProvider,
@@ -16,11 +17,13 @@ import {
 import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import { ConversationManagerService } from "./conversation/conversation-manager.service";
 import { loadConversationManagerEnvironment } from "./config/environment";
+import { loadConversationDispatchEnvironment } from "./config/conversation-dispatch-environment";
 import { loadWhatsappWebhookEnvironment } from "./config/whatsapp-webhook-environment";
 import { ORCHESTRATION_MIGRATIONS_PATH } from "./database/migrations-path";
 import { HealthController } from "./health/health.controller";
 import { TriggerRegistryController } from "./trigger-registry/trigger-registry.controller";
 import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
+import { ConversationDispatchService } from "./webhooks/conversation-dispatch.service";
 import { WhatsappWebhookController } from "./webhooks/whatsapp-webhook.controller";
 import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
 
@@ -133,6 +136,37 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
         });
         const whatsappConfig = loadWhatsappWebhookEnvironment(process.env);
         return new WhatsappWebhookService(store, whatsappConfig);
+      },
+    },
+    {
+      provide: ConversationDispatchService,
+      useFactory: () => {
+        // Same reasoning as WhatsappWebhookService above: constructs its
+        // own PostgresOrchestrationStoreProvider rather than reaching into
+        // the guard's private instance.
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        const dispatchConfig = loadConversationDispatchEnvironment(process.env);
+        const dispatchClient = new ConversationDispatchClient({
+          address: dispatchConfig.temporalAddress,
+          namespace: dispatchConfig.temporalNamespace,
+          taskQueue: dispatchConfig.taskQueue,
+          ...(dispatchConfig.temporalApiKey === undefined
+            ? {}
+            : { apiKey: dispatchConfig.temporalApiKey }),
+        });
+        return new ConversationDispatchService(store, dispatchClient, {
+          taskQueue: dispatchConfig.taskQueue,
+          idleTimeoutSeconds: dispatchConfig.idleTimeoutSeconds,
+        });
       },
     },
   ],
