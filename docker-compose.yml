@@ -16,12 +16,13 @@ services:
       - platform_db_data:/var/lib/postgresql/data
 
   engine-db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: engine_admin
       POSTGRES_PASSWORD: ${ENGINE_DB_ADMIN_PASSWORD:?Set ENGINE_DB_ADMIN_PASSWORD in .env.local}
       AUDIT_DB_PASSWORD: ${AUDIT_DB_PASSWORD:?Set AUDIT_DB_PASSWORD in .env.local}
+      INTELLIGENCE_DB_PASSWORD: ${INTELLIGENCE_DB_PASSWORD:?Set INTELLIGENCE_DB_PASSWORD in .env.local}
     ports:
       - "127.0.0.1:5433:5432"
     healthcheck:

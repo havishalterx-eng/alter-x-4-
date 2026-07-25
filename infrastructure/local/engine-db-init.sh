@@ -3,13 +3,15 @@ set -eu
 
 : "${AUDIT_DB_PASSWORD:?AUDIT_DB_PASSWORD is required}"
 : "${ORCHESTRATION_DB_PASSWORD:=$AUDIT_DB_PASSWORD}"
+: "${INTELLIGENCE_DB_PASSWORD:=$AUDIT_DB_PASSWORD}"
 
 psql \
   --set=ON_ERROR_STOP=1 \
   --username "$POSTGRES_USER" \
   --dbname postgres \
   --set=audit_db_password="$AUDIT_DB_PASSWORD" \
-  --set=orchestration_db_password="$ORCHESTRATION_DB_PASSWORD" <<'SQL'
+  --set=orchestration_db_password="$ORCHESTRATION_DB_PASSWORD" \
+  --set=intelligence_db_password="$INTELLIGENCE_DB_PASSWORD" <<'SQL'
 SELECT format(
   'CREATE ROLE audit_service LOGIN PASSWORD %L',
   :'audit_db_password'
@@ -47,4 +49,23 @@ WHERE NOT EXISTS (
 ALTER DATABASE orchestration_db OWNER TO orchestration_service;
 REVOKE CONNECT, TEMPORARY ON DATABASE orchestration_db FROM PUBLIC;
 GRANT CONNECT, TEMPORARY ON DATABASE orchestration_db TO orchestration_service;
+
+SELECT format(
+  'CREATE ROLE intelligence_service LOGIN PASSWORD %L',
+  :'intelligence_db_password'
+)
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_roles WHERE rolname = 'intelligence_service'
+) \gexec
+
+ALTER ROLE intelligence_service WITH LOGIN PASSWORD :'intelligence_db_password';
+
+SELECT 'CREATE DATABASE intelligence_db OWNER intelligence_service'
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_database WHERE datname = 'intelligence_db'
+) \gexec
+
+ALTER DATABASE intelligence_db OWNER TO intelligence_service;
+REVOKE CONNECT, TEMPORARY ON DATABASE intelligence_db FROM PUBLIC;
+GRANT CONNECT, TEMPORARY ON DATABASE intelligence_db TO intelligence_service;
 SQL

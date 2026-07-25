@@ -38,6 +38,20 @@
         "command": "uv run pytest",
         "cwd": "apps/intelligence-service"
       }
+    },
+    "migrate": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "uv run alembic upgrade head",
+        "cwd": "apps/intelligence-service"
+      }
+    },
+    "migrate-rollback": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "uv run alembic downgrade -1",
+        "cwd": "apps/intelligence-service"
+      }
     }
   },
   "tags": []
