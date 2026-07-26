@@ -50,6 +50,7 @@ const plaintext = "plain-never-leaks-7654";
 
 describe("credential routes", () => {
   let app: NestFastifyApplication;
+  let credentialService: CredentialService;
   const repository = new MemoryCredentialRepository();
   const provider = new MemorySecretsProvider();
   const store = new MemoryIdempotencyStore();
@@ -76,6 +77,7 @@ describe("credential routes", () => {
         },
       ],
     }).compile();
+    credentialService = moduleRef.get(CredentialService);
     app = moduleRef.createNestApplication<NestFastifyApplication>(
       new FastifyAdapter(),
     );
@@ -104,44 +106,70 @@ describe("credential routes", () => {
   afterAll(async () => app.close());
 
   it("keeps plaintext out of every route response and log", async () => {
+    const rotated = "rotated-secret-4321";
+    const submittedSecrets = [plaintext, rotated];
     const logs: unknown[][] = [];
     const spies = (["log", "info", "warn", "error"] as const).map((method) =>
       vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
         logs.push(args);
       }),
     );
-    const responses = [];
-    const created = await request("POST", "/api/v1/credentials", actor, {
-      headers: { "idempotency-key": "create-1" },
-      payload: {
-        name: "Production DB",
-        connector: "postgres",
-        scope: "deploy",
-        value: plaintext,
-      },
-    });
-    responses.push(created.body);
-    const id = (created.json() as { id: string }).id;
-    responses.push((await request("GET", "/api/v1/credentials", actor)).body);
-    const detail = await request("GET", `/api/v1/credentials/${id}`, actor);
-    responses.push(detail.body);
-    responses.push(
-      (
-        await request("PATCH", `/api/v1/credentials/${id}`, actor, {
+    const responses: string[] = [];
+    try {
+      const created = await request("POST", "/api/v1/credentials", actor, {
+        headers: { "idempotency-key": "create-1" },
+        payload: {
+          name: "Production DB",
+          connector: "postgres",
+          scope: "deploy",
+          value: plaintext,
+        },
+      });
+      responses.push(created.body);
+      expect(created.statusCode).toBe(201);
+      expect(provider.values()).toEqual([plaintext]);
+
+      const id = (created.json() as { id: string }).id;
+      responses.push((await request("GET", "/api/v1/credentials", actor)).body);
+      const detail = await request("GET", `/api/v1/credentials/${id}`, actor);
+      responses.push(detail.body);
+      const patched = await request(
+        "PATCH",
+        `/api/v1/credentials/${id}`,
+        actor,
+        {
           headers: {
             "idempotency-key": "rotate-1",
             "if-match": String(detail.headers.etag),
           },
-          payload: { value: "rotated-secret-4321" },
-        })
-      ).body,
-    );
+          payload: { value: rotated },
+        },
+      );
+      responses.push(patched.body);
+      expect(provider.values()).toEqual([rotated]);
 
-    expect(created.statusCode).toBe(201);
-    expect(JSON.stringify(responses)).not.toContain(plaintext);
-    expect(JSON.stringify(logs)).not.toContain(plaintext);
-    expect(provider.values()).toEqual(["rotated-secret-4321"]);
-    for (const spy of spies) spy.mockRestore();
+      // Internal resolve returns plaintext to its trusted caller, never an HTTP body.
+      await expect(
+        credentialService.resolve(tenantId, id, "deploy", actor.user_id),
+      ).resolves.toBe(rotated);
+
+      const removed = await request(
+        "DELETE",
+        `/api/v1/credentials/${id}`,
+        actor,
+        { headers: { "idempotency-key": "delete-exit-check" } },
+      );
+      responses.push(removed.body);
+
+      const responseOutput = JSON.stringify(responses);
+      const logOutput = JSON.stringify(logs);
+      for (const submittedSecret of submittedSecrets) {
+        expect(responseOutput).not.toContain(submittedSecret);
+        expect(logOutput).not.toContain(submittedSecret);
+      }
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
   });
 
   it("replays create without writing the provider twice", async () => {
