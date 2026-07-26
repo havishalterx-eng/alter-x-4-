@@ -25,3 +25,8 @@ await cp(
   resolve(output, "proto/modelgw.proto"),
   { force: true },
 );
+await cp(
+  resolve(root, "packages/contracts/proto/alter/compiler/v1/compiler.proto"),
+  resolve(output, "proto/compiler.proto"),
+  { force: true },
+);

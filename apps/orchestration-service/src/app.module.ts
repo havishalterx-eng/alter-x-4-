@@ -1,7 +1,9 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import {
+  COMPILER_HANDLER,
   CONVERSATION_HANDLER,
+  CompilerGrpcController,
   ConversationDispatchClient,
   ConversationGrpcController,
   ModelGatewayClient,
@@ -16,6 +18,7 @@ import {
 } from "@alterx/auth";
 import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import { ConversationManagerService } from "./conversation/conversation-manager.service";
+import { GraphCompilerService } from "./compiler/graph-compiler.service";
 import { loadConversationManagerEnvironment } from "./config/environment";
 import { loadConversationDispatchEnvironment } from "./config/conversation-dispatch-environment";
 import { loadWhatsappWebhookEnvironment } from "./config/whatsapp-webhook-environment";
@@ -31,6 +34,7 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
   controllers: [
     HealthController,
     ConversationGrpcController,
+    CompilerGrpcController,
     TriggerRegistryController,
     WhatsappWebhookController,
   ],
@@ -116,6 +120,25 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
         return new TriggerRegistryService(store);
+      },
+    },
+    {
+      provide: COMPILER_HANDLER,
+      useFactory: () => {
+        // Same reasoning as CONVERSATION_HANDLER/TriggerRegistryService
+        // above: constructs its own PostgresOrchestrationStoreProvider
+        // rather than reaching into the guard's private instance.
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        return new GraphCompilerService(store);
       },
     },
     {

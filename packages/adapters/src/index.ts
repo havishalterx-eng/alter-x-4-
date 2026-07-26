@@ -189,6 +189,13 @@ export {
   type ConversationHandler,
 } from "./grpc/conversation-grpc-transport";
 export {
+  COMPILER_HANDLER,
+  CompilerGrpcController,
+  connectCompilerGrpcTransport,
+  type CompilerGrpcTransportConfig,
+  type CompilerHandler,
+} from "./grpc/compiler-grpc-transport";
+export {
   REDIS_CACHE_CAPABILITIES,
   RedisCacheProvider,
   type RedisCacheProviderConfig,

@@ -48,6 +48,12 @@ export type {
   MergeClarificationRequest as ConversationMergeClarificationRequest,
   MergeClarificationResponse as ConversationMergeClarificationResponse,
 } from "./generated/alter/conversation/v1/conversation";
+export type {
+  CompileWorkflowRequest as CompilerCompileWorkflowRequest,
+  CompileWorkflowResponse as CompilerCompileWorkflowResponse,
+  ValidateWorkflowDagRequest as CompilerValidateWorkflowDagRequest,
+  ValidateWorkflowDagResponse as CompilerValidateWorkflowDagResponse,
+} from "./generated/alter/compiler/v1/compiler";
 export {
   CostLimitBindingSchema,
   FallbackBindingSchema,

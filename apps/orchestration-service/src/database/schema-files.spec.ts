@@ -7,6 +7,7 @@ import { events } from "../../db/schema/events";
 import { runs } from "../../db/schema/runs";
 import { triggerVersions } from "../../db/schema/trigger_versions";
 import { triggers } from "../../db/schema/triggers";
+import { workflowVersions } from "../../db/schema/workflow_versions";
 import { workflows } from "../../db/schema/workflows";
 
 const schemaRoot = resolve(
@@ -22,10 +23,11 @@ const schemas = [
   ["conversations.ts", "conversations"],
   ["runs.ts", "runs"],
   ["conversation_goal_states.ts", "conversation_goal_states"],
+  ["workflow_versions.ts", "workflow_versions"],
 ] as const;
 
 describe("orchestration Drizzle schemas", () => {
-  it("loads all seven executable Drizzle table definitions", () => {
+  it("loads all eight executable Drizzle table definitions", () => {
     for (const table of [
       workflows,
       triggers,
@@ -34,6 +36,7 @@ describe("orchestration Drizzle schemas", () => {
       events,
       runs,
       conversationGoalStates,
+      workflowVersions,
     ]) {
       expect(table).toBeDefined();
     }
@@ -61,6 +64,9 @@ describe("orchestration Drizzle schemas", () => {
       'foreignKey({\n      name: "runs_workflow_tenant_fk"',
       'unique("trigger_versions_tenant_trigger_version_unique")',
       'foreignKey({\n      name: "conversation_goal_states_conversation_tenant_fk"',
+      'foreignKey({\n      name: "workflow_versions_workflow_tenant_fk"',
+      'index("idx_workflow_versions_workflow")',
+      'unique("workflow_versions_tenant_workflow_version_unique")',
     ]) {
       expect(allSources).toContain(expected);
     }

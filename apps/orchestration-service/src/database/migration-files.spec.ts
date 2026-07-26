@@ -12,7 +12,7 @@ const migrationSql = migrationFiles.map((file) => ({
 }));
 
 describe("orchestration migration files", () => {
-  it("keeps one ordered migration and rollback per ingress table", () => {
+  it("keeps one ordered migration and rollback per orchestration_db table", () => {
     expect(migrationFiles).toEqual([
       "0000_create_workflows.sql",
       "0001_create_triggers.sql",
@@ -21,6 +21,7 @@ describe("orchestration migration files", () => {
       "0004_create_events.sql",
       "0005_create_runs.sql",
       "0006_create_conversation_goal_states.sql",
+      "0007_create_workflow_versions.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -34,6 +35,7 @@ describe("orchestration migration files", () => {
       "0004_drop_events.sql",
       "0005_drop_runs.sql",
       "0006_drop_conversation_goal_states.sql",
+      "0007_drop_workflow_versions.sql",
     ]);
   });
 
@@ -50,13 +52,13 @@ describe("orchestration migration files", () => {
     },
   );
 
-  it("defines immutability function once and reuses it seven times", () => {
+  it("defines immutability function once and reuses it eight times", () => {
     const allSql = migrationSql.map(({ sql }) => sql).join("\n");
 
     expect(allSql.match(/CREATE OR REPLACE FUNCTION reject_tenant_id_change/g))
       .toHaveLength(1);
     expect(allSql.match(/EXECUTE FUNCTION reject_tenant_id_change\(\)/g))
-      .toHaveLength(7);
+      .toHaveLength(8);
   });
 
   it("contains no cross-database references", () => {
@@ -94,6 +96,15 @@ describe("orchestration migration files", () => {
     );
     expect(allSql).toContain(
       `CONSTRAINT "events_signature_status_check" CHECK ("signature_status" IN ('verified', 'unverified', 'failed'))`,
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "workflow_versions_workflow_tenant_fk" FOREIGN KEY ("tenant_id", "workflow_id") REFERENCES "workflows"("tenant_id", "id")',
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "workflow_versions_tenant_workflow_version_unique" UNIQUE ("tenant_id", "workflow_id", "version")',
+    );
+    expect(allSql).toContain(
+      `CONSTRAINT "workflow_versions_status_check" CHECK ("status" IN ('compiled', 'canary', 'promoted', 'rolled_back', 'retired'))`,
     );
   });
 
