@@ -48,7 +48,10 @@ function createFakeStore(seed: Record<string, FakeRow> = {}): {
             const key = rowKey(tenantId, conversationId);
             if (!rows.has(key)) {
               rows.set(key, {
-                goal_state_json: emptyGoalState(),
+                // Matches conversation_goal_states.goal_state_json's real
+                // Postgres default (jsonb(...).default({})) exactly -- a
+                // bare empty object, not emptyGoalState()'s TS shape.
+                goal_state_json: {} as GoalState,
                 status: "planning",
                 revision: 0,
               });

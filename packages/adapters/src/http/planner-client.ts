@@ -1,0 +1,158 @@
+// HTTP client for intelligence-service's PlannerService (PLAN-3). That
+// service is exposed as FastAPI routes mirroring alter.planner.v1's RPC
+// names (POST /planner/decompose, /replan, /select-strategy), not gRPC --
+// see apps/intelligence-service/src/planner/router.py. Mirrors the
+// Presidio/Tavily adapters' injectable-fetch pattern rather than
+// inventing a new HTTP-calling convention.
+
+export interface PlannerHttpClient {
+  postJson(url: string, body: unknown): Promise<unknown>;
+}
+
+export function createFetchPlannerHttpClient(): PlannerHttpClient {
+  return {
+    async postJson(url: string, body: unknown): Promise<unknown> {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Planner request to ${url} failed with status ${response.status}`,
+        );
+      }
+      return response.json();
+    },
+  };
+}
+
+export interface PlannerClientConfig {
+  readonly baseUrl: string;
+}
+
+export interface DecomposeRequest {
+  readonly tenant_id: string;
+  readonly workspace_id: string;
+  readonly run_id: string;
+  readonly objective: string;
+  readonly strategy: string;
+}
+
+export interface DecomposeResponse {
+  readonly task_skeleton_json: string;
+  readonly ambiguity_detected: boolean;
+  readonly clarification_questions: readonly string[];
+}
+
+export interface SelectStrategyRequest {
+  readonly tenant_id: string;
+  readonly objective: string;
+  readonly mode: string;
+}
+
+export interface SelectStrategyResponse {
+  readonly strategy: string;
+  readonly reason: string;
+}
+
+export interface ReplanRequest {
+  readonly tenant_id: string;
+  readonly run_id: string;
+  readonly current_dag_json: string;
+  readonly failure_context_json: string;
+}
+
+export interface ReplanResponse {
+  readonly revised_skeleton_json: string;
+  readonly reason: string;
+}
+
+export interface PlannerHandler {
+  decompose(request: DecomposeRequest): Promise<DecomposeResponse>;
+  selectStrategy(request: SelectStrategyRequest): Promise<SelectStrategyResponse>;
+  replan(request: ReplanRequest): Promise<ReplanResponse>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+export class PlannerResponseValidationError extends Error {
+  constructor(operation: string, reason: string) {
+    super(`Planner ${operation} response is invalid: ${reason}`);
+    this.name = "PlannerResponseValidationError";
+  }
+}
+
+function parseDecomposeResponse(raw: unknown): DecomposeResponse {
+  if (
+    !isRecord(raw) ||
+    typeof raw.task_skeleton_json !== "string" ||
+    typeof raw.ambiguity_detected !== "boolean" ||
+    !Array.isArray(raw.clarification_questions) ||
+    !raw.clarification_questions.every((q) => typeof q === "string")
+  ) {
+    throw new PlannerResponseValidationError("decompose", "missing or mistyped fields");
+  }
+  return {
+    task_skeleton_json: raw.task_skeleton_json,
+    ambiguity_detected: raw.ambiguity_detected,
+    clarification_questions: raw.clarification_questions as readonly string[],
+  };
+}
+
+function parseSelectStrategyResponse(raw: unknown): SelectStrategyResponse {
+  if (
+    !isRecord(raw) ||
+    typeof raw.strategy !== "string" ||
+    typeof raw.reason !== "string"
+  ) {
+    throw new PlannerResponseValidationError("select_strategy", "missing or mistyped fields");
+  }
+  return { strategy: raw.strategy, reason: raw.reason };
+}
+
+function parseReplanResponse(raw: unknown): ReplanResponse {
+  if (
+    !isRecord(raw) ||
+    typeof raw.revised_skeleton_json !== "string" ||
+    typeof raw.reason !== "string"
+  ) {
+    throw new PlannerResponseValidationError("replan", "missing or mistyped fields");
+  }
+  return { revised_skeleton_json: raw.revised_skeleton_json, reason: raw.reason };
+}
+
+export class PlannerClient implements PlannerHandler {
+  constructor(
+    private readonly config: PlannerClientConfig,
+    private readonly httpClient: PlannerHttpClient = createFetchPlannerHttpClient(),
+  ) {}
+
+  async decompose(request: DecomposeRequest): Promise<DecomposeResponse> {
+    const raw = await this.httpClient.postJson(
+      `${this.config.baseUrl}/planner/decompose`,
+      request,
+    );
+    return parseDecomposeResponse(raw);
+  }
+
+  async selectStrategy(
+    request: SelectStrategyRequest,
+  ): Promise<SelectStrategyResponse> {
+    const raw = await this.httpClient.postJson(
+      `${this.config.baseUrl}/planner/select-strategy`,
+      request,
+    );
+    return parseSelectStrategyResponse(raw);
+  }
+
+  async replan(request: ReplanRequest): Promise<ReplanResponse> {
+    const raw = await this.httpClient.postJson(
+      `${this.config.baseUrl}/planner/replan`,
+      request,
+    );
+    return parseReplanResponse(raw);
+  }
+}

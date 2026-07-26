@@ -143,6 +143,20 @@ export {
   type TavilySearchProviderConfig,
 } from "./tavily/tavily-search-provider";
 export {
+  PlannerClient,
+  PlannerResponseValidationError,
+  createFetchPlannerHttpClient,
+  type DecomposeRequest,
+  type DecomposeResponse,
+  type PlannerClientConfig,
+  type PlannerHandler,
+  type PlannerHttpClient,
+  type ReplanRequest,
+  type ReplanResponse,
+  type SelectStrategyRequest,
+  type SelectStrategyResponse,
+} from "./http/planner-client";
+export {
   SsrfBlockedError,
   assertHostnameNotLiteralBlockedIp,
   assertResolvedAddressesNotBlocked,

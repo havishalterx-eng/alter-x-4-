@@ -47,13 +47,29 @@ export type GoalStateStatus = (typeof GOAL_STATE_STATUS_VALUES)[number];
 
 // Shape of the JSON stored in conversation_goal_states.goal_state_json.
 // pendingClarifications is keyed by clarification_id -> answer, merged in
-// by mergeClarification(). Anything else about the goal (the plan itself,
-// tool selections, etc.) is intentionally left open-ended for future
-// tickets -- this ticket only owns the clarification-merge mechanics.
+// by mergeClarification() (INGR-4). pendingQuestions is the companion
+// keyed by clarification_id -> question text, populated by the
+// Clarification Loop (PLAN-5) when it sets status to
+// awaiting_clarification, so a caller holding only a clarification_id can
+// recover what question it answers. taskSkeletonJson is the Planner's
+// last Decompose result once the goal reaches "ready" -- a plain string
+// (not re-parsed here), same treatment DecomposeResponse.task_skeleton_json
+// gets on the Planner side.
+//
+// pendingQuestions/taskSkeletonJson are optional, not just possibly-empty:
+// the column's real Postgres default is a bare `{}` (jsonb(...).default({})),
+// so a row untouched by the Clarification Loop won't have these keys at
+// all -- readers must not assume their presence.
 export interface GoalState {
   readonly pendingClarifications: Readonly<Record<string, string>>;
+  readonly pendingQuestions?: Readonly<Record<string, string>>;
+  readonly taskSkeletonJson?: string | null;
 }
 
 export function emptyGoalState(): GoalState {
-  return { pendingClarifications: {} };
+  return {
+    pendingClarifications: {},
+    pendingQuestions: {},
+    taskSkeletonJson: null,
+  };
 }
