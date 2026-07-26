@@ -20,6 +20,7 @@ import { RunModule } from "./runs/run.module";
 import { ActionCentreModule } from "./action-centre/action-centre.module";
 import { CredentialModule } from "./credentials";
 import { AdsModule } from "./ads";
+import { IntegrationModule } from "./integrations";
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { AdsModule } from "./ads";
     ActionCentreModule,
     CredentialModule,
     AdsModule,
+    IntegrationModule,
   ],
   controllers: [HealthController],
 })
