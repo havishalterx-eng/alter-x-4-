@@ -4,7 +4,10 @@ export interface RbacProblemDetails {
   status: 403;
   detail: string;
   instance: string;
-  error_code: "RBAC_TENANT_MISMATCH" | "RBAC_ROLE_DENIED";
+  error_code:
+    | "RBAC_PERMISSION_DENIED"
+    | "RBAC_TENANT_MISMATCH"
+    | "RBAC_ROLE_DENIED";
   trace_id: string;
   request_id: string;
   retryable: false;

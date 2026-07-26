@@ -1,0 +1,242 @@
+import { describe, expect, it, vi } from "vitest";
+import type {
+  EngineCallerContext,
+  EngineClient,
+  EnginePath,
+  EngineResponse,
+} from "../engine";
+import type { ActorContext } from "../rbac/types";
+import { RunService } from "./run.service";
+import type { EnginePage, EngineResource } from "./types";
+
+const runId = "run_018f47a5-7b2c-7d10-8f11-123456789abc";
+const artifactId = "art_018f47a5-7b2c-7d10-8f11-123456789abc";
+const traceparent =
+  "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01";
+const actor: ActorContext = {
+  user_id: "usr_018f47a5-7b2c-7d10-8f11-123456789abc",
+  tenant_id: "ten_018f47a5-7b2c-7d10-8f11-123456789abc",
+  workspace_id: "ws_018f47a5-7b2c-7d10-8f11-123456789abc",
+  session_id: "session-a",
+  auth_time: 1_700_000_000,
+  roles: ["viewer"],
+  permissions: ["runs:read"],
+};
+
+describe("RunService", () => {
+  it("relays real list filters, pagination, and opaque cross-mode rows", async () => {
+    const response = page([
+      { run_id: runId, parent_kind: "workflow" },
+      { run_id: `${runId}-opaque`, parent_kind: "project" },
+    ]);
+    const engine = engineStub(async () => ({ status: 200, body: response }));
+    const service = new RunService(engine.value);
+
+    const result = await service.list(
+      {
+        cursor: "next cursor",
+        limit: "25",
+        status: "running",
+        started_after: "2026-07-01T00:00:00.000Z",
+        started_before: "2026-07-26T00:00:00.000Z",
+      },
+      actor,
+      traceparent,
+    );
+
+    expect(engine.get).toHaveBeenCalledWith(
+      "/api/v1/runs?cursor=next+cursor&limit=25&status=running&started_after=2026-07-01T00%3A00%3A00.000Z&started_before=2026-07-26T00%3A00%3A00.000Z",
+      expectedContext(),
+    );
+    expect(result.body).toEqual(response);
+  });
+
+  it("aggregates all five real sub-resources without reshaping opaque items", async () => {
+    const executionA = {
+      node_execution_id: "nex_1",
+      result: { answer: 42 },
+      engine_extension: "kept",
+    };
+    const executionB = { node_execution_id: "nex_2", result: null };
+    const verification = { verification_id: "ver_1", score: 0.98 };
+    const recovery = { recovery_action_id: "rec_1", strategy: "retry" };
+    const qualityGate = { quality_gate_id: "qg_1", status: "passed" };
+    const outcome = { status: "completed", summary: "done" };
+    const engine = engineStub(async (path) => {
+      if (path === `/api/v1/runs/${runId}`) {
+        return { status: 200, body: { run_id: runId, status: "completed" } };
+      }
+      if (path.includes("/node-executions?limit=200")) {
+        return {
+          status: 200,
+          body: page([executionA], true, "node next"),
+        };
+      }
+      if (path.includes("/node-executions?cursor=node+next")) {
+        return { status: 200, body: page([executionB]) };
+      }
+      if (path.includes("/verification-results")) {
+        return { status: 200, body: page([verification]) };
+      }
+      if (path.includes("/recovery-actions")) {
+        return { status: 200, body: page([recovery]) };
+      }
+      if (path.includes("/quality-gates")) {
+        return { status: 200, body: page([qualityGate]) };
+      }
+      if (path.endsWith("/outcome")) {
+        return { status: 200, body: outcome };
+      }
+      throw new Error(`Unexpected path ${path}`);
+    });
+    const service = new RunService(engine.value);
+
+    const response = await service.detail(runId, actor, traceparent);
+
+    expect(response.body).toEqual({
+      run: { run_id: runId, status: "completed" },
+      node_executions: [executionA, executionB],
+      verification_results: [verification],
+      recovery_actions: [recovery],
+      quality_gates: [qualityGate],
+      outcome,
+    });
+    expect(response.body).not.toHaveProperty("per_node_cost");
+    expect(response.body.node_executions[0]).toEqual(executionA);
+  });
+
+  it("passes artifact metadata through unchanged", async () => {
+    const metadata = {
+      artifact_id: artifactId,
+      media_type: "application/json",
+      engine_extension: { opaque: true },
+    };
+    const engine = engineStub(async () => ({ status: 200, body: metadata }));
+    const service = new RunService(engine.value);
+
+    const response = await service.artifact(artifactId, actor, traceparent);
+
+    expect(engine.get).toHaveBeenCalledWith(
+      `/api/v1/artifacts/${artifactId}`,
+      expectedContext(),
+    );
+    expect(response.body).toEqual(metadata);
+  });
+
+  it("rejects invented filters, invalid ranges, ids, and trace context", async () => {
+    const engine = engineStub(async () => ({ status: 200, body: page([]) }));
+    const service = new RunService(engine.value);
+
+    expect(() =>
+      service.list({ mode: "workflow" }, actor, traceparent),
+    ).toThrow(expect.objectContaining({ status: 400 }));
+    expect(() =>
+      service.list(
+        {
+          started_after: "2026-07-26T00:00:00.000Z",
+          started_before: "2026-07-01T00:00:00.000Z",
+        },
+        actor,
+        traceparent,
+      ),
+    ).toThrow(expect.objectContaining({ status: 400 }));
+    await expect(service.detail("bad", actor, traceparent)).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(() => service.artifact("bad", actor, traceparent)).toThrow(
+      expect.objectContaining({ status: 400 }),
+    );
+    expect(() => service.list({}, actor, "bad-trace")).toThrow(
+      expect.objectContaining({ status: 400 }),
+    );
+    expect(engine.get).not.toHaveBeenCalled();
+  });
+
+  it("requires workspace context and generates missing trace context", async () => {
+    const engine = engineStub(async () => ({ status: 200, body: page([]) }));
+    const service = new RunService(engine.value);
+    const { workspace_id: _workspace, ...withoutWorkspace } = actor;
+    void _workspace;
+
+    expect(() =>
+      service.list({}, withoutWorkspace, traceparent),
+    ).toThrow(
+      expect.objectContaining({
+        status: 403,
+        response: expect.objectContaining({
+          error_code: "RUN_WORKSPACE_REQUIRED",
+        }),
+      }),
+    );
+
+    await service.list({}, actor, undefined);
+    expect(engine.get).toHaveBeenCalledWith(
+      "/api/v1/runs",
+      expect.objectContaining({
+        traceparent: expect.stringMatching(
+          /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/,
+        ),
+      }),
+    );
+  });
+
+  it("rejects malformed Engine pagination rather than returning partial data", async () => {
+    const engine = engineStub(async (path) => {
+      if (path === `/api/v1/runs/${runId}`) {
+        return { status: 200, body: { run_id: runId } };
+      }
+      if (path.endsWith("/outcome")) {
+        return { status: 200, body: {} };
+      }
+      return { status: 200, body: page([], true, null) };
+    });
+    const service = new RunService(engine.value);
+
+    await expect(service.detail(runId, actor, traceparent)).rejects.toMatchObject({
+      status: 502,
+      response: expect.objectContaining({
+        error_code: "INVALID_ENGINE_RUN_RESPONSE",
+      }),
+    });
+  });
+});
+
+function expectedContext(): EngineCallerContext {
+  return {
+    userId: actor.user_id,
+    tenantId: actor.tenant_id,
+    workspaceId: actor.workspace_id!,
+    sessionId: actor.session_id,
+    authTime: actor.auth_time!,
+    roles: actor.roles,
+    permissions: actor.permissions,
+    traceparent,
+  };
+}
+
+function page(
+  data: readonly EngineResource[],
+  hasMore = false,
+  nextCursor: string | null = null,
+): EnginePage<EngineResource> {
+  return {
+    data,
+    page: { next_cursor: nextCursor, has_more: hasMore, limit: 200 },
+  };
+}
+
+function engineStub(
+  implementation: (
+    path: EnginePath,
+    context: EngineCallerContext,
+  ) => Promise<EngineResponse<EngineResource | EnginePage<EngineResource>>>,
+): {
+  value: EngineClient;
+  get: ReturnType<typeof vi.fn>;
+} {
+  const get = vi.fn(implementation);
+  return {
+    value: { get } as unknown as EngineClient,
+    get,
+  };
+}

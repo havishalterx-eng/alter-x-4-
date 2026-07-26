@@ -1,0 +1,331 @@
+import { APP_FILTER } from "@nestjs/core";
+import {
+  FastifyAdapter,
+  type NestFastifyApplication,
+} from "@nestjs/platform-fastify";
+import { Test } from "@nestjs/testing";
+import type { FastifyRequest } from "fastify";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import {
+  EngineClient,
+  EngineExceptionFilter,
+  EngineProblemError,
+  type EngineCallerContext,
+  type EnginePath,
+  type EngineResponse,
+} from "../engine";
+import { RbacModule, type ActorContextType, type RbacRequest } from "../rbac";
+import { ArtifactController, RunController } from "./run.controller";
+import { RunExceptionFilter } from "./run-exception.filter";
+import { RunService } from "./run.service";
+import type { EnginePage, EngineResource } from "./types";
+
+const runId = "run_018f47a5-7b2c-7d10-8f11-123456789abc";
+const artifactId = "art_018f47a5-7b2c-7d10-8f11-123456789abc";
+const actor: ActorContextType = {
+  user_id: "usr_018f47a5-7b2c-7d10-8f11-123456789abc",
+  tenant_id: "ten_018f47a5-7b2c-7d10-8f11-123456789abc",
+  workspace_id: "ws_018f47a5-7b2c-7d10-8f11-123456789abc",
+  session_id: "session-a",
+  auth_time: 1_700_000_000,
+  roles: ["viewer"],
+  permissions: ["runs:read"],
+};
+const noScope: ActorContextType = { ...actor, permissions: [] };
+
+describe("RunController routes", () => {
+  let app: NestFastifyApplication;
+  const engine = new RunEngine();
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [RbacModule],
+      controllers: [RunController, ArtifactController],
+      providers: [
+        RunService,
+        RunExceptionFilter,
+        { provide: EngineClient, useValue: engine },
+        { provide: APP_FILTER, useClass: EngineExceptionFilter },
+      ],
+    }).compile();
+
+    app = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+    );
+    app.getHttpAdapter().getInstance().addHook(
+      "preHandler",
+      (request: FastifyRequest, _reply: unknown, done: () => void) => {
+        const value = request.headers["x-test-actor"];
+        if (typeof value === "string") {
+          (request as RbacRequest).actorContext = JSON.parse(
+            value,
+          ) as ActorContextType;
+        }
+        done();
+      },
+    );
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+  });
+
+  beforeEach(() => engine.reset());
+
+  afterAll(async () => app.close());
+
+  it("lists paginated opaque rows using only real filters", async () => {
+    const response = await request(
+      "/api/v1/runs?cursor=next&limit=25&status=running&started_after=2026-07-01T00%3A00%3A00.000Z&started_before=2026-07-26T00%3A00%3A00.000Z",
+      actor,
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(engine.runList);
+    expect(engine.get).toHaveBeenCalledWith(
+      "/api/v1/runs?cursor=next&limit=25&status=running&started_after=2026-07-01T00%3A00%3A00.000Z&started_before=2026-07-26T00%3A00%3A00.000Z",
+      expect.objectContaining({
+        userId: actor.user_id,
+        tenantId: actor.tenant_id,
+        permissions: ["runs:read"],
+      }),
+    );
+  });
+
+  it("aggregates only five real run sub-resources", async () => {
+    const response = await request(`/api/v1/runs/${runId}`, actor);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      run: engine.run,
+      node_executions: engine.nodeExecutions.data,
+      verification_results: engine.verificationResults.data,
+      recovery_actions: engine.recoveryActions.data,
+      quality_gates: engine.qualityGates.data,
+      outcome: engine.outcome,
+    });
+    expect(response.json()).not.toHaveProperty("per_node_cost");
+    expect(response.json()).not.toHaveProperty("artifacts");
+  });
+
+  it("passes artifact metadata through unchanged", async () => {
+    const response = await request(`/api/v1/artifacts/${artifactId}`, actor);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(engine.artifact);
+  });
+
+  it.each([
+    ["/api/v1/runs"],
+    [`/api/v1/runs/${runId}`],
+    [`/api/v1/artifacts/${artifactId}`],
+  ])("scope-gates %s", async (url) => {
+    const response = await request(url, noScope);
+    expectProblem(response, 403, "RBAC_PERMISSION_DENIED");
+    expect(engine.get).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["/api/v1/runs?status=unknown"],
+    ["/api/v1/runs?mode=workflow"],
+    ["/api/v1/runs?limit=0"],
+    ["/api/v1/runs/bad"],
+    ["/api/v1/artifacts/bad"],
+  ])("rejects invalid request %s", async (url) => {
+    const response = await request(url, actor);
+    expectProblem(response, 400, "INVALID_RUN_REQUEST");
+  });
+
+  it.each([
+    "/api/v1/runs",
+    `/api/v1/runs/${runId}`,
+    `/api/v1/artifacts/${artifactId}`,
+  ])("passes through Engine problem for %s", async (url) => {
+    engine.failNext(
+      url.startsWith("/api/v1/runs?") ? "/api/v1/runs" : url,
+    );
+    const response = await request(url, actor);
+    expectProblem(response, 503, "ENGINE_RUN_UNAVAILABLE");
+    expect(response.json()).toMatchObject({
+      detail: "Engine run service unavailable",
+      retryable: true,
+    });
+  });
+
+  it("passes through Engine errors from aggregated sub-resources", async () => {
+    engine.failNext(`/api/v1/runs/${runId}/quality-gates`);
+    const response = await request(`/api/v1/runs/${runId}`, actor);
+    expectProblem(response, 503, "ENGINE_RUN_UNAVAILABLE");
+  });
+
+  it("keeps deferred surfaces absent instead of returning fake data", async () => {
+    expect(
+      (await request(`/api/v1/runs/${runId}/artifacts`, actor)).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await request(
+          `/api/v1/artifacts/${artifactId}/download`,
+          actor,
+        )
+      ).statusCode,
+    ).toBe(404);
+  });
+
+  it("keeps direct controller calls default-deny without actor context", async () => {
+    const controller = new RunController(
+      { list: vi.fn() } as unknown as RunService,
+    );
+    await expect(
+      controller.list(
+        {},
+        undefined,
+        undefined,
+        {} as import("fastify").FastifyReply,
+      ),
+    ).rejects.toMatchObject({
+      status: 401,
+      response: { error_code: "AUTHENTICATION_REQUIRED" },
+    });
+  });
+
+  function request(
+    url: string,
+    requestActor?: ActorContextType,
+  ): Promise<TestResponse> {
+    return app.getHttpAdapter().getInstance().inject({
+      method: "GET",
+      url,
+      headers: requestActor
+        ? { "x-test-actor": JSON.stringify(requestActor) }
+        : {},
+    }) as Promise<TestResponse>;
+  }
+});
+
+interface TestResponse {
+  statusCode: number;
+  headers: Record<string, string | string[] | undefined>;
+  json(): unknown;
+}
+
+class RunEngine {
+  readonly get = vi.fn(this.getResponse.bind(this));
+  readonly runList = page([
+    { run_id: runId, parent_kind: "workflow", status: "running" },
+    { run_id: `${runId}-opaque`, parent_kind: "project", status: "completed" },
+  ]);
+  readonly run = { run_id: runId, status: "completed", engine_field: "kept" };
+  readonly nodeExecutions = page([
+    { node_execution_id: "nex_1", result: { answer: 42 }, opaque: true },
+  ]);
+  readonly verificationResults = page([
+    { verification_id: "ver_1", passed: true },
+  ]);
+  readonly recoveryActions = page([
+    { recovery_action_id: "rec_1", strategy: "retry" },
+  ]);
+  readonly qualityGates = page([
+    { quality_gate_id: "qg_1", status: "passed" },
+  ]);
+  readonly outcome = { status: "completed", summary: "done" };
+  readonly artifact = {
+    artifact_id: artifactId,
+    media_type: "application/json",
+    engine_extension: "kept",
+  };
+  private failurePath: string | undefined;
+
+  reset(): void {
+    this.failurePath = undefined;
+    this.get.mockClear();
+  }
+
+  failNext(path: string): void {
+    this.failurePath = path;
+  }
+
+  private async getResponse(
+    path: EnginePath,
+    _context: EngineCallerContext,
+  ): Promise<EngineResponse<EngineResource | EnginePage<EngineResource>>> {
+    void _context;
+    const barePath = path.split("?")[0]!;
+    if (this.failurePath === barePath) {
+      this.failurePath = undefined;
+      throw new EngineProblemError({
+        type: "https://errors.alter.ai/engine-run-unavailable",
+        title: "ENGINE_RUN_UNAVAILABLE",
+        status: 503,
+        detail: "Engine run service unavailable",
+        instance: barePath,
+        error_code: "ENGINE_RUN_UNAVAILABLE",
+        trace_id: "trc_engine",
+        request_id: "req_engine",
+        retryable: true,
+        field_errors: [],
+        documentation_key: "engine.run.unavailable",
+      });
+    }
+    if (path.startsWith("/api/v1/runs?") || path === "/api/v1/runs") {
+      return { status: 200, body: this.runList };
+    }
+    if (path === `/api/v1/runs/${runId}`) {
+      return {
+        status: 200,
+        body: this.run,
+        requestId: "req_engine",
+        traceId: "trc_engine",
+      };
+    }
+    if (path.includes("/node-executions")) {
+      return { status: 200, body: this.nodeExecutions };
+    }
+    if (path.includes("/verification-results")) {
+      return { status: 200, body: this.verificationResults };
+    }
+    if (path.includes("/recovery-actions")) {
+      return { status: 200, body: this.recoveryActions };
+    }
+    if (path.includes("/quality-gates")) {
+      return { status: 200, body: this.qualityGates };
+    }
+    if (path.endsWith("/outcome")) {
+      return { status: 200, body: this.outcome };
+    }
+    if (path === `/api/v1/artifacts/${artifactId}`) {
+      return { status: 200, body: this.artifact };
+    }
+    throw new Error(`Unexpected path ${path}`);
+  }
+}
+
+function page(
+  data: readonly EngineResource[],
+): EnginePage<EngineResource> {
+  return {
+    data,
+    page: { next_cursor: null, has_more: false, limit: 200 },
+  };
+}
+
+function expectProblem(
+  response: TestResponse,
+  status: number,
+  errorCode: string,
+): void {
+  expect(response.statusCode).toBe(status);
+  expect(response.headers["content-type"]).toContain(
+    "application/problem+json",
+  );
+  expect(response.json()).toMatchObject({
+    status,
+    error_code: errorCode,
+    field_errors: expect.any(Array),
+  });
+}

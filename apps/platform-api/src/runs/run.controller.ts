@@ -1,0 +1,121 @@
+import {
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Query,
+  Res,
+  UseFilters,
+} from "@nestjs/common";
+import type { FastifyReply } from "fastify";
+import type { EngineResponse } from "../engine";
+import {
+  ActorContext,
+  RequirePermission,
+  RequireWorkspaceRole,
+  type ActorContextType,
+} from "../rbac";
+import { RunHttpError } from "./problem";
+import { RunExceptionFilter } from "./run-exception.filter";
+import { RunService } from "./run.service";
+import type {
+  EnginePage,
+  EngineResource,
+  RunDetail,
+} from "./types";
+
+const readRoles = ["admin", "editor", "operator", "approver", "viewer"] as const;
+
+@Controller("/api/v1/runs")
+@UseFilters(RunExceptionFilter)
+export class RunController {
+  constructor(private readonly runs: RunService) {}
+
+  @Get()
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("runs:read")
+  async list(
+    @Query() query: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<EnginePage<EngineResource>> {
+    return project(
+      await this.runs.list(
+        query,
+        requireActor(actor, "/api/v1/runs"),
+        traceparent,
+      ),
+      reply,
+    );
+  }
+
+  @Get(":runId")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("runs:read")
+  async detail(
+    @Param("runId") runId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<RunDetail> {
+    return project(
+      await this.runs.detail(
+        runId,
+        requireActor(actor, `/api/v1/runs/${runId}`),
+        traceparent,
+      ),
+      reply,
+    );
+  }
+
+}
+
+@Controller("/api/v1/artifacts")
+@UseFilters(RunExceptionFilter)
+export class ArtifactController {
+  constructor(private readonly runs: RunService) {}
+
+  @Get(":artifactId")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("runs:read")
+  async metadata(
+    @Param("artifactId") artifactId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<EngineResource> {
+    const instance = `/api/v1/artifacts/${artifactId}`;
+    return project(
+      await this.runs.artifact(
+        artifactId,
+        requireActor(actor, instance),
+        traceparent,
+      ),
+      reply,
+    );
+  }
+}
+
+function requireActor(
+  actor: ActorContextType | undefined,
+  instance: string,
+): ActorContextType {
+  if (!actor) {
+    throw new RunHttpError(
+      401,
+      "AUTHENTICATION_REQUIRED",
+      "Authenticated actor required",
+      instance,
+    );
+  }
+  return actor;
+}
+
+function project<T>(response: EngineResponse<T>, reply: FastifyReply): T {
+  reply.status(response.status);
+  if (response.location) reply.header("Location", response.location);
+  if (response.requestId) reply.header("request_id", response.requestId);
+  if (response.traceId) reply.header("trace_id", response.traceId);
+  return response.body;
+}

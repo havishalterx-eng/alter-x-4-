@@ -1,5 +1,6 @@
 import { createParamDecorator, SetMetadata, type ExecutionContext } from "@nestjs/common";
 import {
+  permissionsMetadataKey,
   publicRouteMetadataKey,
   tenantRolesMetadataKey,
   workspaceRolesMetadataKey,
@@ -12,6 +13,9 @@ import type {
 } from "./types";
 
 export const Public = () => SetMetadata(publicRouteMetadataKey, true);
+
+export const RequirePermission = (...permissions: string[]) =>
+  SetMetadata(permissionsMetadataKey, permissions);
 
 export const RequireTenantRole = (...roles: TenantRole[]) =>
   SetMetadata(tenantRolesMetadataKey, roles);
