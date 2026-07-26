@@ -37,6 +37,7 @@ export default defineConfig({
         "apps/platform-api/src/runs/**/*.ts",
         "apps/platform-api/src/action-centre/**/*.ts",
         "apps/platform-api/src/credentials/**/*.ts",
+        "apps/platform-api/src/ads/**/*.ts",
       ],
       exclude: [
         "apps/platform-api/src/db/**/*.spec.ts",
@@ -59,6 +60,7 @@ export default defineConfig({
         "apps/platform-api/src/runs/**/*.spec.ts",
         "apps/platform-api/src/action-centre/**/*.spec.ts",
         "apps/platform-api/src/credentials/**/*.spec.ts",
+        "apps/platform-api/src/ads/**/*.spec.ts",
       ],
       thresholds: {
         lines: 90,
@@ -160,6 +162,10 @@ export default defineConfig({
         "apps/platform-api/src/credentials/{credential.service,credential.repository}.ts": {
           lines: 90,
           branches: 90
+        },
+        "apps/platform-api/src/ads/**/*.ts": {
+          lines: 85,
+          branches: 80
         },
       },
     },
