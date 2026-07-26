@@ -15,6 +15,7 @@ import { EngineModule } from "./engine/engine.module";
 import { IdempotencyModule } from "./idempotency/idempotency.module";
 import { StreamingModule } from "./streaming/streaming.module";
 import { WorkflowModule } from "./workflows/workflow.module";
+import { ProjectModule } from "./projects/project.module";
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { WorkflowModule } from "./workflows/workflow.module";
     IdempotencyModule,
     StreamingModule,
     WorkflowModule,
+    ProjectModule,
   ],
   controllers: [HealthController],
 })
