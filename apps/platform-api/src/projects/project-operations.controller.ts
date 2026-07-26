@@ -26,6 +26,7 @@ import type {
   ProjectCollection,
   ProjectOpaquePage,
   ProjectOpaqueResource,
+  SignedReference,
 } from "./project-operations.types";
 import {
   parseProjectActionInput,
@@ -275,7 +276,7 @@ export class ProjectOperationsController {
     @Headers("traceparent") traceparent: string | undefined,
     @Headers("idempotency-key") idempotencyKey: string | undefined,
     @Res({ passthrough: true }) reply: FastifyReply,
-  ): Promise<ProjectOpaqueResource> {
+  ): Promise<SignedReference> {
     const instance =
       `/api/v1/conversations/${conversationId}/actions/handoff`;
     return project(
