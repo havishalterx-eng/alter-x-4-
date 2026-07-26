@@ -17,6 +17,7 @@ import { StreamingModule } from "./streaming/streaming.module";
 import { WorkflowModule } from "./workflows/workflow.module";
 import { ProjectModule } from "./projects/project.module";
 import { RunModule } from "./runs/run.module";
+import { ActionCentreModule } from "./action-centre/action-centre.module";
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { RunModule } from "./runs/run.module";
     WorkflowModule,
     ProjectModule,
     RunModule,
+    ActionCentreModule,
   ],
   controllers: [HealthController],
 })
