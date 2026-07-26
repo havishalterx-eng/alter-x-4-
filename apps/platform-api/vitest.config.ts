@@ -128,7 +128,7 @@ export default defineConfig({
           lines: 85,
           branches: 80,
         },
-        "apps/platform-api/src/projects/{project.controller,project.service}.ts": {
+        "apps/platform-api/src/projects/{project.controller,project.service,project-operations.controller,project-operations.service}.ts": {
           lines: 90,
           branches: 90,
         },
