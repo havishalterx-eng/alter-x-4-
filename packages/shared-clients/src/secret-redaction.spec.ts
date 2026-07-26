@@ -12,6 +12,7 @@ import {
   createMockSecretsProvider,
 } from "./mocks/secrets-provider";
 import { secretsProviderContract } from "./provider-contracts";
+import { maskSecretLast4, secretLast4 } from "./secret-redaction";
 import type { SecretsProvider } from "./provider-types";
 
 const CONFIGURED_SECRET = "contract-secret-value";
@@ -94,5 +95,11 @@ describe("provider contract report redaction", () => {
       true,
     );
     expect(JSON.stringify(report)).not.toContain(sensitiveObservation);
+  });
+
+  it("retains only the final four characters for masked projections", () => {
+    expect(secretLast4("super-secret-1234")).toBe("1234");
+    expect(secretLast4("abc")).toBe("abc");
+    expect(maskSecretLast4("1234")).toBe("****1234");
   });
 });

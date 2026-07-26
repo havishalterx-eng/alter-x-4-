@@ -1,4 +1,9 @@
-import { GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
+import {
+  CreateSecretCommand,
+  DeleteSecretCommand,
+  GetSecretValueCommand,
+  PutSecretValueCommand,
+} from "@aws-sdk/client-secrets-manager";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -55,5 +60,46 @@ describe("AwsSecretsManagerProvider", () => {
     expect(() => new AwsSecretsManagerProvider({ region: "" })).toThrow(
       /region is required/,
     );
+  });
+
+  it("creates, rotates, and deletes secrets without logging their value", async () => {
+    const secret = "never-print-me";
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("exists"), {
+          name: "ResourceExistsException",
+        }),
+      )
+      .mockResolvedValue({});
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const provider = new AwsSecretsManagerProvider(
+      { region: "ap-south-1" },
+      { send } as SecretsManagerCommandClient,
+    );
+
+    await provider.putSecret("credential/ref", secret);
+    await provider.deleteSecret("credential/ref");
+
+    expect(send.mock.calls[0]![0]).toBeInstanceOf(CreateSecretCommand);
+    expect(send.mock.calls[1]![0]).toBeInstanceOf(PutSecretValueCommand);
+    expect(send.mock.calls[2]![0]).toBeInstanceOf(DeleteSecretCommand);
+    expect(JSON.stringify(log.mock.calls)).not.toContain(secret);
+    log.mockRestore();
+  });
+
+  it("does not retry unexpected create failures", async () => {
+    const send = vi.fn().mockRejectedValue(new Error("denied"));
+    const provider = new AwsSecretsManagerProvider(
+      { region: "ap-south-1" },
+      { send } as SecretsManagerCommandClient,
+    );
+    await expect(provider.putSecret("credential/ref", "value")).rejects.toThrow(
+      "denied",
+    );
+    await expect(provider.putSecret("credential/ref", "")).rejects.toThrow(
+      "non-empty",
+    );
+    expect(send).toHaveBeenCalledOnce();
   });
 });

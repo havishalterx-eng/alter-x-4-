@@ -18,6 +18,7 @@ import { WorkflowModule } from "./workflows/workflow.module";
 import { ProjectModule } from "./projects/project.module";
 import { RunModule } from "./runs/run.module";
 import { ActionCentreModule } from "./action-centre/action-centre.module";
+import { CredentialModule } from "./credentials";
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { ActionCentreModule } from "./action-centre/action-centre.module";
     ProjectModule,
     RunModule,
     ActionCentreModule,
+    CredentialModule,
   ],
   controllers: [HealthController],
 })

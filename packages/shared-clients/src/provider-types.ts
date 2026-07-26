@@ -83,6 +83,11 @@ export interface SecretsProvider extends BaseProvider<"SecretsProvider"> {
   getSecret(referenceId: SecretReferenceId): Promise<string>;
 }
 
+export interface MutableSecretsProvider extends SecretsProvider {
+  putSecret(referenceId: SecretReferenceId, value: string): Promise<void>;
+  deleteSecret(referenceId: SecretReferenceId): Promise<void>;
+}
+
 export interface TraceSpan {
   readonly traceId: string;
   readonly spanId: string;

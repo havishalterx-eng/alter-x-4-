@@ -80,6 +80,7 @@ export {
   type LogEntry,
   type MetricPoint,
   type MigrationSupport,
+  type MutableSecretsProvider,
   ModelAliasResolutionError,
   ModelGatewayCostLimitExceededError,
   ModelGatewayInvalidResponseError,
@@ -118,6 +119,7 @@ export {
   type WorkflowQueryRequest,
   type WorkflowQueryResult,
 } from "./provider-types";
+export { maskSecretLast4, secretLast4 } from "./secret-redaction";
 export {
   MOCK_AUDIT_STORE_CAPABILITIES,
   createMockAuditStoreProvider,

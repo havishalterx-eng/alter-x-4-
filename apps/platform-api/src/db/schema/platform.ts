@@ -187,3 +187,56 @@ export const idempotencyKeys = pgTable(
     index("idempotency_keys_expires_at_idx").on(table.expiresAt),
   ],
 );
+
+export const credentialRefs = pgTable(
+  "credential_refs",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    id: uuid("id").primaryKey(),
+    name: text("name").notNull(),
+    connector: text("connector").notNull(),
+    scope: text("scope").notNull(),
+    last4: text("last4").notNull(),
+    useAuditPtr: uuid("use_audit_ptr"),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("credential_refs_tenant_id_id_unique").on(
+      table.tenantId,
+      table.id,
+    ),
+    index("credential_refs_tenant_created_at_idx").on(
+      table.tenantId,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const credentialUseAudits = pgTable(
+  "credential_use_audits",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    id: uuid("id").primaryKey(),
+    credentialId: uuid("credential_id").notNull(),
+    usedBy: uuid("used_by").notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("credential_use_audits_tenant_credential_idx").on(
+      table.tenantId,
+      table.credentialId,
+    ),
+    foreignKey({
+      columns: [table.tenantId, table.credentialId],
+      foreignColumns: [credentialRefs.tenantId, credentialRefs.id],
+      name: "credential_use_audits_tenant_credential_fk",
+    }),
+  ],
+);
