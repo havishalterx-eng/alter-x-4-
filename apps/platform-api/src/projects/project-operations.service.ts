@@ -13,6 +13,7 @@ import type {
   ProjectOpaquePage,
   ProjectOpaqueResource,
   ProjectPagination,
+  SignedReference,
 } from "./project-operations.types";
 import {
   parseConversationId,
@@ -107,7 +108,7 @@ export class ProjectOperationsService {
     actor: ActorContext,
     traceparent: string | undefined,
     idempotencyKey: string,
-  ): Promise<EngineResponse<ProjectOpaqueResource>> {
+  ): Promise<EngineResponse<SignedReference>> {
     const instance =
       `/api/v1/conversations/${conversationId}/actions/handoff`;
     const id = parseConversationId(conversationId, instance);

@@ -1,4 +1,5 @@
 import type { JsonValue } from "@alterx/shared-clients";
+export type { SignedReference } from "@alterx/contracts/src/signed-reference";
 
 export type ProjectOpaqueResource = Readonly<Record<string, JsonValue>>;
 

@@ -46,12 +46,10 @@ const deploymentId = "dep_018f47a5-7b2c-7d10-8f11-123456789abc";
 const conversationId = "cnv_018f47a5-7b2c-7d10-8f11-123456789abc";
 const tenantId = "ten_018f47a5-7b2c-7d10-8f11-123456789abc";
 const workspaceId = "ws_018f47a5-7b2c-7d10-8f11-123456789abc";
-const opaqueHandoffResource = {
-  engine_owned: {
-    nested: ["opaque", 7, true],
-    whitespace: " preserved\n",
-  },
-  untouched: null,
+const handoffExpiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+const handoffSignedReference = {
+  signed_url: "https://downloads.example.test/handoff?expires=300",
+  expires_at: handoffExpiresAt,
 } as const;
 
 const reader: ActorContextType = actor("viewer", ["projects:read"]);
@@ -222,19 +220,27 @@ describe("ProjectOperationsController routes", () => {
     expect(engine.post).toHaveBeenCalledOnce();
   });
 
-  it("relays opaque Engine handoff response without BFF mutation", async () => {
+  it("returns a time-bounded signed handoff reference without a public URL", async () => {
+    const requestedAt = Date.now();
     const response = await request(
       "POST",
       `/api/v1/conversations/${conversationId}/actions/handoff`,
       {
         actor: writer,
-        headers: { "idempotency-key": "opaque-handoff-key" },
+        headers: { "idempotency-key": "signed-handoff-key" },
         body: { format: "engine-owned" },
       },
     );
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(opaqueHandoffResource);
+    expect(response.json()).toEqual(handoffSignedReference);
+    const body = response.json() as typeof handoffSignedReference;
+    expect(new URL(body.signed_url).protocol).toBe("https:");
+    const expiresAt = Date.parse(body.expires_at);
+    expect(expiresAt).toBeGreaterThan(requestedAt);
+    expect(expiresAt - requestedAt).toBeLessThanOrEqual(10 * 60_000);
+    expect(body).not.toHaveProperty("public_url");
+    expect(Object.keys(body).sort()).toEqual(["expires_at", "signed_url"]);
   });
 
   it.each(routeCases())(
@@ -464,7 +470,7 @@ class OperationsEngine {
     }
     return {
       status: 200,
-      body: opaqueHandoffResource,
+      body: handoffSignedReference,
     };
   }
 
