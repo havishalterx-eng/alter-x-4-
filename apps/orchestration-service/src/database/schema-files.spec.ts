@@ -67,6 +67,7 @@ describe("orchestration Drizzle schemas", () => {
       'foreignKey({\n      name: "workflow_versions_workflow_tenant_fk"',
       'index("idx_workflow_versions_workflow")',
       'unique("workflow_versions_tenant_workflow_version_unique")',
+      '"workflow_versions_canary_traffic_check"',
     ]) {
       expect(allSources).toContain(expected);
     }

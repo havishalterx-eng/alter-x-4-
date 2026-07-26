@@ -12,7 +12,7 @@ const migrationSql = migrationFiles.map((file) => ({
 }));
 
 describe("orchestration migration files", () => {
-  it("keeps one ordered migration and rollback per orchestration_db table", () => {
+  it("keeps ordered migrations and matching rollbacks", () => {
     expect(migrationFiles).toEqual([
       "0000_create_workflows.sql",
       "0001_create_triggers.sql",
@@ -22,6 +22,7 @@ describe("orchestration migration files", () => {
       "0005_create_runs.sql",
       "0006_create_conversation_goal_states.sql",
       "0007_create_workflow_versions.sql",
+      "0008_add_workflow_version_canary_traffic.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -36,10 +37,11 @@ describe("orchestration migration files", () => {
       "0005_drop_runs.sql",
       "0006_drop_conversation_goal_states.sql",
       "0007_drop_workflow_versions.sql",
+      "0008_remove_workflow_version_canary_traffic.sql",
     ]);
   });
 
-  it.each(migrationSql)(
+  it.each(migrationSql.filter(({ sql }) => sql.includes("CREATE TABLE")))(
     "$file forces default-deny RLS and tenant immutability",
     ({ sql }) => {
       expect(sql).toContain("ENABLE ROW LEVEL SECURITY");
@@ -59,6 +61,23 @@ describe("orchestration migration files", () => {
       .toHaveLength(1);
     expect(allSql.match(/EXECUTE FUNCTION reject_tenant_id_change\(\)/g))
       .toHaveLength(8);
+  });
+
+  it("persists a bounded traffic percentage only for canary versions", () => {
+    const canaryMigration = migrationSql.find(
+      ({ file }) => file === "0008_add_workflow_version_canary_traffic.sql",
+    )?.sql;
+
+    expect(canaryMigration).toContain('ADD COLUMN "traffic_percent" integer');
+    expect(canaryMigration).toContain(
+      'CONSTRAINT "workflow_versions_canary_traffic_check"',
+    );
+    expect(canaryMigration).toContain(
+      '"status" = \'canary\' AND "traffic_percent" BETWEEN 1 AND 99',
+    );
+    expect(canaryMigration).toContain(
+      '"status" <> \'canary\' AND "traffic_percent" IS NULL',
+    );
   });
 
   it("contains no cross-database references", () => {

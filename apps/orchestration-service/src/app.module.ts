@@ -3,9 +3,11 @@ import { APP_GUARD } from "@nestjs/core";
 import {
   COMPILER_HANDLER,
   CONVERSATION_HANDLER,
+  DEPLOYCTL_HANDLER,
   CompilerGrpcController,
   ConversationDispatchClient,
   ConversationGrpcController,
+  DeployctlGrpcController,
   ModelGatewayClient,
   PostgresOrchestrationStoreProvider,
 } from "@alterx/adapters";
@@ -19,6 +21,7 @@ import {
 import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import { ConversationManagerService } from "./conversation/conversation-manager.service";
 import { GraphCompilerService } from "./compiler/graph-compiler.service";
+import { DeploymentControllerService } from "./deployment-controller/deployment-controller.service";
 import { loadConversationManagerEnvironment } from "./config/environment";
 import { loadConversationDispatchEnvironment } from "./config/conversation-dispatch-environment";
 import { loadWhatsappWebhookEnvironment } from "./config/whatsapp-webhook-environment";
@@ -35,6 +38,7 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
     HealthController,
     ConversationGrpcController,
     CompilerGrpcController,
+    DeployctlGrpcController,
     TriggerRegistryController,
     WhatsappWebhookController,
   ],
@@ -139,6 +143,22 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
         return new GraphCompilerService(store);
+      },
+    },
+    {
+      provide: DEPLOYCTL_HANDLER,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        return new DeploymentControllerService(store);
       },
     },
     {

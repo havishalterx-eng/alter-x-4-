@@ -54,6 +54,14 @@ export type {
   ValidateWorkflowDagRequest as CompilerValidateWorkflowDagRequest,
   ValidateWorkflowDagResponse as CompilerValidateWorkflowDagResponse,
 } from "./generated/alter/compiler/v1/compiler";
+export type {
+  PromoteVersionRequest as DeployctlPromoteVersionRequest,
+  PromoteVersionResponse as DeployctlPromoteVersionResponse,
+  RollbackVersionRequest as DeployctlRollbackVersionRequest,
+  RollbackVersionResponse as DeployctlRollbackVersionResponse,
+  StartCanaryRequest as DeployctlStartCanaryRequest,
+  StartCanaryResponse as DeployctlStartCanaryResponse,
+} from "./generated/alter/deployctl/v1/deployctl";
 export {
   CostLimitBindingSchema,
   FallbackBindingSchema,

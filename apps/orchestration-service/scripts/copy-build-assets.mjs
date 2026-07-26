@@ -30,3 +30,8 @@ await cp(
   resolve(output, "proto/compiler.proto"),
   { force: true },
 );
+await cp(
+  resolve(root, "packages/contracts/proto/alter/deployctl/v1/deployctl.proto"),
+  resolve(output, "proto/deployctl.proto"),
+  { force: true },
+);

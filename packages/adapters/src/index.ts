@@ -196,6 +196,13 @@ export {
   type CompilerHandler,
 } from "./grpc/compiler-grpc-transport";
 export {
+  DEPLOYCTL_HANDLER,
+  DeployctlGrpcController,
+  connectDeployctlGrpcTransport,
+  type DeployctlGrpcTransportConfig,
+  type DeployctlHandler,
+} from "./grpc/deployctl-grpc-transport";
+export {
   REDIS_CACHE_CAPABILITIES,
   RedisCacheProvider,
   type RedisCacheProviderConfig,

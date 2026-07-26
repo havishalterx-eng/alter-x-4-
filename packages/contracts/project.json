@@ -48,7 +48,7 @@
         "commands": [
           "buf lint",
           "buf build",
-          "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto"
+          "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto --path alter/compiler/v1/compiler.proto --path alter/deployctl/v1/deployctl.proto"
         ],
         "cwd": "packages/contracts/proto",
         "parallel": false
@@ -61,10 +61,11 @@
         "{projectRoot}/src/generated/alter/modelgw/v1/modelgw.ts",
         "{projectRoot}/src/generated/alter/toolgw/v1/toolgw.ts",
         "{projectRoot}/src/generated/alter/conversation/v1/conversation.ts",
-        "{projectRoot}/src/generated/alter/compiler/v1/compiler.ts"
+        "{projectRoot}/src/generated/alter/compiler/v1/compiler.ts",
+        "{projectRoot}/src/generated/alter/deployctl/v1/deployctl.ts"
       ],
       "options": {
-        "command": "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto --path alter/compiler/v1/compiler.proto",
+        "command": "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto --path alter/compiler/v1/compiler.proto --path alter/deployctl/v1/deployctl.proto",
         "cwd": "packages/contracts/proto"
       }
     },
