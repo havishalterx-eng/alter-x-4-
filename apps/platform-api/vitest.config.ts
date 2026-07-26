@@ -33,6 +33,7 @@ export default defineConfig({
         "apps/platform-api/src/streaming/**/*.ts",
         "apps/platform-api/src/workflows/**/*.ts",
         "apps/platform-api/src/projects/**/*.ts",
+        "apps/platform-api/src/runs/**/*.ts",
       ],
       exclude: [
         "apps/platform-api/src/db/**/*.spec.ts",
@@ -52,6 +53,7 @@ export default defineConfig({
         "apps/platform-api/src/streaming/**/*.spec.ts",
         "apps/platform-api/src/workflows/**/*.spec.ts",
         "apps/platform-api/src/projects/**/*.spec.ts",
+        "apps/platform-api/src/runs/**/*.spec.ts",
       ],
       thresholds: {
         lines: 90,
@@ -129,6 +131,14 @@ export default defineConfig({
         "apps/platform-api/src/projects/{project.controller,project.service}.ts": {
           lines: 90,
           branches: 90,
+        },
+        "apps/platform-api/src/runs/**/*.ts": {
+          lines: 85,
+          branches: 80,
+        },
+        "apps/platform-api/src/runs/{run.controller,run.service}.ts": {
+          lines: 85,
+          branches: 80,
         },
       },
     },

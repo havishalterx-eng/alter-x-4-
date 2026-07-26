@@ -1,6 +1,7 @@
 export {
   ActorContext,
   Public,
+  RequirePermission,
   RequireTenantRole,
   RequireWorkspaceRole,
 } from "./decorators";

@@ -16,6 +16,7 @@ import { IdempotencyModule } from "./idempotency/idempotency.module";
 import { StreamingModule } from "./streaming/streaming.module";
 import { WorkflowModule } from "./workflows/workflow.module";
 import { ProjectModule } from "./projects/project.module";
+import { RunModule } from "./runs/run.module";
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { ProjectModule } from "./projects/project.module";
     StreamingModule,
     WorkflowModule,
     ProjectModule,
+    RunModule,
   ],
   controllers: [HealthController],
 })

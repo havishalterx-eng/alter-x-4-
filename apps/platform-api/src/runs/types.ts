@@ -1,0 +1,37 @@
+import type { JsonValue } from "@alterx/shared-clients";
+
+export type RunStatus =
+  | "pending"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface RunListQuery {
+  cursor?: string | undefined;
+  limit?: number | undefined;
+  status?: RunStatus | undefined;
+  started_after?: string | undefined;
+  started_before?: string | undefined;
+}
+
+export type EngineResource = Readonly<Record<string, JsonValue>>;
+
+export interface EnginePage<T> {
+  data: readonly T[];
+  page: {
+    next_cursor: string | null;
+    has_more: boolean;
+    limit: number;
+  };
+}
+
+export interface RunDetail {
+  run: EngineResource;
+  node_executions: readonly EngineResource[];
+  verification_results: readonly EngineResource[];
+  recovery_actions: readonly EngineResource[];
+  quality_gates: readonly EngineResource[];
+  outcome: EngineResource;
+}
