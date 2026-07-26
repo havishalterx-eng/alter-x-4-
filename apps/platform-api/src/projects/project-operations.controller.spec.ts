@@ -46,6 +46,13 @@ const deploymentId = "dep_018f47a5-7b2c-7d10-8f11-123456789abc";
 const conversationId = "cnv_018f47a5-7b2c-7d10-8f11-123456789abc";
 const tenantId = "ten_018f47a5-7b2c-7d10-8f11-123456789abc";
 const workspaceId = "ws_018f47a5-7b2c-7d10-8f11-123456789abc";
+const opaqueHandoffResource = {
+  engine_owned: {
+    nested: ["opaque", 7, true],
+    whitespace: " preserved\n",
+  },
+  untouched: null,
+} as const;
 
 const reader: ActorContextType = actor("viewer", ["projects:read"]);
 const deployer: ActorContextType = actor("operator", ["projects:deploy"]);
@@ -213,6 +220,21 @@ describe("ProjectOperationsController routes", () => {
     expect(first.statusCode).toBe(200);
     expect(replay.headers["idempotency-replayed"]).toBe("true");
     expect(engine.post).toHaveBeenCalledOnce();
+  });
+
+  it("relays opaque Engine handoff response without BFF mutation", async () => {
+    const response = await request(
+      "POST",
+      `/api/v1/conversations/${conversationId}/actions/handoff`,
+      {
+        actor: writer,
+        headers: { "idempotency-key": "opaque-handoff-key" },
+        body: { format: "engine-owned" },
+      },
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(opaqueHandoffResource);
   });
 
   it.each(routeCases())(
@@ -442,11 +464,7 @@ class OperationsEngine {
     }
     return {
       status: 200,
-      body: {
-        conversation_id: conversationId,
-        action: "handoff",
-        status: "ready",
-      },
+      body: opaqueHandoffResource,
     };
   }
 
