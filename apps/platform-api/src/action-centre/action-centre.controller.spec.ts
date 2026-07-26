@@ -284,24 +284,27 @@ describe("Human Action Centre routes", () => {
   it("passes Engine 409 through on a competing escalation claim", async () => {
     const scoped = { ...actor, permissions: ["escalations:claim"] };
     const url = `/api/v1/escalations/${escalationId}/actions/claim`;
-    expect(
-      (
-        await request({
-          method: "POST",
-          url,
-          body: {},
-          actor: scoped,
-          headers: { "idempotency-key": "claim-one" },
-        })
-      ).statusCode,
-    ).toBe(200);
-    const conflict = await request({
-      method: "POST",
-      url,
-      body: {},
-      actor: scoped,
-      headers: { "idempotency-key": "claim-two" },
-    });
+    // BFF does not arbitrate claims; it faithfully relays concurrent Engine outcomes.
+    const responses = await Promise.all([
+      request({
+        method: "POST",
+        url,
+        body: {},
+        actor: scoped,
+        headers: { "idempotency-key": "claim-one" },
+      }),
+      request({
+        method: "POST",
+        url,
+        body: {},
+        actor: scoped,
+        headers: { "idempotency-key": "claim-two" },
+      }),
+    ]);
+    const statuses = responses.map(({ statusCode }) => statusCode).sort();
+    expect(statuses).toEqual([200, 409]);
+    expect(statuses.filter((status) => status === 200)).toHaveLength(1);
+    const conflict = responses.find(({ statusCode }) => statusCode === 409)!;
     expectProblem(conflict, 409, "ESCALATION_ALREADY_CLAIMED");
   });
 
