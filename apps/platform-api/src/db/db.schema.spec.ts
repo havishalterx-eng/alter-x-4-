@@ -3,6 +3,8 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { DbModule } from "./db.module";
 import {
+  credentialRefs,
+  credentialUseAudits,
   entitlements,
   idempotencyKeys,
   onboardingStates,
@@ -20,6 +22,8 @@ describe("platform database schema", () => {
     expect(
       [
         entitlements,
+        credentialRefs,
+        credentialUseAudits,
         idempotencyKeys,
         onboardingStates,
         tenantMembers,
@@ -31,6 +35,8 @@ describe("platform database schema", () => {
       ].map(getTableName),
     ).toEqual([
       "entitlements",
+      "credential_refs",
+      "credential_use_audits",
       "idempotency_keys",
       "onboarding_states",
       "tenant_members",
@@ -47,6 +53,8 @@ describe("platform database schema", () => {
 
     for (const table of [
       entitlements,
+      credentialRefs,
+      credentialUseAudits,
       idempotencyKeys,
       tenantMembers,
       workspaceMembers,
@@ -60,8 +68,10 @@ describe("platform database schema", () => {
       );
     }
 
-    expect(foreignKeyNames).toHaveLength(8);
+    expect(foreignKeyNames).toHaveLength(11);
     expect(getTableConfig(idempotencyKeys).indexes).toHaveLength(2);
+    expect(getTableColumns(credentialRefs)).not.toHaveProperty("value");
+    expect(getTableColumns(credentialRefs)).not.toHaveProperty("secret");
     expect(getTableConfig(workspaces).indexes).toHaveLength(2);
     expect(getTableConfig(tenantMembers).indexes).toHaveLength(1);
     expect(getTableConfig(workspaceMembers).indexes).toHaveLength(1);

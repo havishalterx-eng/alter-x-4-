@@ -11,6 +11,7 @@ export default defineConfig({
       "apps/platform-api/src/identity/**/*.integration.spec.ts",
       "apps/platform-api/src/signup/**/*.integration.spec.ts",
       "apps/platform-api/src/idempotency/**/*.integration.spec.ts",
+      "apps/platform-api/src/credentials/**/*.integration.spec.ts",
     ],
     coverage: {
       provider: "v8",
@@ -35,6 +36,7 @@ export default defineConfig({
         "apps/platform-api/src/projects/**/*.ts",
         "apps/platform-api/src/runs/**/*.ts",
         "apps/platform-api/src/action-centre/**/*.ts",
+        "apps/platform-api/src/credentials/**/*.ts",
       ],
       exclude: [
         "apps/platform-api/src/db/**/*.spec.ts",
@@ -56,6 +58,7 @@ export default defineConfig({
         "apps/platform-api/src/projects/**/*.spec.ts",
         "apps/platform-api/src/runs/**/*.spec.ts",
         "apps/platform-api/src/action-centre/**/*.spec.ts",
+        "apps/platform-api/src/credentials/**/*.spec.ts",
       ],
       thresholds: {
         lines: 90,
@@ -149,6 +152,14 @@ export default defineConfig({
         "apps/platform-api/src/action-centre/{action-centre.controller,action-centre.service}.ts": {
           lines: 90,
           branches: 90,
+        },
+        "apps/platform-api/src/credentials/**/*.ts": {
+          lines: 85,
+          branches: 80
+        },
+        "apps/platform-api/src/credentials/{credential.service,credential.repository}.ts": {
+          lines: 90,
+          branches: 90
         },
       },
     },

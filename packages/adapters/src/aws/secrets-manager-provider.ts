@@ -1,5 +1,8 @@
 import {
+  CreateSecretCommand,
+  DeleteSecretCommand,
   GetSecretValueCommand,
+  PutSecretValueCommand,
   SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
 
@@ -7,7 +10,7 @@ import type { ProviderCapabilities } from "@alterx/contracts";
 import type {
   ProviderHealth,
   ProviderMetadata,
-  SecretsProvider,
+  MutableSecretsProvider,
 } from "@alterx/shared-clients";
 
 export interface AwsSecretsManagerConfig {
@@ -19,6 +22,7 @@ export interface SecretsManagerCommandClient {
     readonly SecretString?: string;
     readonly SecretBinary?: Uint8Array;
   }>;
+  send(command: CreateSecretCommand | PutSecretValueCommand | DeleteSecretCommand): Promise<unknown>;
   destroy?(): void;
 }
 
@@ -49,7 +53,7 @@ const AWS_SECRETS_METADATA: ProviderMetadata<"SecretsProvider"> = {
   },
 };
 
-export class AwsSecretsManagerProvider implements SecretsProvider {
+export class AwsSecretsManagerProvider implements MutableSecretsProvider {
   readonly metadata = AWS_SECRETS_METADATA;
   readonly capabilities = AWS_SECRETS_CAPABILITIES;
 
@@ -63,9 +67,7 @@ export class AwsSecretsManagerProvider implements SecretsProvider {
   }
 
   async getSecret(referenceId: string): Promise<string> {
-    if (referenceId.length === 0 || referenceId.trim() !== referenceId) {
-      throw new Error("Secret reference ID must be non-empty and trimmed");
-    }
+    validateReference(referenceId);
     const response = await this.#client.send(
       new GetSecretValueCommand({ SecretId: referenceId }),
     );
@@ -80,6 +82,35 @@ export class AwsSecretsManagerProvider implements SecretsProvider {
     return value;
   }
 
+  async putSecret(referenceId: string, value: string): Promise<void> {
+    validateReference(referenceId);
+    if (value.length === 0) {
+      throw new Error("Secret value must be non-empty");
+    }
+    try {
+      await this.#client.send(
+        new CreateSecretCommand({ Name: referenceId, SecretString: value }),
+      );
+    } catch (error) {
+      if (!isResourceExists(error)) {
+        throw error;
+      }
+      await this.#client.send(
+        new PutSecretValueCommand({ SecretId: referenceId, SecretString: value }),
+      );
+    }
+  }
+
+  async deleteSecret(referenceId: string): Promise<void> {
+    validateReference(referenceId);
+    await this.#client.send(
+      new DeleteSecretCommand({
+        SecretId: referenceId,
+        ForceDeleteWithoutRecovery: true,
+      }),
+    );
+  }
+
   async healthCheck(): Promise<ProviderHealth> {
     return {
       status: "healthy",
@@ -92,4 +123,18 @@ export class AwsSecretsManagerProvider implements SecretsProvider {
   close(): void {
     this.#client.destroy?.();
   }
+}
+
+function validateReference(referenceId: string): void {
+  if (referenceId.length === 0 || referenceId.trim() !== referenceId) {
+    throw new Error("Secret reference ID must be non-empty and trimmed");
+  }
+}
+
+function isResourceExists(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    Reflect.get(error, "name") === "ResourceExistsException"
+  );
 }

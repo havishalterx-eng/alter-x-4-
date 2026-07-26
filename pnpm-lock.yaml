@@ -188,6 +188,9 @@ importers:
 
   apps/platform-api:
     dependencies:
+      '@alterx/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
       '@alterx/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

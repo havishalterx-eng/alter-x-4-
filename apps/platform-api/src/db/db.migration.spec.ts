@@ -42,10 +42,34 @@ async function applyMigration(client: pg.Client): Promise<void> {
 }
 
 async function seedRows(client: pg.Client): Promise<void> {
+  const credentialA = randomUUID();
+  const credentialB = randomUUID();
   await client.query(
     `INSERT INTO tenants (id, name, status)
      VALUES ($1, 'Tenant A', 'active'), ($2, 'Tenant B', 'active')`,
     [tenantA, tenantB],
+  );
+  await client.query(
+    `INSERT INTO credential_refs
+       (tenant_id, id, name, connector, scope, last4)
+     VALUES ($1, $2, 'DB A', 'postgres', 'deploy', '1111'),
+            ($3, $4, 'DB B', 'postgres', 'deploy', '2222')`,
+    [tenantA, credentialA, tenantB, credentialB],
+  );
+  await client.query(
+    `INSERT INTO credential_use_audits
+       (tenant_id, id, credential_id, used_by)
+     VALUES ($1, $2, $3, $4), ($5, $6, $7, $8)`,
+    [
+      tenantA,
+      randomUUID(),
+      credentialA,
+      userA,
+      tenantB,
+      randomUUID(),
+      credentialB,
+      userB,
+    ],
   );
   await client.query(
     `INSERT INTO users (id, identity_ref, email, status)
@@ -162,6 +186,8 @@ describe("platform_db migration", () => {
     );
 
     expect(tables.map((row) => row.table_name)).toEqual([
+      "credential_refs",
+      "credential_use_audits",
       "entitlements",
       "idempotency_keys",
       "onboarding_states",
@@ -185,6 +211,18 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
+    expect(columns).toContainEqual({
+      table_name: "credential_refs",
+      column_name: "last4",
+      data_type: "text",
+    });
+    expect(
+      columns.some(
+        (column) =>
+          column.table_name === "credential_refs" &&
+          ["value", "secret", "plaintext"].includes(column.column_name),
+      ),
+    ).toBe(false);
     expect(columns).toContainEqual({
       table_name: "tenants",
       column_name: "identity_org_ref",
@@ -273,6 +311,8 @@ describe("platform_db migration", () => {
         "user_sessions",
         "onboarding_states",
         "idempotency_keys",
+        "credential_refs",
+        "credential_use_audits",
       ]) {
         await rlsClient.query("RESET app.current_tenant_id");
         const unset = await rlsClient.query<{ count: string }>(
@@ -299,7 +339,7 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
-    expect(rows[0]?.count).toBe("9");
+    expect(rows[0]?.count).toBe("11");
   });
 
   it("prevents tenant_id mutation on tenant-owned rows", async () => {
@@ -310,6 +350,13 @@ describe("platform_db migration", () => {
         tenantB,
         workspaceA,
       ]),
+    ).rejects.toThrow("tenant_id is immutable");
+
+    await expect(
+      adminClient.query(
+        `UPDATE credential_refs SET tenant_id = $1 WHERE tenant_id = $2`,
+        [tenantB, tenantA],
+      ),
     ).rejects.toThrow("tenant_id is immutable");
 
     await expect(
