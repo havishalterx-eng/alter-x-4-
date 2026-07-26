@@ -85,6 +85,23 @@ function prefixedUuidV7(prefix: "clr"): string {
   return `${prefix}_${uuid.slice(0, 14)}7${uuid.slice(15)}`;
 }
 
+const TENANT_ID_PATTERN =
+  /^ten_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// request.tenantId is ten_-prefixed (it's forwarded straight to
+// PlannerHandler.decompose/selectStrategy, whose contract requires that
+// prefix), but OrchestrationTenantStore.withTenant() and every DB column
+// expect a bare UUID. Same mismatch class fixed in
+// conversation-manager.service.ts's bareTenantUuid() -- found via the
+// Planning-phase exit check running this against a real
+// PostgresOrchestrationStoreProvider for the first time.
+function bareTenantUuid(tenantId: string): string {
+  if (!TENANT_ID_PATTERN.test(tenantId)) {
+    throw new ClarificationLoopValidationError("tenantId must be a ten_ prefixed UUIDv7");
+  }
+  return tenantId.slice("ten_".length);
+}
+
 export interface RequestPlanRequest {
   readonly tenantId: string;
   readonly workspaceId: string;
@@ -158,11 +175,13 @@ export class ClarificationLoopService {
       strategy,
     });
 
+    const bareTenant = bareTenantUuid(request.tenantId);
+
     if (decomposed.ambiguity_detected && decomposed.clarification_questions.length > 0) {
       const questions: OutstandingQuestion[] = decomposed.clarification_questions.map(
         (question) => ({ clarificationId: prefixedUuidV7("clr"), question }),
       );
-      await this.updateGoalState(request.tenantId, request.conversationId, (current) => ({
+      await this.updateGoalState(bareTenant, request.conversationId, (current) => ({
         goalState: {
           ...current,
           pendingQuestions: {
@@ -175,7 +194,7 @@ export class ClarificationLoopService {
       return { status: "awaiting_clarification", questions };
     }
 
-    await this.updateGoalState(request.tenantId, request.conversationId, (current) => ({
+    await this.updateGoalState(bareTenant, request.conversationId, (current) => ({
       goalState: { ...current, taskSkeletonJson: decomposed.task_skeleton_json },
       status: "ready",
     }));
@@ -199,8 +218,9 @@ export class ClarificationLoopService {
     requireNonEmpty("originalObjective", request.originalObjective);
     requireNonEmpty("mode", request.mode);
 
-    const goalState = await this.store.withTenant(request.tenantId, (tx) =>
-      readGoalStateRow(tx, request.tenantId, request.conversationId),
+    const bareTenant = bareTenantUuid(request.tenantId);
+    const goalState = await this.store.withTenant(bareTenant, (tx) =>
+      readGoalStateRow(tx, bareTenant, request.conversationId),
     );
     const current = goalState?.goalState ?? emptyGoalState();
 

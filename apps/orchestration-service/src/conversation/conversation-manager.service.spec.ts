@@ -113,8 +113,14 @@ function fakeModelGateway(
   return { invoke };
 }
 
-const TENANT_A = "ten_a";
-const TENANT_B = "ten_b";
+const TENANT_A = "ten_00000000-0000-7000-8000-00000000000a";
+const TENANT_B = "ten_00000000-0000-7000-8000-00000000000b";
+// The service strips the ten_ prefix before calling store.withTenant() /
+// querying the DB (see bareTenantUuid()) -- the fake store's rows are
+// keyed by whatever the service actually passes at runtime, so seed data
+// must use the bare form even though requests still use TENANT_A/TENANT_B.
+const TENANT_A_BARE = TENANT_A.slice("ten_".length);
+const TENANT_B_BARE = TENANT_B.slice("ten_".length);
 const CONVERSATION = "cnv_1";
 
 describe("ConversationManagerService.classifyIntent", () => {
@@ -218,7 +224,7 @@ describe("ConversationManagerService.getGoalState", () => {
   it("returns the existing row for a conversation with goal state", async () => {
     const existingState: GoalState = { pendingClarifications: { clr_1: "yes" } };
     const { store } = createFakeStore({
-      [rowKey(TENANT_A, CONVERSATION)]: {
+      [rowKey(TENANT_A_BARE, CONVERSATION)]: {
         goal_state_json: existingState,
         status: "awaiting_clarification",
         revision: 3,
@@ -241,7 +247,7 @@ describe("ConversationManagerService.getGoalState", () => {
   it("never returns another tenant's goal state for the same conversation id", async () => {
     const tenantBState: GoalState = { pendingClarifications: { clr_secret: "tenant-b-only" } };
     const { store } = createFakeStore({
-      [rowKey(TENANT_B, CONVERSATION)]: {
+      [rowKey(TENANT_B_BARE, CONVERSATION)]: {
         goal_state_json: tenantBState,
         status: "ready",
         revision: 7,
@@ -305,7 +311,7 @@ describe("ConversationManagerService.mergeClarification", () => {
 
   it("retries once and succeeds when a concurrent writer commits between read and write", async () => {
     const { store, rows } = createFakeStore({
-      [rowKey(TENANT_A, CONVERSATION)]: {
+      [rowKey(TENANT_A_BARE, CONVERSATION)]: {
         goal_state_json: { pendingClarifications: {} },
         status: "planning",
         revision: 0,
@@ -324,7 +330,7 @@ describe("ConversationManagerService.mergeClarification", () => {
                 firstCall = false;
                 // A concurrent transaction commits here, in between this
                 // read and the caller's own UPDATE.
-                rows.set(rowKey(TENANT_A, CONVERSATION), {
+                rows.set(rowKey(TENANT_A_BARE, CONVERSATION), {
                   goal_state_json: { pendingClarifications: { clr_other: "already merged" } },
                   status: "planning",
                   revision: 1,
@@ -361,7 +367,7 @@ describe("ConversationManagerService.mergeClarification", () => {
 
   it("throws ConversationConcurrencyError when retries are exhausted", async () => {
     const { store } = createFakeStore({
-      [rowKey(TENANT_A, CONVERSATION)]: {
+      [rowKey(TENANT_A_BARE, CONVERSATION)]: {
         goal_state_json: { pendingClarifications: {} },
         status: "planning",
         revision: 0,
@@ -402,7 +408,7 @@ describe("ConversationManagerService.mergeClarification", () => {
 
   it("never merges into another tenant's goal state row", async () => {
     const { store, rows } = createFakeStore({
-      [rowKey(TENANT_B, CONVERSATION)]: {
+      [rowKey(TENANT_B_BARE, CONVERSATION)]: {
         goal_state_json: { pendingClarifications: { clr_b: "tenant-b-only" } },
         status: "planning",
         revision: 0,
@@ -420,7 +426,7 @@ describe("ConversationManagerService.mergeClarification", () => {
     expect(JSON.parse(response.goal_state_json)).toEqual({
       pendingClarifications: { clr_a: "tenant-a-only" },
     });
-    expect(rows.get(rowKey(TENANT_B, CONVERSATION))).toEqual({
+    expect(rows.get(rowKey(TENANT_B_BARE, CONVERSATION))).toEqual({
       goal_state_json: { pendingClarifications: { clr_b: "tenant-b-only" } },
       status: "planning",
       revision: 0,

@@ -44,6 +44,23 @@ export class ConversationConcurrencyError extends Error {
 // the class doc comment on ConversationManagerService for why this exists.
 const MAX_MERGE_ATTEMPTS = 5;
 
+const TENANT_ID_PATTERN =
+  /^ten_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// conversation.proto's tenant_id fields are ten_-prefixed (see
+// alter/conversation/v1/conversation.proto), but every DB column and
+// OrchestrationTenantStore.withTenant() expect a bare UUID -- discovered
+// via the Planning-phase exit check exercising this against a real
+// PostgresOrchestrationStoreProvider for the first time; no existing test
+// used a real store, so this mismatch was never caught. Matches the same
+// bareTenantUuid() pattern graph-compiler.service.ts already established.
+function bareTenantUuid(tenantId: string): string {
+  if (!TENANT_ID_PATTERN.test(tenantId)) {
+    throw new ConversationValidationError("tenant_id must be a ten_ prefixed UUIDv7");
+  }
+  return tenantId.slice("ten_".length);
+}
+
 const CLASSIFICATION_SYSTEM_PROMPT = `You classify a single user utterance into exactly one intent from this fixed set: ${INTENT_VALUES.join(", ")}.
 - "answer": the user wants information back; nothing should change.
 - "plan": the user wants a plan created toward some goal.
@@ -220,11 +237,12 @@ export class ConversationManagerService implements ConversationHandler {
   ): Promise<ConversationGetGoalStateResponse> {
     requireNonEmpty("tenant_id", request.tenant_id);
     requireNonEmpty("conversation_id", request.conversation_id);
+    const bareTenant = bareTenantUuid(request.tenant_id);
 
-    return this.store.withTenant(request.tenant_id, async (tx) => {
+    return this.store.withTenant(bareTenant, async (tx) => {
       const row = await readGoalStateRow(
         tx,
-        request.tenant_id,
+        bareTenant,
         request.conversation_id,
       );
       // No goal state has been created for this conversation yet (no
@@ -254,19 +272,20 @@ export class ConversationManagerService implements ConversationHandler {
     requireNonEmpty("tenant_id", request.tenant_id);
     requireNonEmpty("conversation_id", request.conversation_id);
     requireNonEmpty("clarification_id", request.clarification_id);
+    const bareTenant = bareTenantUuid(request.tenant_id);
 
-    return this.store.withTenant(request.tenant_id, async (tx) => {
+    return this.store.withTenant(bareTenant, async (tx) => {
       await tx.query(
         `INSERT INTO conversation_goal_states (tenant_id, conversation_id)
          VALUES ($1, $2)
          ON CONFLICT (tenant_id, conversation_id) DO NOTHING`,
-        [request.tenant_id, request.conversation_id],
+        [bareTenant, request.conversation_id],
       );
 
       for (let attempt = 0; attempt < MAX_MERGE_ATTEMPTS; attempt += 1) {
         const row = await readGoalStateRow(
           tx,
-          request.tenant_id,
+          bareTenant,
           request.conversation_id,
         );
         if (row === undefined) {
@@ -293,7 +312,7 @@ export class ConversationManagerService implements ConversationHandler {
            RETURNING goal_state_json, revision`,
           [
             JSON.stringify(nextGoalState),
-            request.tenant_id,
+            bareTenant,
             request.conversation_id,
             row.revision,
           ],

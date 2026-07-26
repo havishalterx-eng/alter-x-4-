@@ -104,7 +104,7 @@ function fakePlanner(overrides: Partial<PlannerHandler> = {}): PlannerHandler {
 }
 
 const BASE_REQUEST = {
-  tenantId: "ten_a",
+  tenantId: "ten_00000000-0000-7000-8000-00000000000a",
   workspaceId: "ws_a",
   conversationId: "cnv_a",
   runId: "run_a",
@@ -180,7 +180,7 @@ describe("ClarificationLoopService.resumeAfterClarification", () => {
     const clarificationId = "clr_test";
     const { store, rows } = createFakeStore([
       {
-        tenant_id: "ten_a",
+        tenant_id: "00000000-0000-7000-8000-00000000000a",
         conversation_id: "cnv_a",
         goal_state_json: {
           pendingClarifications: { [clarificationId]: "Q3 2026" },
@@ -200,7 +200,7 @@ describe("ClarificationLoopService.resumeAfterClarification", () => {
     const service = new ClarificationLoopService(store, planner);
 
     const result = await service.resumeAfterClarification({
-      tenantId: "ten_a",
+      tenantId: "ten_00000000-0000-7000-8000-00000000000a",
       workspaceId: "ws_a",
       conversationId: "cnv_a",
       runId: "run_a",
@@ -221,7 +221,7 @@ describe("ClarificationLoopService.resumeAfterClarification", () => {
   it("rejects when there are no answered outstanding questions yet", async () => {
     const { store } = createFakeStore([
       {
-        tenant_id: "ten_a",
+        tenant_id: "00000000-0000-7000-8000-00000000000a",
         conversation_id: "cnv_a",
         goal_state_json: {
           pendingClarifications: {},
@@ -236,7 +236,7 @@ describe("ClarificationLoopService.resumeAfterClarification", () => {
 
     await expect(
       service.resumeAfterClarification({
-        tenantId: "ten_a",
+        tenantId: "ten_00000000-0000-7000-8000-00000000000a",
         workspaceId: "ws_a",
         conversationId: "cnv_a",
         runId: "run_a",
@@ -250,7 +250,7 @@ describe("ClarificationLoopService.resumeAfterClarification", () => {
     const clarificationId = "clr_first";
     const { store, rows } = createFakeStore([
       {
-        tenant_id: "ten_a",
+        tenant_id: "00000000-0000-7000-8000-00000000000a",
         conversation_id: "cnv_a",
         goal_state_json: {
           pendingClarifications: { [clarificationId]: "Q3 2026" },
@@ -271,7 +271,7 @@ describe("ClarificationLoopService.resumeAfterClarification", () => {
     const service = new ClarificationLoopService(store, planner);
 
     const result = await service.resumeAfterClarification({
-      tenantId: "ten_a",
+      tenantId: "ten_00000000-0000-7000-8000-00000000000a",
       workspaceId: "ws_a",
       conversationId: "cnv_a",
       runId: "run_a",
