@@ -11,10 +11,23 @@ import {
   RequestIdSchema,
   RunIdSchema,
   TraceIdSchema,
+  WorkflowIdSchema,
 } from "./ids";
 import { ProblemDetailsSchema } from "./problem-details";
 import { ProviderCapabilitiesSchema } from "./provider-capabilities";
 import { SseEnvelopeSchema } from "./sse";
+import { SignedReferenceSchema } from "./signed-reference";
+import {
+  PromoteVersionResultSchema,
+  RollbackVersionResultSchema,
+  StartCanaryResultSchema,
+} from "./deployment";
+import {
+  RegisterTriggerResultSchema,
+  TriggerListResultSchema,
+  TriggerSchema,
+  TriggerVersionSchema,
+} from "./triggers";
 import {
   NodeRequirementsSchema,
   NodeTypeSchema,
@@ -36,7 +49,26 @@ export interface V1RouteSpec {
   readonly runsFilter?: boolean;
   readonly sse?: boolean;
   readonly successStatus?: 200 | 201 | 202;
+  // Typed response override, replacing the generic opaque Resource (or,
+  // for a collection route, the generic cursor-paginated envelope) with a
+  // real, registered schema. Registered once in createOpenApiDocument()
+  // and looked up by raw-schema identity, since the same schema object is
+  // often reused across several routes.
+  readonly responseSchema?: z.ZodTypeAny;
+  // Query params for a route that isn't a cursor-paginated `collection`
+  // (Trigger Registry's real list route accepts an optional workflowId
+  // filter but has no pagination at all -- see TriggerListResultSchema).
+  readonly queryParams?: z.ZodObject<z.ZodRawShape>;
 }
+
+// Matches trigger-registry.controller.ts's real @Query("workflowId") --
+// camelCase, matching this route's overall camelCase wire format (see
+// triggers.ts). Not a collection route (no pagination at all in the real
+// listTriggers()), so this doesn't extend CursorQuerySchema. Declared
+// before V1_ROUTE_SPECS since that array references it directly.
+const TriggerListQuerySchema = z.object({
+  workflowId: WorkflowIdSchema.optional(),
+});
 
 export type AlterOpenApiDocument = ReturnType<
   OpenApiGeneratorV31["generateDocument"]
@@ -55,7 +87,32 @@ export const V1_ROUTE_SPECS: readonly V1RouteSpec[] = [
   { method: "post", path: "/workflows/{id}/actions/activate", summary: "Activate workflow", tag: "Workflows" },
   { method: "post", path: "/workflows/{id}/actions/pause", summary: "Pause workflow", tag: "Workflows" },
   { method: "post", path: "/workflows/{id}/actions/resume", summary: "Resume workflow", tag: "Workflows" },
-  { method: "post", path: "/workflows/{id}/actions/rollback", summary: "Roll back workflow", tag: "Workflows" },
+  {
+    method: "post",
+    path: "/workflows/{id}/actions/rollback",
+    summary: "Roll back workflow",
+    tag: "Workflows",
+    responseSchema: RollbackVersionResultSchema,
+  },
+  // Real backend exists and is tested (DeploymentControllerService,
+  // PLAN-11 -- promoteVersion/startCanary), but no REST controller wires
+  // these into any transport yet. These two routes document the intended
+  // public contract for that stranded capability; a real controller still
+  // needs to be built as separate Engine work (out of scope here).
+  {
+    method: "post",
+    path: "/workflows/{id}/actions/promote-version",
+    summary: "Promote workflow version",
+    tag: "Workflows",
+    responseSchema: PromoteVersionResultSchema,
+  },
+  {
+    method: "post",
+    path: "/workflows/{id}/actions/start-canary",
+    summary: "Start workflow version canary",
+    tag: "Workflows",
+    responseSchema: StartCanaryResultSchema,
+  },
 
   { method: "post", path: "/projects", summary: "Create project", tag: "Projects", successStatus: 201 },
   { method: "get", path: "/projects", summary: "List projects", tag: "Projects", collection: true },
@@ -84,20 +141,72 @@ export const V1_ROUTE_SPECS: readonly V1RouteSpec[] = [
   { method: "post", path: "/runs/{id}/actions/retry-node", summary: "Retry run node", tag: "Runs", successStatus: 202 },
   { method: "post", path: "/runs/{id}/clarifications/{cid}/answer", summary: "Answer clarification", tag: "Runs" },
 
-  { method: "post", path: "/triggers", summary: "Create trigger", tag: "Triggers", successStatus: 201 },
-  { method: "get", path: "/triggers", summary: "List triggers", tag: "Triggers", collection: true },
-  { method: "get", path: "/triggers/{id}", summary: "Get trigger", tag: "Triggers" },
-  { method: "get", path: "/triggers/{id}/versions", summary: "List trigger versions", tag: "Triggers", collection: true },
-  { method: "post", path: "/triggers/{id}/actions/enable", summary: "Enable trigger", tag: "Triggers" },
-  { method: "post", path: "/triggers/{id}/actions/disable", summary: "Disable trigger", tag: "Triggers" },
-  { method: "post", path: "/triggers/{id}/actions/test", summary: "Test trigger", tag: "Triggers" },
+  // Typed against trigger-registry.controller.ts's REAL routes/response
+  // shapes (see triggers.ts's file-level comment on the camelCase wire
+  // format). The 3 routes below (enable/disable/test as separate POST
+  // actions, GET .../versions as a list) that used to be in this spec
+  // never had ANY backing controller method -- the real controller only
+  // exposes register/createVersion/setStatus/get/list. Replaced with the
+  // routes that actually exist: PATCH .../status (enable/disable via a
+  // status value) and POST .../versions (create a version, not list).
+  // Trigger Registry has no version-listing endpoint at all today; that
+  // capability is dropped from the contract rather than left as a
+  // documented route that would 404 in reality.
+  {
+    method: "post",
+    path: "/triggers",
+    summary: "Create trigger",
+    tag: "Triggers",
+    successStatus: 201,
+    responseSchema: RegisterTriggerResultSchema,
+  },
+  {
+    method: "get",
+    path: "/triggers",
+    summary: "List triggers",
+    tag: "Triggers",
+    responseSchema: TriggerListResultSchema,
+    queryParams: TriggerListQuerySchema,
+  },
+  {
+    method: "get",
+    path: "/triggers/{id}",
+    summary: "Get trigger",
+    tag: "Triggers",
+    responseSchema: TriggerSchema,
+  },
+  {
+    method: "post",
+    path: "/triggers/{id}/versions",
+    summary: "Create trigger version",
+    tag: "Triggers",
+    responseSchema: TriggerVersionSchema,
+  },
+  {
+    method: "patch",
+    path: "/triggers/{id}/status",
+    summary: "Set trigger status",
+    tag: "Triggers",
+    responseSchema: TriggerSchema,
+  },
   { method: "get", path: "/events", summary: "List canonical events", tag: "Events", collection: true },
   { method: "get", path: "/events/{id}", summary: "Get canonical event", tag: "Events" },
   { method: "get", path: "/conversations", summary: "List conversations", tag: "Conversations", collection: true },
   { method: "get", path: "/conversations/{id}", summary: "Get conversation", tag: "Conversations" },
   { method: "post", path: "/conversations/{id}/actions/close", summary: "Close conversation", tag: "Conversations" },
   { method: "post", path: "/conversations/{id}/actions/reopen", summary: "Reopen conversation", tag: "Conversations" },
-  { method: "post", path: "/conversations/{id}/actions/handoff", summary: "Hand off conversation", tag: "Conversations" },
+  // Security fix: was an opaque Resource -- for a security-sensitive
+  // export/handoff, an untyped response risks leaking raw content or a
+  // permanent public URL through the contract itself. No real backend
+  // exists for this route yet (grep of apps/ finds no conversation-level
+  // handoff handler) -- this types the intended response shape only.
+  {
+    method: "post",
+    path: "/conversations/{id}/actions/handoff",
+    summary: "Hand off conversation",
+    tag: "Conversations",
+    responseSchema: SignedReferenceSchema,
+  },
 
   { method: "get", path: "/approvals", summary: "List approvals", tag: "Human actions", collection: true, statusFilter: true },
   { method: "get", path: "/approvals/{id}", summary: "Get approval", tag: "Human actions" },
@@ -242,6 +351,32 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
   registry.register("ProviderCapabilities", ProviderCapabilitiesSchema);
   registry.register("NodeType", NodeTypeSchema);
 
+  const responseSchemaByRaw = new Map<z.ZodTypeAny, z.ZodTypeAny>([
+    [TriggerSchema, registry.register("Trigger", TriggerSchema)],
+    [TriggerVersionSchema, registry.register("TriggerVersion", TriggerVersionSchema)],
+    [
+      RegisterTriggerResultSchema,
+      registry.register("RegisterTriggerResult", RegisterTriggerResultSchema),
+    ],
+    [
+      TriggerListResultSchema,
+      registry.register("TriggerListResult", TriggerListResultSchema),
+    ],
+    [
+      PromoteVersionResultSchema,
+      registry.register("PromoteVersionResult", PromoteVersionResultSchema),
+    ],
+    [
+      StartCanaryResultSchema,
+      registry.register("StartCanaryResult", StartCanaryResultSchema),
+    ],
+    [
+      RollbackVersionResultSchema,
+      registry.register("RollbackVersionResult", RollbackVersionResultSchema),
+    ],
+    [SignedReferenceSchema, registry.register("SignedReference", SignedReferenceSchema)],
+  ]);
+
   const page = registry.register(
     "CursorPage",
     z
@@ -293,7 +428,9 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
     if (params !== undefined) {
       request.params = params;
     }
-    if (route.collection) {
+    if (route.queryParams) {
+      request.query = route.queryParams;
+    } else if (route.collection) {
       request.query = route.statusFilter
         ? ApprovalQuerySchema
         : route.runsFilter
@@ -338,9 +475,12 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
               }
             : {
                 "application/json": {
-                  schema: route.collection
-                    ? paginatedResponse
-                    : resource,
+                  schema: route.responseSchema
+                    ? (responseSchemaByRaw.get(route.responseSchema) ??
+                      route.responseSchema)
+                    : route.collection
+                      ? paginatedResponse
+                      : resource,
                 },
               },
         },

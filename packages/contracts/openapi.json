@@ -437,6 +437,26 @@
         "additionalProperties": false,
         "description": "RFC 9457 application/problem+json. Forbidden: tenant_id, stack traces, SQL errors, provider secrets, internal service names, and raw model/provider responses."
       },
+      "PromoteVersionResult": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "promoted"
+            ]
+          },
+          "promoted_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "status",
+          "promoted_at"
+        ],
+        "additionalProperties": false
+      },
       "ProviderCapabilities": {
         "type": "object",
         "properties": {
@@ -541,9 +561,175 @@
         ],
         "additionalProperties": false
       },
+      "RegisterTriggerResult": {
+        "type": "object",
+        "properties": {
+          "trigger": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^trg_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+              },
+              "tenantId": {
+                "type": "string",
+                "pattern": "^ten_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+              },
+              "workspaceId": {
+                "type": "string",
+                "pattern": "^ws_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+              },
+              "workflowId": {
+                "type": "string",
+                "pattern": "^wf_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "webhook",
+                  "cron",
+                  "manual"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "enabled",
+                  "disabled",
+                  "archived"
+                ]
+              },
+              "provider": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1
+              }
+            },
+            "required": [
+              "id",
+              "tenantId",
+              "workspaceId",
+              "workflowId",
+              "name",
+              "type",
+              "status",
+              "provider"
+            ],
+            "additionalProperties": false
+          },
+          "triggerVersion": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^trgv_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+              },
+              "tenantId": {
+                "type": "string",
+                "pattern": "^ten_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+              },
+              "triggerId": {
+                "type": "string",
+                "pattern": "^trg_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+              },
+              "version": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "workflowVersionId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^wfv_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+              },
+              "config": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "superseded",
+                  "disabled"
+                ]
+              },
+              "nextFireAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "tenantId",
+              "triggerId",
+              "version",
+              "workflowVersionId",
+              "config",
+              "status",
+              "nextFireAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "trigger",
+          "triggerVersion"
+        ],
+        "additionalProperties": false
+      },
       "Resource": {
         "type": "object",
         "additionalProperties": {}
+      },
+      "RollbackVersionResult": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "rolled_back"
+            ]
+          },
+          "active_version_id": {
+            "type": "string",
+            "pattern": "^wfv_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          }
+        },
+        "required": [
+          "status",
+          "active_version_id"
+        ],
+        "additionalProperties": false
+      },
+      "SignedReference": {
+        "type": "object",
+        "properties": {
+          "signed_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "signed_url",
+          "expires_at"
+        ],
+        "additionalProperties": false
       },
       "SseEnvelope": {
         "oneOf": [
@@ -1448,6 +1634,217 @@
             "additionalProperties": false
           }
         ]
+      },
+      "StartCanaryResult": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "canary"
+            ]
+          },
+          "traffic_percent": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 99
+          }
+        },
+        "required": [
+          "status",
+          "traffic_percent"
+        ],
+        "additionalProperties": false
+      },
+      "Trigger": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^trg_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          },
+          "tenantId": {
+            "type": "string",
+            "pattern": "^ten_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          },
+          "workspaceId": {
+            "type": "string",
+            "pattern": "^ws_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          },
+          "workflowId": {
+            "type": "string",
+            "pattern": "^wf_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "webhook",
+              "cron",
+              "manual"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "enabled",
+              "disabled",
+              "archived"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "workspaceId",
+          "workflowId",
+          "name",
+          "type",
+          "status",
+          "provider"
+        ],
+        "additionalProperties": false
+      },
+      "TriggerListResult": {
+        "type": "object",
+        "properties": {
+          "triggers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^trg_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "tenantId": {
+                  "type": "string",
+                  "pattern": "^ten_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "workspaceId": {
+                  "type": "string",
+                  "pattern": "^ws_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "workflowId": {
+                  "type": "string",
+                  "pattern": "^wf_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "webhook",
+                    "cron",
+                    "manual"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "enabled",
+                    "disabled",
+                    "archived"
+                  ]
+                },
+                "provider": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id",
+                "tenantId",
+                "workspaceId",
+                "workflowId",
+                "name",
+                "type",
+                "status",
+                "provider"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "triggers"
+        ],
+        "additionalProperties": false
+      },
+      "TriggerVersion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^trgv_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          },
+          "tenantId": {
+            "type": "string",
+            "pattern": "^ten_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          },
+          "triggerId": {
+            "type": "string",
+            "pattern": "^trg_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "workflowVersionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^wfv_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "superseded",
+              "disabled"
+            ]
+          },
+          "nextFireAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "triggerId",
+          "version",
+          "workflowVersionId",
+          "config",
+          "status",
+          "nextFireAt"
+        ],
+        "additionalProperties": false
       },
       "WorkflowDagCompiled": {
         "type": "object",
@@ -3208,7 +3605,227 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Resource"
+                  "$ref": "#/components/schemas/RollbackVersionResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/{id}/actions/promote-version": {
+      "post": {
+        "operationId": "post_workflows_id_actions_promote_version",
+        "summary": "Promote workflow version",
+        "tags": [
+          "Workflows"
+        ],
+        "security": [
+          {
+            "M2MAuth": [],
+            "ActorToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z]+_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "traceparent",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "description": "Typed resource or action input",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoteVersionResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/{id}/actions/start-canary": {
+      "post": {
+        "operationId": "post_workflows_id_actions_start_canary",
+        "summary": "Start workflow version canary",
+        "tags": [
+          "Workflows"
+        ],
+        "security": [
+          {
+            "M2MAuth": [],
+            "ActorToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z]+_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "traceparent",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "description": "Typed resource or action input",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartCanaryResult"
                 }
               }
             }
@@ -5976,7 +6593,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Resource"
+                  "$ref": "#/components/schemas/RegisterTriggerResult"
                 }
               }
             }
@@ -6025,21 +6642,10 @@
           {
             "schema": {
               "type": "string",
-              "minLength": 1
+              "pattern": "^wf_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
             },
             "required": false,
-            "name": "cursor",
-            "in": "query"
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 200,
-              "default": 50
-            },
-            "required": false,
-            "name": "limit",
+            "name": "workflowId",
             "in": "query"
           },
           {
@@ -6074,7 +6680,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponse"
+                  "$ref": "#/components/schemas/TriggerListResult"
                 }
               }
             }
@@ -6163,7 +6769,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Resource"
+                  "$ref": "#/components/schemas/Trigger"
                 }
               }
             }
@@ -6198,118 +6804,9 @@
       }
     },
     "/api/v1/triggers/{id}/versions": {
-      "get": {
-        "operationId": "get_triggers_id_versions",
-        "summary": "List trigger versions",
-        "tags": [
-          "Triggers"
-        ],
-        "security": [
-          {
-            "M2MAuth": [],
-            "ActorToken": []
-          }
-        ],
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "pattern": "^[a-z]+_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "name": "cursor",
-            "in": "query"
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 200,
-              "default": 50
-            },
-            "required": false,
-            "name": "limit",
-            "in": "query"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "name": "traceparent",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "headers": {
-              "request_id": {
-                "schema": {
-                  "type": "string",
-                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
-                },
-                "required": true
-              },
-              "trace_id": {
-                "schema": {
-                  "type": "string",
-                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
-                },
-                "required": true
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponse"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "RFC 9457 problem response",
-            "headers": {
-              "request_id": {
-                "schema": {
-                  "type": "string",
-                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
-                },
-                "required": true
-              },
-              "trace_id": {
-                "schema": {
-                  "type": "string",
-                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
-                },
-                "required": true
-              }
-            },
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/triggers/{id}/actions/enable": {
       "post": {
-        "operationId": "post_triggers_id_actions_enable",
-        "summary": "Enable trigger",
+        "operationId": "post_triggers_id_versions",
+        "summary": "Create trigger version",
         "tags": [
           "Triggers"
         ],
@@ -6382,7 +6879,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Resource"
+                  "$ref": "#/components/schemas/TriggerVersion"
                 }
               }
             }
@@ -6416,10 +6913,10 @@
         }
       }
     },
-    "/api/v1/triggers/{id}/actions/disable": {
-      "post": {
-        "operationId": "post_triggers_id_actions_disable",
-        "summary": "Disable trigger",
+    "/api/v1/triggers/{id}/status": {
+      "patch": {
+        "operationId": "patch_triggers_id_status",
+        "summary": "Set trigger status",
         "tags": [
           "Triggers"
         ],
@@ -6455,6 +6952,15 @@
             },
             "required": true,
             "name": "Idempotency-Key",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "If-Match",
             "in": "header"
           }
         ],
@@ -6492,117 +6998,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Resource"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "RFC 9457 problem response",
-            "headers": {
-              "request_id": {
-                "schema": {
-                  "type": "string",
-                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
-                },
-                "required": true
-              },
-              "trace_id": {
-                "schema": {
-                  "type": "string",
-                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
-                },
-                "required": true
-              }
-            },
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/triggers/{id}/actions/test": {
-      "post": {
-        "operationId": "post_triggers_id_actions_test",
-        "summary": "Test trigger",
-        "tags": [
-          "Triggers"
-        ],
-        "security": [
-          {
-            "M2MAuth": [],
-            "ActorToken": []
-          }
-        ],
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "pattern": "^[a-z]+_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "name": "traceparent",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "name": "Idempotency-Key",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": false,
-          "description": "Typed resource or action input",
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": {}
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "headers": {
-              "request_id": {
-                "schema": {
-                  "type": "string",
-                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
-                },
-                "required": true
-              },
-              "trace_id": {
-                "schema": {
-                  "type": "string",
-                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
-                },
-                "required": true
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Resource"
+                  "$ref": "#/components/schemas/Trigger"
                 }
               }
             }
@@ -7310,7 +7706,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Resource"
+                  "$ref": "#/components/schemas/SignedReference"
                 }
               }
             }
