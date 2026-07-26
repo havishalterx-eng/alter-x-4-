@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from src.ads_client.client import StubAdsClient
 from src.planner.kernel import PlannerKernel, PlannerValidationError
 from src.planner.llm_client import StubLlmClient
+from src.planner.manager_worker import ManagerWorkerPlan
 from src.planner.models import (
     DecomposeRequest,
     ReplanRequest,
@@ -16,6 +17,7 @@ from src.planner.models import (
 from src.planner.strategies import (
     STRATEGY_DIRECT,
     STRATEGY_ITERATIVE,
+    STRATEGY_MANAGER_WORKER,
     STRATEGY_PLAN_THEN_EXECUTE,
 )
 from src.planner.task_skeleton import TaskSkeleton
@@ -101,6 +103,79 @@ class TestDecompose:
     async def test_rejects_malformed_run_id(self) -> None:
         with pytest.raises(ValidationError):
             _decompose_req(run_id="bad_id")
+
+
+class TestDecomposeProjectStrategy:
+    async def test_plan_then_execute_produces_fourteen_stage_pipeline(self) -> None:
+        kernel = _kernel()
+        response = await kernel.decompose(
+            _decompose_req(
+                objective="build a support ticket app",
+                strategy=STRATEGY_PLAN_THEN_EXECUTE,
+            )
+        )
+
+        skeleton = TaskSkeleton.from_json(response.task_skeleton_json)
+        assert len(skeleton.nodes) == 14
+        assert skeleton.entry_point == "node_clarify_objective"
+
+    async def test_plan_then_execute_never_calls_llm_client(self) -> None:
+        class ExplodingLlmClient(StubLlmClient):
+            async def generate_skeleton(self, **kwargs: object) -> TaskSkeleton:
+                raise AssertionError("Project strategy must not call generate_skeleton")
+
+        kernel = PlannerKernel(ads_client=StubAdsClient(), llm_client=ExplodingLlmClient())
+        response = await kernel.decompose(
+            _decompose_req(objective="build an app", strategy=STRATEGY_PLAN_THEN_EXECUTE)
+        )
+
+        assert TaskSkeleton.from_json(response.task_skeleton_json).nodes
+
+
+class TestDecomposeManagerWorkerStrategy:
+    async def test_manager_worker_produces_manager_plus_workers_plus_join(self) -> None:
+        kernel = _kernel()
+        response = await kernel.decompose(
+            _decompose_req(
+                objective="coordinate multiple regional teams", strategy=STRATEGY_MANAGER_WORKER
+            )
+        )
+
+        skeleton = TaskSkeleton.from_json(response.task_skeleton_json)
+        assert skeleton.entry_point == "node_manager"
+        node_keys = {n.key for n in skeleton.nodes}
+        assert "node_manager" in node_keys
+        assert "node_join" in node_keys
+        assert len(node_keys) >= 3  # manager + >=1 worker + join
+
+    async def test_manager_worker_requests_ceiling_tier(self) -> None:
+        captured: dict[str, object] = {}
+
+        class CapturingLlmClient(StubLlmClient):
+            async def generate_manager_worker_plan(
+                self,
+                *,
+                tenant_id: str,
+                run_id: str,
+                objective: str,
+                kb_context: str,
+                model_alias: str,
+            ) -> ManagerWorkerPlan:
+                captured["model_alias"] = model_alias
+                return await super().generate_manager_worker_plan(
+                    tenant_id=tenant_id,
+                    run_id=run_id,
+                    objective=objective,
+                    kb_context=kb_context,
+                    model_alias=model_alias,
+                )
+
+        kernel = PlannerKernel(ads_client=StubAdsClient(), llm_client=CapturingLlmClient())
+        await kernel.decompose(
+            _decompose_req(objective="coordinate multiple teams", strategy=STRATEGY_MANAGER_WORKER)
+        )
+
+        assert captured["model_alias"] == "CEILING"
 
 
 # ---------------------------------------------------------------------------

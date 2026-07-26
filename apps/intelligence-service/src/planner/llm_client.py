@@ -11,7 +11,12 @@ time without touching kernel.py.
 
 from typing import Protocol, runtime_checkable
 
+from .manager_worker import ManagerWorkerPlan, WorkerTaskSpec
 from .task_skeleton import TaskNode, TaskSkeleton
+
+# Alter LLM alias vocabulary (doc 13 sec 2) -- components never name a model,
+# only an alias; Model Gateway resolves the actual provider/model via policy.
+MODEL_ALIAS_CEILING = "CEILING"
 
 _STUB_NODE_KEY = "node_stub_000"
 
@@ -56,6 +61,22 @@ class LlmClient(Protocol):
         """Revise a skeleton given a failure context. Returns (skeleton, reason)."""
         ...
 
+    async def generate_manager_worker_plan(
+        self,
+        *,
+        tenant_id: str,
+        run_id: str,
+        objective: str,
+        kb_context: str,
+        model_alias: str,
+    ) -> ManagerWorkerPlan:
+        """Split an objective into a manager + parallel worker task plan.
+
+        This is the Planner's hardest decomposition call -- callers pass
+        model_alias=MODEL_ALIAS_CEILING (see kernel.py), never a lower tier.
+        """
+        ...
+
 
 class StubLlmClient:
     """Contract-complete stub. Returns deterministic minimal skeletons.
@@ -89,3 +110,20 @@ class StubLlmClient:
             entry_point=current_skeleton.entry_point,
         )
         return revised, "Stub revision: no changes applied."
+
+    async def generate_manager_worker_plan(
+        self,
+        *,
+        tenant_id: str,
+        run_id: str,
+        objective: str,
+        kb_context: str,
+        model_alias: str,
+    ) -> ManagerWorkerPlan:
+        return ManagerWorkerPlan(
+            manager_config={"objective": objective},
+            workers=[
+                WorkerTaskSpec(key="a", objective=f"{objective} -- part A", config={}),
+                WorkerTaskSpec(key="b", objective=f"{objective} -- part B", config={}),
+            ],
+        )

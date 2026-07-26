@@ -13,7 +13,8 @@ import json
 
 from ..ads_client.client import AdsClient
 from ..ads_client.models import RetrievalHit, RetrieveRequest
-from .llm_client import LlmClient
+from .llm_client import MODEL_ALIAS_CEILING, LlmClient
+from .manager_worker import build_manager_worker_skeleton
 from .models import (
     DecomposeRequest,
     DecomposeResponse,
@@ -22,7 +23,8 @@ from .models import (
     SelectStrategyRequest,
     SelectStrategyResponse,
 )
-from .strategies import select_strategy
+from .project_strategy import build_project_skeleton
+from .strategies import STRATEGY_MANAGER_WORKER, STRATEGY_PLAN_THEN_EXECUTE, select_strategy
 from .task_skeleton import TaskSkeleton
 
 _ADS_KB_TOP_K = 5
@@ -63,13 +65,28 @@ class PlannerKernel:
         )
         kb_context = _hits_to_context(retrieve_resp.hits)
 
-        skeleton = await self._llm.generate_skeleton(
-            tenant_id=request.tenant_id,
-            run_id=request.run_id,
-            objective=request.objective,
-            strategy=request.strategy,
-            kb_context=kb_context,
-        )
+        if request.strategy == STRATEGY_PLAN_THEN_EXECUTE:
+            # Project-mode: fixed 14-stage build pipeline, no LLM call needed
+            # to decide the skeleton shape (see project_strategy.py).
+            skeleton = build_project_skeleton(kb_context)
+        elif request.strategy == STRATEGY_MANAGER_WORKER:
+            # Hardest decomposition the Planner does -- always CEILING tier.
+            plan = await self._llm.generate_manager_worker_plan(
+                tenant_id=request.tenant_id,
+                run_id=request.run_id,
+                objective=request.objective,
+                kb_context=kb_context,
+                model_alias=MODEL_ALIAS_CEILING,
+            )
+            skeleton = build_manager_worker_skeleton(plan)
+        else:
+            skeleton = await self._llm.generate_skeleton(
+                tenant_id=request.tenant_id,
+                run_id=request.run_id,
+                objective=request.objective,
+                strategy=request.strategy,
+                kb_context=kb_context,
+            )
 
         # Ambiguity: non-trivial objective with zero KB hits raises a question.
         clarification_questions: list[str] = []

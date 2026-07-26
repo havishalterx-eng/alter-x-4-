@@ -1,9 +1,16 @@
 """Workflow strategy selection.
 
-Three strategies exist on the planner:
+Four strategies exist on the planner:
 - DIRECT           -- single-step execution, no decomposition required.
 - ITERATIVE        -- multi-step with intermediate validation gates.
-- PLAN_THEN_EXECUTE -- full decomposition first, batch execution after approval.
+- PLAN_THEN_EXECUTE -- full decomposition first, batch execution after approval
+                       (always used for mode="project"; see project_strategy.py).
+- MANAGER_WORKER   -- objective spans several independent large workstreams;
+                       fanned out to parallel worker agents under one manager
+                       (see manager_worker.py). Only escalated to from
+                       mode="workflow" -- Project-mode work always needs its
+                       fixed build pipeline regardless of scale, so it is
+                       never overridden by this escalation.
 
 SelectStrategy is a deterministic heuristic; it never calls the LLM.  The
 heuristic is intentionally conservative: when in doubt, choose a more
@@ -13,6 +20,15 @@ deliberate strategy to avoid silent failures during execution.
 STRATEGY_DIRECT = "direct"
 STRATEGY_ITERATIVE = "iterative"
 STRATEGY_PLAN_THEN_EXECUTE = "plan_then_execute"
+STRATEGY_MANAGER_WORKER = "manager_worker"
+
+# A workflow objective escalates to ManagerWorker only when both signals of
+# large, multi-workstream scope are present -- long AND touching several
+# distinct complex-action keywords. Conservative on purpose: iterative is a
+# safe default, so we only fan out to parallel agents when the objective
+# clearly can't be served by a single execution path.
+_MANAGER_WORKER_WORD_THRESHOLD = 40
+_MANAGER_WORKER_KEYWORD_THRESHOLD = 3
 
 # Keywords in the objective that signal non-trivial multi-step work.
 _COMPLEX_KEYWORDS = frozenset(
@@ -62,8 +78,23 @@ def select_strategy(objective: str, mode: str) -> tuple[str, str]:
         )
 
     if mode == "workflow":
-        words = set(objective.lower().split())
-        is_complex = bool(words & _COMPLEX_KEYWORDS)
+        word_list = objective.lower().split()
+        words = set(word_list)
+        complex_hits = words & _COMPLEX_KEYWORDS
+
+        if (
+            len(word_list) >= _MANAGER_WORKER_WORD_THRESHOLD
+            and len(complex_hits) >= _MANAGER_WORKER_KEYWORD_THRESHOLD
+        ):
+            return (
+                STRATEGY_MANAGER_WORKER,
+                "Objective spans multiple large workstreams "
+                f"({len(complex_hits)} distinct complex actions across "
+                f"{len(word_list)} words); fanning out to parallel manager/worker "
+                "agents rather than a single execution path.",
+            )
+
+        is_complex = bool(complex_hits)
         is_long = len(objective) >= _ITERATIVE_LENGTH_THRESHOLD
 
         if not is_complex and not is_long:
