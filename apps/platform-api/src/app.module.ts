@@ -19,6 +19,7 @@ import { ProjectModule } from "./projects/project.module";
 import { RunModule } from "./runs/run.module";
 import { ActionCentreModule } from "./action-centre/action-centre.module";
 import { CredentialModule } from "./credentials";
+import { AdsModule } from "./ads";
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { CredentialModule } from "./credentials";
     RunModule,
     ActionCentreModule,
     CredentialModule,
+    AdsModule,
   ],
   controllers: [HealthController],
 })
