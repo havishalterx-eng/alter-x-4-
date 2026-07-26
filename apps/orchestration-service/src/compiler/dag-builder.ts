@@ -69,6 +69,105 @@ export function parseTaskSkeleton(taskSkeletonJson: string): TaskSkeleton {
   return result.data;
 }
 
+// ---------------------------------------------------------------------------
+// metadata.ui pocket helpers
+// ---------------------------------------------------------------------------
+
+// Reserved key prefix -- values starting with "$" are Platform-internal and
+// must never appear in user-supplied metadata_ui.
+const RESERVED_UI_KEY_PREFIX = "$";
+
+function extractUiMetadata(
+  nodeKey: string,
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const raw = config["metadata_ui"];
+  if (raw === undefined) {
+    return {};
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new CompilerValidationError(
+      `Node "${nodeKey}": config.metadata_ui must be a plain object`,
+    );
+  }
+  for (const key of Object.keys(raw as Record<string, unknown>)) {
+    if (key.startsWith(RESERVED_UI_KEY_PREFIX)) {
+      throw new CompilerValidationError(
+        `Node "${nodeKey}": config.metadata_ui key "${key}" uses the reserved prefix "$"`,
+      );
+    }
+  }
+  return raw as Record<string, unknown>;
+}
+
+// Strip the metadata_ui key from config before passing it to the compiled
+// node's config field -- UI hints belong in metadata.ui, not in execution config.
+function configWithoutUiMetadata(config: Record<string, unknown>): Record<string, unknown> {
+  const rest: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(config)) {
+    if (key !== "metadata_ui") {
+      rest[key] = value;
+    }
+  }
+  return rest;
+}
+
+// ---------------------------------------------------------------------------
+// Conditional edge helpers (Gate / branch nodes)
+// ---------------------------------------------------------------------------
+
+function extractGateConditions(
+  gateKey: string,
+  config: Record<string, unknown>,
+): Record<string, string> {
+  const raw = config["conditions"];
+  if (raw === undefined || raw === null) {
+    return {};
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new CompilerValidationError(
+      `Gate node "${gateKey}": config.conditions must be a plain object`,
+    );
+  }
+  const conditions: Record<string, string> = {};
+  for (const [targetKey, expr] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof expr !== "string" || expr.trim() === "") {
+      throw new CompilerValidationError(
+        `Gate node "${gateKey}": condition for target "${targetKey}" must be a non-empty string`,
+      );
+    }
+    conditions[targetKey] = expr;
+  }
+  return conditions;
+}
+
+function validateGateConditionCoverage(
+  gateKey: string,
+  conditions: Record<string, string>,
+  successors: Set<string>,
+): void {
+  // Every successor must have a condition.
+  for (const successorKey of successors) {
+    if (!(successorKey in conditions)) {
+      throw new CompilerValidationError(
+        `Gate node "${gateKey}": no condition defined for successor "${successorKey}"`,
+      );
+    }
+  }
+  // Every condition key must reference an actual successor.
+  for (const conditionKey of Object.keys(conditions)) {
+    if (!successors.has(conditionKey)) {
+      throw new CompilerValidationError(
+        `Gate node "${gateKey}": condition references "${conditionKey}" which is not a direct successor`,
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main compilation entry point
+// ---------------------------------------------------------------------------
+
 export function compileTaskSkeletonToDag(
   skeleton: TaskSkeleton,
   dagSchemaVersion: string,
@@ -103,23 +202,75 @@ export function compileTaskSkeletonToDag(
     }
   }
 
+  // ------------------------------------------------------------------
+  // Gather Gate successors and validate condition coverage up front so
+  // we fail early before writing any compiled output.
+  // ------------------------------------------------------------------
+
+  const gateSuccessors = new Map<string, Set<string>>();
+  for (const node of skeleton.nodes) {
+    if (NODE_TYPE_MAP[node.type] === "Gate") {
+      gateSuccessors.set(node.key, new Set());
+    }
+  }
+  for (const node of skeleton.nodes) {
+    for (const dep of node.depends_on) {
+      const depNode = nodesByKey.get(dep);
+      if (depNode !== undefined && NODE_TYPE_MAP[depNode.type] === "Gate") {
+        gateSuccessors.get(dep)?.add(node.key);
+      }
+    }
+  }
+
+  const gateConditionsMap = new Map<string, Record<string, string>>();
+  for (const [gateKey, successors] of gateSuccessors) {
+    const gateNode = nodesByKey.get(gateKey);
+    const conditions = extractGateConditions(gateKey, gateNode?.config ?? {});
+    validateGateConditionCoverage(gateKey, conditions, successors);
+    gateConditionsMap.set(gateKey, conditions);
+  }
+
+  // ------------------------------------------------------------------
+  // Build compiled nodes (with metadata.ui pocket extraction).
+  // ------------------------------------------------------------------
+
   const nodes: CompiledDag["nodes"] = skeleton.nodes.map((node) => ({
     key: node.key,
     type: NODE_TYPE_MAP[node.type],
-    config: node.config,
-    metadata: { ui: {} },
+    config: configWithoutUiMetadata(node.config),
+    metadata: { ui: extractUiMetadata(node.key, node.config) },
   }));
+
+  // ------------------------------------------------------------------
+  // Build compiled edges (conditional edges for Gate outputs).
+  // ------------------------------------------------------------------
 
   const edges: CompiledDag["edges"] = [];
   for (const node of skeleton.nodes) {
-    const kind = NODE_TYPE_MAP[node.type] === "Merge" ? "merge" : "sequential";
+    const nodeType = NODE_TYPE_MAP[node.type];
+    const defaultKind = nodeType === "Merge" ? "merge" : "sequential";
+
     for (const dependency of node.depends_on) {
-      edges.push({
-        key: `${dependency}-to-${node.key}`,
-        from: dependency,
-        to: node.key,
-        kind,
-      });
+      const depNode = nodesByKey.get(dependency);
+      const depType = depNode !== undefined ? NODE_TYPE_MAP[depNode.type] : undefined;
+
+      if (depType === "Gate") {
+        const expression = gateConditionsMap.get(dependency)?.[node.key] ?? "";
+        edges.push({
+          key: `${dependency}-to-${node.key}`,
+          from: dependency,
+          to: node.key,
+          kind: "conditional",
+          condition: { expression, language: "cel" },
+        });
+      } else {
+        edges.push({
+          key: `${dependency}-to-${node.key}`,
+          from: dependency,
+          to: node.key,
+          kind: defaultKind,
+        });
+      }
     }
   }
 

@@ -37,6 +37,29 @@ function managerWorkerSkeleton(): TaskSkeleton {
   };
 }
 
+// Skeleton with a Gate node that has two conditional branches.
+function branchingSkeleton(): TaskSkeleton {
+  return {
+    version: "1",
+    entry_point: "node_gate",
+    nodes: [
+      {
+        key: "node_gate",
+        type: "branch",
+        config: {
+          conditions: {
+            node_yes: "output.score > 0.8",
+            node_no: "output.score <= 0.8",
+          },
+        },
+        depends_on: [],
+      },
+      { key: "node_yes", type: "llm", config: {}, depends_on: ["node_gate"] },
+      { key: "node_no", type: "llm", config: {}, depends_on: ["node_gate"] },
+    ],
+  };
+}
+
 describe("parseTaskSkeleton", () => {
   it("parses a well-formed skeleton", () => {
     const json = JSON.stringify(sequentialSkeleton());
@@ -62,6 +85,10 @@ describe("parseTaskSkeleton", () => {
 });
 
 describe("compileTaskSkeletonToDag", () => {
+  // -------------------------------------------------------------------------
+  // Existing PLAN-9 tests (unchanged)
+  // -------------------------------------------------------------------------
+
   it("produces one node per skeleton node with mapped types", () => {
     const dag = compileTaskSkeletonToDag(sequentialSkeleton(), "v1");
 
@@ -187,5 +214,288 @@ describe("compileTaskSkeletonToDag", () => {
     expect(dag.waves).toEqual([
       { key: "wave_0", order: 0, node_keys: ["only"], depends_on: [] },
     ]);
+  });
+
+  // -------------------------------------------------------------------------
+  // PLAN-10: Conditional edges (Gate / branch nodes)
+  // -------------------------------------------------------------------------
+
+  it("synthesizes conditional edges from a Gate node", () => {
+    const dag = compileTaskSkeletonToDag(branchingSkeleton(), "v1");
+
+    const gateEdges = dag.edges.filter((e) => e.from === "node_gate");
+    expect(gateEdges).toHaveLength(2);
+    for (const edge of gateEdges) {
+      expect(edge.kind).toBe("conditional");
+      expect(edge.condition).toBeDefined();
+      expect(edge.condition?.language).toBe("cel");
+    }
+  });
+
+  it("attaches the correct CEL expression to each conditional edge", () => {
+    const dag = compileTaskSkeletonToDag(branchingSkeleton(), "v1");
+
+    const toYes = dag.edges.find((e) => e.to === "node_yes");
+    const toNo = dag.edges.find((e) => e.to === "node_no");
+
+    expect(toYes?.condition?.expression).toBe("output.score > 0.8");
+    expect(toNo?.condition?.expression).toBe("output.score <= 0.8");
+  });
+
+  it("rejects a Gate node with missing condition for a successor", () => {
+    const skeleton: TaskSkeleton = {
+      version: "1",
+      entry_point: "gate",
+      nodes: [
+        {
+          key: "gate",
+          type: "branch",
+          // condition for node_b is absent
+          config: { conditions: { node_a: "output.flag == true" } },
+          depends_on: [],
+        },
+        { key: "node_a", type: "llm", config: {}, depends_on: ["gate"] },
+        { key: "node_b", type: "llm", config: {}, depends_on: ["gate"] },
+      ],
+    };
+
+    expect(() => compileTaskSkeletonToDag(skeleton, "v1")).toThrow(CompilerValidationError);
+    expect(() => compileTaskSkeletonToDag(skeleton, "v1")).toThrow(/node_b/);
+  });
+
+  it("rejects a Gate node whose conditions reference a non-successor", () => {
+    const skeleton: TaskSkeleton = {
+      version: "1",
+      entry_point: "gate",
+      nodes: [
+        {
+          key: "gate",
+          type: "branch",
+          config: {
+            conditions: {
+              node_a: "output.flag == true",
+              ghost: "output.flag == false", // 'ghost' does not depend_on gate
+            },
+          },
+          depends_on: [],
+        },
+        { key: "node_a", type: "llm", config: {}, depends_on: ["gate"] },
+      ],
+    };
+
+    expect(() => compileTaskSkeletonToDag(skeleton, "v1")).toThrow(CompilerValidationError);
+    expect(() => compileTaskSkeletonToDag(skeleton, "v1")).toThrow(/ghost/);
+  });
+
+  it("rejects a Gate node with an empty-string CEL expression", () => {
+    const skeleton: TaskSkeleton = {
+      version: "1",
+      entry_point: "gate",
+      nodes: [
+        {
+          key: "gate",
+          type: "branch",
+          config: { conditions: { node_a: "   " } }, // blank after trim
+          depends_on: [],
+        },
+        { key: "node_a", type: "llm", config: {}, depends_on: ["gate"] },
+      ],
+    };
+
+    expect(() => compileTaskSkeletonToDag(skeleton, "v1")).toThrow(CompilerValidationError);
+  });
+
+  it("rejects a Gate node with a non-object conditions value", () => {
+    const skeleton: TaskSkeleton = {
+      version: "1",
+      entry_point: "gate",
+      nodes: [
+        {
+          key: "gate",
+          type: "branch",
+          config: { conditions: ["not an object"] },
+          depends_on: [],
+        },
+        { key: "node_a", type: "llm", config: {}, depends_on: ["gate"] },
+      ],
+    };
+
+    expect(() => compileTaskSkeletonToDag(skeleton, "v1")).toThrow(CompilerValidationError);
+  });
+
+  it("allows a Gate node with no successors and no conditions", () => {
+    const skeleton: TaskSkeleton = {
+      version: "1",
+      entry_point: "gate",
+      nodes: [
+        { key: "gate", type: "branch", config: {}, depends_on: [] },
+      ],
+    };
+
+    const dag = compileTaskSkeletonToDag(skeleton, "v1");
+    expect(dag.edges).toHaveLength(0);
+  });
+
+  it("non-Gate nodes ignore a conditions key in their config", () => {
+    const skeleton: TaskSkeleton = {
+      version: "1",
+      entry_point: "node_a",
+      nodes: [
+        {
+          key: "node_a",
+          type: "llm",
+          config: { conditions: { node_b: "irrelevant" } },
+          depends_on: [],
+        },
+        { key: "node_b", type: "llm", config: {}, depends_on: ["node_a"] },
+      ],
+    };
+
+    const dag = compileTaskSkeletonToDag(skeleton, "v1");
+    expect(dag.edges[0]?.kind).toBe("sequential");
+  });
+
+  // -------------------------------------------------------------------------
+  // PLAN-10: metadata.ui pocket
+  // -------------------------------------------------------------------------
+
+  it("passes metadata_ui through to compiled node metadata.ui", () => {
+    const skeleton: TaskSkeleton = {
+      version: "1",
+      entry_point: "node_a",
+      nodes: [
+        {
+          key: "node_a",
+          type: "tool",
+          config: {
+            component: "Provisioning",
+            metadata_ui: { position_x: 100, position_y: 200, label: "Provision" },
+          },
+          depends_on: [],
+        },
+      ],
+    };
+
+    const dag = compileTaskSkeletonToDag(skeleton, "v1");
+
+    expect(dag.nodes[0]?.metadata.ui).toEqual({
+      position_x: 100,
+      position_y: 200,
+      label: "Provision",
+    });
+  });
+
+  it("strips metadata_ui from compiled node config", () => {
+    const skeleton: TaskSkeleton = {
+      version: "1",
+      entry_point: "node_a",
+      nodes: [
+        {
+          key: "node_a",
+          type: "tool",
+          config: { component: "Provisioning", metadata_ui: { x: 1 } },
+          depends_on: [],
+        },
+      ],
+    };
+
+    const dag = compileTaskSkeletonToDag(skeleton, "v1");
+
+    expect(dag.nodes[0]?.config).not.toHaveProperty("metadata_ui");
+    expect(dag.nodes[0]?.config).toEqual({ component: "Provisioning" });
+  });
+
+  it("defaults metadata.ui to empty object when metadata_ui absent", () => {
+    const dag = compileTaskSkeletonToDag(sequentialSkeleton(), "v1");
+
+    for (const node of dag.nodes) {
+      expect(node.metadata.ui).toEqual({});
+    }
+  });
+
+  it("rejects metadata_ui that is not a plain object", () => {
+    const skeleton: TaskSkeleton = {
+      version: "1",
+      entry_point: "node_a",
+      nodes: [
+        {
+          key: "node_a",
+          type: "tool",
+          config: { metadata_ui: "not an object" },
+          depends_on: [],
+        },
+      ],
+    };
+
+    expect(() => compileTaskSkeletonToDag(skeleton, "v1")).toThrow(CompilerValidationError);
+    expect(() => compileTaskSkeletonToDag(skeleton, "v1")).toThrow(/metadata_ui must be a plain object/);
+  });
+
+  it("rejects metadata_ui that is an array", () => {
+    const skeleton: TaskSkeleton = {
+      version: "1",
+      entry_point: "node_a",
+      nodes: [
+        {
+          key: "node_a",
+          type: "tool",
+          config: { metadata_ui: [1, 2, 3] },
+          depends_on: [],
+        },
+      ],
+    };
+
+    expect(() => compileTaskSkeletonToDag(skeleton, "v1")).toThrow(CompilerValidationError);
+  });
+
+  it("rejects metadata_ui with a reserved $-prefixed key", () => {
+    const skeleton: TaskSkeleton = {
+      version: "1",
+      entry_point: "node_a",
+      nodes: [
+        {
+          key: "node_a",
+          type: "tool",
+          config: { metadata_ui: { "$internal": "secret" } },
+          depends_on: [],
+        },
+      ],
+    };
+
+    expect(() => compileTaskSkeletonToDag(skeleton, "v1")).toThrow(CompilerValidationError);
+    expect(() => compileTaskSkeletonToDag(skeleton, "v1")).toThrow(/reserved prefix/);
+  });
+
+  it("accepts metadata_ui with arbitrary JSON-serializable values", () => {
+    const skeleton: TaskSkeleton = {
+      version: "1",
+      entry_point: "node_a",
+      nodes: [
+        {
+          key: "node_a",
+          type: "tool",
+          config: {
+            metadata_ui: {
+              position: { x: 10, y: 20 },
+              tags: ["a", "b"],
+              visible: true,
+              count: 0,
+              note: null,
+            },
+          },
+          depends_on: [],
+        },
+      ],
+    };
+
+    const dag = compileTaskSkeletonToDag(skeleton, "v1");
+
+    expect(dag.nodes[0]?.metadata.ui).toEqual({
+      position: { x: 10, y: 20 },
+      tags: ["a", "b"],
+      visible: true,
+      count: 0,
+      note: null,
+    });
   });
 });
