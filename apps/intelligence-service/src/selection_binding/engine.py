@@ -228,7 +228,7 @@ class SelectionBindingEngine:
             tenant_id=request.tenant_id,
             text="\n".join(requirement.capabilities),
         )
-        query_embedding = _vector_literal(raw_embedding)
+        query_embedding = embedding_vector_literal(raw_embedding)
         result = await self._session.execute(
             _RANKED_AGENT_QUERY,
             {
@@ -307,7 +307,7 @@ def _database_uuid(prefixed_id: str, expected_prefix: str) -> str:
         raise BindingValidationError("identifier does not contain a valid UUID") from error
 
 
-def _vector_literal(values: Sequence[float]) -> str:
+def embedding_vector_literal(values: Sequence[float]) -> str:
     vector = list(values)
     if len(vector) != _EMBEDDING_DIMENSIONS:
         raise EmbeddingResultError(

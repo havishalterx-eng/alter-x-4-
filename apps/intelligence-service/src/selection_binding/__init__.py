@@ -3,6 +3,7 @@ from src.selection_binding.engine import (
     BindingValidationError,
     EmbeddingResultError,
     SelectionBindingEngine,
+    embedding_vector_literal,
 )
 from src.selection_binding.models import (
     BindAgentModelToolRequest,
@@ -24,4 +25,5 @@ __all__ = [
     "NoAgentMatch",
     "NoMatchReason",
     "SelectionBindingEngine",
+    "embedding_vector_literal",
 ]
