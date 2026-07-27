@@ -105,56 +105,6 @@ describe("WorkflowService", () => {
     );
   });
 
-  it("relays typed deployment actions without reshaping", async () => {
-    const engine = engineStub();
-    const service = new WorkflowService(engine.value);
-    const versionId = "wfv_018f47a5-7b2c-7d10-8f11-123456789abc";
-
-    await service.promoteVersion(
-      workflowId,
-      { workflow_version_id: versionId },
-      actor,
-      traceparent,
-      "promote-key",
-    );
-    await service.startCanary(
-      workflowId,
-      { workflow_version_id: versionId, traffic_percent: 10 },
-      actor,
-      traceparent,
-      "canary-key",
-    );
-    await service.rollbackVersion(
-      workflowId,
-      { target_version_id: versionId },
-      actor,
-      traceparent,
-      "rollback-key",
-    );
-
-    expect(engine.post).toHaveBeenNthCalledWith(
-      1,
-      `/api/v1/workflows/${workflowId}/actions/promote-version`,
-      { workflow_version_id: versionId },
-      expectedContext(),
-      { idempotencyKey: "promote-key" },
-    );
-    expect(engine.post).toHaveBeenNthCalledWith(
-      2,
-      `/api/v1/workflows/${workflowId}/actions/start-canary`,
-      { workflow_version_id: versionId, traffic_percent: 10 },
-      expectedContext(),
-      { idempotencyKey: "canary-key" },
-    );
-    expect(engine.post).toHaveBeenNthCalledWith(
-      3,
-      `/api/v1/workflows/${workflowId}/actions/rollback`,
-      { target_version_id: versionId },
-      expectedContext(),
-      { idempotencyKey: "rollback-key" },
-    );
-  });
-
   it("generates trace context and requires workspace context", async () => {
     const engine = engineStub();
     const service = new WorkflowService(engine.value);

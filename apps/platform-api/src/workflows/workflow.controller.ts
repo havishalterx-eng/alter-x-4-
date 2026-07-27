@@ -16,17 +16,10 @@ import type { FastifyReply } from "fastify";
 import type { EngineResponse } from "../engine";
 import { EtagConstrained, EtagResponseInterceptor } from "../concurrency";
 import { Idempotent } from "../idempotency";
-import {
-  ActorContext,
-  RequirePermission,
-  RequireWorkspaceRole,
-} from "../rbac";
+import { ActorContext, RequireWorkspaceRole } from "../rbac";
 import type { ActorContextType } from "../rbac";
 import { WorkflowHttpError } from "./problem";
 import type {
-  PromoteWorkflowVersionResult,
-  RollbackWorkflowVersionResult,
-  StartWorkflowCanaryResult,
   WorkflowActionResult,
   WorkflowResource,
   WorkflowVersionList,
@@ -35,11 +28,8 @@ import {
   createWorkflowSchema,
   emptyActionSchema,
   parseWorkflowInput,
-  promoteWorkflowVersionSchema,
-  rollbackWorkflowSchema,
   saveCanvasSchema,
   simulateWorkflowSchema,
-  startWorkflowCanarySchema,
 } from "./validation";
 import { WorkflowExceptionFilter } from "./workflow-exception.filter";
 import { WorkflowService } from "./workflow.service";
@@ -47,7 +37,6 @@ import { WorkflowService } from "./workflow.service";
 const readRoles = ["admin", "editor", "operator", "approver", "viewer"] as const;
 const writeRoles = ["admin", "editor"] as const;
 const operateRoles = ["admin", "editor", "operator"] as const;
-const privilegedRoles = ["admin"] as const;
 
 @Controller("/api/v1/workflows")
 @UseFilters(WorkflowExceptionFilter)
@@ -284,83 +273,6 @@ export class WorkflowController {
       actor,
       traceparent,
       idempotencyKey,
-      reply,
-    );
-  }
-
-  @Post(":workflowId/actions/rollback")
-  @RequireWorkspaceRole(...privilegedRoles)
-  @RequirePermission("workflows:deploy")
-  @Idempotent()
-  async rollback(
-    @Param("workflowId") workflowId: string,
-    @Body() body: unknown,
-    @ActorContext() actor: ActorContextType | undefined,
-    @Headers("traceparent") traceparent: string | undefined,
-    @Headers("idempotency-key") idempotencyKey: string | undefined,
-    @Res({ passthrough: true }) reply: FastifyReply,
-  ): Promise<RollbackWorkflowVersionResult> {
-    const instance = `/api/v1/workflows/${workflowId}/actions/rollback`;
-    return project(
-      await this.workflows.rollbackVersion(
-        workflowId,
-        parseWorkflowInput(rollbackWorkflowSchema, body, instance),
-        requireActor(actor, instance),
-        traceparent,
-        idempotencyKey!,
-      ),
-      reply,
-    );
-  }
-
-  @Post(":workflowId/actions/promote-version")
-  @RequireWorkspaceRole(...privilegedRoles)
-  @RequirePermission("workflows:deploy")
-  @Idempotent()
-  async promoteVersion(
-    @Param("workflowId") workflowId: string,
-    @Body() body: unknown,
-    @ActorContext() actor: ActorContextType | undefined,
-    @Headers("traceparent") traceparent: string | undefined,
-    @Headers("idempotency-key") idempotencyKey: string | undefined,
-    @Res({ passthrough: true }) reply: FastifyReply,
-  ): Promise<PromoteWorkflowVersionResult> {
-    const instance =
-      `/api/v1/workflows/${workflowId}/actions/promote-version`;
-    return project(
-      await this.workflows.promoteVersion(
-        workflowId,
-        parseWorkflowInput(promoteWorkflowVersionSchema, body, instance),
-        requireActor(actor, instance),
-        traceparent,
-        idempotencyKey!,
-      ),
-      reply,
-    );
-  }
-
-  @Post(":workflowId/actions/start-canary")
-  @RequireWorkspaceRole(...privilegedRoles)
-  @RequirePermission("workflows:deploy")
-  @Idempotent()
-  async startCanary(
-    @Param("workflowId") workflowId: string,
-    @Body() body: unknown,
-    @ActorContext() actor: ActorContextType | undefined,
-    @Headers("traceparent") traceparent: string | undefined,
-    @Headers("idempotency-key") idempotencyKey: string | undefined,
-    @Res({ passthrough: true }) reply: FastifyReply,
-  ): Promise<StartWorkflowCanaryResult> {
-    const instance =
-      `/api/v1/workflows/${workflowId}/actions/start-canary`;
-    return project(
-      await this.workflows.startCanary(
-        workflowId,
-        parseWorkflowInput(startWorkflowCanarySchema, body, instance),
-        requireActor(actor, instance),
-        traceparent,
-        idempotencyKey!,
-      ),
       reply,
     );
   }

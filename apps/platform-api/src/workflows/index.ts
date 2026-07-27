@@ -4,7 +4,6 @@ export { workflowDeferredCapabilities } from "./types";
 export { WorkflowService } from "./workflow.service";
 export type {
   CreateWorkflowInput,
-  RollbackWorkflowInput,
   SaveCanvasInput,
   SimulateWorkflowInput,
   WorkflowActionResult,

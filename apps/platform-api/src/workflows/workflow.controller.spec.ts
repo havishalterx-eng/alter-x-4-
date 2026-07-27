@@ -37,7 +37,6 @@ import { WorkflowService } from "./workflow.service";
 import { workflowDeferredCapabilities } from "./types";
 
 const workflowId = "wf_018f47a5-7b2c-7d10-8f11-123456789abc";
-const workflowVersionId = "wfv_018f47a5-7b2c-7d10-8f11-123456789abc";
 const tenantId = "ten_018f47a5-7b2c-7d10-8f11-123456789abc";
 const workspaceId = "ws_018f47a5-7b2c-7d10-8f11-123456789abc";
 const actor: ActorContextType = {
@@ -46,8 +45,8 @@ const actor: ActorContextType = {
   workspace_id: workspaceId,
   session_id: "session-a",
   auth_time: 1_700_000_000,
-  roles: ["admin"],
-  permissions: ["workflows:read", "workflows:write", "workflows:deploy"],
+  roles: ["editor"],
+  permissions: ["workflows:write"],
 };
 const viewer: ActorContextType = {
   ...actor,
@@ -200,24 +199,6 @@ describe("WorkflowController routes", () => {
         payload: {},
         status: 200,
       })),
-      {
-        path: `/api/v1/workflows/${workflowId}/actions/rollback`,
-        payload: { target_version_id: workflowVersionId },
-        status: 200,
-      },
-      {
-        path: `/api/v1/workflows/${workflowId}/actions/promote-version`,
-        payload: { workflow_version_id: workflowVersionId },
-        status: 200,
-      },
-      {
-        path: `/api/v1/workflows/${workflowId}/actions/start-canary`,
-        payload: {
-          workflow_version_id: workflowVersionId,
-          traffic_percent: 10,
-        },
-        status: 200,
-      },
     ];
 
     for (const [index, testCase] of cases.entries()) {
@@ -255,24 +236,6 @@ describe("WorkflowController routes", () => {
     ["POST", `/api/v1/workflows/${workflowId}/actions/activate`, {}, 200],
     ["POST", `/api/v1/workflows/${workflowId}/actions/pause`, {}, 200],
     ["POST", `/api/v1/workflows/${workflowId}/actions/resume`, {}, 200],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/rollback`,
-      { target_version_id: workflowVersionId },
-      200,
-    ],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/promote-version`,
-      { workflow_version_id: workflowVersionId },
-      200,
-    ],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/start-canary`,
-      { workflow_version_id: workflowVersionId, traffic_percent: 10 },
-      200,
-    ],
   ] as const)(
     "serves happy path %s %s",
     async (method, path, payload, expectedStatus) => {
@@ -302,21 +265,6 @@ describe("WorkflowController routes", () => {
     ["POST", `/api/v1/workflows/${workflowId}/actions/activate`, {}],
     ["POST", `/api/v1/workflows/${workflowId}/actions/pause`, {}],
     ["POST", `/api/v1/workflows/${workflowId}/actions/resume`, {}],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/rollback`,
-      { target_version_id: workflowVersionId },
-    ],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/promote-version`,
-      { workflow_version_id: workflowVersionId },
-    ],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/start-canary`,
-      { workflow_version_id: workflowVersionId, traffic_percent: 10 },
-    ],
   ] as const)("denies unauthenticated %s %s", async (method, path, payload) => {
     const response = await request(method, path, {
       headers: {
@@ -352,9 +300,6 @@ describe("WorkflowController routes", () => {
       `/api/v1/workflows/${workflowId}/actions/activate`,
       `/api/v1/workflows/${workflowId}/actions/pause`,
       `/api/v1/workflows/${workflowId}/actions/resume`,
-      `/api/v1/workflows/${workflowId}/actions/rollback`,
-      `/api/v1/workflows/${workflowId}/actions/promote-version`,
-      `/api/v1/workflows/${workflowId}/actions/start-canary`,
     ]) {
       const response = await request("POST", path, {
         actor: viewer,
@@ -376,21 +321,6 @@ describe("WorkflowController routes", () => {
     ["POST", `/api/v1/workflows/${workflowId}/actions/activate`, { extra: true }],
     ["POST", `/api/v1/workflows/${workflowId}/actions/pause`, { extra: true }],
     ["POST", `/api/v1/workflows/${workflowId}/actions/resume`, { extra: true }],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/rollback`,
-      { target_version_id: "bad-version" },
-    ],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/promote-version`,
-      { workflow_version_id: "bad-version" },
-    ],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/start-canary`,
-      { workflow_version_id: workflowVersionId, traffic_percent: 100 },
-    ],
   ] as const)("rejects invalid %s %s", async (method, path, payload) => {
     const response = await request(method, path, {
       actor,
@@ -421,21 +351,6 @@ describe("WorkflowController routes", () => {
     ["POST", `/api/v1/workflows/${workflowId}/actions/activate`, {}],
     ["POST", `/api/v1/workflows/${workflowId}/actions/pause`, {}],
     ["POST", `/api/v1/workflows/${workflowId}/actions/resume`, {}],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/rollback`,
-      { target_version_id: workflowVersionId },
-    ],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/promote-version`,
-      { workflow_version_id: workflowVersionId },
-    ],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/start-canary`,
-      { workflow_version_id: workflowVersionId, traffic_percent: 10 },
-    ],
   ] as const)(
     "passes through Engine problem for %s %s",
     async (method, path, payload) => {
@@ -456,52 +371,31 @@ describe("WorkflowController routes", () => {
     },
   );
 
-  it("records promotion source exactly and returns only declared result", async () => {
-    const response = await request(
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/promote-version`,
-      {
-        actor,
-        headers: { "idempotency-key": "promotion-audit" },
-        payload: { workflow_version_id: workflowVersionId },
-      },
+  it("flags deferred capabilities and exposes no fake routes", async () => {
+    expect(workflowDeferredCapabilities).toEqual(
+      [
+        "promote_version",
+        "start_canary",
+        "rollback_version",
+        "template_variables",
+      ].map((capability) =>
+        expect.objectContaining({ capability, status: "NOT_MET" }),
+      ),
     );
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
-      status: "promoted",
-      promoted_at: "2026-07-27T00:00:00.000Z",
-    });
-    expect(engine.post).toHaveBeenCalledWith(
+    for (const path of [
       `/api/v1/workflows/${workflowId}/actions/promote-version`,
-      { workflow_version_id: workflowVersionId },
-      expect.objectContaining({
-        tenantId,
-        workspaceId,
-        permissions: actor.permissions,
-      }),
-      { idempotencyKey: "promotion-audit" },
-    );
-    expect(response.json()).not.toHaveProperty("target_environment");
-  });
-
-  it("flags template variables NOT_MET and exposes no fake route", async () => {
-    expect(workflowDeferredCapabilities).toEqual([
-      expect.objectContaining({
-        capability: "template_variables",
-        status: "NOT_MET",
-      }),
-    ]);
-    const response = await request(
-      "POST",
+      `/api/v1/workflows/${workflowId}/actions/start-canary`,
+      `/api/v1/workflows/${workflowId}/actions/rollback`,
       `/api/v1/workflows/${workflowId}/template-variables`,
-      {
+    ]) {
+      const response = await request("POST", path, {
         actor,
-        headers: { "idempotency-key": "absent-template-vars" },
+        headers: { "idempotency-key": `absent-${path}` },
         payload: {},
-      },
-    );
-    expect(response.statusCode).toBe(404);
+      });
+      expect(response.statusCode).toBe(404);
+    }
   });
 
   function request(
@@ -605,35 +499,6 @@ class StatefulEngine {
       };
     }
     const action = path.split("/").at(-1) ?? "unknown";
-    if (action === "promote-version") {
-      return {
-        status: 200,
-        body: {
-          status: "promoted",
-          promoted_at: "2026-07-27T00:00:00.000Z",
-        },
-      };
-    }
-    if (action === "start-canary") {
-      return {
-        status: 200,
-        body: {
-          status: "canary",
-          traffic_percent: (_body as { traffic_percent: number })
-            .traffic_percent,
-        },
-      };
-    }
-    if (action === "rollback") {
-      return {
-        status: 200,
-        body: {
-          status: "rolled_back",
-          active_version_id: (_body as { target_version_id: string })
-            .target_version_id,
-        },
-      };
-    }
     return {
       status: action === "compile" ? 202 : 200,
       body: { workflow_id: workflowId, action, status: "accepted" },
@@ -762,15 +627,6 @@ function workflowDag(): CompiledDag {
 
 function validPayload(path: string): unknown {
   if (path.endsWith("/simulate")) return { input: {} };
-  if (path.endsWith("/rollback")) {
-    return { target_version_id: workflowVersionId };
-  }
-  if (path.endsWith("/promote-version")) {
-    return { workflow_version_id: workflowVersionId };
-  }
-  if (path.endsWith("/start-canary")) {
-    return { workflow_version_id: workflowVersionId, traffic_percent: 10 };
-  }
   if (path === "/api/v1/workflows") return { goal: "Build workflow" };
   return {};
 }

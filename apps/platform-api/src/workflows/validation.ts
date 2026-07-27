@@ -27,32 +27,6 @@ export const simulateWorkflowSchema = z
   })
   .strict();
 
-export const rollbackWorkflowSchema = z
-  .object({
-    target_version_id: z
-      .string()
-      .regex(
-        /^wfv_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-      ),
-  })
-  .strict();
-
-export const promoteWorkflowVersionSchema = z
-  .object({
-    workflow_version_id: z
-      .string()
-      .regex(
-        /^wfv_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-      ),
-  })
-  .strict();
-
-export const startWorkflowCanarySchema = promoteWorkflowVersionSchema
-  .extend({
-    traffic_percent: z.number().int().min(1).max(99),
-  })
-  .strict();
-
 export function parseWorkflowInput<T>(
   schema: z.ZodType<T>,
   input: unknown,

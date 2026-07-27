@@ -12,14 +12,8 @@ import { WorkflowHttpError } from "./problem";
 import type {
   CreateWorkflowInput,
   EmptyWorkflowActionInput,
-  PromoteWorkflowVersionInput,
-  PromoteWorkflowVersionResult,
-  RollbackWorkflowInput,
-  RollbackWorkflowVersionResult,
   SaveCanvasInput,
   SimulateWorkflowInput,
-  StartWorkflowCanaryInput,
-  StartWorkflowCanaryResult,
   WorkflowActionResult,
   WorkflowResource,
   WorkflowVersionList,
@@ -121,77 +115,6 @@ export class WorkflowService {
     );
   }
 
-  promoteVersion(
-    workflowId: string,
-    input: PromoteWorkflowVersionInput,
-    actor: ActorContext,
-    traceparent: string | undefined,
-    idempotencyKey: string,
-  ): Promise<EngineResponse<PromoteWorkflowVersionResult>> {
-    return this.deploymentAction(
-      workflowId,
-      "promote-version",
-      input,
-      actor,
-      traceparent,
-      idempotencyKey,
-    );
-  }
-
-  startCanary(
-    workflowId: string,
-    input: StartWorkflowCanaryInput,
-    actor: ActorContext,
-    traceparent: string | undefined,
-    idempotencyKey: string,
-  ): Promise<EngineResponse<StartWorkflowCanaryResult>> {
-    return this.deploymentAction(
-      workflowId,
-      "start-canary",
-      input,
-      actor,
-      traceparent,
-      idempotencyKey,
-    );
-  }
-
-  rollbackVersion(
-    workflowId: string,
-    input: RollbackWorkflowInput,
-    actor: ActorContext,
-    traceparent: string | undefined,
-    idempotencyKey: string,
-  ): Promise<EngineResponse<RollbackWorkflowVersionResult>> {
-    return this.deploymentAction(
-      workflowId,
-      "rollback",
-      input,
-      actor,
-      traceparent,
-      idempotencyKey,
-    );
-  }
-
-  private deploymentAction<T>(
-    workflowId: string,
-    action: "promote-version" | "start-canary" | "rollback",
-    input:
-      | PromoteWorkflowVersionInput
-      | StartWorkflowCanaryInput
-      | RollbackWorkflowInput,
-    actor: ActorContext,
-    traceparent: string | undefined,
-    idempotencyKey: string,
-  ): Promise<EngineResponse<T>> {
-    const instance = `/api/v1/workflows/${workflowId}/actions/${action}`;
-    const id = parseWorkflowId(workflowId, instance);
-    return this.engine.post(
-      `/api/v1/workflows/${encodeURIComponent(id)}/actions/${action}`,
-      jsonBody(input),
-      callerContext(actor, traceparent, instance),
-      { idempotencyKey },
-    );
-  }
 }
 
 function callerContext(
