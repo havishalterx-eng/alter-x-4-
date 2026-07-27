@@ -6,13 +6,16 @@ import {
   parseVersionQuery,
   parseWorkflowId,
   parseWorkflowInput,
+  promoteWorkflowVersionSchema,
   rollbackWorkflowSchema,
   saveCanvasSchema,
   simulateWorkflowSchema,
+  startWorkflowCanarySchema,
 } from "./validation";
 
 const workflowId = "wf_018f47a5-7b2c-7d10-8f11-123456789abc";
 const instance = `/api/v1/workflows/${workflowId}`;
+const workflowVersionId = "wfv_018f47a5-7b2c-7d10-8f11-123456789abc";
 
 describe("workflow validation", () => {
   it("accepts typed workflow inputs", () => {
@@ -32,10 +35,27 @@ describe("workflow validation", () => {
     expect(
       parseWorkflowInput(
         rollbackWorkflowSchema,
-        { target_version: 2 },
+        { target_version_id: workflowVersionId },
         instance,
       ),
-    ).toEqual({ target_version: 2 });
+    ).toEqual({ target_version_id: workflowVersionId });
+    expect(
+      parseWorkflowInput(
+        promoteWorkflowVersionSchema,
+        { workflow_version_id: workflowVersionId },
+        instance,
+      ),
+    ).toEqual({ workflow_version_id: workflowVersionId });
+    expect(
+      parseWorkflowInput(
+        startWorkflowCanarySchema,
+        { workflow_version_id: workflowVersionId, traffic_percent: 15 },
+        instance,
+      ),
+    ).toEqual({
+      workflow_version_id: workflowVersionId,
+      traffic_percent: 15,
+    });
   });
 
   it.each([
@@ -55,7 +75,13 @@ describe("workflow validation", () => {
     () =>
       parseWorkflowInput(
         rollbackWorkflowSchema,
-        { target_version: 0 },
+        { target_version_id: "bad" },
+        instance,
+      ),
+    () =>
+      parseWorkflowInput(
+        startWorkflowCanarySchema,
+        { workflow_version_id: workflowVersionId, traffic_percent: 100 },
         instance,
       ),
   ])("returns field errors for invalid input", (parse) => {

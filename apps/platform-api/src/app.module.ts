@@ -21,6 +21,7 @@ import { ActionCentreModule } from "./action-centre/action-centre.module";
 import { CredentialModule } from "./credentials";
 import { AdsModule } from "./ads";
 import { IntegrationModule } from "./integrations";
+import { TriggerModule } from "./triggers";
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { IntegrationModule } from "./integrations";
     CredentialModule,
     AdsModule,
     IntegrationModule,
+    TriggerModule,
   ],
   controllers: [HealthController],
 })

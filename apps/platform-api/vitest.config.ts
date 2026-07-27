@@ -39,6 +39,7 @@ export default defineConfig({
         "apps/platform-api/src/credentials/**/*.ts",
         "apps/platform-api/src/ads/**/*.ts",
         "apps/platform-api/src/integrations/**/*.ts",
+        "apps/platform-api/src/triggers/**/*.ts",
       ],
       exclude: [
         "apps/platform-api/src/db/**/*.spec.ts",
@@ -63,6 +64,7 @@ export default defineConfig({
         "apps/platform-api/src/credentials/**/*.spec.ts",
         "apps/platform-api/src/ads/**/*.spec.ts",
         "apps/platform-api/src/integrations/**/*.spec.ts",
+        "apps/platform-api/src/triggers/**/*.spec.ts",
       ],
       thresholds: {
         lines: 90,
@@ -172,6 +174,14 @@ export default defineConfig({
         "apps/platform-api/src/integrations/**/*.ts": {
           lines: 85,
           branches: 80
+        },
+        "apps/platform-api/src/triggers/**/*.ts": {
+          lines: 85,
+          branches: 80
+        },
+        "apps/platform-api/src/triggers/{trigger.controller,trigger.service,trigger-etag.resolver}.ts": {
+          lines: 90,
+          branches: 90
         },
       },
     },
