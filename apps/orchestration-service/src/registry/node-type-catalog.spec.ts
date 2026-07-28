@@ -16,7 +16,7 @@ const ALL_11_TYPES = [
   "YAMLImport",
 ];
 
-const EXEC1_IMPLEMENTED_TYPES = ["Gate", "Merge", "PubSub", "GroupChat", "YAMLImport"];
+const IMPLEMENTED_TYPES = ["Gate", "Merge", "PubSub", "GroupChat", "YAMLImport", "LLMTask"];
 
 describe("listNodeTypeDescriptors", () => {
   it("returns exactly the 11 Node Type Registry types", () => {
@@ -25,11 +25,11 @@ describe("listNodeTypeDescriptors", () => {
     expect(descriptors.map((d) => d.type).sort()).toEqual([...ALL_11_TYPES].sort());
   });
 
-  it("marks exactly the 5 EXEC-1 handlers as implemented", () => {
+  it("marks exactly the 6 implemented handlers (EXEC-1's 5 + EXEC-2's LLMTask)", () => {
     const descriptors = listNodeTypeDescriptors();
 
     const implemented = descriptors.filter((d) => d.handler_implemented).map((d) => d.type);
-    expect(implemented.sort()).toEqual([...EXEC1_IMPLEMENTED_TYPES].sort());
+    expect(implemented.sort()).toEqual([...IMPLEMENTED_TYPES].sort());
   });
 
   it("every descriptor has non-empty display_name/description/category", () => {

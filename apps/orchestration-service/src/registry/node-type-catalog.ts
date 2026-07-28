@@ -6,15 +6,15 @@ import type { NodeType, RegistryNodeTypeDescriptor } from "@alterx/contracts";
  * tenant sees the same palette.
  *
  * handler_implemented is false for types whose real logic depends on
- * infrastructure this ticket (EXEC-1) doesn't build yet:
- * - LLMTask/ToolCall/SandboxExec: need Model Gateway/Tool Gateway/Sandbox
- *   Service wiring (later Execution-phase tickets).
+ * infrastructure not wired in yet:
+ * - ToolCall/SandboxExec: need Tool Gateway/Sandbox Service wiring
+ *   (later Execution-phase tickets).
  * - HumanApproval: the full approval flow is built in the Self-Healing
  *   phase (see 11-engine-backend-phases.md).
  * - Synthesis: stub until the Output phase (doc explicitly says so).
  * - MemoryWrite: stub until the Knowledge phase (doc explicitly says so).
- * The other 5 (Gate, Merge, PubSub, GroupChat, YAMLImport) have real,
- * tested handlers in ./handlers -- this ticket's "simplest handlers".
+ * Gate, Merge, PubSub, GroupChat, YAMLImport (EXEC-1) and LLMTask
+ * (EXEC-2) have real, tested handlers in ./handlers.
  */
 
 interface CatalogEntry {
@@ -34,9 +34,13 @@ const CATALOG_ENTRIES: readonly CatalogEntry[] = [
     category: "execution",
     configSchema: {
       type: "object",
-      properties: { model_alias: { type: "string" }, prompt: { type: "string" } },
+      properties: {
+        model_alias: { type: "string", enum: ["FAST", "STANDARD", "ADVANCED", "CEILING"] },
+        prompt: { type: "string" },
+      },
+      required: ["model_alias", "prompt"],
     },
-    handlerImplemented: false,
+    handlerImplemented: true,
   },
   {
     type: "ToolCall",

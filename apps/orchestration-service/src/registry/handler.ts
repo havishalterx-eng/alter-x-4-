@@ -20,10 +20,22 @@ export interface NodeExecutionContext {
   readonly config: Record<string, unknown>;
   /** Upstream node outputs, keyed by the producing node's key. */
   readonly inputs: Record<string, Record<string, unknown>>;
+  /**
+   * Run identifiers, needed only by handlers that call a gateway
+   * (Model Gateway, Tool Gateway) on the run's behalf. Optional so
+   * EXEC-1's non-gateway handlers (Gate/Merge/PubSub/GroupChat/YAMLImport)
+   * and their existing tests are unaffected -- added in EXEC-2 for
+   * LLMTaskHandler.
+   */
+  readonly tenant_id?: string; // ten_ prefixed UUIDv7
+  readonly run_id?: string; // run_ prefixed UUIDv7
+  readonly node_execution_id?: string; // node_ prefixed UUIDv7
 }
 
 export interface NodeExecutionResult {
   readonly output: Record<string, unknown>;
+  /** Cross-cutting metadata (cost/usage, resolved capability, ...), not part of the node's actual output. */
+  readonly metadata?: Record<string, unknown>;
 }
 
 export interface NodeHandler {
