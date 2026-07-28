@@ -108,6 +108,27 @@ describe("compileTaskSkeletonToDag", () => {
     expect(dag.schema_version).toBe("dag-schema-v3");
   });
 
+  it("preserves canonical ToolCall credential_ref into compiled config", () => {
+    const skeleton = sequentialSkeleton();
+    skeleton.nodes[0] = {
+      ...skeleton.nodes[0]!,
+      config: {
+        tool_name: "search.web",
+        arguments: { query: "AlterX" },
+        credential_ref:
+          "/alter/prod/tenant/ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab/integration/search/access-token",
+      },
+    };
+
+    const dag = compileTaskSkeletonToDag(skeleton, "v1");
+
+    expect(dag.nodes[0]?.config).toMatchObject({
+      tool_name: "search.web",
+      credential_ref:
+        "/alter/prod/tenant/ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab/integration/search/access-token",
+    });
+  });
+
   it("sets entry_node_keys to the skeleton's entry_point", () => {
     const dag = compileTaskSkeletonToDag(sequentialSkeleton(), "v1");
 

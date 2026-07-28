@@ -4,6 +4,7 @@ import {
   NodeRequirementsSchema,
   NodeTypeSchema,
   PolicyBindingsSchema,
+  ToolCallCompiledConfigSchema,
   WorkflowDagCompiledSchema,
   WorkflowDagDraftSchema,
 } from "./workflow-dag";
@@ -120,6 +121,52 @@ describe("CompiledDagSchema", () => {
         ],
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts ToolCall's additive canonical credential reference", () => {
+    const toolNode = {
+      key: "search",
+      type: "ToolCall",
+      config: {
+        tool_name: "search.web",
+        arguments: { query: "alterx" },
+        credential_ref: `/alter/prod/tenant/${ids.tenant}/integration/shopify_x/access-token`,
+      },
+      metadata: { ui: {} },
+    };
+    const dag = {
+      schema_version: "1",
+      entry_node_keys: ["search"],
+      nodes: [toolNode],
+      edges: [],
+      waves: [{ key: "wave_0", order: 0, node_keys: ["search"], depends_on: [] }],
+    };
+
+    expect(CompiledDagSchema.safeParse(dag).success).toBe(true);
+  });
+
+  it("rejects malformed ToolCall credential references when present", () => {
+    for (const credential_ref of [
+      "raw-secret-or-invented-path",
+      `/alter/prod/tenant/${ids.tenant}/integration//access-token`,
+    ]) {
+      expect(
+        ToolCallCompiledConfigSchema.safeParse({
+          tool_name: "search.web",
+          arguments: {},
+          credential_ref,
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("keeps previously compiled ToolCall configs readable", () => {
+    expect(
+      ToolCallCompiledConfigSchema.safeParse({
+        tool_name: "search.web",
+        arguments: {},
+      }).success,
+    ).toBe(true);
   });
 });
 

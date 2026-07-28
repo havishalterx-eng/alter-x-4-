@@ -16,7 +16,15 @@ const ALL_11_TYPES = [
   "YAMLImport",
 ];
 
-const IMPLEMENTED_TYPES = ["Gate", "Merge", "PubSub", "GroupChat", "YAMLImport", "LLMTask"];
+const IMPLEMENTED_TYPES = [
+  "Gate",
+  "Merge",
+  "PubSub",
+  "GroupChat",
+  "YAMLImport",
+  "LLMTask",
+  "ToolCall",
+];
 
 describe("listNodeTypeDescriptors", () => {
   it("returns exactly the 11 Node Type Registry types", () => {
@@ -25,11 +33,22 @@ describe("listNodeTypeDescriptors", () => {
     expect(descriptors.map((d) => d.type).sort()).toEqual([...ALL_11_TYPES].sort());
   });
 
-  it("marks exactly the 6 implemented handlers (EXEC-1's 5 + EXEC-2's LLMTask)", () => {
+  it("marks real handlers implemented while HumanApproval remains an explicit stub", () => {
     const descriptors = listNodeTypeDescriptors();
 
     const implemented = descriptors.filter((d) => d.handler_implemented).map((d) => d.type);
     expect(implemented.sort()).toEqual([...IMPLEMENTED_TYPES].sort());
+  });
+
+  it("publishes credential_ref as required ToolCall config", () => {
+    const descriptor = findNodeTypeDescriptor("ToolCall");
+    const schema = JSON.parse(descriptor?.config_schema_json ?? "{}") as {
+      readonly properties?: Record<string, unknown>;
+      readonly required?: readonly string[];
+    };
+
+    expect(schema.properties).toHaveProperty("credential_ref");
+    expect(schema.required).toContain("credential_ref");
   });
 
   it("every descriptor has non-empty display_name/description/category", () => {

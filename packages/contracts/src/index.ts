@@ -15,6 +15,8 @@ export {
   type ProblemDetails,
 } from "./problem-details";
 export {
+  AuditIdSchema,
+  NodeExecutionIdSchema,
   NonEmptyStringSchema,
   RunIdSchema,
   TenantIdSchema,
@@ -128,12 +130,15 @@ export {
   NodeRequirementsSchema,
   NodeTypeSchema,
   PolicyBindingsSchema,
+  ToolCallCompiledConfigSchema,
+  ToolCredentialReferenceSchema,
   WorkflowDagCompiledSchema,
   WorkflowDagDraftSchema,
   type CompiledDag,
   type NodeRequirements,
   type NodeType,
   type PolicyBindings,
+  type ToolCallCompiledConfig,
   type WorkflowDagCompiled,
   type WorkflowDagDraft,
 } from "./workflow-dag";

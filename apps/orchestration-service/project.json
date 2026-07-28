@@ -51,6 +51,15 @@
     },
     "test": {
       "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build",
+        {
+          "target": "build",
+          "projects": [
+            "tool-gateway"
+          ]
+        }
+      ],
       "options": {
         "command": "vitest run apps/orchestration-service/src/*.spec.ts apps/orchestration-service/src/**/*.spec.ts"
       }

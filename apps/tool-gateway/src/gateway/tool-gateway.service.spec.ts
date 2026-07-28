@@ -207,6 +207,9 @@ describe("ToolGatewayService", () => {
         { title: "t", url: "https://example.com", snippet: "s", score: 0.5 },
       ],
     });
+    expect(response.audit_id).toMatch(
+      /^aud_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     expect(
       (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
     ).toContainEqual(

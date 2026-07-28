@@ -89,7 +89,7 @@ export class ToolGatewayService implements ToolgwHandler {
     this.#now = options.now ?? (() => new Date());
     this.#mintCredentialToken =
       options.mintCredentialToken ?? (() => `cred_${randomUUID()}`);
-    this.#mintId = options.mintId ?? (() => randomUUID());
+    this.#mintId = options.mintId ?? uuidV7;
   }
 
   async invokeTool(
@@ -153,7 +153,7 @@ export class ToolGatewayService implements ToolgwHandler {
     });
     return {
       output_json: JSON.stringify(result),
-      audit_id: this.#mintId(),
+      audit_id: `aud_${this.#mintId()}`,
     };
   }
 
@@ -435,6 +435,11 @@ export class ToolGatewayService implements ToolgwHandler {
       }
     }
   }
+}
+
+function uuidV7(): string {
+  const uuid = randomUUID();
+  return `${uuid.slice(0, 14)}7${uuid.slice(15)}`;
 }
 
 function ensureAllowed(

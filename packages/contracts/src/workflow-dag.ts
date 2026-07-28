@@ -37,6 +37,50 @@ const WaveKeySchema = z
   .string()
   .regex(/^[a-z][a-z0-9._-]{0,127}$/i);
 
+/**
+ * Canonical tenant integration secret reference. This is a reference ID,
+ * never credential material. Integration identifiers remain opaque because
+ * the documented path convention permits provider-owned names as well as
+ * Alter-prefixed IDs.
+ */
+export const ToolCredentialReferenceSchema = NonEmptyStringSchema.superRefine(
+  (reference, context) => {
+    const segments = reference.split("/");
+    const tenantId = segments[4];
+    if (
+      segments[0] !== "" ||
+      segments.length !== 8 ||
+      segments.slice(1).some((segment) => segment.trim().length === 0) ||
+      segments[1] !== "alter" ||
+      segments[2]?.trim().length === 0 ||
+      segments[3] !== "tenant" ||
+      tenantId === undefined ||
+      !TenantIdSchema.safeParse(tenantId).success ||
+      segments[5] !== "integration" ||
+      segments[6]?.trim().length === 0
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Expected /alter/{env}/tenant/{tenant_id}/integration/{integration_id}/{secret_name}",
+      });
+    }
+  },
+).describe("Tenant integration secret reference ID; never secret material");
+
+/**
+ * Additive EXEC-3 view of ToolCall's compiled config. Fields stay optional at
+ * schema-read time so previously compiled DAGs remain readable; ToolCall
+ * execution fails closed when any required field is absent.
+ */
+export const ToolCallCompiledConfigSchema = z
+  .object({
+    tool_name: NonEmptyStringSchema.optional(),
+    arguments: z.record(z.string(), z.unknown()).optional(),
+    credential_ref: ToolCredentialReferenceSchema.optional(),
+  })
+  .passthrough();
+
 const WorkflowDagNodeSchema = z
   .object({
     key: NodeKeySchema,
@@ -48,7 +92,23 @@ const WorkflowDagNodeSchema = z
       })
       .passthrough(),
   })
-  .strict();
+  .strict()
+  .superRefine(({ type, config }, context) => {
+    if (type !== "ToolCall") {
+      return;
+    }
+    const result = ToolCallCompiledConfigSchema.safeParse(config);
+    if (result.success) {
+      return;
+    }
+    for (const issue of result.error.issues) {
+      context.addIssue({
+        code: "custom",
+        message: issue.message,
+        path: ["config", ...issue.path],
+      });
+    }
+  });
 
 const EdgeConditionSchema = z
   .object({
@@ -273,6 +333,9 @@ export const WorkflowDagCompiledSchema = z
   .readonly();
 
 export type NodeType = z.infer<typeof NodeTypeSchema>;
+export type ToolCallCompiledConfig = z.infer<
+  typeof ToolCallCompiledConfigSchema
+>;
 export type CompiledDag = z.infer<typeof CompiledDagSchema>;
 export type NodeRequirements = z.infer<typeof NodeRequirementsSchema>;
 export type PolicyBindings = z.infer<typeof PolicyBindingsSchema>;

@@ -216,6 +216,13 @@ export {
   type ModelGatewayHandler,
 } from "./grpc/modelgw-client";
 export {
+  ToolGatewayClient,
+  ToolGatewayClientError,
+  type ToolGatewayClientConfig,
+  type ToolGatewayClientErrorKind,
+  type ToolGatewayInvokeHandler,
+} from "./grpc/toolgw-client";
+export {
   CONVERSATION_HANDLER,
   ConversationGrpcController,
   startConversationGrpcTransport,
