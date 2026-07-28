@@ -1,8 +1,13 @@
-import type { AbuseThresholds, EntitlementLimits } from "./types";
+import type {
+  AbuseThresholds,
+  DunningConfig,
+  EntitlementLimits,
+} from "./types";
 
 export interface EntitlementConfigDocument {
   plans: Record<string, EntitlementLimits>;
   abuse: AbuseThresholds;
+  dunning: DunningConfig;
 }
 
 const limitKeys: readonly (keyof EntitlementLimits)[] = [
@@ -55,6 +60,28 @@ export function parseConfigDocument(input: string): EntitlementConfigDocument {
     assertPositiveNumbers(limits, limitKeys, `plans.${plan}`);
   }
   assertPositiveNumbers(document.abuse, abuseKeys, "abuse");
+  if (!document.dunning || typeof document.dunning !== "object") {
+    throw new Error("dunning must be an object");
+  }
+  const dunning = document.dunning as Record<string, unknown>;
+  assertPositiveNumbers(
+    dunning,
+    ["gracePeriodSeconds", "suspensionThresholdSeconds"],
+    "dunning",
+  );
+  assertPositiveNumbers(
+    dunning.limitedStateLimits,
+    limitKeys,
+    "dunning.limitedStateLimits",
+  );
+  if (
+    (dunning.suspensionThresholdSeconds as number) <
+    (dunning.gracePeriodSeconds as number)
+  ) {
+    throw new Error(
+      "dunning.suspensionThresholdSeconds must be at least gracePeriodSeconds",
+    );
+  }
 
   return parsed as EntitlementConfigDocument;
 }

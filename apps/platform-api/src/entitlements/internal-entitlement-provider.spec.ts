@@ -22,6 +22,7 @@ function setup(row: EntitlementRow | null, config: ConfigProvider = configProvid
       tenantId,
       plan,
       limits: null,
+      accessState: "active",
     })),
   };
   return { provider: new InternalEntitlementProvider(store, config), store };
@@ -31,6 +32,7 @@ function configProvider(): ConfigProvider {
   return {
     getEntitlementDefaults: vi.fn().mockResolvedValue(defaults),
     getAbuseThresholds: vi.fn(),
+    getDunningConfig: vi.fn(),
   };
 }
 
@@ -43,6 +45,7 @@ describe("InternalEntitlementProvider", () => {
       tenantId: "tenant-1",
       plan: "free",
       limits: defaults,
+      accessState: "active",
       source: "config",
     });
   });
@@ -52,6 +55,7 @@ describe("InternalEntitlementProvider", () => {
       tenantId: "tenant-1",
       plan: "free",
       limits: { maxWorkflows: 20, maxAdsStorageMb: 2_000 },
+      accessState: "active",
     });
     const result = await provider.getEffectiveEntitlement("tenant-1");
     expect(result.source).toBe("tenant-override");
@@ -97,7 +101,12 @@ describe("InternalEntitlementProvider", () => {
   it("creates entitlement then resolves plan defaults", async () => {
     const { provider, store } = setup(null);
     const result = await provider.createEntitlement("tenant-1", "free");
-    expect(store.create).toHaveBeenCalledWith("tenant-1", "free");
+    expect(store.create).toHaveBeenCalledWith(
+      "tenant-1",
+      "free",
+      undefined,
+      undefined,
+    );
     expect(result.limits).toEqual(defaults);
   });
 

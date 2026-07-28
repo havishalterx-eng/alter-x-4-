@@ -4,7 +4,7 @@ import { HttpException } from "@nestjs/common";
 
 export class BillingHttpError extends HttpException {
   constructor(
-    status: 400 | 404 | 502,
+    status: 400 | 401 | 404 | 502,
     errorCode: string,
     detail: string,
     instance: string,

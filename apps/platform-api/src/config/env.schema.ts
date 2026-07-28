@@ -29,6 +29,7 @@ export const platformApiEnvSchema = z
     IDEMPOTENCY_TTL_SECONDS: z.string().regex(/^[1-9]\d*$/).optional(),
     RAZORPAY_KEY_ID_SECRET_REF: z.string().min(1).optional(),
     RAZORPAY_KEY_SECRET_SECRET_REF: z.string().min(1).optional(),
+    RAZORPAY_WEBHOOK_SECRET_REF: z.string().min(1).optional(),
     AWS_REGION: z.string().min(1).optional(),
   })
   .superRefine((env, context) => {

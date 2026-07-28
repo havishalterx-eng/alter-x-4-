@@ -67,6 +67,27 @@ async function seedRows(client: pg.Client): Promise<void> {
     [tenantA, tenantB],
   );
   await client.query(
+    `INSERT INTO billing_events
+       (tenant_id, provider_id, provider_event_id, type, payload, processed_at)
+     VALUES ($1, 'razorpay', 'event-a', 'payment.failed', '{}'::jsonb, now()),
+            ($2, 'razorpay', 'event-b', 'payment.failed', '{}'::jsonb, now())`,
+    [tenantA, tenantB],
+  );
+  await client.query(
+    `INSERT INTO billing_dunning_states
+       (tenant_id, state, current_plan, first_failed_at)
+     VALUES ($1, 'grace', 'plan_basic', now()),
+            ($2, 'grace', 'plan_basic', now())`,
+    [tenantA, tenantB],
+  );
+  await client.query(
+    `INSERT INTO billing_dunning_audits
+       (tenant_id, id, provider_event_id, from_state, to_state, reason)
+     VALUES ($1, $2, 'event-a', 'active', 'grace', 'payment_failed'),
+            ($3, $4, 'event-b', 'active', 'grace', 'payment_failed')`,
+    [tenantA, randomUUID(), tenantB, randomUUID()],
+  );
+  await client.query(
     `INSERT INTO credential_refs
        (tenant_id, id, name, connector, scope, last4)
      VALUES ($1, $2, 'DB A', 'postgres', 'deploy', '1111'),
@@ -203,6 +224,9 @@ describe("platform_db migration", () => {
     );
 
     expect(tables.map((row) => row.table_name)).toEqual([
+      "billing_dunning_audits",
+      "billing_dunning_states",
+      "billing_events",
       "billing_payment_method_refs",
       "billing_profiles",
       "credential_refs",
@@ -348,6 +372,9 @@ describe("platform_db migration", () => {
         "credential_use_audits",
         "billing_profiles",
         "billing_payment_method_refs",
+        "billing_events",
+        "billing_dunning_states",
+        "billing_dunning_audits",
       ]) {
         await rlsClient.query("RESET app.current_tenant_id");
         const unset = await rlsClient.query<{ count: string }>(
@@ -374,7 +401,7 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
-    expect(rows[0]?.count).toBe("13");
+    expect(rows[0]?.count).toBe("16");
   });
 
   it("prevents tenant_id mutation on tenant-owned rows", async () => {
@@ -390,6 +417,14 @@ describe("platform_db migration", () => {
     await expect(
       adminClient.query(
         `UPDATE credential_refs SET tenant_id = $1 WHERE tenant_id = $2`,
+        [tenantB, tenantA],
+      ),
+    ).rejects.toThrow("tenant_id is immutable");
+
+    await expect(
+      adminClient.query(
+        `UPDATE billing_events SET tenant_id = $1
+         WHERE tenant_id = $2 AND provider_event_id = 'event-a'`,
         [tenantB, tenantA],
       ),
     ).rejects.toThrow("tenant_id is immutable");

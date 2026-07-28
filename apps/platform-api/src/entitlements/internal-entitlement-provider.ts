@@ -8,6 +8,7 @@ import type { EntitlementRow, EntitlementStore } from "./entitlement-store";
 import {
   EMERGENCY_FREE_LIMITS,
   type EffectiveEntitlement,
+  type EntitlementAccessState,
   type EntitlementLimitKey,
   type EntitlementLimits,
   type LimitCheckResult,
@@ -23,7 +24,15 @@ export class InternalEntitlementProvider implements EntitlementProvider {
 
   async getEffectiveEntitlement(tenantId: string): Promise<EffectiveEntitlement> {
     const row = await this.store.findEffective(tenantId);
-    return this.resolve(tenantId, row ?? { tenantId, plan: "free", limits: null });
+    return this.resolve(
+      tenantId,
+      row ?? {
+        tenantId,
+        plan: "free",
+        limits: null,
+        accessState: "active",
+      },
+    );
   }
 
   async checkLimit(
@@ -49,10 +58,14 @@ export class InternalEntitlementProvider implements EntitlementProvider {
     tenantId: string,
     plan: string,
     transactionClient?: PoolClient,
+    options?: {
+      accessState?: EntitlementAccessState;
+      limits?: Partial<EntitlementLimits>;
+    },
   ): Promise<EffectiveEntitlement> {
     const row = transactionClient
-      ? await this.store.create(tenantId, plan, transactionClient)
-      : await this.store.create(tenantId, plan);
+      ? await this.store.create(tenantId, plan, transactionClient, options)
+      : await this.store.create(tenantId, plan, undefined, options);
     return this.resolve(tenantId, row);
   }
 
@@ -81,6 +94,7 @@ export class InternalEntitlementProvider implements EntitlementProvider {
       tenantId,
       plan: row.plan,
       limits: { ...defaults, ...overrides },
+      accessState: row.accessState,
       source,
     };
   }

@@ -18,6 +18,19 @@ const config: ConfigProvider = {
     purchasesPerDay: 3,
     purchaseAmountPerDay: 200,
   }),
+  getDunningConfig: async () => ({
+    gracePeriodSeconds: 60,
+    suspensionThresholdSeconds: 120,
+    limitedStateLimits: {
+      maxWorkflows: 1,
+      maxProjects: 1,
+      maxRunsPerDay: 1,
+      maxConcurrentRuns: 1,
+      maxSandboxMinutesPerMonth: 1,
+      maxAdsStorageMb: 1,
+      maxIntegrations: 1,
+    },
+  }),
 };
 
 describe("abuse hooks", () => {

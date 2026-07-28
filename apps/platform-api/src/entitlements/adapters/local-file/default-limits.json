@@ -8,6 +8,24 @@
       "maxSandboxMinutesPerMonth": 30,
       "maxAdsStorageMb": 500,
       "maxIntegrations": 3
+    },
+    "plan_basic": {
+      "maxWorkflows": 25,
+      "maxProjects": 10,
+      "maxRunsPerDay": 250,
+      "maxConcurrentRuns": 5,
+      "maxSandboxMinutesPerMonth": 1000,
+      "maxAdsStorageMb": 10000,
+      "maxIntegrations": 20
+    },
+    "plan_pro": {
+      "maxWorkflows": 100,
+      "maxProjects": 50,
+      "maxRunsPerDay": 2000,
+      "maxConcurrentRuns": 20,
+      "maxSandboxMinutesPerMonth": 10000,
+      "maxAdsStorageMb": 100000,
+      "maxIntegrations": 100
     }
   },
   "abuse": {
@@ -16,5 +34,18 @@
     "verificationScoreThreshold": 50,
     "purchasesPerDay": 10,
     "purchaseAmountPerDay": 1000
+  },
+  "dunning": {
+    "gracePeriodSeconds": 259200,
+    "suspensionThresholdSeconds": 604800,
+    "limitedStateLimits": {
+      "maxWorkflows": 3,
+      "maxProjects": 1,
+      "maxRunsPerDay": 5,
+      "maxConcurrentRuns": 1,
+      "maxSandboxMinutesPerMonth": 15,
+      "maxAdsStorageMb": 500,
+      "maxIntegrations": 1
+    }
   }
 }

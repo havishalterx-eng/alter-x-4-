@@ -6,7 +6,11 @@ import {
 } from "@aws-sdk/client-appconfigdata";
 import type { ConfigProvider } from "../../config-provider.interface";
 import { parseConfigDocument } from "../../config-document";
-import type { AbuseThresholds, EntitlementLimits } from "../../types";
+import type {
+  AbuseThresholds,
+  DunningConfig,
+  EntitlementLimits,
+} from "../../types";
 
 export interface AppConfigIdentifiers {
   applicationIdentifier: string;
@@ -39,6 +43,14 @@ export class AppConfigConfigProvider implements ConfigProvider {
 
   async getAbuseThresholds(): Promise<AbuseThresholds> {
     return { ...(await this.getDocument()).abuse };
+  }
+
+  async getDunningConfig(): Promise<DunningConfig> {
+    const dunning = (await this.getDocument()).dunning;
+    return {
+      ...dunning,
+      limitedStateLimits: { ...dunning.limitedStateLimits },
+    };
   }
 
   private async getDocument() {
