@@ -302,14 +302,15 @@ describe("PostgresOrchestrationStoreProvider", () => {
       .mocked(client.query)
       .mock.calls.map(([statement]) => String(statement));
     expect(statements[0]).toBe("BEGIN");
-    expect(statements[1]).toContain('DROP TABLE IF EXISTS "blackboard_checkpoints"');
-    expect(statements[2]).toContain("workflow_versions_canary_traffic_check");
-    expect(statements[3]).toContain("workflow_versions_reject_tenant_id_change");
-    expect(statements[4]).toContain("conversation_goal_states_reject_tenant_id_change");
-    expect(statements[5]).toContain("runs_reject_tenant_id_change");
-    expect(statements[10]).toContain("workflows_reject_tenant_id_change");
-    expect(statements[11]).toBe("DROP SCHEMA IF EXISTS drizzle CASCADE");
-    expect(statements[12]).toBe("COMMIT");
+    expect(statements[1]).toContain('DROP TABLE IF EXISTS "node_executions"');
+    expect(statements[2]).toContain('DROP TABLE IF EXISTS "blackboard_checkpoints"');
+    expect(statements[3]).toContain("workflow_versions_canary_traffic_check");
+    expect(statements[4]).toContain("workflow_versions_reject_tenant_id_change");
+    expect(statements[5]).toContain("conversation_goal_states_reject_tenant_id_change");
+    expect(statements[6]).toContain("runs_reject_tenant_id_change");
+    expect(statements[11]).toContain("workflows_reject_tenant_id_change");
+    expect(statements[12]).toBe("DROP SCHEMA IF EXISTS drizzle CASCADE");
+    expect(statements[13]).toBe("COMMIT");
     expect(client.release).toHaveBeenCalledOnce();
   });
 

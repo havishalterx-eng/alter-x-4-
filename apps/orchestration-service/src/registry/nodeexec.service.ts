@@ -2,9 +2,11 @@ import type {
   NodeexecExecuteNodeRequest,
   NodeexecExecuteNodeResponse,
 } from "@alterx/contracts";
+import { ModelAliasSchema, ProblemDetailsSchema } from "@alterx/contracts";
 
 import { NodeHandlerValidationError } from "./handler";
 import type { NodeHandlerRegistry } from "./node-handler-registry";
+import { NodeExecutionLedgerService } from "../runs/node-execution-ledger.service";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -35,13 +37,16 @@ function parseInputs(json: string): Record<string, Record<string, unknown>> {
 }
 
 /**
- * gRPC-facing NodeexecHandler: the only server-side entry point that
- * actually dispatches to a Node Type Registry handler. No DB/persistence
- * here yet -- node_executions row persistence is follow-up work (EXEC-6
- * is graph-walking + dispatch, not the full run/node_executions ledger).
+ * gRPC-facing NodeexecHandler. The Executor reaches every handler through
+ * this boundary, so it owns the minimal durable node-executions ledger:
+ * started before dispatch; succeeded/failed after dispatch. Full run
+ * lifecycle and artifact output references remain EXEC-14 scope.
  */
 export class NodeexecService {
-  constructor(private readonly registry: NodeHandlerRegistry) {}
+  constructor(
+    private readonly registry: NodeHandlerRegistry,
+    private readonly ledger: NodeExecutionLedgerService,
+  ) {}
 
   async executeNode(
     request: NodeexecExecuteNodeRequest,
@@ -53,24 +58,78 @@ export class NodeexecService {
       throw new NodeHandlerValidationError("node_type is required");
     }
 
-    const config = parseJsonObject(request.config_json, "config_json");
-    const inputs = parseInputs(request.inputs_json);
-
-    const sandboxSessionId = config["sandbox_session_id"];
-    const result = await this.registry.execute(request.node_type, {
-      config,
-      inputs,
-      tenant_id: request.tenant_id,
-      run_id: request.run_id,
-      node_execution_id: request.node_execution_id,
-      ...(typeof sandboxSessionId === "string"
-        ? { sandbox_session_id: sandboxSessionId }
-        : {}),
+    await this.ledger.recordStarted({
+      tenantId: request.tenant_id,
+      runId: request.run_id,
+      nodeExecutionId: request.node_execution_id,
+      dagNodeId: request.node_key,
+      nodeType: request.node_type,
+      ...modelAliasFromConfigJson(request.config_json),
     });
 
-    return {
-      output_json: JSON.stringify(result.output),
-      metadata_json: JSON.stringify(result.metadata ?? {}),
-    };
+    try {
+      const config = parseJsonObject(request.config_json, "config_json");
+      const inputs = parseInputs(request.inputs_json);
+      const sandboxSessionId = config["sandbox_session_id"];
+      const result = await this.registry.execute(request.node_type, {
+        config,
+        inputs,
+        tenant_id: request.tenant_id,
+        run_id: request.run_id,
+        node_execution_id: request.node_execution_id,
+        ...(typeof sandboxSessionId === "string"
+          ? { sandbox_session_id: sandboxSessionId }
+          : {}),
+      });
+
+      const outputJson = JSON.stringify(result.output);
+      const metadataJson = JSON.stringify(result.metadata ?? {});
+      const problem = ProblemDetailsSchema.safeParse(result.output);
+      if (problem.success && problem.data.status >= 400) {
+        await this.ledger.recordFailed(
+          {
+            tenantId: request.tenant_id,
+            runId: request.run_id,
+            nodeExecutionId: request.node_execution_id,
+          },
+          problem.data,
+        );
+      } else {
+        await this.ledger.recordSucceeded({
+          tenantId: request.tenant_id,
+          runId: request.run_id,
+          nodeExecutionId: request.node_execution_id,
+        });
+      }
+      return { output_json: outputJson, metadata_json: metadataJson };
+    } catch (error: unknown) {
+      await this.ledger.recordFailed(
+        {
+          tenantId: request.tenant_id,
+          runId: request.run_id,
+          nodeExecutionId: request.node_execution_id,
+        },
+        persistedError(error),
+      );
+      throw error;
+    }
   }
+}
+
+function modelAliasFromConfigJson(configJson: string): { readonly modelAlias?: "FAST" | "STANDARD" | "ADVANCED" | "CEILING" } {
+  try {
+    const parsed = JSON.parse(configJson) as unknown;
+    if (!isPlainObject(parsed)) return {};
+    const modelAlias = ModelAliasSchema.safeParse(parsed["model_alias"]);
+    return modelAlias.success ? { modelAlias: modelAlias.data } : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistedError(error: unknown): Record<string, unknown> {
+  if (error instanceof NodeHandlerValidationError) {
+    return { code: "NODE_HANDLER_VALIDATION_FAILED", detail: error.message };
+  }
+  return { code: "NODE_EXECUTION_FAILED", detail: "Node execution failed" };
 }

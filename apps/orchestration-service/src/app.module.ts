@@ -34,6 +34,8 @@ import { GraphCompilerService } from "./compiler/graph-compiler.service";
 import { DeploymentControllerService } from "./deployment-controller/deployment-controller.service";
 import { RegistryService } from "./registry/registry.service";
 import { NodeexecService } from "./registry/nodeexec.service";
+import { NodeExecutionsController } from "./runs/node-executions.controller";
+import { NodeExecutionLedgerService } from "./runs/node-execution-ledger.service";
 import { createRuntimeNodeHandlerRegistry } from "./registry/node-handler-registry";
 import { BlackboardGrpcService } from "./blackboard/blackboard-grpc.service";
 import { BlackboardService } from "./blackboard/blackboard.service";
@@ -61,6 +63,7 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
     RegistryGrpcController,
     NodeexecGrpcController,
     BlackboardGrpcController,
+    NodeExecutionsController,
     TriggerRegistryController,
     WhatsappWebhookController,
   ],
@@ -193,6 +196,16 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
     {
       provide: NODEEXEC_HANDLER,
       useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
         const conversationConfig = loadConversationManagerEnvironment(
           process.env,
         );
@@ -218,7 +231,23 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
           sandboxService,
           queueProvider,
         });
-        return new NodeexecService(registry);
+        return new NodeexecService(registry, new NodeExecutionLedgerService(store));
+      },
+    },
+    {
+      provide: NodeExecutionLedgerService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        return new NodeExecutionLedgerService(store);
       },
     },
     {
