@@ -13,10 +13,12 @@ export interface ProvisionRequest {
 export interface ProvisionedSandbox { readonly sessionId: string; readonly projectDirectory: string; readonly reused: boolean; }
 
 function requireIdentifier(value: string, field: string): void {
-  if (value.trim().length === 0 || /[\\/]/.test(value)) throw new Error(`${field} is required and cannot contain a path separator`);
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error(`${field} is required and must be an identifier`);
 }
 function projectDirectory(projectId: string): string { return `/workspace/${projectId}`; }
-function safePath(path: string): boolean { return path.length > 0 && !path.startsWith("/") && !path.split("/").includes(".."); }
+function safePath(path: string): boolean {
+  return !path.includes("\\") && path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}
 
 export class ProvisioningService {
   readonly #active = new Map<string, Promise<ProvisionedSandbox>>();
@@ -44,19 +46,23 @@ export class ProvisioningService {
   }
 
   private async create(key: string, request: ProvisionRequest): Promise<ProvisionedSandbox> {
-    const environment = Object.fromEntries(await Promise.all(Object.entries(request.environmentRefs).map(async ([name, ref]) => {
-      if (!/^[A-Z][A-Z0-9_]*$/.test(name)) throw new Error("Environment variable names must be uppercase identifiers");
-      return [name, await this.secrets.getSecret(ref)] as const;
-    })));
-    const session = await this.sandbox.createSession({ tenantId: request.tenantId, runId: request.runId, cycleId: request.cycleId, templateId: request.templateId, environment });
-    const directory = projectDirectory(request.projectId);
+    let sessionId: string | undefined;
     try {
-      await this.sandbox.writeFiles(session.sessionId, request.scaffold.map((file) => ({ path: `${directory}/${file.path}`, content: file.content })));
-      this.#sessions.set(key, session.sessionId);
-      return { sessionId: session.sessionId, projectDirectory: directory, reused: false };
+      const environment = Object.fromEntries(await Promise.all(Object.entries(request.environmentRefs).map(async ([name, ref]) => {
+        if (!/^[A-Z][A-Z0-9_]*$/.test(name)) throw new Error("Environment variable names must be uppercase identifiers");
+        return [name, await this.secrets.getSecret(ref)] as const;
+      })));
+      const session = await this.sandbox.createSession({ tenantId: request.tenantId, runId: request.runId, cycleId: request.cycleId, templateId: request.templateId, environment });
+      sessionId = session.sessionId;
+      const directory = projectDirectory(request.projectId);
+      await this.sandbox.writeFiles(sessionId, request.scaffold.map((file) => ({ path: `${directory}/${file.path}`, content: file.content })));
+      this.#sessions.set(key, sessionId);
+      return { sessionId, projectDirectory: directory, reused: false };
     } catch (error) {
-      await this.sandbox.closeSession(session.sessionId);
       this.#active.delete(key);
+      if (sessionId !== undefined) {
+        try { await this.sandbox.closeSession(sessionId); } catch { /* Preserve the provisioning failure for the caller. */ }
+      }
       throw error;
     }
   }

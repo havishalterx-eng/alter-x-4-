@@ -8,7 +8,7 @@
     "serve": { "executor": "nx:run-commands", "dependsOn": ["build"], "options": { "command": "node dist/apps/provisioning-service/main.js" } },
     "lint": { "executor": "@nx/eslint:lint", "options": { "eslintConfig": "apps/provisioning-service/eslint.config.mjs", "lintFilePatterns": ["apps/provisioning-service/src/**/*.ts"] } },
     "typecheck": { "executor": "nx:run-commands", "options": { "command": "tsc --noEmit -p apps/provisioning-service/tsconfig.json" } },
-    "test": { "executor": "nx:run-commands", "options": { "command": "vitest run apps/provisioning-service/src/**/*.spec.ts" } }
+    "test": { "executor": "nx:run-commands", "options": { "command": "vitest run apps/provisioning-service/src" } }
   },
   "tags": ["type:service", "security-critical"]
 }
