@@ -322,23 +322,23 @@ function mapPlan(value: unknown): BillingPlan {
   const plan = object(value);
   const item = object(plan.item);
   return {
-    id: string(plan.id),
-    name: string(item.name),
+    id: requiredString(plan.id, "plan", "id"),
+    name: requiredString(item.name, "plan", "item.name"),
     description: nullableString(item.description),
-    amount: number(item.amount),
-    currency: string(item.currency),
+    amount: monetaryAmount(item.amount, "plan", "item.amount"),
+    currency: requiredString(item.currency, "plan", "item.currency"),
     interval: number(plan.interval),
     period: period(plan.period),
-    active: item.active !== false,
+    active: requiredBoolean(item.active, "plan", "item.active"),
   };
 }
 
 function mapSubscription(value: unknown, tenantId: string): Subscription {
   const subscription = object(value);
   return {
-    id: string(subscription.id),
+    id: requiredString(subscription.id, "subscription", "id"),
     tenantId,
-    planId: string(subscription.plan_id),
+    planId: requiredString(subscription.plan_id, "subscription", "plan_id"),
     status: status(subscription.status),
     currentPeriodStart: nullableEpoch(subscription.current_start),
     currentPeriodEnd: nullableEpoch(subscription.current_end),
@@ -349,11 +349,11 @@ function mapSubscription(value: unknown, tenantId: string): Subscription {
 function mapInvoice(value: unknown): Invoice {
   const invoice = object(value);
   return {
-    id: string(invoice.id),
+    id: requiredString(invoice.id, "invoice", "id"),
     subscriptionId: nullableString(invoice.subscription_id),
-    amount: number(invoice.amount ?? invoice.gross_amount ?? 0),
-    currency: string(invoice.currency, "INR"),
-    status: string(invoice.status, "unknown"),
+    amount: monetaryAmount(invoice.amount, "invoice", "amount"),
+    currency: requiredString(invoice.currency, "invoice", "currency"),
+    status: invoiceStatus(invoice.status),
     issuedAt: epoch(invoice.issued_at ?? invoice.created_at),
     paidAt: nullableEpoch(invoice.paid_at),
   };
@@ -381,6 +381,39 @@ function string(value: unknown, fallback?: string): string {
 
 function nullableString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function requiredString(
+  value: unknown,
+  resource: string,
+  field: string,
+): string {
+  if (typeof value === "string" && value.length > 0) return value;
+  throw malformedResource(resource, field, "must be a non-empty string");
+}
+
+function monetaryAmount(
+  value: unknown,
+  resource: string,
+  field: string,
+): number {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return value;
+  }
+  throw malformedResource(
+    resource,
+    field,
+    "must be a non-negative integer",
+  );
+}
+
+function requiredBoolean(
+  value: unknown,
+  resource: string,
+  field: string,
+): boolean {
+  if (typeof value === "boolean") return value;
+  throw malformedResource(resource, field, "must be a boolean");
 }
 
 function number(value: unknown): number {
@@ -430,4 +463,34 @@ function status(value: unknown): Subscription["status"] {
     return value;
   }
   throw new RazorpayBillingError(502, "Razorpay returned an invalid status");
+}
+
+function invoiceStatus(value: unknown): Invoice["status"] {
+  if (
+    value === "draft" ||
+    value === "issued" ||
+    value === "partially_paid" ||
+    value === "paid" ||
+    value === "cancelled" ||
+    value === "expired" ||
+    value === "deleted"
+  ) {
+    return value;
+  }
+  throw malformedResource(
+    "invoice",
+    "status",
+    "must be a documented Razorpay invoice status",
+  );
+}
+
+function malformedResource(
+  resource: string,
+  field: string,
+  requirement: string,
+): RazorpayBillingError {
+  return new RazorpayBillingError(
+    502,
+    `Razorpay returned malformed ${resource}: ${field} ${requirement}`,
+  );
 }

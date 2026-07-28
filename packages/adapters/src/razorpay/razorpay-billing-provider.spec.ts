@@ -131,6 +131,30 @@ describe("RazorpayBillingProvider", () => {
     );
   });
 
+  it.each(["amount", "currency", "status"] as const)(
+    "fails the entire invoice page when any invoice is missing %s",
+    async (field) => {
+      references.subscriptionRef = "sub_123";
+      const malformed = withoutField(invoiceFixture(), field);
+      if (field === "amount") {
+        malformed.gross_amount = 50_000;
+      }
+      http.request = vi.fn(async () => ({
+        status: 200,
+        body: {
+          items: [invoiceFixture({ id: "inv_valid" }), malformed],
+        },
+      }));
+
+      await expect(provider.listInvoices(tenantId, "0", 10)).rejects.toMatchObject(
+        {
+          status: 502,
+          message: expect.stringContaining(field),
+        },
+      );
+    },
+  );
+
   it("stores token references only and detaches through Razorpay", async () => {
     const method = await provider.attachPaymentMethod(tenantId, "token_saved");
     expect(method).toEqual({
@@ -268,6 +292,26 @@ describe("RazorpayBillingProvider", () => {
         providerCustomerRef: null,
       });
     }
+
+    const invoiceStatuses = [
+      "draft",
+      "issued",
+      "partially_paid",
+      "paid",
+      "cancelled",
+      "expired",
+      "deleted",
+    ] as const;
+    for (const value of invoiceStatuses) {
+      http.request = vi.fn(async () => ({
+        status: 200,
+        body: { items: [invoiceFixture({ status: value })] },
+      }));
+      await expect(provider.listInvoices(tenantId)).resolves.toEqual({
+        items: [expect.objectContaining({ status: value })],
+        nextCursor: null,
+      });
+    }
   });
 
   it("rejects malformed provider resources and missing subscription references", async () => {
@@ -306,6 +350,36 @@ describe("RazorpayBillingProvider", () => {
           },
         ],
       },
+      {
+        items: [
+          {
+            id: "plan",
+            interval: 1,
+            period: "monthly",
+            item: { name: "Plan", currency: "INR", active: true },
+          },
+        ],
+      },
+      {
+        items: [
+          {
+            id: "plan",
+            interval: 1,
+            period: "monthly",
+            item: { name: "Plan", amount: 100, active: true },
+          },
+        ],
+      },
+      {
+        items: [
+          {
+            id: "plan",
+            interval: 1,
+            period: "monthly",
+            item: { name: "Plan", amount: 100, currency: "INR" },
+          },
+        ],
+      },
     ]) {
       http.request = vi.fn(async () => ({ status: 200, body }));
       await expect(provider.listPlans()).rejects.toBeInstanceOf(
@@ -317,6 +391,14 @@ describe("RazorpayBillingProvider", () => {
     http.request = vi.fn(async () => ({
       status: 200,
       body: { id: "sub_123", plan_id: "plan", status: "unknown" },
+    }));
+    await expect(provider.getSubscription(tenantId)).rejects.toBeInstanceOf(
+      RazorpayBillingError,
+    );
+
+    http.request = vi.fn(async () => ({
+      status: 200,
+      body: { id: "sub_123", plan_id: "plan" },
     }));
     await expect(provider.getSubscription(tenantId)).rejects.toBeInstanceOf(
       RazorpayBillingError,
@@ -452,17 +534,7 @@ function response(request: RazorpayHttpRequest) {
     return {
       status: 200,
       body: {
-        items: [
-          {
-            id: "inv_123",
-            subscription_id: "sub_123",
-            amount: 50_000,
-            currency: "INR",
-            status: "paid",
-            issued_at: 1_785_196_800,
-            paid_at: 1_785_196_860,
-          },
-        ],
+        items: [invoiceFixture()],
       },
     };
   }
@@ -499,6 +571,30 @@ function response(request: RazorpayHttpRequest) {
       current_end: 1_787_875_200,
     },
   };
+}
+
+function invoiceFixture(
+  overrides: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    id: "inv_123",
+    subscription_id: "sub_123",
+    amount: 50_000,
+    currency: "INR",
+    status: "paid",
+    issued_at: 1_785_196_800,
+    paid_at: 1_785_196_860,
+    ...overrides,
+  };
+}
+
+function withoutField(
+  value: Readonly<Record<string, unknown>>,
+  field: string,
+): Record<string, unknown> {
+  const copy = { ...value };
+  delete copy[field];
+  return copy;
 }
 
 function capabilities() {
