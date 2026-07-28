@@ -83,6 +83,43 @@ function echoingActivities(
   };
 }
 
+/**
+ * Delays one node's activity long enough for the test to shut down the
+ * worker while that activity is genuinely in flight -- a real worker-kill
+ * mid-run scenario, not just a restart between already-completed steps.
+ *
+ * `onStart` fires synchronously the instant the delayed node's activity is
+ * invoked, before the delay -- the test awaits it instead of guessing a
+ * wall-clock margin, so "the activity has genuinely started" is
+ * deterministic regardless of how fast/slow the host machine schedules
+ * the workflow start -> activity dispatch round trip (this raced and
+ * flaked on a slower CI runner with a fixed sleep-based guess).
+ */
+function delayedEchoingActivities(
+  delayedNodeKey: string,
+  delayMs: number,
+  callOrder: string[],
+  finalizeCalls: unknown[] = [],
+  onStart?: (nodeKey: string) => void,
+): ExecutorActivities {
+  return {
+    async executeNode(input) {
+      if (input.nodeKey === delayedNodeKey) {
+        onStart?.(input.nodeKey);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      callOrder.push(input.nodeKey);
+      return {
+        outputJson: JSON.stringify({ from: input.nodeKey }),
+        metadataJson: "{}",
+      };
+    },
+    async finalizeRun(input) {
+      finalizeCalls.push(input);
+    },
+  };
+}
+
 /** Tracks how many executeNode calls are in flight at once, for proving real concurrency. */
 function concurrencyTrackingActivities(): {
   activities: ExecutorActivities;
@@ -172,6 +209,90 @@ describe.sequential("executorWorkflow", () => {
       ]);
     } finally {
       await stopWorker(running);
+    }
+  });
+
+  it("survives a worker kill mid-run: wave 0's activity is genuinely in flight when the worker is shut down, a fresh worker resumes and completes the run exactly once per node", async () => {
+    const taskQueue = "executor-worker-kill-durability";
+    const callOrder: string[] = [];
+    const finalizeCalls: unknown[] = [];
+    const workflowId = "executor-worker-kill-durability-workflow";
+
+    let notifyStarted: (() => void) | undefined;
+    const nodeAStarted = new Promise<void>((resolve) => {
+      notifyStarted = resolve;
+    });
+
+    const workerOne = startWorker(
+      await createExecutorWorker(
+        config(taskQueue),
+        environment.nativeConnection,
+        // node_a's activity sleeps 500ms -- long enough to shut the worker
+        // down while it is genuinely mid-execution, not just between
+        // already-completed workflow steps. onStart fires before the
+        // sleep, so the test can await "genuinely in flight" deterministically
+        // instead of guessing a wall-clock margin (a fixed sleep here raced
+        // and flaked on a slower CI runner).
+        delayedEchoingActivities("node_a", 500, callOrder, finalizeCalls, () =>
+          notifyStarted?.(),
+        ),
+      ),
+    );
+
+    const handle = await environment.client.workflow.start(WORKFLOW_TYPE, {
+      taskQueue,
+      workflowId,
+      args: [
+        {
+          tenantId: "ten_test",
+          runId: "run_test",
+          compiledDagJson: JSON.stringify(sequentialDag()),
+        },
+      ],
+    });
+
+    // Deterministic: node_a's activity has genuinely started (and is now
+    // asleep for the remaining ~500ms) before we kill the worker underneath it.
+    await nodeAStarted;
+    await stopWorker(workerOne);
+
+    // shutdown() stops polling for NEW tasks immediately but gracefully
+    // drains the activity already in flight -- so node_a's delayed
+    // activity finishes during the drain (same as a real SIGTERM), but
+    // node_b's activity task cannot have been dispatched to workerOne:
+    // it doesn't even exist on the server until node_a's completion is
+    // reported, by which point workerOne already stopped accepting work.
+    expect(callOrder).toEqual(["node_a"]);
+
+    const workerTwo = startWorker(
+      await createExecutorWorker(
+        config(taskQueue),
+        environment.nativeConnection,
+        delayedEchoingActivities("node_a", 0, callOrder, finalizeCalls),
+      ),
+    );
+
+    try {
+      const result = await handle.result();
+
+      expect(result.outputs).toEqual({
+        node_a: { from: "node_a" },
+        node_b: { from: "node_b" },
+      });
+      // Each node's activity produced exactly one recorded execution --
+      // proves the resumed run walked the DAG correctly, not a replay
+      // artifact or a duplicated/skipped node.
+      expect(callOrder).toEqual(["node_a", "node_b"]);
+      expect(finalizeCalls).toEqual([
+        expect.objectContaining({
+          tenantId: "ten_test",
+          runId: "run_test",
+          status: "completed",
+          errorJson: "",
+        }),
+      ]);
+    } finally {
+      await stopWorker(workerTwo);
     }
   });
 
