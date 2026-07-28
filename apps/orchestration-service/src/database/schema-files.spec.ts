@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { conversationGoalStates } from "../../db/schema/conversation_goal_states";
+import { blackboardCheckpoints } from "../../db/schema/blackboard_checkpoints";
 import { conversations } from "../../db/schema/conversations";
 import { events } from "../../db/schema/events";
 import { runs } from "../../db/schema/runs";
@@ -24,10 +25,11 @@ const schemas = [
   ["runs.ts", "runs"],
   ["conversation_goal_states.ts", "conversation_goal_states"],
   ["workflow_versions.ts", "workflow_versions"],
+  ["blackboard_checkpoints.ts", "blackboard_checkpoints"],
 ] as const;
 
 describe("orchestration Drizzle schemas", () => {
-  it("loads all eight executable Drizzle table definitions", () => {
+  it("loads all nine executable Drizzle table definitions", () => {
     for (const table of [
       workflows,
       triggers,
@@ -37,6 +39,7 @@ describe("orchestration Drizzle schemas", () => {
       runs,
       conversationGoalStates,
       workflowVersions,
+      blackboardCheckpoints,
     ]) {
       expect(table).toBeDefined();
     }
@@ -68,6 +71,9 @@ describe("orchestration Drizzle schemas", () => {
       'index("idx_workflow_versions_workflow")',
       'unique("workflow_versions_tenant_workflow_version_unique")',
       '"workflow_versions_canary_traffic_check"',
+      'foreignKey({\n      name: "blackboard_checkpoints_run_tenant_fk"',
+      '}).onDelete("cascade")',
+      '"blackboard_checkpoints_context_key_check"',
     ]) {
       expect(allSources).toContain(expected);
     }

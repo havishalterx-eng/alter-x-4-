@@ -24,6 +24,11 @@ interface StoredEntry {
   readonly expiresAtMs?: number;
 }
 
+interface StoredValue {
+  readonly value: string;
+  readonly expiresAtMs: number;
+}
+
 export interface MockCacheProvider extends CacheProvider {
   getStoredEntries(): readonly SemanticCacheStoreRequest[];
 }
@@ -43,6 +48,19 @@ export function createMockCacheProvider(
   const now = options.now ?? (() => new Date());
   const stores: SemanticCacheStoreRequest[] = [];
   const entriesByTenant = new Map<string, StoredEntry[]>();
+  const valuesByKey = new Map<string, StoredValue>();
+
+  function getValue(key: string): string | undefined {
+    const stored = valuesByKey.get(key);
+    if (stored === undefined) {
+      return undefined;
+    }
+    if (stored.expiresAtMs <= now().getTime()) {
+      valuesByKey.delete(key);
+      return undefined;
+    }
+    return stored.value;
+  }
 
   function lookup(
     request: SemanticCacheLookupRequest,
@@ -87,6 +105,16 @@ export function createMockCacheProvider(
     capabilities: options.capabilities ?? MOCK_CACHE_CAPABILITIES,
     ...(options.health === undefined ? {} : { health: options.health }),
     implementation: {
+      getValue: async (key) => getValue(key),
+      setValue: async (key, value, ttlSeconds) => {
+        valuesByKey.set(key, {
+          value,
+          expiresAtMs: now().getTime() + ttlSeconds * 1000,
+        });
+      },
+      deleteValue: async (key) => {
+        valuesByKey.delete(key);
+      },
       lookupSemantic: async (request) => lookup(request),
       storeSemantic: async (request) => store(request),
       getStoredEntries: () => stores.map((entry) => ({ ...entry })),

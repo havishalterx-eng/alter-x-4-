@@ -371,6 +371,9 @@ export interface SemanticCacheStoreRequest {
 }
 
 export interface CacheProvider extends BaseProvider<"CacheProvider"> {
+  getValue(key: string): Promise<string | undefined>;
+  setValue(key: string, value: string, ttlSeconds: number): Promise<void>;
+  deleteValue(key: string): Promise<void>;
   lookupSemantic(
     request: SemanticCacheLookupRequest,
   ): Promise<SemanticCacheLookupResult>;

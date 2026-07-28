@@ -587,6 +587,28 @@ export const cacheProviderContract: ProviderContractSuite<CacheProvider> = {
       },
     },
     {
+      name: "reads, writes, and deletes exact-key values",
+      assert: async (provider) => {
+        const key = "contract:cache-provider:exact-value";
+        await provider.deleteValue(key);
+        ensure(
+          (await provider.getValue(key)) === undefined,
+          "A missing exact-key value must return undefined",
+        );
+        await provider.setValue(key, "contract-value", 60);
+        ensure(
+          (await provider.getValue(key)) === "contract-value",
+          "An exact-key value must round-trip unchanged",
+        );
+        await provider.deleteValue(key);
+        ensure(
+          (await provider.getValue(key)) === undefined,
+          "A deleted exact-key value must return undefined",
+        );
+        return { deleted: true, roundTripped: true };
+      },
+    },
+    {
       name: "misses on a lookup before anything is stored",
       assert: async (provider) => {
         const result = await provider.lookupSemantic({

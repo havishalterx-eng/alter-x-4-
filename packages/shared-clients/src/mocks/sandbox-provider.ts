@@ -3,7 +3,6 @@ import { createMockProvider } from "../mock-provider";
 import type {
   SandboxFile,
   SandboxProvider,
-  SandboxSession,
   SandboxSessionCreateRequest,
 } from "../provider-types";
 import { mockCapabilities, mockMetadata } from "./shared";

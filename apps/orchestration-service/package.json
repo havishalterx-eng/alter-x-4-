@@ -18,6 +18,7 @@
     "zod": "4.1.12"
   },
   "devDependencies": {
-    "@testcontainers/postgresql": "12.0.4"
+    "@testcontainers/postgresql": "12.0.4",
+    "@testcontainers/redis": "12.0.4"
   }
 }

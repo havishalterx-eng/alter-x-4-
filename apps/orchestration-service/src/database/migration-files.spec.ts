@@ -23,6 +23,7 @@ describe("orchestration migration files", () => {
       "0006_create_conversation_goal_states.sql",
       "0007_create_workflow_versions.sql",
       "0008_add_workflow_version_canary_traffic.sql",
+      "0009_create_blackboard_checkpoints.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -38,6 +39,7 @@ describe("orchestration migration files", () => {
       "0006_drop_conversation_goal_states.sql",
       "0007_drop_workflow_versions.sql",
       "0008_remove_workflow_version_canary_traffic.sql",
+      "0009_drop_blackboard_checkpoints.sql",
     ]);
   });
 
@@ -54,13 +56,13 @@ describe("orchestration migration files", () => {
     },
   );
 
-  it("defines immutability function once and reuses it eight times", () => {
+  it("defines immutability function once and reuses it nine times", () => {
     const allSql = migrationSql.map(({ sql }) => sql).join("\n");
 
     expect(allSql.match(/CREATE OR REPLACE FUNCTION reject_tenant_id_change/g))
       .toHaveLength(1);
     expect(allSql.match(/EXECUTE FUNCTION reject_tenant_id_change\(\)/g))
-      .toHaveLength(8);
+      .toHaveLength(9);
   });
 
   it("persists a bounded traffic percentage only for canary versions", () => {
@@ -124,6 +126,12 @@ describe("orchestration migration files", () => {
     );
     expect(allSql).toContain(
       `CONSTRAINT "workflow_versions_status_check" CHECK ("status" IN ('compiled', 'canary', 'promoted', 'rolled_back', 'retired'))`,
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "blackboard_checkpoints_run_tenant_fk" FOREIGN KEY ("tenant_id", "run_id") REFERENCES "runs"("tenant_id", "id") ON DELETE CASCADE',
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "blackboard_checkpoints_tenant_run_key_pk" PRIMARY KEY ("tenant_id", "run_id", "context_key")',
     );
   });
 

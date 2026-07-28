@@ -23,6 +23,12 @@ function fakeRedisClient(): RedisCommandClient & {
   return {
     store,
     expireCalls,
+    get: vi.fn(async (key: string) => store.get(key)?.[0] ?? null),
+    set: vi.fn(async (key: string, value: string) => {
+      store.set(key, [value]);
+      return "OK" as const;
+    }),
+    del: vi.fn(async (key: string) => (store.delete(key) ? 1 : 0)),
     lpush: vi.fn(async (key: string, value: string) => {
       const list = store.get(key) ?? [];
       list.unshift(value);
@@ -80,6 +86,39 @@ describe("RedisCacheProvider", () => {
 
   it("publishes Redis cache capabilities", () => {
     expect(realProvider().capabilities).toEqual(REDIS_CACHE_CAPABILITIES);
+  });
+
+  it("reads, writes, and deletes exact-key values with a Redis TTL", async () => {
+    const client = fakeRedisClient();
+    const provider = new RedisCacheProvider(
+      { host: "localhost", port: 6379 },
+      client,
+    );
+
+    expect(await provider.getValue("bb:run_1:state")).toBeUndefined();
+    await provider.setValue("bb:run_1:state", '{"step":1}', 90);
+    expect(client.set).toHaveBeenCalledWith(
+      "bb:run_1:state",
+      '{"step":1}',
+      "EX",
+      90,
+    );
+    expect(await provider.getValue("bb:run_1:state")).toBe('{"step":1}');
+    await provider.deleteValue("bb:run_1:state");
+    expect(await provider.getValue("bb:run_1:state")).toBeUndefined();
+  });
+
+  it("validates exact-key operations", async () => {
+    const provider = new RedisCacheProvider(
+      { host: "localhost", port: 6379 },
+      fakeRedisClient(),
+    );
+
+    await expect(provider.getValue(" ")).rejects.toThrow("Cache key is required");
+    await expect(provider.deleteValue("")).rejects.toThrow("Cache key is required");
+    await expect(provider.setValue("key", "value", 0)).rejects.toThrow(
+      "Cache TTL must be a positive integer",
+    );
   });
 
   it("stores a candidate, trims to the configured cap, and sets a TTL", async () => {

@@ -191,6 +191,9 @@ importers:
       '@testcontainers/postgresql':
         specifier: 12.0.4
         version: 12.0.4
+      '@testcontainers/redis':
+        specifier: 12.0.4
+        version: 12.0.4
 
   apps/platform-api:
     dependencies:
@@ -3672,6 +3675,9 @@ packages:
 
   '@testcontainers/postgresql@12.0.4':
     resolution: {integrity: sha512-a/pLU6j5lpKKAlUTPwqweqMGhOSjgTSb6HBX69TOrXn32ifU37nnQDmNFTj8ddOAw+BQL9oTRkeOxVbZkqhgZA==}
+
+  '@testcontainers/redis@12.0.4':
+    resolution: {integrity: sha512-44Ov3Lcptb3KqljcCy6xIJ2VxNsN+3Kw/YpBiotZpOcI4iLgLNmcOgvCFPVo+vDoh4rCfgtNUEbIpL5Mu7oRuw==}
 
   '@tokenizer/inflate@0.4.1':
     resolution: {integrity: sha512-2mAv+8pkG6GIZiF1kNg1jAjh27IDxEPKwdGul3snfztFerfPGI1LjDezZp3i7BElXompqEtPmoPx6c2wgtWsOA==}
@@ -11982,6 +11988,15 @@ snapshots:
       nexus-rpc: 0.0.2
 
   '@testcontainers/postgresql@12.0.4':
+    dependencies:
+      testcontainers: 12.0.4
+    transitivePeerDependencies:
+      - bare-abort-controller
+      - bare-buffer
+      - react-native-b4a
+      - supports-color
+
+  '@testcontainers/redis@12.0.4':
     dependencies:
       testcontainers: 12.0.4
     transitivePeerDependencies:

@@ -21,6 +21,14 @@ export interface RedisCacheProviderConfig {
 }
 
 export interface RedisCommandClient {
+  get(key: string): Promise<string | null>;
+  set(
+    key: string,
+    value: string,
+    expiryMode: "EX",
+    seconds: number,
+  ): Promise<"OK" | null>;
+  del(key: string): Promise<number>;
   lpush(key: string, value: string): Promise<number>;
   ltrim(key: string, start: number, stop: number): Promise<"OK">;
   lrange(key: string, start: number, stop: number): Promise<string[]>;
@@ -67,6 +75,12 @@ const REDIS_CACHE_METADATA: ProviderMetadata<"CacheProvider"> = {
 
 function candidateKey(tenantId: string): string {
   return `cache:semantic:${tenantId}:candidates`;
+}
+
+function requireKey(key: string): void {
+  if (key.trim().length === 0) {
+    throw new Error("Cache key is required");
+  }
 }
 
 function parseCandidate(raw: string): StoredCandidate | undefined {
@@ -121,8 +135,35 @@ export class RedisCacheProvider implements CacheProvider {
         port: config.port,
         tls: config.tlsEnabled === true ? {} : undefined,
         lazyConnect: true,
+        connectTimeout: 1_000,
+        maxRetriesPerRequest: 1,
       }) as unknown as RedisCommandClient);
     this.#now = now ?? (() => new Date());
+  }
+
+  async getValue(key: string): Promise<string | undefined> {
+    requireKey(key);
+    return (await this.#client.get(key)) ?? undefined;
+  }
+
+  async setValue(
+    key: string,
+    value: string,
+    ttlSeconds: number,
+  ): Promise<void> {
+    requireKey(key);
+    if (!Number.isInteger(ttlSeconds) || ttlSeconds < 1) {
+      throw new Error("Cache TTL must be a positive integer");
+    }
+    const result = await this.#client.set(key, value, "EX", ttlSeconds);
+    if (result !== "OK") {
+      throw new Error("Cache value write was not acknowledged");
+    }
+  }
+
+  async deleteValue(key: string): Promise<void> {
+    requireKey(key);
+    await this.#client.del(key);
   }
 
   async lookupSemantic(
