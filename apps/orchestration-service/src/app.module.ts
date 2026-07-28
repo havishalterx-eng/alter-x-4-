@@ -4,15 +4,18 @@ import {
   COMPILER_HANDLER,
   CONVERSATION_HANDLER,
   DEPLOYCTL_HANDLER,
+  NODEEXEC_HANDLER,
   REGISTRY_HANDLER,
   CompilerGrpcController,
   ConversationDispatchClient,
   ConversationGrpcController,
   DeployctlGrpcController,
   ModelGatewayClient,
+  NodeexecGrpcController,
   PostgresOrchestrationStoreProvider,
   RegistryGrpcController,
 } from "@alterx/adapters";
+import { createMockQueueProvider } from "@alterx/shared-clients";
 import {
   ActorTokenValidator,
   M2mValidator,
@@ -25,6 +28,14 @@ import { ConversationManagerService } from "./conversation/conversation-manager.
 import { GraphCompilerService } from "./compiler/graph-compiler.service";
 import { DeploymentControllerService } from "./deployment-controller/deployment-controller.service";
 import { RegistryService } from "./registry/registry.service";
+import { NodeexecService } from "./registry/nodeexec.service";
+import { NodeHandlerRegistry } from "./registry/node-handler-registry";
+import { GateHandler } from "./registry/handlers/gate.handler";
+import { GroupChatHandler } from "./registry/handlers/groupchat.handler";
+import { LlmTaskHandler } from "./registry/handlers/llmtask.handler";
+import { MergeHandler } from "./registry/handlers/merge.handler";
+import { PubSubHandler } from "./registry/handlers/pubsub.handler";
+import { YamlImportHandler } from "./registry/handlers/yaml-import.handler";
 import { loadConversationManagerEnvironment } from "./config/environment";
 import { loadConversationDispatchEnvironment } from "./config/conversation-dispatch-environment";
 import { loadWhatsappWebhookEnvironment } from "./config/whatsapp-webhook-environment";
@@ -43,6 +54,7 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
     CompilerGrpcController,
     DeployctlGrpcController,
     RegistryGrpcController,
+    NodeexecGrpcController,
     TriggerRegistryController,
     WhatsappWebhookController,
   ],
@@ -171,6 +183,30 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
       // node-type-catalog.ts), not database-backed.
       provide: REGISTRY_HANDLER,
       useClass: RegistryService,
+    },
+    {
+      provide: NODEEXEC_HANDLER,
+      useFactory: () => {
+        const conversationConfig = loadConversationManagerEnvironment(
+          process.env,
+        );
+        const modelGateway = new ModelGatewayClient({
+          address: conversationConfig.modelGatewayAddress,
+          protoPath: MODELGW_CLIENT_PROTO_PATH,
+        });
+        // No real QueueProvider adapter exists yet -- PubSubHandler uses
+        // the shared-clients mock here, same disclosed gap as EXEC-1.
+        const queueProvider = createMockQueueProvider();
+        const registry = new NodeHandlerRegistry([
+          new GateHandler(),
+          new MergeHandler(),
+          new PubSubHandler(queueProvider),
+          new GroupChatHandler(),
+          new YamlImportHandler(),
+          new LlmTaskHandler(modelGateway),
+        ]);
+        return new NodeexecService(registry);
+      },
     },
     {
       provide: WhatsappWebhookService,

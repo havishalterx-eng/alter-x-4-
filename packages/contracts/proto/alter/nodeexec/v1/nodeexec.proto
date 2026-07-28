@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package alter.nodeexec.v1;
+
+// The Node Execution Service dispatches one CompiledDag node to its
+// registered handler (see apps/orchestration-service/src/registry) and
+// returns the result. This is the ONLY entry point the Executor's Temporal
+// Activity calls -- all handler dispatch logic stays server-side.
+service NodeExecutionService {
+  rpc ExecuteNode(ExecuteNodeRequest) returns (ExecuteNodeResponse);
+}
+
+message ExecuteNodeRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string node_key = 4;
+  string node_type = 5; // one of the 11 alter.registry.v1 node types
+  string config_json = 6;
+  string inputs_json = 7; // upstream outputs, keyed by producing node key
+}
+
+message ExecuteNodeResponse {
+  reserved 100 to 199;
+
+  string output_json = 1;
+  string metadata_json = 2;
+}

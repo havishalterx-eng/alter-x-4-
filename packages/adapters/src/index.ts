@@ -31,8 +31,25 @@ export {
 } from "./temporal/conversation-dispatch-client";
 export {
   createConversationLifecycleWorker,
+  createExecutorWorker,
   createFoundationWorker,
 } from "./temporal/worker";
+export {
+  createExecutorActivities,
+  type ExecuteNodeActivityInput,
+  type ExecuteNodeActivityResult,
+  type ExecutorActivities,
+} from "./temporal/activities/executor-activities";
+export {
+  executorWorkflow,
+  type ExecutorWorkflowInput,
+  type ExecutorWorkflowResult,
+} from "./temporal/workflows/executor-workflow";
+export {
+  startExecutorWorker,
+  type ExecutorWorkerBootstrapConfig,
+  type ExecutorWorkerHandle,
+} from "./temporal/executor-bootstrap";
 export {
   foundationNoopWorkflow,
   type FoundationWorkflowStatus,
@@ -226,6 +243,18 @@ export {
   type RegistryGrpcTransportConfig,
   type RegistryHandler,
 } from "./grpc/registry-grpc-transport";
+export {
+  NODEEXEC_HANDLER,
+  NodeexecGrpcController,
+  connectNodeexecGrpcTransport,
+  type NodeexecGrpcTransportConfig,
+  type NodeexecHandler,
+} from "./grpc/nodeexec-grpc-transport";
+export {
+  NodeExecutionClient,
+  type NodeExecutionClientConfig,
+  type NodeExecutionHandler,
+} from "./grpc/nodeexec-client";
 export {
   REDIS_CACHE_CAPABILITIES,
   RedisCacheProvider,

@@ -74,6 +74,10 @@ export type {
   ListNodeTypesResponse as RegistryListNodeTypesResponse,
   NodeTypeDescriptor as RegistryNodeTypeDescriptor,
 } from "./generated/alter/registry/v1/registry";
+export type {
+  ExecuteNodeRequest as NodeexecExecuteNodeRequest,
+  ExecuteNodeResponse as NodeexecExecuteNodeResponse,
+} from "./generated/alter/nodeexec/v1/nodeexec";
 export {
   CostLimitBindingSchema,
   FallbackBindingSchema,

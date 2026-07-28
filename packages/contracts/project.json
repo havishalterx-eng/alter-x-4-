@@ -63,10 +63,11 @@
         "{projectRoot}/src/generated/alter/conversation/v1/conversation.ts",
         "{projectRoot}/src/generated/alter/compiler/v1/compiler.ts",
         "{projectRoot}/src/generated/alter/deployctl/v1/deployctl.ts",
-        "{projectRoot}/src/generated/alter/registry/v1/registry.ts"
+        "{projectRoot}/src/generated/alter/registry/v1/registry.ts",
+        "{projectRoot}/src/generated/alter/nodeexec/v1/nodeexec.ts"
       ],
       "options": {
-        "command": "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto --path alter/compiler/v1/compiler.proto --path alter/deployctl/v1/deployctl.proto --path alter/registry/v1/registry.proto",
+        "command": "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto --path alter/compiler/v1/compiler.proto --path alter/deployctl/v1/deployctl.proto --path alter/registry/v1/registry.proto --path alter/nodeexec/v1/nodeexec.proto",
         "cwd": "packages/contracts/proto"
       }
     },

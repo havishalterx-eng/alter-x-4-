@@ -10,7 +10,11 @@
         "{workspaceRoot}/dist/apps/background-workers"
       ],
       "options": {
-        "command": "tsc -p apps/background-workers/tsconfig.app.json"
+        "commands": [
+          "tsc -p apps/background-workers/tsconfig.app.json",
+          "node apps/background-workers/scripts/copy-build-assets.mjs"
+        ],
+        "parallel": false
       }
     },
     "serve": {

@@ -16,3 +16,5 @@ __pycache__/
 .nx/
 tmp/
 *.tsbuildinfo
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map

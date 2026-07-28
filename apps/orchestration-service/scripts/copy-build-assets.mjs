@@ -40,3 +40,8 @@ await cp(
   resolve(output, "proto/registry.proto"),
   { force: true },
 );
+await cp(
+  resolve(root, "packages/contracts/proto/alter/nodeexec/v1/nodeexec.proto"),
+  resolve(output, "proto/nodeexec.proto"),
+  { force: true },
+);
