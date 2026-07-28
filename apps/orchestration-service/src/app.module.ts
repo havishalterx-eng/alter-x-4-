@@ -14,6 +14,7 @@ import {
   NodeexecGrpcController,
   PostgresOrchestrationStoreProvider,
   RegistryGrpcController,
+  ToolGatewayClient,
 } from "@alterx/adapters";
 import { createMockQueueProvider } from "@alterx/shared-clients";
 import {
@@ -29,20 +30,16 @@ import { GraphCompilerService } from "./compiler/graph-compiler.service";
 import { DeploymentControllerService } from "./deployment-controller/deployment-controller.service";
 import { RegistryService } from "./registry/registry.service";
 import { NodeexecService } from "./registry/nodeexec.service";
-import { NodeHandlerRegistry } from "./registry/node-handler-registry";
-import { GateHandler } from "./registry/handlers/gate.handler";
-import { GroupChatHandler } from "./registry/handlers/groupchat.handler";
-import { LlmTaskHandler } from "./registry/handlers/llmtask.handler";
-import { MergeHandler } from "./registry/handlers/merge.handler";
-import { PubSubHandler } from "./registry/handlers/pubsub.handler";
-import { YamlImportHandler } from "./registry/handlers/yaml-import.handler";
+import { createRuntimeNodeHandlerRegistry } from "./registry/node-handler-registry";
 import { loadConversationManagerEnvironment } from "./config/environment";
 import { loadConversationDispatchEnvironment } from "./config/conversation-dispatch-environment";
 import { loadWhatsappWebhookEnvironment } from "./config/whatsapp-webhook-environment";
+import { loadNodeexecEnvironment } from "./config/nodeexec-environment";
 import { ORCHESTRATION_MIGRATIONS_PATH } from "./database/migrations-path";
 import { HealthController } from "./health/health.controller";
 import { TriggerRegistryController } from "./trigger-registry/trigger-registry.controller";
 import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
+import { TOOLGW_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
 import { ConversationDispatchService } from "./webhooks/conversation-dispatch.service";
 import { WhatsappWebhookController } from "./webhooks/whatsapp-webhook.controller";
 import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
@@ -194,17 +191,19 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
           address: conversationConfig.modelGatewayAddress,
           protoPath: MODELGW_CLIENT_PROTO_PATH,
         });
+        const nodeexecConfig = loadNodeexecEnvironment(process.env);
+        const toolGateway = new ToolGatewayClient({
+          address: nodeexecConfig.toolGatewayAddress,
+          protoPath: TOOLGW_CLIENT_PROTO_PATH,
+        });
         // No real QueueProvider adapter exists yet -- PubSubHandler uses
         // the shared-clients mock here, same disclosed gap as EXEC-1.
         const queueProvider = createMockQueueProvider();
-        const registry = new NodeHandlerRegistry([
-          new GateHandler(),
-          new MergeHandler(),
-          new PubSubHandler(queueProvider),
-          new GroupChatHandler(),
-          new YamlImportHandler(),
-          new LlmTaskHandler(modelGateway),
-        ]);
+        const registry = createRuntimeNodeHandlerRegistry({
+          modelGateway,
+          toolGateway,
+          queueProvider,
+        });
         return new NodeexecService(registry);
       },
     },

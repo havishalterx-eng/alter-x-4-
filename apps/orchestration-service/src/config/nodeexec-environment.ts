@@ -4,6 +4,7 @@
 
 export interface NodeexecEnvironment {
   readonly grpcBindAddress: string;
+  readonly toolGatewayAddress: string;
 }
 
 export class NodeexecConfigurationError extends Error {
@@ -34,7 +35,15 @@ function parseGrpcAddress(value: string | undefined): string {
 export function loadNodeexecEnvironment(
   environment: NodeJS.ProcessEnv,
 ): NodeexecEnvironment {
+  const toolGatewayAddress = environment.TOOL_GATEWAY_ADDRESS?.trim();
+  if (toolGatewayAddress === undefined || toolGatewayAddress.length === 0) {
+    throw new NodeexecConfigurationError(
+      "TOOL_GATEWAY_ADDRESS",
+      "a non-empty value is required",
+    );
+  }
   return {
     grpcBindAddress: parseGrpcAddress(environment.NODEEXEC_GRPC_BIND_ADDRESS),
+    toolGatewayAddress,
   };
 }

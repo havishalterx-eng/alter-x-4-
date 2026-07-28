@@ -23,6 +23,7 @@ describe("GET /health", () => {
       AWS_REGION: "ap-south-1",
       ALTER_ENV: "prod",
       MODEL_GATEWAY_ADDRESS: "127.0.0.1:50051",
+      TOOL_GATEWAY_ADDRESS: "127.0.0.1:50053",
       WHATSAPP_APP_SECRET: "test-app-secret",
       WHATSAPP_VERIFY_TOKEN: "test-verify-token",
       WHATSAPP_TENANT_ID: "00000000-0000-7000-8000-000000000001",

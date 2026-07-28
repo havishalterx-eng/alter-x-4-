@@ -45,3 +45,8 @@ await cp(
   resolve(output, "proto/nodeexec.proto"),
   { force: true },
 );
+await cp(
+  resolve(root, "packages/contracts/proto/alter/toolgw/v1/toolgw.proto"),
+  resolve(output, "proto/toolgw.proto"),
+  { force: true },
+);

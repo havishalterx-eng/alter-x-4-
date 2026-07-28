@@ -9,3 +9,12 @@ const workspaceNodeexecProtoPath = resolve(
 export const NODEEXEC_PROTO_PATH = existsSync(workspaceNodeexecProtoPath)
   ? workspaceNodeexecProtoPath
   : resolve(__dirname, "../../proto/nodeexec.proto");
+
+const workspaceToolgwProtoPath = resolve(
+  process.cwd(),
+  "packages/contracts/proto/alter/toolgw/v1/toolgw.proto",
+);
+
+export const TOOLGW_CLIENT_PROTO_PATH = existsSync(workspaceToolgwProtoPath)
+  ? workspaceToolgwProtoPath
+  : resolve(__dirname, "../../proto/toolgw.proto");

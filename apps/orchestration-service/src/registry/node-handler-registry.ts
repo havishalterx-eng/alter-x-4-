@@ -1,6 +1,19 @@
 import type { NodeType } from "@alterx/contracts";
+import type {
+  ModelGatewayHandler,
+  ToolGatewayInvokeHandler,
+} from "@alterx/adapters";
+import type { QueueProvider } from "@alterx/shared-clients";
 
 import type { NodeExecutionContext, NodeExecutionResult, NodeHandler } from "./handler";
+import { GateHandler } from "./handlers/gate.handler";
+import { GroupChatHandler } from "./handlers/groupchat.handler";
+import { HumanApprovalHandler } from "./handlers/human-approval.handler";
+import { LlmTaskHandler } from "./handlers/llmtask.handler";
+import { MergeHandler } from "./handlers/merge.handler";
+import { PubSubHandler } from "./handlers/pubsub.handler";
+import { ToolCallHandler } from "./handlers/toolcall.handler";
+import { YamlImportHandler } from "./handlers/yaml-import.handler";
 
 export class NodeTypeNotImplementedError extends Error {
   constructor(nodeType: string) {
@@ -34,8 +47,9 @@ const KNOWN_NODE_TYPES: ReadonlySet<string> = new Set<NodeType>([
  * Dispatches a node execution to its registered handler. Mirrors
  * node-type-catalog.ts's handler_implemented flags exactly -- a type
  * missing from this registry's map is either unknown (not one of the 11)
- * or a disclosed stub (ToolCall/SandboxExec/HumanApproval/Synthesis/
- * MemoryWrite), never a silent no-op.
+ * or a disclosed unimplemented type (SandboxExec/Synthesis/MemoryWrite),
+ * never a silent no-op. HumanApproval is registered as an explicit
+ * non-pending HEAL-7 stub.
  */
 export class NodeHandlerRegistry {
   readonly #handlers: ReadonlyMap<NodeType, NodeHandler>;
@@ -61,4 +75,26 @@ export class NodeHandlerRegistry {
     }
     return handler.execute(context);
   }
+}
+
+export interface RuntimeNodeHandlerProviders {
+  readonly modelGateway: ModelGatewayHandler;
+  readonly toolGateway: ToolGatewayInvokeHandler;
+  readonly queueProvider: QueueProvider;
+}
+
+/** Single runtime composition list; catalog-implemented handlers live here. */
+export function createRuntimeNodeHandlerRegistry(
+  providers: RuntimeNodeHandlerProviders,
+): NodeHandlerRegistry {
+  return new NodeHandlerRegistry([
+    new GateHandler(),
+    new MergeHandler(),
+    new PubSubHandler(providers.queueProvider),
+    new GroupChatHandler(),
+    new YamlImportHandler(),
+    new LlmTaskHandler(providers.modelGateway),
+    new ToolCallHandler(providers.toolGateway),
+    new HumanApprovalHandler(),
+  ]);
 }
