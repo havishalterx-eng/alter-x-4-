@@ -5,6 +5,7 @@ import type {
   ProviderHealth,
   ProviderMetadata,
   SandboxFile,
+  SandboxCommandResult,
   SandboxProvider,
   SandboxSession,
   SandboxSessionCreateRequest,
@@ -12,7 +13,11 @@ import type {
 
 export interface E2bSandboxHandle {
   readonly sandboxId: string;
-  readonly files: { write(files: readonly { path: string; data: string }[]): Promise<void> };
+  readonly files: {
+    write(files: readonly { path: string; data: string }[]): Promise<void>;
+    read(path: string): Promise<string>;
+  };
+  readonly commands: { run(command: string, options?: { timeoutMs?: number }): Promise<SandboxCommandResult> };
   kill(): Promise<void>;
 }
 
@@ -52,7 +57,9 @@ function factory(): E2bSandboxFactory {
           write: async (files) => {
             await sandbox.files.write(files.map((file) => ({ path: file.path, data: file.data })));
           },
+          read: async (path) => sandbox.files.read(path),
         },
+        commands: { run: async (command, options) => sandbox.commands.run(command, options) },
         kill: async () => { await sandbox.kill(); },
       };
     },
@@ -87,6 +94,18 @@ export class E2bSandboxProvider implements SandboxProvider {
     const sandbox = this.#sessions.get(sessionId);
     if (sandbox === undefined) throw new Error("Sandbox session was not found");
     await sandbox.files.write(files.map((file) => ({ path: file.path, data: file.content })));
+  }
+
+  async readFile(sessionId: string, path: string): Promise<string> {
+    const sandbox = this.#sessions.get(sessionId);
+    if (sandbox === undefined) throw new Error("Sandbox session was not found");
+    return sandbox.files.read(path);
+  }
+
+  async execute(sessionId: string, command: string, timeoutMs?: number): Promise<SandboxCommandResult> {
+    const sandbox = this.#sessions.get(sessionId);
+    if (sandbox === undefined) throw new Error("Sandbox session was not found");
+    return sandbox.commands.run(command, timeoutMs === undefined ? undefined : { timeoutMs });
   }
 
   async closeSession(sessionId: string): Promise<void> {

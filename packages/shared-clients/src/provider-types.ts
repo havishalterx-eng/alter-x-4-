@@ -372,9 +372,17 @@ export interface SandboxFile {
   readonly content: string;
 }
 
+export interface SandboxCommandResult {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
 export interface SandboxProvider extends BaseProvider<"SandboxProvider"> {
   createSession(request: SandboxSessionCreateRequest): Promise<SandboxSession>;
   writeFiles(sessionId: string, files: readonly SandboxFile[]): Promise<void>;
+  readFile(sessionId: string, path: string): Promise<string>;
+  execute(sessionId: string, command: string, timeoutMs?: number): Promise<SandboxCommandResult>;
   closeSession(sessionId: string): Promise<void>;
 }
 export interface RepositoryProvider

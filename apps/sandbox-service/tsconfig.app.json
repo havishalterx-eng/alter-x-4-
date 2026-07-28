@@ -3,6 +3,7 @@
   "compilerOptions": {
     "noEmit": false,
     "outDir": "../../dist/apps/sandbox-service",
+    "paths": {},
     "rootDir": "./src",
     "sourceMap": true
   },

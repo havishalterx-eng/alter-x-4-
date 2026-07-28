@@ -108,6 +108,7 @@ export {
   type RepositoryProvider,
   type SandboxProvider,
   type SandboxFile,
+  type SandboxCommandResult,
   type SandboxSession,
   type SandboxSessionCreateRequest,
   type SearchProvider,

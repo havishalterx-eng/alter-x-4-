@@ -34,6 +34,15 @@ export function createMockSandboxProvider(): MockSandboxProvider {
         if (!sessions.has(sessionId)) throw new Error("Sandbox session was not found");
         files.set(sessionId, [...nextFiles]);
       },
+      readFile: async (sessionId, path) => {
+        const file = files.get(sessionId)?.find((entry) => entry.path === path);
+        if (file === undefined) throw new Error("Sandbox file was not found");
+        return file.content;
+      },
+      execute: async (sessionId, command) => {
+        if (!sessions.has(sessionId)) throw new Error("Sandbox session was not found");
+        return { exitCode: 0, stdout: command, stderr: "" };
+      },
       closeSession: async (sessionId) => {
         sessions.delete(sessionId);
         files.delete(sessionId);
