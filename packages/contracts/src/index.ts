@@ -80,6 +80,12 @@ export type {
   ExecuteNodeRequest as NodeexecExecuteNodeRequest,
   ExecuteNodeResponse as NodeexecExecuteNodeResponse,
 } from "./generated/alter/nodeexec/v1/nodeexec";
+export type {
+  ReadValueRequest as BlackboardReadValueRequest,
+  ReadValueResponse as BlackboardReadValueResponse,
+  WriteValueRequest as BlackboardWriteValueRequest,
+  WriteValueResponse as BlackboardWriteValueResponse,
+} from "./generated/alter/blackboard/v1/blackboard";
 export {
   CostLimitBindingSchema,
   FallbackBindingSchema,

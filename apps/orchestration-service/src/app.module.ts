@@ -1,11 +1,13 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import {
+  BLACKBOARD_HANDLER,
   COMPILER_HANDLER,
   CONVERSATION_HANDLER,
   DEPLOYCTL_HANDLER,
   NODEEXEC_HANDLER,
   REGISTRY_HANDLER,
+  BlackboardGrpcController,
   CompilerGrpcController,
   ConversationDispatchClient,
   ConversationGrpcController,
@@ -13,6 +15,7 @@ import {
   ModelGatewayClient,
   NodeexecGrpcController,
   PostgresOrchestrationStoreProvider,
+  RedisCacheProvider,
   RegistryGrpcController,
   ToolGatewayClient,
 } from "@alterx/adapters";
@@ -31,6 +34,9 @@ import { DeploymentControllerService } from "./deployment-controller/deployment-
 import { RegistryService } from "./registry/registry.service";
 import { NodeexecService } from "./registry/nodeexec.service";
 import { createRuntimeNodeHandlerRegistry } from "./registry/node-handler-registry";
+import { BlackboardGrpcService } from "./blackboard/blackboard-grpc.service";
+import { BlackboardService } from "./blackboard/blackboard.service";
+import { parseRedisHostPort } from "./config/blackboard-environment";
 import { loadConversationManagerEnvironment } from "./config/environment";
 import { loadConversationDispatchEnvironment } from "./config/conversation-dispatch-environment";
 import { loadWhatsappWebhookEnvironment } from "./config/whatsapp-webhook-environment";
@@ -52,6 +58,7 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
     DeployctlGrpcController,
     RegistryGrpcController,
     NodeexecGrpcController,
+    BlackboardGrpcController,
     TriggerRegistryController,
     WhatsappWebhookController,
   ],
@@ -205,6 +212,29 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
           queueProvider,
         });
         return new NodeexecService(registry);
+      },
+    },
+    {
+      provide: BLACKBOARD_HANDLER,
+      useFactory: () => {
+        // Same reasoning as CONVERSATION_HANDLER/TriggerRegistryService
+        // above: constructs its own PostgresOrchestrationStoreProvider
+        // rather than reaching into the guard's private instance.
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        const cache = new RedisCacheProvider(
+          parseRedisHostPort(dbConfig.redisUrl),
+        );
+        const blackboard = new BlackboardService(store, cache);
+        return new BlackboardGrpcService(blackboard);
       },
     },
     {

@@ -65,17 +65,41 @@ function parallelWaveDag(): CompiledDag {
 
 function echoingActivities(
   callOrder: string[],
-  inputsSeenByNode: Record<string, unknown> = {},
+  predecessorsSeenByNode: Record<string, readonly string[]> = {},
 ): ExecutorActivities {
   return {
     async executeNode(input) {
       callOrder.push(input.nodeKey);
-      inputsSeenByNode[input.nodeKey] = JSON.parse(input.inputsJson);
+      predecessorsSeenByNode[input.nodeKey] = input.predecessorKeys;
       return {
         outputJson: JSON.stringify({ from: input.nodeKey }),
         metadataJson: "{}",
       };
     },
+  };
+}
+
+/** Tracks how many executeNode calls are in flight at once, for proving real concurrency. */
+function concurrencyTrackingActivities(): {
+  activities: ExecutorActivities;
+  maxConcurrent: () => number;
+} {
+  let inFlight = 0;
+  let max = 0;
+  return {
+    activities: {
+      async executeNode(input) {
+        inFlight += 1;
+        max = Math.max(max, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        inFlight -= 1;
+        return {
+          outputJson: JSON.stringify({ from: input.nodeKey }),
+          metadataJson: "{}",
+        };
+      },
+    },
+    maxConcurrent: () => max,
   };
 }
 
@@ -98,15 +122,15 @@ describe.sequential("executorWorkflow", () => {
     };
   }
 
-  it("walks a sequential chain in order and accumulates outputs", async () => {
+  it("walks a sequential chain in order, passing only direct predecessors", async () => {
     const taskQueue = "executor-sequential";
     const callOrder: string[] = [];
-    const inputsSeen: Record<string, unknown> = {};
+    const predecessorsSeen: Record<string, readonly string[]> = {};
     const running = startWorker(
       await createExecutorWorker(
         config(taskQueue),
         environment.nativeConnection,
-        echoingActivities(callOrder, inputsSeen),
+        echoingActivities(callOrder, predecessorsSeen),
       ),
     );
 
@@ -130,23 +154,18 @@ describe.sequential("executorWorkflow", () => {
         node_a: { from: "node_a" },
         node_b: { from: "node_b" },
       });
-      // node_b's inputs must carry node_a's output (direct predecessor only).
-      expect(inputsSeen["node_b"]).toEqual({ node_a: { from: "node_a" } });
-      expect(inputsSeen["node_a"]).toEqual({});
+      expect(predecessorsSeen["node_b"]).toEqual(["node_a"]);
+      expect(predecessorsSeen["node_a"]).toEqual([]);
     } finally {
       await stopWorker(running);
     }
   });
 
-  it("walks parallel-wave nodes sequentially and merges at the join", async () => {
+  it("runs same-wave nodes concurrently, and merges at the join", async () => {
     const taskQueue = "executor-parallel-wave";
-    const callOrder: string[] = [];
+    const { activities, maxConcurrent } = concurrencyTrackingActivities();
     const running = startWorker(
-      await createExecutorWorker(
-        config(taskQueue),
-        environment.nativeConnection,
-        echoingActivities(callOrder),
-      ),
+      await createExecutorWorker(config(taskQueue), environment.nativeConnection, activities),
     );
 
     try {
@@ -164,12 +183,17 @@ describe.sequential("executorWorkflow", () => {
 
       const result = await handle.result();
 
-      expect(callOrder[0]).toBe("node_manager");
-      expect(callOrder[3]).toBe("node_join");
-      expect(new Set(callOrder.slice(1, 3))).toEqual(
-        new Set(["node_worker_a", "node_worker_b"]),
-      );
+      // Proves node_worker_a and node_worker_b actually overlapped in time
+      // (Promise.all), not a sequential await-in-a-loop that happens to
+      // visit both keys.
+      expect(maxConcurrent()).toBe(2);
       expect(result.outputs["node_join"]).toEqual({ from: "node_join" });
+      expect(Object.keys(result.outputs).sort()).toEqual([
+        "node_join",
+        "node_manager",
+        "node_worker_a",
+        "node_worker_b",
+      ]);
     } finally {
       await stopWorker(running);
     }

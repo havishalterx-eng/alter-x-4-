@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { NestFactory } from "@nestjs/core";
 import {
+  connectBlackboardGrpcTransport,
   connectCompilerGrpcTransport,
   connectDeployctlGrpcTransport,
   connectNodeexecGrpcTransport,
@@ -9,11 +10,13 @@ import {
   startConversationGrpcTransport,
 } from "@alterx/adapters";
 import { AppModule } from "./app.module";
+import { loadBlackboardEnvironment } from "./config/blackboard-environment";
 import { loadCompilerEnvironment } from "./config/compiler-environment";
 import { loadConversationManagerEnvironment } from "./config/environment";
 import { loadDeploymentControllerEnvironment } from "./config/deployment-controller-environment";
 import { loadNodeexecEnvironment } from "./config/nodeexec-environment";
 import { loadRegistryEnvironment } from "./config/registry-environment";
+import { BLACKBOARD_PROTO_PATH } from "./blackboard/grpc.constants";
 import { COMPILER_PROTO_PATH } from "./compiler/grpc.constants";
 import { CONVERSATION_PROTO_PATH } from "./conversation/grpc.constants";
 import { DEPLOYCTL_PROTO_PATH } from "./deployment-controller/grpc.constants";
@@ -26,6 +29,7 @@ async function bootstrap(): Promise<void> {
   const deploymentConfig = loadDeploymentControllerEnvironment(process.env);
   const registryConfig = loadRegistryEnvironment(process.env);
   const nodeexecConfig = loadNodeexecEnvironment(process.env);
+  const blackboardConfig = loadBlackboardEnvironment(process.env);
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
@@ -57,6 +61,10 @@ async function bootstrap(): Promise<void> {
   connectNodeexecGrpcTransport(app, {
     bindAddress: nodeexecConfig.grpcBindAddress,
     protoPath: NODEEXEC_PROTO_PATH,
+  });
+  connectBlackboardGrpcTransport(app, {
+    bindAddress: blackboardConfig.grpcBindAddress,
+    protoPath: BLACKBOARD_PROTO_PATH,
   });
   await startConversationGrpcTransport(app, {
     bindAddress: conversationConfig.grpcBindAddress,

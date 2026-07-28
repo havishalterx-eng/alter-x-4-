@@ -46,6 +46,11 @@ await cp(
   { force: true },
 );
 await cp(
+  resolve(root, "packages/contracts/proto/alter/blackboard/v1/blackboard.proto"),
+  resolve(output, "proto/blackboard.proto"),
+  { force: true },
+);
+await cp(
   resolve(root, "packages/contracts/proto/alter/toolgw/v1/toolgw.proto"),
   resolve(output, "proto/toolgw.proto"),
   { force: true },

@@ -58,10 +58,8 @@ function directPredecessorKeys(dag: CompiledDag, nodeKey: string): string[] {
   return dag.edges.filter((edge) => edge.to === nodeKey).map((edge) => edge.from);
 }
 
-function sequentialNodeOrder(dag: CompiledDag): string[] {
-  return [...dag.waves]
-    .sort((a, b) => a.order - b.order)
-    .flatMap((wave) => wave.node_keys);
+function orderedWaves(dag: CompiledDag): CompiledDag["waves"] {
+  return [...dag.waves].sort((a, b) => a.order - b.order);
 }
 
 export async function executorWorkflow(
@@ -86,33 +84,40 @@ export async function executorWorkflow(
 
   const outputs: Record<string, Record<string, unknown>> = {};
 
-  // Sequential node walk (EXEC-6 core): one node at a time, in wave order.
-  // Full parallel-wave execution is a later Execution-phase ticket.
-  for (const nodeKey of sequentialNodeOrder(dag)) {
-    const node = nodesByKey.get(nodeKey);
-    if (node === undefined) {
-      throw validationFailure(`Wave references unknown node key "${nodeKey}"`);
+  // Parallel-wave execution (EXEC-7): waves run in order (wave N depends
+  // on wave N-1), but every node within a wave is independent of its
+  // wave-mates by construction (Graph Compiler's Kahn's-algorithm wave
+  // assignment guarantees this) -- so they execute concurrently via
+  // Promise.all. Cross-node data flows through the Blackboard (each
+  // activity reads its own predecessors and writes its own output there,
+  // see executor-activities.ts), not through this workflow's local
+  // memory, so concurrent execution within a wave never races on shared
+  // in-process state.
+  for (const wave of orderedWaves(dag)) {
+    const waveResults = await Promise.all(
+      wave.node_keys.map(async (nodeKey) => {
+        const node = nodesByKey.get(nodeKey);
+        if (node === undefined) {
+          throw validationFailure(`Wave references unknown node key "${nodeKey}"`);
+        }
+
+        const result = await executeNode({
+          tenantId: input.tenantId,
+          runId: input.runId,
+          nodeExecutionId: nodeExecutionId(),
+          nodeKey: node.key,
+          nodeType: node.type,
+          configJson: JSON.stringify(node.config),
+          predecessorKeys: directPredecessorKeys(dag, nodeKey),
+        });
+
+        return [nodeKey, JSON.parse(result.outputJson) as Record<string, unknown>] as const;
+      }),
+    );
+
+    for (const [nodeKey, output] of waveResults) {
+      outputs[nodeKey] = output;
     }
-
-    const inputs: Record<string, Record<string, unknown>> = {};
-    for (const predecessorKey of directPredecessorKeys(dag, nodeKey)) {
-      const predecessorOutput = outputs[predecessorKey];
-      if (predecessorOutput !== undefined) {
-        inputs[predecessorKey] = predecessorOutput;
-      }
-    }
-
-    const result = await executeNode({
-      tenantId: input.tenantId,
-      runId: input.runId,
-      nodeExecutionId: nodeExecutionId(),
-      nodeKey: node.key,
-      nodeType: node.type,
-      configJson: JSON.stringify(node.config),
-      inputsJson: JSON.stringify(inputs),
-    });
-
-    outputs[nodeKey] = JSON.parse(result.outputJson) as Record<string, unknown>;
   }
 
   return { outputs };

@@ -3,11 +3,13 @@ import { NativeConnection } from "@temporalio/worker";
 import { createExecutorActivities } from "./activities/executor-activities";
 import type { TemporalConnectionConfig } from "./durable-execution-provider";
 import { createExecutorWorker } from "./worker";
+import { BlackboardClient, type BlackboardClientConfig } from "../grpc/blackboard-client";
 import { NodeExecutionClient, type NodeExecutionClientConfig } from "../grpc/nodeexec-client";
 
 export interface ExecutorWorkerBootstrapConfig {
   readonly temporal: TemporalConnectionConfig;
   readonly nodeexec: NodeExecutionClientConfig;
+  readonly blackboard: BlackboardClientConfig;
 }
 
 export interface ExecutorWorkerHandle {
@@ -32,7 +34,8 @@ export async function startExecutorWorker(
   });
 
   const nodeExecutionClient = new NodeExecutionClient(config.nodeexec);
-  const activities = createExecutorActivities(nodeExecutionClient);
+  const blackboardClient = new BlackboardClient(config.blackboard);
+  const activities = createExecutorActivities(nodeExecutionClient, blackboardClient);
   const worker = await createExecutorWorker(config.temporal, connection, activities);
 
   void worker.run();

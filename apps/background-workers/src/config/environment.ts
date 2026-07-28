@@ -8,6 +8,7 @@ export interface ExecutorWorkerEnvironment {
   readonly temporalApiKey: string | undefined;
   readonly taskQueue: string;
   readonly nodeexecAddress: string;
+  readonly blackboardAddress: string;
 }
 
 export class ExecutorWorkerConfigurationError extends Error {
@@ -37,5 +38,6 @@ export function loadExecutorWorkerEnvironment(
     temporalApiKey: environment.TEMPORAL_API_KEY?.trim() || undefined,
     taskQueue: requireValue(environment, "EXECUTOR_TASK_QUEUE"),
     nodeexecAddress: requireValue(environment, "NODEEXEC_ADDRESS"),
+    blackboardAddress: requireValue(environment, "BLACKBOARD_ADDRESS"),
   };
 }

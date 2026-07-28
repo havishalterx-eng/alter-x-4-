@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package alter.blackboard.v1;
+
+// Redis hot context + durable Postgres checkpoints for a run's cross-node
+// data (see apps/orchestration-service/src/blackboard/blackboard.service.ts,
+// which this service is a thin gRPC facade over -- no new logic here).
+service BlackboardService {
+  rpc WriteValue(WriteValueRequest) returns (WriteValueResponse);
+  rpc ReadValue(ReadValueRequest) returns (ReadValueResponse);
+}
+
+message WriteValueRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string key = 3;
+  string value_json = 4;
+}
+
+message WriteValueResponse {
+  reserved 100 to 199;
+}
+
+message ReadValueRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string key = 3;
+}
+
+message ReadValueResponse {
+  reserved 100 to 199;
+
+  bool found = 1;
+  string value_json = 2; // only meaningful when found = true
+}

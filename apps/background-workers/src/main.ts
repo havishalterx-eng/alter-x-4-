@@ -4,6 +4,7 @@ import { NestFactory } from "@nestjs/core";
 import { startExecutorWorker } from "@alterx/adapters";
 import { AppModule } from "./app.module";
 import { loadExecutorWorkerEnvironment } from "./config/environment";
+import { BLACKBOARD_PROTO_PATH } from "./executor/blackboard-proto-path";
 import { NODEEXEC_PROTO_PATH } from "./executor/nodeexec-proto-path";
 
 async function bootstrap(): Promise<void> {
@@ -29,6 +30,10 @@ async function bootstrap(): Promise<void> {
     nodeexec: {
       address: environment.nodeexecAddress,
       protoPath: NODEEXEC_PROTO_PATH,
+    },
+    blackboard: {
+      address: environment.blackboardAddress,
+      protoPath: BLACKBOARD_PROTO_PATH,
     },
   });
 

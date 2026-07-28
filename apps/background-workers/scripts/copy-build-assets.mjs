@@ -10,3 +10,8 @@ await cp(
   resolve(output, "proto/nodeexec.proto"),
   { force: true },
 );
+await cp(
+  resolve(root, "packages/contracts/proto/alter/blackboard/v1/blackboard.proto"),
+  resolve(output, "proto/blackboard.proto"),
+  { force: true },
+);

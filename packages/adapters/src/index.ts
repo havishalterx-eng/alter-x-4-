@@ -263,6 +263,18 @@ export {
   type NodeExecutionHandler,
 } from "./grpc/nodeexec-client";
 export {
+  BLACKBOARD_HANDLER,
+  BlackboardGrpcController,
+  connectBlackboardGrpcTransport,
+  type BlackboardGrpcTransportConfig,
+  type BlackboardHandler,
+} from "./grpc/blackboard-grpc-transport";
+export {
+  BlackboardClient,
+  type BlackboardClientConfig,
+  type BlackboardHandlerClient,
+} from "./grpc/blackboard-client";
+export {
   REDIS_CACHE_CAPABILITIES,
   RedisCacheProvider,
   type RedisCacheProviderConfig,
