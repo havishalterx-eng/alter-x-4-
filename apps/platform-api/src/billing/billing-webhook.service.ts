@@ -12,7 +12,6 @@ import {
   ENTITLEMENT_PROVIDER,
   type ConfigProvider,
   type EntitlementAccessState,
-  type EntitlementLimits,
   type EntitlementProvider,
 } from "../entitlements";
 import { PgIdempotencyStore } from "../idempotency";
@@ -227,10 +226,7 @@ export class BillingWebhookService {
         tenantId,
         current.currentPlan,
         client,
-        {
-          accessState: "limited",
-          limits: config.limitedStateLimits,
-        },
+        { accessState: "limited" },
       );
     }
     if (state !== current.state && state === "suspended") {
@@ -238,10 +234,7 @@ export class BillingWebhookService {
         tenantId,
         current.currentPlan,
         client,
-        {
-          accessState: "suspended",
-          limits: zeroLimits(config.limitedStateLimits),
-        },
+        { accessState: "suspended" },
       );
     }
     if (state !== current.state) {
@@ -382,10 +375,4 @@ function sanitizePayload(value: JsonValue): JsonValue {
     );
   }
   return value;
-}
-
-function zeroLimits(template: EntitlementLimits): EntitlementLimits {
-  return Object.fromEntries(
-    Object.keys(template).map((key) => [key, 0]),
-  ) as unknown as EntitlementLimits;
 }

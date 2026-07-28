@@ -57,11 +57,9 @@ describe("BillingWebhookService", () => {
       createEntitlement: vi.fn(async (_tenantId, plan, _client, options) => ({
         tenantId,
         plan,
-        limits: { ...limited, ...options?.limits },
+        limits: limited,
         accessState: options?.accessState ?? "active",
-        source: options?.limits
-          ? ("tenant-override" as const)
-          : ("config" as const),
+        source: "config" as const,
       })),
       getEffectiveEntitlement: vi.fn(),
       checkLimit: vi.fn(),
@@ -155,7 +153,7 @@ describe("BillingWebhookService", () => {
       tenantId,
       "plan_basic",
       repository.client,
-      { accessState: "limited", limits: limited },
+      { accessState: "limited" },
     );
 
     vi.advanceTimersByTime(60_000);
@@ -169,12 +167,7 @@ describe("BillingWebhookService", () => {
       tenantId,
       "plan_basic",
       repository.client,
-      {
-        accessState: "suspended",
-        limits: Object.fromEntries(
-          Object.keys(limited).map((key) => [key, 0]),
-        ),
-      },
+      { accessState: "suspended" },
     );
 
     await service.receive(
@@ -187,6 +180,12 @@ describe("BillingWebhookService", () => {
       currentPlan: "plan_basic",
       firstFailedAt: null,
     });
+    expect(entitlements.createEntitlement).toHaveBeenLastCalledWith(
+      tenantId,
+      "plan_basic",
+      repository.client,
+      { accessState: "active" },
+    );
     expect(config.getDunningConfig).toHaveBeenCalledTimes(3);
     expect(repository.audits.map((audit) => audit.toState)).toEqual([
       "grace",

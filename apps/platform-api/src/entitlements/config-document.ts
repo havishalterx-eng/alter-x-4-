@@ -3,22 +3,13 @@ import type {
   DunningConfig,
   EntitlementLimits,
 } from "./types";
+import { ENTITLEMENT_LIMIT_KEYS } from "./types";
 
 export interface EntitlementConfigDocument {
   plans: Record<string, EntitlementLimits>;
   abuse: AbuseThresholds;
   dunning: DunningConfig;
 }
-
-const limitKeys: readonly (keyof EntitlementLimits)[] = [
-  "maxWorkflows",
-  "maxProjects",
-  "maxRunsPerDay",
-  "maxConcurrentRuns",
-  "maxSandboxMinutesPerMonth",
-  "maxAdsStorageMb",
-  "maxIntegrations",
-];
 
 const abuseKeys: readonly (keyof AbuseThresholds)[] = [
   "tenantRequestsPerMinute",
@@ -57,7 +48,7 @@ export function parseConfigDocument(input: string): EntitlementConfigDocument {
   }
 
   for (const [plan, limits] of Object.entries(document.plans)) {
-    assertPositiveNumbers(limits, limitKeys, `plans.${plan}`);
+    assertPositiveNumbers(limits, ENTITLEMENT_LIMIT_KEYS, `plans.${plan}`);
   }
   assertPositiveNumbers(document.abuse, abuseKeys, "abuse");
   if (!document.dunning || typeof document.dunning !== "object") {
@@ -71,7 +62,7 @@ export function parseConfigDocument(input: string): EntitlementConfigDocument {
   );
   assertPositiveNumbers(
     dunning.limitedStateLimits,
-    limitKeys,
+    ENTITLEMENT_LIMIT_KEYS,
     "dunning.limitedStateLimits",
   );
   if (

@@ -14,6 +14,15 @@ const defaults: EntitlementLimits = {
   maxAdsStorageMb: 500,
   maxIntegrations: 3,
 };
+const limited: EntitlementLimits = {
+  maxWorkflows: 1,
+  maxProjects: 0,
+  maxRunsPerDay: 2,
+  maxConcurrentRuns: 1,
+  maxSandboxMinutesPerMonth: 5,
+  maxAdsStorageMb: 100,
+  maxIntegrations: 0,
+};
 
 function setup(row: EntitlementRow | null, config: ConfigProvider = configProvider()) {
   const store: EntitlementStore = {
@@ -32,7 +41,11 @@ function configProvider(): ConfigProvider {
   return {
     getEntitlementDefaults: vi.fn().mockResolvedValue(defaults),
     getAbuseThresholds: vi.fn(),
-    getDunningConfig: vi.fn(),
+    getDunningConfig: vi.fn().mockResolvedValue({
+      gracePeriodSeconds: 60,
+      suspensionThresholdSeconds: 120,
+      limitedStateLimits: limited,
+    }),
   };
 }
 
@@ -79,6 +92,115 @@ describe("InternalEntitlementProvider", () => {
       expect.stringContaining("applying emergency free-tier floor"),
       expect.stringContaining("down"),
     );
+  });
+
+  it("resolves limited and suspended limits from dunning config", async () => {
+    const limitedSetup = setup({
+      tenantId: "tenant-1",
+      plan: "pro",
+      limits: null,
+      accessState: "limited",
+    });
+    await expect(
+      limitedSetup.provider.getEffectiveEntitlement("tenant-1"),
+    ).resolves.toMatchObject({
+      limits: limited,
+      accessState: "limited",
+      source: "dunning",
+    });
+
+    const suspendedSetup = setup({
+      tenantId: "tenant-1",
+      plan: "pro",
+      limits: null,
+      accessState: "suspended",
+    });
+    await expect(
+      suspendedSetup.provider.getEffectiveEntitlement("tenant-1"),
+    ).resolves.toMatchObject({
+      limits: Object.fromEntries(
+        Object.keys(limited).map((key) => [key, 0]),
+      ),
+      accessState: "suspended",
+      source: "dunning",
+    });
+  });
+
+  it("applies changed dunning config to an already-limited tenant", async () => {
+    const config = configProvider();
+    const changed = { ...limited, maxRunsPerDay: 1 };
+    vi.mocked(config.getDunningConfig)
+      .mockResolvedValueOnce({
+        gracePeriodSeconds: 60,
+        suspensionThresholdSeconds: 120,
+        limitedStateLimits: limited,
+      })
+      .mockResolvedValueOnce({
+        gracePeriodSeconds: 60,
+        suspensionThresholdSeconds: 120,
+        limitedStateLimits: changed,
+      });
+    const { provider } = setup(
+      {
+        tenantId: "tenant-1",
+        plan: "pro",
+        limits: null,
+        accessState: "limited",
+      },
+      config,
+    );
+
+    await expect(provider.getEffectiveEntitlement("tenant-1")).resolves.toMatchObject({
+      limits: limited,
+      source: "dunning",
+    });
+    await expect(provider.getEffectiveEntitlement("tenant-1")).resolves.toMatchObject({
+      limits: changed,
+      source: "dunning",
+    });
+  });
+
+  it("rejects partial dunning limits instead of leaking paid defaults", async () => {
+    const config = configProvider();
+    vi.mocked(config.getDunningConfig).mockResolvedValue({
+      gracePeriodSeconds: 60,
+      suspensionThresholdSeconds: 120,
+      limitedStateLimits: {
+        maxRunsPerDay: 2,
+      } as EntitlementLimits,
+    });
+    const { provider } = setup(
+      {
+        tenantId: "tenant-1",
+        plan: "pro",
+        limits: null,
+        accessState: "limited",
+      },
+      config,
+    );
+
+    await expect(
+      provider.getEffectiveEntitlement("tenant-1"),
+    ).rejects.toThrow(
+      "dunning.limitedStateLimits.maxWorkflows must be a non-negative number",
+    );
+  });
+
+  it("recovery to active ignores prior dunning limits and restores plan defaults", async () => {
+    const { provider } = setup({
+      tenantId: "tenant-1",
+      plan: "pro",
+      limits: null,
+      accessState: "active",
+    });
+
+    await expect(provider.getEffectiveEntitlement("tenant-1")).resolves.toEqual({
+      tenantId: "tenant-1",
+      plan: "pro",
+      limits: defaults,
+      accessState: "active",
+      source: "config",
+    });
   });
 
   it.each([

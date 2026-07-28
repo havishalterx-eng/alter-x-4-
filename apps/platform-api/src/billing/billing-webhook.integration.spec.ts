@@ -117,6 +117,67 @@ describe.skipIf(!databaseUrl)("billing webhook PostgreSQL integration", () => {
     });
   });
 
+  it("stores no limit override for limited and suspended dunning rows", async () => {
+    const config = new LocalFileConfigProvider();
+    const entitlements = new InternalEntitlementProvider(
+      new PostgresEntitlementStore(pool),
+      config,
+    );
+
+    await entitlements.createEntitlement(tenantA, "plan_basic", undefined, {
+      accessState: "limited",
+    });
+    let current = await admin.query<{ limits: Record<string, number> }>(
+      `SELECT limits FROM entitlements
+       WHERE tenant_id = $1 AND effective_to IS NULL`,
+      [tenantA],
+    );
+    expect(current.rows[0]?.limits).toEqual({});
+    await expect(
+      entitlements.getEffectiveEntitlement(tenantA),
+    ).resolves.toMatchObject({
+      accessState: "limited",
+      limits: (await config.getDunningConfig()).limitedStateLimits,
+      source: "dunning",
+    });
+
+    await entitlements.createEntitlement(tenantA, "plan_basic", undefined, {
+      accessState: "suspended",
+    });
+    current = await admin.query<{ limits: Record<string, number> }>(
+      `SELECT limits FROM entitlements
+       WHERE tenant_id = $1 AND effective_to IS NULL`,
+      [tenantA],
+    );
+    expect(current.rows[0]?.limits).toEqual({});
+    const suspended = await entitlements.getEffectiveEntitlement(tenantA);
+    expect(suspended.accessState).toBe("suspended");
+    expect(suspended.source).toBe("dunning");
+    expect(Object.values(suspended.limits)).toEqual(
+      expect.arrayContaining([0]),
+    );
+    expect(Object.values(suspended.limits).every((value) => value === 0)).toBe(
+      true,
+    );
+
+    await entitlements.createEntitlement(tenantA, "plan_basic", undefined, {
+      accessState: "active",
+    });
+    current = await admin.query<{ limits: Record<string, number> }>(
+      `SELECT limits FROM entitlements
+       WHERE tenant_id = $1 AND effective_to IS NULL`,
+      [tenantA],
+    );
+    expect(current.rows[0]?.limits).toEqual({});
+    await expect(
+      entitlements.getEffectiveEntitlement(tenantA),
+    ).resolves.toMatchObject({
+      accessState: "active",
+      limits: { maxRunsPerDay: 250 },
+      source: "config",
+    });
+  });
+
   it("default-denies and isolates billing event, dunning, and audit rows", async () => {
     await repository.transaction(tenantA, async (client) => {
       await repository.insertEvent(client, {

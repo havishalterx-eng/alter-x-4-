@@ -6,6 +6,7 @@ import type {
 } from "./entitlement-provider.interface";
 import type { EntitlementRow, EntitlementStore } from "./entitlement-store";
 import {
+  ENTITLEMENT_LIMIT_KEYS,
   EMERGENCY_FREE_LIMITS,
   type EffectiveEntitlement,
   type EntitlementAccessState,
@@ -90,13 +91,47 @@ export class InternalEntitlementProvider implements EntitlementProvider {
     if (Object.keys(overrides).length > 0 && source !== "emergency-fallback") {
       source = "tenant-override";
     }
+    let limits = { ...defaults, ...overrides };
+    if (row.accessState === "limited" || row.accessState === "suspended") {
+      const dunning = await this.configProvider.getDunningConfig();
+      const limitedLimits = this.requireCompleteLimits(
+        dunning.limitedStateLimits,
+      );
+      limits =
+        row.accessState === "limited"
+          ? limitedLimits
+          : Object.fromEntries(
+              ENTITLEMENT_LIMIT_KEYS.map((key) => [key, 0]),
+            ) as unknown as EntitlementLimits;
+      source = "dunning";
+    }
     return {
       tenantId,
       plan: row.plan,
-      limits: { ...defaults, ...overrides },
+      limits,
       accessState: row.accessState,
       source,
     };
+  }
+
+  private requireCompleteLimits(
+    limits: Partial<EntitlementLimits>,
+  ): EntitlementLimits {
+    for (const key of ENTITLEMENT_LIMIT_KEYS) {
+      const value = limits[key];
+      if (
+        typeof value !== "number" ||
+        !Number.isFinite(value) ||
+        value < 0
+      ) {
+        throw new Error(
+          `dunning.limitedStateLimits.${key} must be a non-negative number`,
+        );
+      }
+    }
+    return Object.fromEntries(
+      ENTITLEMENT_LIMIT_KEYS.map((key) => [key, limits[key]]),
+    ) as unknown as EntitlementLimits;
   }
 
   private validOverrides(
