@@ -24,6 +24,7 @@ const IMPLEMENTED_TYPES = [
   "YAMLImport",
   "LLMTask",
   "ToolCall",
+  "SandboxExec",
 ];
 
 describe("listNodeTypeDescriptors", () => {
@@ -49,6 +50,17 @@ describe("listNodeTypeDescriptors", () => {
 
     expect(schema.properties).toHaveProperty("credential_ref");
     expect(schema.required).toContain("credential_ref");
+  });
+
+  it("publishes Provisioning-owned session ID as required SandboxExec config", () => {
+    const descriptor = findNodeTypeDescriptor("SandboxExec");
+    const schema = JSON.parse(descriptor?.config_schema_json ?? "{}") as {
+      readonly properties?: Record<string, unknown>;
+      readonly required?: readonly string[];
+    };
+
+    expect(schema.properties).toHaveProperty("sandbox_session_id");
+    expect(schema.required).toContain("sandbox_session_id");
   });
 
   it("every descriptor has non-empty display_name/description/category", () => {

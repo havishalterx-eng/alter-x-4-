@@ -56,12 +56,16 @@ export class NodeexecService {
     const config = parseJsonObject(request.config_json, "config_json");
     const inputs = parseInputs(request.inputs_json);
 
+    const sandboxSessionId = config["sandbox_session_id"];
     const result = await this.registry.execute(request.node_type, {
       config,
       inputs,
       tenant_id: request.tenant_id,
       run_id: request.run_id,
       node_execution_id: request.node_execution_id,
+      ...(typeof sandboxSessionId === "string"
+        ? { sandbox_session_id: sandboxSessionId }
+        : {}),
     });
 
     return {

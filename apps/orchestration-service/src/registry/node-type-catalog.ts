@@ -7,14 +7,14 @@ import type { NodeType, RegistryNodeTypeDescriptor } from "@alterx/contracts";
  *
  * handler_implemented is false for types whose real logic depends on
  * infrastructure not wired in yet:
- * - SandboxExec: needs Sandbox Service wiring (later Execution ticket).
  * - HumanApproval: an explicit non-pending stub exists, while the full
  *   approval flow remains HEAL-7 work. It stays marked unimplemented so the
  *   catalog cannot advertise the stub as a usable approval workflow.
  * - Synthesis: stub until the Output phase (doc explicitly says so).
  * - MemoryWrite: stub until the Knowledge phase (doc explicitly says so).
  * Gate, Merge, PubSub, GroupChat, YAMLImport (EXEC-1), LLMTask (EXEC-2),
- * and ToolCall (EXEC-3) have real, tested handlers in ./handlers.
+ * ToolCall (EXEC-3), and SandboxExec (EXEC-4) have real, tested handlers in
+ * ./handlers.
  */
 
 interface CatalogEntry {
@@ -69,9 +69,17 @@ const CATALOG_ENTRIES: readonly CatalogEntry[] = [
     category: "execution",
     configSchema: {
       type: "object",
-      properties: { command: { type: "string" } },
+      properties: {
+        command: { type: "string", minLength: 1 },
+        sandbox_session_id: {
+          type: "string",
+          minLength: 1,
+          description: "Opaque cycle-scoped session ID from Provisioning",
+        },
+      },
+      required: ["command", "sandbox_session_id"],
     },
-    handlerImplemented: false,
+    handlerImplemented: true,
   },
   {
     type: "Gate",

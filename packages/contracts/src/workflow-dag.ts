@@ -81,6 +81,19 @@ export const ToolCallCompiledConfigSchema = z
   })
   .passthrough();
 
+/** Session ownership remains in Provisioning; Executor receives this opaque ID. */
+export const SandboxExecCompiledConfigSchema = z
+  .object({
+    command: NonEmptyStringSchema.optional(),
+    sandbox_session_id: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]+$/, {
+        message: "sandbox_session_id must be an opaque non-empty session ID",
+      })
+      .optional(),
+  })
+  .passthrough();
+
 const WorkflowDagNodeSchema = z
   .object({
     key: NodeKeySchema,
@@ -94,10 +107,13 @@ const WorkflowDagNodeSchema = z
   })
   .strict()
   .superRefine(({ type, config }, context) => {
-    if (type !== "ToolCall") {
+    if (type !== "ToolCall" && type !== "SandboxExec") {
       return;
     }
-    const result = ToolCallCompiledConfigSchema.safeParse(config);
+    const result = (type === "ToolCall"
+      ? ToolCallCompiledConfigSchema
+      : SandboxExecCompiledConfigSchema
+    ).safeParse(config);
     if (result.success) {
       return;
     }
@@ -335,6 +351,9 @@ export const WorkflowDagCompiledSchema = z
 export type NodeType = z.infer<typeof NodeTypeSchema>;
 export type ToolCallCompiledConfig = z.infer<
   typeof ToolCallCompiledConfigSchema
+>;
+export type SandboxExecCompiledConfig = z.infer<
+  typeof SandboxExecCompiledConfigSchema
 >;
 export type CompiledDag = z.infer<typeof CompiledDagSchema>;
 export type NodeRequirements = z.infer<typeof NodeRequirementsSchema>;

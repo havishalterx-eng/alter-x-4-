@@ -137,6 +137,14 @@ export {
   type ToolgwHandler,
 } from "./grpc/toolgw-grpc-transport";
 export {
+  SANDBOX_HANDLER,
+  SandboxGrpcController,
+  SandboxGrpcValidationError,
+  startSandboxGrpcTransport,
+  type SandboxGrpcHandler,
+  type SandboxGrpcTransportConfig,
+} from "./grpc/sandbox-grpc-transport";
+export {
   BEDROCK_CAPABILITIES,
   AwsBedrockModelProvider,
   type AwsBedrockModelProviderConfig,
@@ -240,6 +248,12 @@ export {
   type ModelGatewayHandler,
   type ModelGatewayStreamHandler,
 } from "./grpc/modelgw-client";
+export {
+  SandboxServiceClient,
+  SandboxServiceClientError,
+  type SandboxExecuteHandler,
+  type SandboxServiceClientConfig,
+} from "./grpc/sandbox-client";
 export {
   ToolGatewayClient,
   ToolGatewayClientError,

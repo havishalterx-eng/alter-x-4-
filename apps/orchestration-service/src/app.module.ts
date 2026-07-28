@@ -13,6 +13,7 @@ import {
   ConversationGrpcController,
   DeployctlGrpcController,
   ModelGatewayClient,
+  SandboxServiceClient,
   NodeexecGrpcController,
   PostgresOrchestrationStoreProvider,
   RedisCacheProvider,
@@ -41,6 +42,7 @@ import { loadConversationManagerEnvironment } from "./config/environment";
 import { loadConversationDispatchEnvironment } from "./config/conversation-dispatch-environment";
 import { loadWhatsappWebhookEnvironment } from "./config/whatsapp-webhook-environment";
 import { loadNodeexecEnvironment } from "./config/nodeexec-environment";
+import { SANDBOX_CLIENT_PROTO_PATH } from "./registry/sandbox-client.constants";
 import { ORCHESTRATION_MIGRATIONS_PATH } from "./database/migrations-path";
 import { HealthController } from "./health/health.controller";
 import { TriggerRegistryController } from "./trigger-registry/trigger-registry.controller";
@@ -203,12 +205,17 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
           address: nodeexecConfig.toolGatewayAddress,
           protoPath: TOOLGW_CLIENT_PROTO_PATH,
         });
+        const sandboxService = new SandboxServiceClient({
+          address: nodeexecConfig.sandboxServiceAddress,
+          protoPath: SANDBOX_CLIENT_PROTO_PATH,
+        });
         // No real QueueProvider adapter exists yet -- PubSubHandler uses
         // the shared-clients mock here, same disclosed gap as EXEC-1.
         const queueProvider = createMockQueueProvider();
         const registry = createRuntimeNodeHandlerRegistry({
           modelGateway,
           toolGateway,
+          sandboxService,
           queueProvider,
         });
         return new NodeexecService(registry);

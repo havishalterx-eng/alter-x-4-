@@ -55,8 +55,11 @@ message ExecuteResponse {
   reserved 100 to 199;
 
   int32 exit_code = 1;
+  // Deprecated until Artifact storage exists. Empty for direct-output runs.
   string stdout_artifact_id = 2; // art_ prefixed UUIDv7
   string stderr_artifact_id = 3; // art_ prefixed UUIDv7
+  string stdout = 4; // bounded command output
+  string stderr = 5; // bounded command output
 }
 
 message ReadFileRequest {

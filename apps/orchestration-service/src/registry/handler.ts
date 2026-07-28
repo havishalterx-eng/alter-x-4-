@@ -30,6 +30,8 @@ export interface NodeExecutionContext {
   readonly tenant_id?: string; // ten_ prefixed UUIDv7
   readonly run_id?: string; // run_ prefixed UUIDv7
   readonly node_execution_id?: string; // node_ prefixed UUIDv7
+  /** Opaque cycle-scoped session ID supplied by Provisioning in node config. */
+  readonly sandbox_session_id?: string;
 }
 
 export interface NodeExecutionResult {

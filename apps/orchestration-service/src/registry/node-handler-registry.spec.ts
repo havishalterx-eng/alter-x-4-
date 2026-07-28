@@ -27,6 +27,15 @@ function runtimeRegistry(toolInvoke = vi.fn(async () => ({
       }),
     },
     toolGateway: { invoke: toolInvoke },
+    sandboxService: {
+      execute: async () => ({
+        exit_code: 0,
+        stdout_artifact_id: "",
+        stderr_artifact_id: "",
+        stdout: "",
+        stderr: "",
+      }),
+    },
     queueProvider: createMockQueueProvider(),
   });
 }

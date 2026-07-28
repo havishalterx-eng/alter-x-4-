@@ -3,6 +3,7 @@ const ALTER_ENVIRONMENTS = ["local", "dev", "staging", "prod"] as const;
 interface SandboxEnvironmentBase {
   readonly alterEnvironment: (typeof ALTER_ENVIRONMENTS)[number];
   readonly region: "ap-south-1";
+  readonly grpcBindAddress: string;
 }
 
 export interface SandboxMockEnvironment extends SandboxEnvironmentBase {
@@ -52,6 +53,7 @@ export function loadSandboxEnvironment(
     alterEnvironment:
       alterEnvironment as SandboxEnvironment["alterEnvironment"],
     region: "ap-south-1" as const,
+    grpcBindAddress: grpcAddress(environment),
   };
   const source = required(environment, "ALTER_CONFIG_SOURCE");
   if (source === "mock") {
@@ -82,4 +84,15 @@ export function loadSandboxEnvironment(
     ),
     browserbaseProjectId: required(environment, "BROWSERBASE_PROJECT_ID"),
   };
+}
+
+function grpcAddress(environment: NodeJS.ProcessEnv): string {
+  const value =
+    environment.SANDBOX_GRPC_BIND_ADDRESS?.trim() ?? "0.0.0.0:50057";
+  if (!/^(?:\d{1,3}\.){3}\d{1,3}:\d{1,5}$/.test(value)) {
+    throw new Error(
+      "SANDBOX_GRPC_BIND_ADDRESS must be an IPv4 address and port",
+    );
+  }
+  return value;
 }

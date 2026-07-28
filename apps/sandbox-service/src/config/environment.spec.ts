@@ -14,6 +14,7 @@ describe("loadSandboxEnvironment", () => {
     expect(loadSandboxEnvironment(BASE)).toEqual({
       alterEnvironment: "local",
       region: "ap-south-1",
+      grpcBindAddress: "0.0.0.0:50057",
       configSource: "mock",
       localMock: true,
     });

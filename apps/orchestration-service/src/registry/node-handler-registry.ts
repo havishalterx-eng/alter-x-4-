@@ -1,6 +1,7 @@
 import type { NodeType } from "@alterx/contracts";
 import type {
   ModelGatewayHandler,
+  SandboxExecuteHandler,
   ToolGatewayInvokeHandler,
 } from "@alterx/adapters";
 import type { QueueProvider } from "@alterx/shared-clients";
@@ -11,7 +12,10 @@ import { GroupChatHandler } from "./handlers/groupchat.handler";
 import { HumanApprovalHandler } from "./handlers/human-approval.handler";
 import { LlmTaskHandler } from "./handlers/llmtask.handler";
 import { MergeHandler } from "./handlers/merge.handler";
+import { MemoryWriteHandler } from "./handlers/memory-write.handler";
 import { PubSubHandler } from "./handlers/pubsub.handler";
+import { SandboxExecHandler } from "./handlers/sandbox-exec.handler";
+import { SynthesisHandler } from "./handlers/synthesis.handler";
 import { ToolCallHandler } from "./handlers/toolcall.handler";
 import { YamlImportHandler } from "./handlers/yaml-import.handler";
 
@@ -80,6 +84,7 @@ export class NodeHandlerRegistry {
 export interface RuntimeNodeHandlerProviders {
   readonly modelGateway: ModelGatewayHandler;
   readonly toolGateway: ToolGatewayInvokeHandler;
+  readonly sandboxService: SandboxExecuteHandler;
   readonly queueProvider: QueueProvider;
 }
 
@@ -96,5 +101,8 @@ export function createRuntimeNodeHandlerRegistry(
     new LlmTaskHandler(providers.modelGateway),
     new ToolCallHandler(providers.toolGateway),
     new HumanApprovalHandler(),
+    new SandboxExecHandler(providers.sandboxService),
+    new SynthesisHandler(),
+    new MemoryWriteHandler(),
   ]);
 }

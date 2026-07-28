@@ -86,6 +86,10 @@ export type {
   WriteValueRequest as BlackboardWriteValueRequest,
   WriteValueResponse as BlackboardWriteValueResponse,
 } from "./generated/alter/blackboard/v1/blackboard";
+export type {
+  ExecuteRequest as SandboxExecuteRequest,
+  ExecuteResponse as SandboxExecuteResponse,
+} from "./generated/alter/sandbox/v1/sandbox";
 export {
   CostLimitBindingSchema,
   FallbackBindingSchema,
@@ -136,6 +140,7 @@ export {
   NodeRequirementsSchema,
   NodeTypeSchema,
   PolicyBindingsSchema,
+  SandboxExecCompiledConfigSchema,
   ToolCallCompiledConfigSchema,
   ToolCredentialReferenceSchema,
   WorkflowDagCompiledSchema,
@@ -144,6 +149,7 @@ export {
   type NodeRequirements,
   type NodeType,
   type PolicyBindings,
+  type SandboxExecCompiledConfig,
   type ToolCallCompiledConfig,
   type WorkflowDagCompiled,
   type WorkflowDagDraft,

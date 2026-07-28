@@ -15,6 +15,7 @@ import {
   PostgresToolDatabaseProvider,
   SqsQueueProvider,
   SsrfGuardedFetcher,
+  startSandboxGrpcTransport,
   type BrowserAutomationProvider,
 } from "@alterx/adapters";
 import {
@@ -95,6 +96,7 @@ function createQueueProvider(environment: SandboxEnvironment): QueueProvider {
     ? createMockQueueProvider()
     : new SqsQueueProvider({ region: environment.region });
 }
+import { SANDBOX_PROTO_PATH } from "./sandbox/grpc.constants";
 
 async function bootstrap(): Promise<void> {
   const environment = loadSandboxEnvironment(process.env);
@@ -124,6 +126,10 @@ async function bootstrap(): Promise<void> {
     new FastifyAdapter(),
   );
   app.enableShutdownHooks();
+  await startSandboxGrpcTransport(app, {
+    bindAddress: environment.grpcBindAddress,
+    protoPath: SANDBOX_PROTO_PATH,
+  });
   await app.listen(3000, "0.0.0.0");
 }
 

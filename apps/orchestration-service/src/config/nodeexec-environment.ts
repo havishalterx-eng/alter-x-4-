@@ -5,6 +5,7 @@
 export interface NodeexecEnvironment {
   readonly grpcBindAddress: string;
   readonly toolGatewayAddress: string;
+  readonly sandboxServiceAddress: string;
 }
 
 export class NodeexecConfigurationError extends Error {
@@ -42,8 +43,16 @@ export function loadNodeexecEnvironment(
       "a non-empty value is required",
     );
   }
+  const sandboxServiceAddress = environment.SANDBOX_SERVICE_ADDRESS?.trim();
+  if (sandboxServiceAddress === undefined || sandboxServiceAddress.length === 0) {
+    throw new NodeexecConfigurationError(
+      "SANDBOX_SERVICE_ADDRESS",
+      "a non-empty value is required",
+    );
+  }
   return {
     grpcBindAddress: parseGrpcAddress(environment.NODEEXEC_GRPC_BIND_ADDRESS),
     toolGatewayAddress,
+    sandboxServiceAddress,
   };
 }
