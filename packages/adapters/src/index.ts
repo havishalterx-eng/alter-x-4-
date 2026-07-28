@@ -1,4 +1,21 @@
 export {
+  RAZORPAY_BILLING_CAPABILITIES,
+  RazorpayBillingError,
+  RazorpayBillingProvider,
+  createFetchRazorpayHttpClient,
+  type BillingReferenceStore,
+  type BillingTenantReferences,
+  type RazorpayBillingProviderConfig,
+  type RazorpayHttpClient,
+  type RazorpayHttpRequest,
+  type RazorpayHttpResponse,
+} from "./razorpay/razorpay-billing-provider";
+export {
+  STRIPE_BILLING_FEATURE_FLAG,
+  StripeBillingNotActivatedError,
+  StripeBillingProvider,
+} from "./stripe/stripe-billing-provider";
+export {
   TEMPORAL_HEALTH_TIMEOUT_MS,
   TemporalConfigurationError,
   TemporalDurableExecutionProvider,

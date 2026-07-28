@@ -43,6 +43,7 @@ export {
   type StoredAuditEvent,
 } from "./audit-ports";
 export {
+  billingProviderContract,
   configProviderContract,
   durableExecutionProviderContract,
   embeddingProviderContract,
@@ -56,6 +57,9 @@ export {
 export {
   CANONICAL_PROVIDER_INTERFACES,
   type BaseProvider,
+  type BillingEvent,
+  type BillingPlan,
+  type BillingProvider,
   type BrowserProvider,
   type CacheProvider,
   type CanonicalProviderInterfaceName,
@@ -75,6 +79,7 @@ export {
   type GPUComputeProvider,
   type HealthStatus,
   type IdentityProvider,
+  type Invoice,
   InvalidModelAliasError,
   type JsonValue,
   type LogEntry,
@@ -90,6 +95,8 @@ export {
   type NetworkConnectivityProvider,
   type ObjectStorageProvider,
   type ObservabilityProvider,
+  type Page,
+  type PaymentMethodRef,
   type PIIDetectedEntity,
   type PIIRedactionProvider,
   type PIIRedactionRequest,
@@ -112,6 +119,7 @@ export {
   type SemanticCacheStoreRequest,
   type SecretReferenceId,
   type SecretsProvider,
+  type Subscription,
   type StartWorkflowRequest,
   type SignalWorkflowRequest,
   type TerminateWorkflowRequest,
@@ -123,6 +131,11 @@ export {
   type WorkflowQueryResult,
 } from "./provider-types";
 export { maskSecretLast4, secretLast4 } from "./secret-redaction";
+export {
+  MOCK_BILLING_CAPABILITIES,
+  createMockBillingProvider,
+  type MockBillingProviderOptions,
+} from "./mocks/billing-provider";
 export {
   MOCK_AUDIT_STORE_CAPABILITIES,
   createMockAuditStoreProvider,

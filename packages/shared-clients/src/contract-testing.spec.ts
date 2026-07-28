@@ -8,12 +8,14 @@ import {
   type ProviderContractSuite,
 } from "./contract-testing";
 import {
+  billingProviderContract,
   configProviderContract,
   durableExecutionProviderContract,
   modelProviderContract,
   observabilityProviderContract,
   secretsProviderContract,
 } from "./provider-contracts";
+import { createMockBillingProvider } from "./mocks/billing-provider";
 import { createMockConfigProvider } from "./mocks/config-provider";
 import { createMockDurableExecutionProvider } from "./mocks/durable-execution-provider";
 import { createMockModelProvider } from "./mocks/model-provider";
@@ -22,6 +24,19 @@ import { createMockSecretsProvider } from "./mocks/secrets-provider";
 import type { SecretsProvider } from "./provider-types";
 
 describe("provider contract runner", () => {
+  it("proves mock-vs-mock parity for BillingProvider", async () => {
+    const report = await assertProviderContractParity(
+      billingProviderContract,
+      [
+        { name: "mock-primary", create: createMockBillingProvider },
+        { name: "mock-parity", create: createMockBillingProvider },
+      ],
+    );
+
+    expect(report.passed).toBe(true);
+    expect(report.results).toHaveLength(4);
+  });
+
   it("proves mock-vs-mock parity for SecretsProvider", async () => {
     const report = await assertProviderContractParity(
       secretsProviderContract,

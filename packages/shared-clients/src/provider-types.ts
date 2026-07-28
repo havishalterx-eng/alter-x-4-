@@ -18,6 +18,7 @@ export const CANONICAL_PROVIDER_INTERFACES = [
   "ObjectStorageProvider",
   "QueueProvider",
   "SecretsProvider",
+  "BillingProvider",
   "ObservabilityProvider",
   "SandboxProvider",
   "RepositoryProvider",
@@ -86,6 +87,93 @@ export interface SecretsProvider extends BaseProvider<"SecretsProvider"> {
 export interface MutableSecretsProvider extends SecretsProvider {
   putSecret(referenceId: SecretReferenceId, value: string): Promise<void>;
   deleteSecret(referenceId: SecretReferenceId): Promise<void>;
+}
+
+export interface Page<T> {
+  readonly items: readonly T[];
+  readonly nextCursor: string | null;
+}
+
+export interface BillingPlan {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly amount: number;
+  readonly currency: string;
+  readonly interval: number;
+  readonly period: "daily" | "weekly" | "monthly" | "yearly";
+  readonly active: boolean;
+}
+
+export interface Subscription {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly planId: string;
+  readonly status:
+    | "created"
+    | "authenticated"
+    | "active"
+    | "pending"
+    | "halted"
+    | "cancelled"
+    | "completed"
+    | "expired";
+  readonly currentPeriodStart: string | null;
+  readonly currentPeriodEnd: string | null;
+  readonly providerCustomerRef: string | null;
+}
+
+export interface Invoice {
+  readonly id: string;
+  readonly subscriptionId: string | null;
+  readonly amount: number;
+  readonly currency: string;
+  readonly status: string;
+  readonly issuedAt: string;
+  readonly paidAt: string | null;
+}
+
+export interface PaymentMethodRef {
+  readonly ref: string;
+  readonly type: string;
+  readonly brand: string | null;
+  readonly last4: string | null;
+}
+
+export interface BillingEvent {
+  readonly id: string;
+  readonly type: string;
+  readonly createdAt: string;
+  readonly payload: JsonValue;
+}
+
+export interface BillingProvider extends BaseProvider<"BillingProvider"> {
+  listPlans(): Promise<BillingPlan[]>;
+  getSubscription(tenantId: string): Promise<Subscription | null>;
+  createSubscription(
+    tenantId: string,
+    planId: string,
+    paymentMethodRef: string,
+  ): Promise<Subscription>;
+  changeSubscription(tenantId: string, planId: string): Promise<Subscription>;
+  cancelSubscription(tenantId: string): Promise<Subscription>;
+  listInvoices(
+    tenantId: string,
+    cursor?: string,
+    limit?: number,
+  ): Promise<Page<Invoice>>;
+  attachPaymentMethod(
+    tenantId: string,
+    providerToken: string,
+  ): Promise<PaymentMethodRef>;
+  listPaymentMethods(tenantId: string): Promise<PaymentMethodRef[]>;
+  detachPaymentMethod(tenantId: string, ref: string): Promise<void>;
+  verifyWebhookSignature(
+    rawBody: Uint8Array,
+    signature: string,
+    secret: string,
+  ): boolean;
+  parseWebhookEvent(rawBody: Uint8Array): BillingEvent;
 }
 
 export interface TraceSpan {

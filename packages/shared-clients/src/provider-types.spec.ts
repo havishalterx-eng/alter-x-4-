@@ -62,6 +62,7 @@ describe("canonical provider interface surface", () => {
       "ObjectStorageProvider",
       "QueueProvider",
       "SecretsProvider",
+      "BillingProvider",
       "ObservabilityProvider",
       "SandboxProvider",
       "RepositoryProvider",
@@ -74,7 +75,7 @@ describe("canonical provider interface surface", () => {
       "NetworkConnectivityProvider",
       "AuditStoreProvider",
     ]);
-    expect(new Set(CANONICAL_PROVIDER_INTERFACES)).toHaveLength(23);
+    expect(new Set(CANONICAL_PROVIDER_INTERFACES)).toHaveLength(24);
     expectTypeOf<MarkerProviders>().toMatchTypeOf<BaseProvider>();
   });
 
