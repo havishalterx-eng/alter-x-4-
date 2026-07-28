@@ -84,7 +84,6 @@ describe("WorkflowService", () => {
     ["activate", {}],
     ["pause", {}],
     ["resume", {}],
-    ["rollback", { target_version: 2 }],
   ] as const)("relays %s action without reshaping", async (action, body) => {
     const engine = engineStub();
     const service = new WorkflowService(engine.value);

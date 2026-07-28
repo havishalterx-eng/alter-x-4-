@@ -27,12 +27,6 @@ export const simulateWorkflowSchema = z
   })
   .strict();
 
-export const rollbackWorkflowSchema = z
-  .object({
-    target_version: z.number().int().positive(),
-  })
-  .strict();
-
 export function parseWorkflowInput<T>(
   schema: z.ZodType<T>,
   input: unknown,

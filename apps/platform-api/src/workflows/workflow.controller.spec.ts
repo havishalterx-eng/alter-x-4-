@@ -34,6 +34,7 @@ import { WorkflowController } from "./workflow.controller";
 import { WorkflowEtagResolver } from "./workflow-etag.resolver";
 import { WorkflowExceptionFilter } from "./workflow-exception.filter";
 import { WorkflowService } from "./workflow.service";
+import { workflowDeferredCapabilities } from "./types";
 
 const workflowId = "wf_018f47a5-7b2c-7d10-8f11-123456789abc";
 const tenantId = "ten_018f47a5-7b2c-7d10-8f11-123456789abc";
@@ -198,11 +199,6 @@ describe("WorkflowController routes", () => {
         payload: {},
         status: 200,
       })),
-      {
-        path: `/api/v1/workflows/${workflowId}/actions/rollback`,
-        payload: { target_version: 1 },
-        status: 200,
-      },
     ];
 
     for (const [index, testCase] of cases.entries()) {
@@ -240,12 +236,6 @@ describe("WorkflowController routes", () => {
     ["POST", `/api/v1/workflows/${workflowId}/actions/activate`, {}, 200],
     ["POST", `/api/v1/workflows/${workflowId}/actions/pause`, {}, 200],
     ["POST", `/api/v1/workflows/${workflowId}/actions/resume`, {}, 200],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/rollback`,
-      { target_version: 1 },
-      200,
-    ],
   ] as const)(
     "serves happy path %s %s",
     async (method, path, payload, expectedStatus) => {
@@ -275,11 +265,6 @@ describe("WorkflowController routes", () => {
     ["POST", `/api/v1/workflows/${workflowId}/actions/activate`, {}],
     ["POST", `/api/v1/workflows/${workflowId}/actions/pause`, {}],
     ["POST", `/api/v1/workflows/${workflowId}/actions/resume`, {}],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/rollback`,
-      { target_version: 1 },
-    ],
   ] as const)("denies unauthenticated %s %s", async (method, path, payload) => {
     const response = await request(method, path, {
       headers: {
@@ -315,7 +300,6 @@ describe("WorkflowController routes", () => {
       `/api/v1/workflows/${workflowId}/actions/activate`,
       `/api/v1/workflows/${workflowId}/actions/pause`,
       `/api/v1/workflows/${workflowId}/actions/resume`,
-      `/api/v1/workflows/${workflowId}/actions/rollback`,
     ]) {
       const response = await request("POST", path, {
         actor: viewer,
@@ -337,11 +321,6 @@ describe("WorkflowController routes", () => {
     ["POST", `/api/v1/workflows/${workflowId}/actions/activate`, { extra: true }],
     ["POST", `/api/v1/workflows/${workflowId}/actions/pause`, { extra: true }],
     ["POST", `/api/v1/workflows/${workflowId}/actions/resume`, { extra: true }],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/rollback`,
-      { target_version: 0 },
-    ],
   ] as const)("rejects invalid %s %s", async (method, path, payload) => {
     const response = await request(method, path, {
       actor,
@@ -372,11 +351,6 @@ describe("WorkflowController routes", () => {
     ["POST", `/api/v1/workflows/${workflowId}/actions/activate`, {}],
     ["POST", `/api/v1/workflows/${workflowId}/actions/pause`, {}],
     ["POST", `/api/v1/workflows/${workflowId}/actions/resume`, {}],
-    [
-      "POST",
-      `/api/v1/workflows/${workflowId}/actions/rollback`,
-      { target_version: 1 },
-    ],
   ] as const)(
     "passes through Engine problem for %s %s",
     async (method, path, payload) => {
@@ -396,6 +370,33 @@ describe("WorkflowController routes", () => {
       });
     },
   );
+
+  it("flags deferred capabilities and exposes no fake routes", async () => {
+    expect(workflowDeferredCapabilities).toEqual(
+      [
+        "promote_version",
+        "start_canary",
+        "rollback_version",
+        "template_variables",
+      ].map((capability) =>
+        expect.objectContaining({ capability, status: "NOT_MET" }),
+      ),
+    );
+
+    for (const path of [
+      `/api/v1/workflows/${workflowId}/actions/promote-version`,
+      `/api/v1/workflows/${workflowId}/actions/start-canary`,
+      `/api/v1/workflows/${workflowId}/actions/rollback`,
+      `/api/v1/workflows/${workflowId}/template-variables`,
+    ]) {
+      const response = await request("POST", path, {
+        actor,
+        headers: { "idempotency-key": `absent-${path}` },
+        payload: {},
+      });
+      expect(response.statusCode).toBe(404);
+    }
+  });
 
   function request(
     method: "GET" | "POST" | "PATCH",
@@ -626,7 +627,6 @@ function workflowDag(): CompiledDag {
 
 function validPayload(path: string): unknown {
   if (path.endsWith("/simulate")) return { input: {} };
-  if (path.endsWith("/rollback")) return { target_version: 1 };
   if (path === "/api/v1/workflows") return { goal: "Build workflow" };
   return {};
 }

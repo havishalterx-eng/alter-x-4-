@@ -6,7 +6,6 @@ import {
   parseVersionQuery,
   parseWorkflowId,
   parseWorkflowInput,
-  rollbackWorkflowSchema,
   saveCanvasSchema,
   simulateWorkflowSchema,
 } from "./validation";
@@ -29,13 +28,6 @@ describe("workflow validation", () => {
         instance,
       ),
     ).toEqual({ input: { amount: 10, nested: { approved: true } } });
-    expect(
-      parseWorkflowInput(
-        rollbackWorkflowSchema,
-        { target_version: 2 },
-        instance,
-      ),
-    ).toEqual({ target_version: 2 });
   });
 
   it.each([
@@ -50,12 +42,6 @@ describe("workflow validation", () => {
       parseWorkflowInput(
         simulateWorkflowSchema,
         { input: undefined },
-        instance,
-      ),
-    () =>
-      parseWorkflowInput(
-        rollbackWorkflowSchema,
-        { target_version: 0 },
         instance,
       ),
   ])("returns field errors for invalid input", (parse) => {

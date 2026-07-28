@@ -12,7 +12,6 @@ import { WorkflowHttpError } from "./problem";
 import type {
   CreateWorkflowInput,
   EmptyWorkflowActionInput,
-  RollbackWorkflowInput,
   SaveCanvasInput,
   SimulateWorkflowInput,
   WorkflowActionResult,
@@ -98,12 +97,10 @@ export class WorkflowService {
       | "simulate"
       | "activate"
       | "pause"
-      | "resume"
-      | "rollback",
+      | "resume",
     input:
       | EmptyWorkflowActionInput
-      | SimulateWorkflowInput
-      | RollbackWorkflowInput,
+      | SimulateWorkflowInput,
     actor: ActorContext,
     traceparent: string | undefined,
     idempotencyKey: string,
@@ -117,6 +114,7 @@ export class WorkflowService {
       { idempotencyKey },
     );
   }
+
 }
 
 function callerContext(

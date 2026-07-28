@@ -28,7 +28,6 @@ import {
   createWorkflowSchema,
   emptyActionSchema,
   parseWorkflowInput,
-  rollbackWorkflowSchema,
   saveCanvasSchema,
   simulateWorkflowSchema,
 } from "./validation";
@@ -278,29 +277,6 @@ export class WorkflowController {
     );
   }
 
-  @Post(":workflowId/actions/rollback")
-  @RequireWorkspaceRole(...operateRoles)
-  @Idempotent()
-  rollback(
-    @Param("workflowId") workflowId: string,
-    @Body() body: unknown,
-    @ActorContext() actor: ActorContextType | undefined,
-    @Headers("traceparent") traceparent: string | undefined,
-    @Headers("idempotency-key") idempotencyKey: string | undefined,
-    @Res({ passthrough: true }) reply: FastifyReply,
-  ): Promise<WorkflowActionResult> {
-    const instance = `/api/v1/workflows/${workflowId}/actions/rollback`;
-    return this.action(
-      workflowId,
-      "rollback",
-      parseWorkflowInput(rollbackWorkflowSchema, body, instance),
-      actor,
-      traceparent,
-      idempotencyKey,
-      reply,
-    );
-  }
-
   private emptyLifecycle(
     workflowId: string,
     action: "activate" | "pause" | "resume",
@@ -330,8 +306,7 @@ export class WorkflowController {
       | "simulate"
       | "activate"
       | "pause"
-      | "resume"
-      | "rollback",
+      | "resume",
     input: Parameters<WorkflowService["action"]>[2],
     actor: ActorContextType | undefined,
     traceparent: string | undefined,
