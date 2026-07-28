@@ -345,7 +345,22 @@ export interface SearchResult {
 export interface SearchProvider extends BaseProvider<"SearchProvider"> {
   search(request: SearchRequest): Promise<SearchResult>;
 }
-export interface BrowserProvider extends BaseProvider<"BrowserProvider"> {}
+export interface BrowserInspectionRequest {
+  readonly url: string;
+  readonly timeoutMs?: number;
+}
+
+export interface BrowserInspectionResult {
+  readonly url: string;
+  readonly statusCode: number;
+  readonly hasVisibleContent: boolean;
+  readonly pageError?: string;
+  readonly consoleErrors: readonly string[];
+}
+
+export interface BrowserProvider extends BaseProvider<"BrowserProvider"> {
+  inspectPage(request: BrowserInspectionRequest): Promise<BrowserInspectionResult>;
+}
 export interface DeploymentProvider
   extends BaseProvider<"DeploymentProvider"> {}
 export interface ObjectStorageProvider

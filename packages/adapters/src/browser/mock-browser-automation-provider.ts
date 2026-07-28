@@ -1,5 +1,10 @@
 import type { ProviderCapabilities } from "@alterx/contracts";
-import type { ProviderHealth, ProviderMetadata } from "@alterx/shared-clients";
+import type {
+  BrowserInspectionRequest,
+  BrowserInspectionResult,
+  ProviderHealth,
+  ProviderMetadata,
+} from "@alterx/shared-clients";
 
 import type {
   BrowserAutomationProvider,
@@ -56,6 +61,16 @@ export class MockBrowserAutomationProvider
     const sessionId = `browser_mock-${(this.#sequence += 1)}`;
     this.#sessions.set(sessionId, { scope, url: "about:blank" });
     return { sessionId, expiresAt: "2099-01-01T00:00:00.000Z" };
+  }
+
+  async inspectPage(request: BrowserInspectionRequest): Promise<BrowserInspectionResult> {
+    await this.#urlGuard.assertAllowed(request.url);
+    return {
+      url: request.url,
+      statusCode: 200,
+      hasVisibleContent: true,
+      consoleErrors: [],
+    };
   }
 
   async navigate(

@@ -3,6 +3,8 @@ import { chromium } from "playwright-core";
 
 import type { ProviderCapabilities } from "@alterx/contracts";
 import type {
+  BrowserInspectionRequest,
+  BrowserInspectionResult,
   BrowserProvider,
   ProviderHealth,
   ProviderMetadata,
@@ -236,6 +238,34 @@ export class BrowserbasePlaywrightProvider
     } catch (error: unknown) {
       await browser.close();
       throw error;
+    }
+  }
+
+  async inspectPage(request: BrowserInspectionRequest): Promise<BrowserInspectionResult> {
+    await this.#urlGuard.assertAllowed(request.url);
+    const remote = await this.#browserbase.create({
+      projectId: this.#projectId,
+      region: this.#region,
+      userMetadata: { verification: "render" },
+    });
+    const browser = await this.#playwright.connectOverCDP(remote.connectUrl);
+    try {
+      const context = browser.contexts()[0];
+      if (context === undefined) {
+        throw new Error("Playwright did not expose a Browserbase context");
+      }
+      const page = context.pages()[0] ?? (await context.newPage());
+      const timeout = request.timeoutMs ?? this.#operationTimeoutMs;
+      await page.goto(request.url, { timeout, waitUntil: "domcontentloaded" });
+      const text = await page.locator("body").innerText({ timeout });
+      return {
+        url: page.url(),
+        statusCode: 200,
+        hasVisibleContent: text.trim().length > 0,
+        consoleErrors: [],
+      };
+    } finally {
+      await browser.close();
     }
   }
 

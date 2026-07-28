@@ -61,6 +61,8 @@ export {
   type BillingPlan,
   type BillingProvider,
   type BrowserProvider,
+  type BrowserInspectionRequest,
+  type BrowserInspectionResult,
   type CacheProvider,
   type CanonicalProviderInterfaceName,
   type ComputeProvider,
@@ -236,3 +238,4 @@ export {
   createMockSandboxProvider,
   type MockSandboxProvider,
 } from "./mocks/sandbox-provider";
+export { MOCK_BROWSER_CAPABILITIES, createMockBrowserProvider } from "./mocks/browser-provider";

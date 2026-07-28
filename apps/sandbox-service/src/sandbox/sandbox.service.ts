@@ -11,6 +11,7 @@ import type {
 } from "@alterx/adapters";
 import type {
   ConfigProvider,
+  BrowserProvider,
   JsonValue,
   QueueProvider,
   SandboxCommandResult,
@@ -49,6 +50,14 @@ const PLACEHOLDER_PATTERNS = [
   { kind: "placeholder value", pattern: /<(?:YOUR_|INSERT_|REPLACE_|[A-Z][A-Z0-9_ -]{2,})[^>]*>/ },
   { kind: "placeholder text", pattern: /\b(?:lorem ipsum|coming soon)\b/i },
 ];
+const INFRA_FAILURE_OUTPUT = /(?:ENOTFOUND|ECONNRESET|ETIMEDOUT|network|timeout|no space left|disk full|sandbox)/i;
+
+export type VerificationStatus = "passed" | "logic_failure" | "infra_failure" | "inconclusive";
+export type VerificationKind = "build" | "render";
+export interface VerificationResult {
+  readonly output: { readonly verification: { readonly kind: VerificationKind; readonly status: VerificationStatus; readonly errorCode?: string; readonly detail?: string; }; };
+  readonly metadata: Record<string, unknown>;
+}
 
 export interface PlaceholderFinding {
   readonly path: string;
@@ -102,6 +111,7 @@ export class SandboxService {
   constructor(
     private readonly sandbox: SandboxProvider,
     private readonly tools?: SandboxToolDependencies,
+    private readonly browserVerifier?: BrowserProvider,
   ) {
     this.#mintCostEventId = tools?.mintCostEventId ?? createCostEventId;
   }
@@ -162,6 +172,26 @@ export class SandboxService {
   ): Promise<SandboxCommandResult> {
     if (!LINT_FIX_COMMAND.test(command)) throw new Error("Lint auto-fix command is invalid");
     return this.execute(sessionId, command, timeoutMs);
+  }
+
+  async verifyBuild(sessionId: string, command = "pnpm build", timeoutMs?: number): Promise<VerificationResult> {
+    try {
+      const result = await this.execute(sessionId, command, timeoutMs);
+      if (result.exitCode === 0) return this.#verification("build", "passed", { exitCode: result.exitCode });
+      return this.#verification("build", result.exitCode === 124 || INFRA_FAILURE_OUTPUT.test(`${result.stdout}\n${result.stderr}`) ? "infra_failure" : "logic_failure", { exitCode: result.exitCode }, result.exitCode === 124 || INFRA_FAILURE_OUTPUT.test(`${result.stdout}\n${result.stderr}`) ? "SANDBOX_BUILD_INFRA_FAILURE" : "SANDBOX_BUILD_LOGIC_FAILURE");
+    } catch (error) { return this.#verification("build", "infra_failure", {}, "SANDBOX_BUILD_INFRA_FAILURE", this.#safeErrorDetail(error)); }
+  }
+
+  async verifyRender(previewUrl: string, files: readonly SandboxFile[], timeoutMs?: number): Promise<VerificationResult> {
+    const placeholders = this.detectPlaceholders(files);
+    if (placeholders.length > 0) return this.#verification("render", "logic_failure", { placeholderCount: placeholders.length }, "SANDBOX_RENDER_PLACEHOLDER_DETECTED");
+    if (!this.browserVerifier) return this.#verification("render", "inconclusive", {}, "SANDBOX_RENDER_BROWSER_UNAVAILABLE");
+    try {
+      const page = await this.browserVerifier.inspectPage(timeoutMs === undefined ? { url: previewUrl } : { url: previewUrl, timeoutMs });
+      if (page.statusCode >= 500) return this.#verification("render", "infra_failure", { statusCode: page.statusCode }, "SANDBOX_RENDER_INFRA_FAILURE");
+      if (page.pageError || page.consoleErrors.length > 0 || !page.hasVisibleContent) return this.#verification("render", "logic_failure", { statusCode: page.statusCode, consoleErrorCount: page.consoleErrors.length }, "SANDBOX_RENDER_LOGIC_FAILURE", page.pageError);
+      return this.#verification("render", "passed", { statusCode: page.statusCode });
+    } catch (error) { return this.#verification("render", "infra_failure", {}, "SANDBOX_RENDER_INFRA_FAILURE", this.#safeErrorDetail(error)); }
   }
 
   detectPlaceholders(files: readonly SandboxFile[]): readonly PlaceholderFinding[] {
@@ -558,4 +588,10 @@ export class SandboxService {
     const candidate = importPath.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0]?.split(".")[0];
     return candidate && !NODE_BUILT_INS.has(candidate) ? candidate : undefined;
   }
+
+  #verification(kind: VerificationKind, status: VerificationStatus, metadata: Record<string, unknown>, errorCode?: string, detail?: string): VerificationResult {
+    return { output: { verification: { kind, status, ...(errorCode === undefined ? {} : { errorCode }), ...(detail === undefined ? {} : { detail }) } }, metadata };
+  }
+
+  #safeErrorDetail(error: unknown): string { return error instanceof Error ? error.message : "Sandbox verification failed"; }
 }

@@ -7,6 +7,7 @@ import {
 } from "@alterx/adapters";
 import {
   createMockConfigProvider,
+  createMockBrowserProvider,
   createMockQueueProvider,
   createMockSandboxProvider,
   type JsonValue,
@@ -427,5 +428,23 @@ describe("SandboxService EXEC-11 hardening", () => {
       { path: "/workspace/project/page.tsx", line: 1, kind: "todo", value: "TODO" },
     ]);
     expect(() => target.verifyNoPlaceholders(files)).toThrow("page.tsx:1");
+  });
+});
+
+describe("SandboxService EXEC-12 verification", () => {
+  it("classifies syntax failures and timeouts", async () => {
+    const sandbox = createMockSandboxProvider();
+    await sandbox.createSession({ tenantId: "ten_1", runId: "run_1", cycleId: "cycle_1", templateId: "base", environment: {} });
+    const target = new SandboxService({ ...sandbox, execute: async (_id: string, command: string) => command === "pnpm build" ? { exitCode: 1, stdout: "", stderr: "syntax error" } : { exitCode: 124, stdout: "", stderr: "timeout" } });
+    await expect(target.verifyBuild(SESSION)).resolves.toMatchObject({ output: { verification: { status: "logic_failure" } } });
+    await expect(target.verifyBuild(SESSION, "pnpm build --slow")).resolves.toMatchObject({ output: { verification: { status: "infra_failure" } } });
+  });
+
+  it("fails closed without a browser and flags blank rendered pages", async () => {
+    const target = await basicService();
+    await expect(target.verifyRender("https://preview.example", [])).resolves.toMatchObject({ output: { verification: { status: "inconclusive" } } });
+    const browser = createMockBrowserProvider({ url: "https://preview.example", statusCode: 200, hasVisibleContent: false, consoleErrors: [] });
+    const rendered = new SandboxService(createMockSandboxProvider(), undefined, browser);
+    await expect(rendered.verifyRender("https://preview.example", [])).resolves.toMatchObject({ output: { verification: { status: "logic_failure" } } });
   });
 });
