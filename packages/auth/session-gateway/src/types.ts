@@ -57,6 +57,8 @@ export interface SessionGatewayRequest {
   readonly headers: Record<string, string | string[] | undefined>;
   readonly url?: string;
   actorContext?: ActorContext;
+  /** Actor JWT expiry captured during initial validation; stream endpoints close at this instant. */
+  actorTokenExpiresAtMs?: number;
   withTenantDatabase?: <T>(
     operation: (transaction: TenantTransaction) => Promise<T>,
   ) => Promise<T>;

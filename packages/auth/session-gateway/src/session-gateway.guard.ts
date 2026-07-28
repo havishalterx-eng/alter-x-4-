@@ -55,15 +55,15 @@ export class SessionGatewayGuard implements CanActivate {
       const machine = await this.m2mValidator.validate(
         firstHeader(request.headers.authorization),
       );
-      const actor =
-        machine.serviceActor ??
-        (
-          await this.actorTokenValidator.validate(
-            requiredActorToken(request.headers),
-          )
-        ).actorContext;
+      const actorValidation = machine.serviceActor
+        ? undefined
+        : await this.actorTokenValidator.validate(requiredActorToken(request.headers));
+      const actor = machine.serviceActor ?? actorValidation!.actorContext;
 
       request.actorContext = actor;
+      if (actorValidation) {
+        request.actorTokenExpiresAtMs = actorValidation.claims.exp * 1_000;
+      }
       request.withTenantDatabase = <T>(
         operation: Parameters<TenantDatabaseScope["withTenant"]>[1],
       ) => this.databaseScope.withTenant(databaseTenantId(actor.tenant_id), operation) as Promise<T>;

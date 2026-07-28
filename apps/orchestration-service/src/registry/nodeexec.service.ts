@@ -2,11 +2,17 @@ import type {
   NodeexecExecuteNodeRequest,
   NodeexecExecuteNodeResponse,
 } from "@alterx/contracts";
-import { ModelAliasSchema, ProblemDetailsSchema } from "@alterx/contracts";
+import {
+  ModelAliasSchema,
+  NodeTypeSchema,
+  ProblemDetailsSchema,
+  type NodeType,
+} from "@alterx/contracts";
 
 import { NodeHandlerValidationError } from "./handler";
 import type { NodeHandlerRegistry } from "./node-handler-registry";
 import { NodeExecutionLedgerService } from "../runs/node-execution-ledger.service";
+import { RunStreamEventService } from "../runs/run-stream-event.service";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -46,6 +52,7 @@ export class NodeexecService {
   constructor(
     private readonly registry: NodeHandlerRegistry,
     private readonly ledger: NodeExecutionLedgerService,
+    private readonly streamEvents?: RunStreamEventService,
   ) {}
 
   async executeNode(
@@ -57,8 +64,12 @@ export class NodeexecService {
     if (request.node_type.trim().length === 0) {
       throw new NodeHandlerValidationError("node_type is required");
     }
+    const nodeType = NodeTypeSchema.safeParse(request.node_type);
+    if (!nodeType.success) {
+      throw new NodeHandlerValidationError("node_type is not recognized");
+    }
 
-    await this.ledger.recordStarted({
+    const started = await this.ledger.recordStarted({
       tenantId: request.tenant_id,
       runId: request.run_id,
       nodeExecutionId: request.node_execution_id,
@@ -66,6 +77,17 @@ export class NodeexecService {
       nodeType: request.node_type,
       ...modelAliasFromConfigJson(request.config_json),
     });
+    await this.#ensureRunStatusBestEffort(request);
+    await this.#appendBestEffort({
+      event: "node.started",
+      data: {
+        node_execution_id: request.node_execution_id,
+        dag_node_key: request.node_key,
+        node_type: nodeType.data,
+        attempt: started.attempt,
+        started_at: started.startedAt,
+      },
+    }, request);
 
     try {
       const config = parseJsonObject(request.config_json, "config_json");
@@ -80,6 +102,11 @@ export class NodeexecService {
         ...(typeof sandboxSessionId === "string"
           ? { sandbox_session_id: sandboxSessionId }
           : {}),
+        on_model_delta: async (delta, index, final) =>
+          this.#appendBestEffort({
+            event: "model.delta",
+            data: { node_execution_id: request.node_execution_id, delta, index, final },
+          }, request),
       });
 
       const outputJson = JSON.stringify(result.output);
@@ -94,12 +121,22 @@ export class NodeexecService {
           },
           problem.data,
         );
+        await this.#appendBestEffort(failedEvent(request, nodeType.data, started.attempt, {
+          error_code: problem.data.error_code,
+          message: problem.data.detail,
+          retryable: problem.data.retryable,
+        }), request);
       } else {
         await this.ledger.recordSucceeded({
           tenantId: request.tenant_id,
           runId: request.run_id,
           nodeExecutionId: request.node_execution_id,
         });
+        await this.#appendBestEffort({ event: "node.completed", data: {
+          node_execution_id: request.node_execution_id, dag_node_key: request.node_key,
+          node_type: nodeType.data, attempt: started.attempt,
+          status: "succeeded", ended_at: new Date().toISOString(),
+        } }, request);
       }
       return { output_json: outputJson, metadata_json: metadataJson };
     } catch (error: unknown) {
@@ -111,9 +148,50 @@ export class NodeexecService {
         },
         persistedError(error),
       );
+      await this.#appendBestEffort(failedEvent(request, nodeType.data, started.attempt, {
+        error_code: "NODE_EXECUTION_FAILED", message: "Node execution failed", retryable: false,
+      }), request);
       throw error;
     }
   }
+
+  async #appendBestEffort(
+    event: Parameters<RunStreamEventService["append"]>[2],
+    request: NodeexecExecuteNodeRequest,
+  ): Promise<void> {
+    try {
+      await this.streamEvents?.append(request.tenant_id, request.run_id, event);
+    } catch {
+      // SSE journal is convenience transport. Durable node_executions remains source of truth.
+    }
+  }
+
+  async #ensureRunStatusBestEffort(
+    request: NodeexecExecuteNodeRequest,
+  ): Promise<void> {
+    try {
+      await this.streamEvents?.ensureRunRunning(
+        request.tenant_id,
+        request.run_id,
+      );
+    } catch {
+      // SSE journal is convenience transport. Durable node_executions remains source of truth.
+    }
+  }
+}
+
+function failedEvent(
+  request: NodeexecExecuteNodeRequest,
+  nodeType: NodeType,
+  attempt: number,
+  error: { readonly error_code: string; readonly message: string; readonly retryable: boolean },
+): Parameters<RunStreamEventService["append"]>[2] {
+  return { event: "node.failed", data: {
+    node_execution_id: request.node_execution_id,
+    dag_node_key: request.node_key,
+    node_type: nodeType,
+    attempt, status: "failed", error, ended_at: new Date().toISOString(),
+  } };
 }
 
 function modelAliasFromConfigJson(configJson: string): { readonly modelAlias?: "FAST" | "STANDARD" | "ADVANCED" | "CEILING" } {

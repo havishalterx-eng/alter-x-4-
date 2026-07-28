@@ -55,6 +55,40 @@ describe("LlmTaskHandler", () => {
     });
   });
 
+  it("forwards incremental model deltas before assembling the final output", async () => {
+    const onModelDelta = vi.fn().mockResolvedValue(undefined);
+    const stream = vi.fn(async function* () {
+      yield { delta: '{"text":"hel', sequence: 1, final: false };
+      yield { delta: 'lo"}', sequence: 2, final: true };
+    });
+    const handler = new LlmTaskHandler({
+      invoke: vi.fn(),
+      stream,
+    } as ModelGatewayHandler & {
+      stream(request: ModelgwInvokeRequest): AsyncIterable<{
+        delta: string;
+        sequence: number;
+        final: boolean;
+      }>;
+    });
+
+    const result = await handler.execute({
+      config: { model_alias: "ADVANCED", prompt: "summarize this" },
+      inputs: {},
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      node_execution_id: NODE_EXECUTION_ID,
+      on_model_delta: onModelDelta,
+    });
+
+    expect(stream).toHaveBeenCalledOnce();
+    expect(onModelDelta.mock.calls).toEqual([
+      ['{"text":"hel', 0, false],
+      ['lo"}', 1, true],
+    ]);
+    expect(result.output).toEqual({ text: "hello" });
+  });
+
   it("rejects a missing model_alias", async () => {
     const handler = new LlmTaskHandler(fakeGateway(vi.fn()));
 

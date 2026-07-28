@@ -20,7 +20,10 @@ function service(ledger = fakeLedger()): NodeexecService {
 
 function fakeLedger(): NodeExecutionLedgerService {
   return {
-    recordStarted: vi.fn().mockResolvedValue(undefined),
+    recordStarted: vi.fn().mockResolvedValue({
+      attempt: 1,
+      startedAt: "2026-07-28T00:00:00.000Z",
+    }),
     recordSucceeded: vi.fn().mockResolvedValue(undefined),
     recordFailed: vi.fn().mockResolvedValue(undefined),
   } as unknown as NodeExecutionLedgerService;
@@ -84,6 +87,23 @@ describe("NodeexecService.executeNode", () => {
         inputs_json: "{}",
       }),
     ).rejects.toThrow(NodeHandlerValidationError);
+  });
+
+  it("rejects an unknown node type before opening a durable execution", async () => {
+    const ledger = fakeLedger();
+
+    await expect(
+      service(ledger).executeNode({
+        tenant_id: TENANT_ID,
+        run_id: RUN_ID,
+        node_execution_id: NODE_EXECUTION_ID,
+        node_key: "node_unknown",
+        node_type: "UnknownNode",
+        config_json: "{}",
+        inputs_json: "{}",
+      }),
+    ).rejects.toThrow(NodeHandlerValidationError);
+    expect(ledger.recordStarted).not.toHaveBeenCalled();
   });
 
   it("rejects malformed config_json", async () => {

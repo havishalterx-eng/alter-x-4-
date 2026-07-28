@@ -48,7 +48,7 @@ function setup(options: {
     validate: options.actorError
       ? vi.fn().mockRejectedValue(options.actorError)
       : vi.fn().mockResolvedValue({
-          claims: {},
+          claims: { exp: 1_800_000_300 },
           actorContext: userActor,
         }),
   };
@@ -123,6 +123,7 @@ describe("SessionGatewayGuard", () => {
     const { databaseScope, executionContext, guard, request } = setup();
     await expect(guard.canActivate(executionContext)).resolves.toBe(true);
     expect(request.actorContext).toEqual(userActor);
+    expect(request.actorTokenExpiresAtMs).toBe(1_800_000_300_000);
 
     const result = await request.withTenantDatabase?.((transaction) =>
       transaction.query("SELECT * FROM workflows"),

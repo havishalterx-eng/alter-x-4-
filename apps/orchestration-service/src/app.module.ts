@@ -36,6 +36,8 @@ import { RegistryService } from "./registry/registry.service";
 import { NodeexecService } from "./registry/nodeexec.service";
 import { NodeExecutionsController } from "./runs/node-executions.controller";
 import { NodeExecutionLedgerService } from "./runs/node-execution-ledger.service";
+import { RunStreamEventService } from "./runs/run-stream-event.service";
+import { RunStreamController } from "./runs/run-stream.controller";
 import { createRuntimeNodeHandlerRegistry } from "./registry/node-handler-registry";
 import { BlackboardGrpcService } from "./blackboard/blackboard-grpc.service";
 import { BlackboardService } from "./blackboard/blackboard.service";
@@ -64,6 +66,7 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
     NodeexecGrpcController,
     BlackboardGrpcController,
     NodeExecutionsController,
+    RunStreamController,
     TriggerRegistryController,
     WhatsappWebhookController,
   ],
@@ -231,7 +234,8 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
           sandboxService,
           queueProvider,
         });
-        return new NodeexecService(registry, new NodeExecutionLedgerService(store));
+        const ledger = new NodeExecutionLedgerService(store);
+        return new NodeexecService(registry, ledger, new RunStreamEventService(store));
       },
     },
     {
@@ -248,6 +252,17 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
         return new NodeExecutionLedgerService(store);
+      },
+    },
+    {
+      provide: RunStreamEventService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        return new RunStreamEventService(new PostgresOrchestrationStoreProvider({
+          authentication: "iam", host: dbConfig.databaseHost, port: dbConfig.databasePort,
+          database: dbConfig.databaseName, user: dbConfig.databaseUser, region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        }));
       },
     },
     {

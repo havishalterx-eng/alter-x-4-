@@ -1,5 +1,5 @@
 import { ModelAliasSchema, type NodeType } from "@alterx/contracts";
-import type { ModelGatewayHandler } from "@alterx/adapters";
+import type { ModelGatewayHandler, ModelGatewayStreamHandler } from "@alterx/adapters";
 import { ModelGatewayInvalidResponseError } from "@alterx/shared-clients";
 
 import {
@@ -50,19 +50,35 @@ export class LlmTaskHandler implements NodeHandler {
       );
     }
 
-    const response = await this.modelGateway.invoke({
+    const modelRequest = {
       tenant_id: context.tenant_id,
       run_id: context.run_id,
       node_execution_id: context.node_execution_id,
       model_alias: aliasResult.data,
       input_json: JSON.stringify({ prompt, inputs: context.inputs }),
-    });
+    };
+    const streaming = this.modelGateway as ModelGatewayHandler & Partial<ModelGatewayStreamHandler>;
+    let outputJson: string;
+    let usage: unknown = {};
+    let resolvedCapability: string | undefined;
+    if (streaming.stream !== undefined) {
+      outputJson = "";
+      for await (const chunk of streaming.stream(modelRequest)) {
+        outputJson += chunk.delta;
+        await context.on_model_delta?.(chunk.delta, chunk.sequence - 1, chunk.final);
+      }
+    } else {
+      const response = await this.modelGateway.invoke(modelRequest);
+      outputJson = response.output_json;
+      resolvedCapability = response.resolved_capability;
+      try { usage = JSON.parse(response.usage_json); } catch { usage = {}; }
+    }
 
     // output_json is the actual node result -- fail closed on malformed data,
     // never guess or pass through garbage.
     let parsedOutput: unknown;
     try {
-      parsedOutput = JSON.parse(response.output_json);
+      parsedOutput = JSON.parse(outputJson);
     } catch (error: unknown) {
       throw new ModelGatewayInvalidResponseError(
         `output_json is not valid JSON: ${(error as Error).message}`,
@@ -75,16 +91,14 @@ export class LlmTaskHandler implements NodeHandler {
     // usage_json is cost/observability metadata, not the task result itself --
     // fail open here (empty usage) rather than losing an otherwise-valid
     // output over a malformed metadata blob.
-    let usage: unknown = {};
-    try {
-      usage = JSON.parse(response.usage_json);
-    } catch {
-      usage = {};
-    }
-
     return {
       output: parsedOutput,
-      metadata: { usage, resolved_capability: response.resolved_capability },
+      metadata: {
+        usage,
+        ...(resolvedCapability === undefined
+          ? {}
+          : { resolved_capability: resolvedCapability }),
+      },
     };
   }
 }

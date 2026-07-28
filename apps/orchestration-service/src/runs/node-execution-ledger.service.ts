@@ -61,6 +61,11 @@ export interface NodeExecutionPage {
   };
 }
 
+export interface StartedNodeExecution extends Record<string, unknown> {
+  readonly attempt: number;
+  readonly startedAt: string;
+}
+
 export class NodeExecutionValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -145,7 +150,7 @@ function requireCursor(cursor: string | undefined): string | undefined {
 export class NodeExecutionLedgerService {
   constructor(private readonly store: OrchestrationTenantStore) {}
 
-  async recordStarted(request: NodeExecutionStart): Promise<void> {
+  async recordStarted(request: NodeExecutionStart): Promise<StartedNodeExecution> {
     const tenantId = bareTenantUuid(request.tenantId);
     requireRunId(request.runId);
     requireNodeExecutionId(request.nodeExecutionId);
@@ -153,7 +158,7 @@ export class NodeExecutionLedgerService {
     requireNodeType(request.nodeType);
 
     const started = await this.store.withTenant(tenantId, async (tx) => {
-      const result = await tx.query<{ readonly id: string }>(
+      const result = await tx.query<StartedNodeExecution>(
         `INSERT INTO node_executions
            (id, tenant_id, run_id, dag_node_id, node_type, model_alias, status)
          SELECT $3, $1, $2, $4, $5, $6, 'running'
@@ -170,7 +175,8 @@ export class NodeExecutionLedgerService {
            AND node_executions.dag_node_id = EXCLUDED.dag_node_id
            AND node_executions.node_type = EXCLUDED.node_type
            AND node_executions.status = 'failed'
-         RETURNING id`,
+         RETURNING attempt,
+                   to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startedAt"`,
         [
           tenantId,
           request.runId,
@@ -180,9 +186,9 @@ export class NodeExecutionLedgerService {
           request.modelAlias ?? null,
         ],
       );
-      return result.rowCount === 1;
+      return result.rows[0];
     });
-    if (started) return;
+    if (started !== undefined) return started;
 
     const runExists = await this.runExists(tenantId, request.runId);
     if (!runExists) throw new NodeExecutionRunNotFoundError(request.runId);

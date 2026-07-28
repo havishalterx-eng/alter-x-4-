@@ -32,6 +32,8 @@ export interface NodeExecutionContext {
   readonly node_execution_id?: string; // node_ prefixed UUIDv7
   /** Opaque cycle-scoped session ID supplied by Provisioning in node config. */
   readonly sandbox_session_id?: string;
+  /** Durable SSE publisher injected by Nodeexec; never exposed to workflow code. */
+  readonly on_model_delta?: (delta: string, index: number, final: boolean) => Promise<void>;
 }
 
 export interface NodeExecutionResult {
