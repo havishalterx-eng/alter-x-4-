@@ -207,6 +207,30 @@ export {
   type SsrfGuardedFetcherConfig,
 } from "./http/ssrf-guarded-fetcher";
 export {
+  BROWSERBASE_PLAYWRIGHT_CAPABILITIES,
+  BrowserbasePlaywrightProvider,
+  type BrowserAutomationProvider,
+  type BrowserExtractionResult,
+  type BrowserNavigationResult,
+  type BrowserSession,
+  type BrowserSessionScope,
+  type BrowserbasePlaywrightProviderConfig,
+  type BrowserbaseSessionClient,
+  type PlaywrightBrowserHandle,
+  type PlaywrightConnector,
+  type PlaywrightPageHandle,
+} from "./browser/browserbase-playwright-provider";
+export { MockBrowserAutomationProvider } from "./browser/mock-browser-automation-provider";
+export {
+  PostgresToolDatabaseProvider,
+  type DatabaseOperation,
+  type DatabaseOperationProvider,
+  type DatabaseOperationRequest,
+  type DatabaseOperationResult,
+  type ToolDatabaseClient,
+  type ToolDatabaseClientFactory,
+} from "./postgres/tool-database-provider";
+export {
   AuditServiceClient,
   type AuditServiceClientConfig,
 } from "./grpc/audit-client";

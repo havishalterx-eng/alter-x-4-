@@ -183,4 +183,58 @@ describe("SsrfGuardedFetcher", () => {
       /did not resolve to any address/,
     );
   });
+
+  it("rejects declared oversized bodies before buffering them", async () => {
+    const arrayBuffer = vi.fn(async () => jsonBody({ tooLarge: true }));
+    const fetcher = new SsrfGuardedFetcher(
+      { maxResponseBytes: 8 },
+      dnsResolverFor({
+        "example.com": [{ address: "93.184.216.34", family: 4 }],
+      }),
+      vi.fn(async () => ({
+        status: 200,
+        headers: {
+          get: (name: string) => (name === "content-length" ? "9" : null),
+        },
+        body: undefined,
+        arrayBuffer,
+      })),
+    );
+
+    await expect(fetcher.fetch("https://example.com/")).rejects.toThrow(
+      "byte limit",
+    );
+    expect(arrayBuffer).not.toHaveBeenCalled();
+  });
+
+  it("cancels a chunked body as soon as streamed bytes cross the limit", async () => {
+    const cancel = vi.fn(async () => undefined);
+    const chunks = [
+      { done: false, value: new Uint8Array([1, 2, 3, 4]) },
+      { done: false, value: new Uint8Array([5, 6, 7, 8, 9]) },
+    ];
+    const fetcher = new SsrfGuardedFetcher(
+      { maxResponseBytes: 8 },
+      dnsResolverFor({
+        "example.com": [{ address: "93.184.216.34", family: 4 }],
+      }),
+      vi.fn(async () => ({
+        status: 200,
+        headers: { get: () => null },
+        body: {
+          getReader: () => ({
+            read: async () =>
+              chunks.shift() ?? { done: true as const, value: undefined },
+            cancel,
+          }),
+        },
+        arrayBuffer: async () => jsonBody("must not buffer"),
+      })),
+    );
+
+    await expect(fetcher.fetch("https://example.com/")).rejects.toThrow(
+      "byte limit",
+    );
+    expect(cancel).toHaveBeenCalledOnce();
+  });
 });
