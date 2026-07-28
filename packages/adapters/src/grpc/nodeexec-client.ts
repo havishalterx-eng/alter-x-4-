@@ -4,6 +4,8 @@ import { loadSync } from "@grpc/proto-loader";
 import type {
   NodeexecExecuteNodeRequest,
   NodeexecExecuteNodeResponse,
+  NodeexecFinalizeRunRequest,
+  NodeexecFinalizeRunResponse,
 } from "@alterx/contracts";
 
 export interface NodeExecutionClientConfig {
@@ -16,6 +18,9 @@ export interface NodeExecutionHandler {
   executeNode(
     request: NodeexecExecuteNodeRequest,
   ): Promise<NodeexecExecuteNodeResponse>;
+  finalizeRun(
+    request: NodeexecFinalizeRunRequest,
+  ): Promise<NodeexecFinalizeRunResponse>;
 }
 
 interface NodeexecGrpcClient extends Client {
@@ -23,6 +28,11 @@ interface NodeexecGrpcClient extends Client {
     request: NodeexecExecuteNodeRequest,
     options: { readonly deadline: Date },
     callback: (error: Error | null, response?: NodeexecExecuteNodeResponse) => void,
+  ): void;
+  finalizeRun(
+    request: NodeexecFinalizeRunRequest,
+    options: { readonly deadline: Date },
+    callback: (error: Error | null, response?: NodeexecFinalizeRunResponse) => void,
   ): void;
 }
 
@@ -69,6 +79,25 @@ export class NodeExecutionClient implements NodeExecutionHandler {
     return new Promise<NodeexecExecuteNodeResponse>((resolve, reject) => {
       const deadline = new Date(Date.now() + this.#timeoutMs);
       this.#client.executeNode(request, { deadline }, (error, response) => {
+        if (error !== null) {
+          reject(error);
+          return;
+        }
+        if (response === undefined) {
+          reject(new Error("Node Execution Service returned an empty response"));
+          return;
+        }
+        resolve(response);
+      });
+    });
+  }
+
+  async finalizeRun(
+    request: NodeexecFinalizeRunRequest,
+  ): Promise<NodeexecFinalizeRunResponse> {
+    return new Promise<NodeexecFinalizeRunResponse>((resolve, reject) => {
+      const deadline = new Date(Date.now() + this.#timeoutMs);
+      this.#client.finalizeRun(request, { deadline }, (error, response) => {
         if (error !== null) {
           reject(error);
           return;

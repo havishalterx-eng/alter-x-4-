@@ -18,6 +18,7 @@ import {
   PostgresOrchestrationStoreProvider,
   RedisCacheProvider,
   RegistryGrpcController,
+  TemporalDurableExecutionProvider,
   ToolGatewayClient,
 } from "@alterx/adapters";
 import { createMockQueueProvider } from "@alterx/shared-clients";
@@ -38,6 +39,9 @@ import { NodeExecutionsController } from "./runs/node-executions.controller";
 import { NodeExecutionLedgerService } from "./runs/node-execution-ledger.service";
 import { RunStreamEventService } from "./runs/run-stream-event.service";
 import { RunStreamController } from "./runs/run-stream.controller";
+import { RunLauncherService } from "./runs/run-launcher.service";
+import { RunsController } from "./runs/runs.controller";
+import { loadRunLauncherEnvironment } from "./config/run-launcher-environment";
 import { createRuntimeNodeHandlerRegistry } from "./registry/node-handler-registry";
 import { BlackboardGrpcService } from "./blackboard/blackboard-grpc.service";
 import { BlackboardService } from "./blackboard/blackboard.service";
@@ -67,6 +71,7 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
     BlackboardGrpcController,
     NodeExecutionsController,
     RunStreamController,
+    RunsController,
     TriggerRegistryController,
     WhatsappWebhookController,
   ],
@@ -263,6 +268,34 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
           database: dbConfig.databaseName, user: dbConfig.databaseUser, region: dbConfig.awsRegion,
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         }));
+      },
+    },
+    {
+      provide: RunLauncherService,
+      useFactory: () => {
+        // Same reasoning as CONVERSATION_HANDLER/TriggerRegistryService
+        // above: constructs its own PostgresOrchestrationStoreProvider
+        // rather than reaching into the guard's private instance.
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        const runLauncherConfig = loadRunLauncherEnvironment(process.env);
+        const durable = new TemporalDurableExecutionProvider({
+          address: runLauncherConfig.temporalAddress,
+          namespace: runLauncherConfig.temporalNamespace,
+          taskQueue: runLauncherConfig.taskQueue,
+          ...(runLauncherConfig.temporalApiKey === undefined
+            ? {}
+            : { apiKey: runLauncherConfig.temporalApiKey }),
+        });
+        return new RunLauncherService(store, durable);
       },
     },
     {

@@ -10,6 +10,8 @@ import {
 import type {
   NodeexecExecuteNodeRequest,
   NodeexecExecuteNodeResponse,
+  NodeexecFinalizeRunRequest,
+  NodeexecFinalizeRunResponse,
 } from "@alterx/contracts";
 
 export const NODEEXEC_HANDLER = Symbol("NODEEXEC_HANDLER");
@@ -18,6 +20,9 @@ export interface NodeexecHandler {
   executeNode(
     request: NodeexecExecuteNodeRequest,
   ): Promise<NodeexecExecuteNodeResponse>;
+  finalizeRun(
+    request: NodeexecFinalizeRunRequest,
+  ): Promise<NodeexecFinalizeRunResponse>;
 }
 
 export interface NodeexecGrpcTransportConfig {
@@ -40,6 +45,17 @@ export class NodeexecGrpcController {
       return await this.handler.executeNode(request);
     } catch (error: unknown) {
       throw mapNodeexecError(error, "Node could not be executed");
+    }
+  }
+
+  @GrpcMethod("NodeExecutionService", "FinalizeRun")
+  async finalizeRun(
+    request: NodeexecFinalizeRunRequest,
+  ): Promise<NodeexecFinalizeRunResponse> {
+    try {
+      return await this.handler.finalizeRun(request);
+    } catch (error: unknown) {
+      throw mapNodeexecError(error, "Run could not be finalized");
     }
   }
 }

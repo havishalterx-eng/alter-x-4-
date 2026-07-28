@@ -1,6 +1,8 @@
 import type {
   NodeexecExecuteNodeRequest,
   NodeexecExecuteNodeResponse,
+  NodeexecFinalizeRunRequest,
+  NodeexecFinalizeRunResponse,
 } from "@alterx/contracts";
 import {
   ModelAliasSchema,
@@ -69,12 +71,14 @@ export class NodeexecService {
       throw new NodeHandlerValidationError("node_type is not recognized");
     }
 
+    const inputRef = safeInputRef(request.inputs_json);
     const started = await this.ledger.recordStarted({
       tenantId: request.tenant_id,
       runId: request.run_id,
       nodeExecutionId: request.node_execution_id,
       dagNodeId: request.node_key,
       nodeType: request.node_type,
+      ...(inputRef === undefined ? {} : { inputRef }),
       ...modelAliasFromConfigJson(request.config_json),
     });
     await this.#ensureRunStatusBestEffort(request);
@@ -131,6 +135,7 @@ export class NodeexecService {
           tenantId: request.tenant_id,
           runId: request.run_id,
           nodeExecutionId: request.node_execution_id,
+          outputRef: request.node_key,
         });
         await this.#appendBestEffort({ event: "node.completed", data: {
           node_execution_id: request.node_execution_id, dag_node_key: request.node_key,
@@ -177,6 +182,55 @@ export class NodeexecService {
     } catch {
       // SSE journal is convenience transport. Durable node_executions remains source of truth.
     }
+  }
+
+  /**
+   * The Executor workflow's try/finally calls this exactly once, on
+   * success or failure -- the only durable write of the run's terminal
+   * status (EXEC-14). Idempotent via the ledger's status-guarded UPDATE.
+   */
+  async finalizeRun(
+    request: NodeexecFinalizeRunRequest,
+  ): Promise<NodeexecFinalizeRunResponse> {
+    if (request.status !== "completed" && request.status !== "failed") {
+      throw new NodeHandlerValidationError(
+        `finalizeRun status must be "completed" or "failed", got "${request.status}"`,
+      );
+    }
+    const result = await this.ledger.finalizeRun(
+      request.tenant_id,
+      request.run_id,
+      request.status,
+    );
+    // Only emit when the ledger actually applied *this* finalize -- if the
+    // run was already terminal for another reason (e.g. cancelled
+    // concurrently), result.status reflects that real state instead, and
+    // the SSE stream must not misreport it as completed/failed.
+    if (result.status === "completed" || result.status === "failed") {
+      try {
+        await this.streamEvents?.append(request.tenant_id, request.run_id, {
+          event: "run.status",
+          data: { status: result.status },
+        });
+      } catch {
+        // SSE journal is convenience transport. Durable runs.status remains source of truth.
+      }
+    }
+    return { status: result.status, ended_at: result.endedAt };
+  }
+}
+
+function safeInputRef(inputsJson: string): string | undefined {
+  try {
+    const raw = JSON.parse(inputsJson) as unknown;
+    if (!isPlainObject(raw)) return undefined;
+    const keys = Object.keys(raw);
+    return keys.length === 0 ? undefined : keys.join(",");
+  } catch {
+    // Best-effort only -- the strict inputs_json parse/validation on the
+    // dispatch path (parseInputs, below) is what actually fails the node;
+    // this must never change that outcome.
+    return undefined;
   }
 }
 

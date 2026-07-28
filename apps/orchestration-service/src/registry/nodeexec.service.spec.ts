@@ -9,6 +9,7 @@ import { MergeHandler } from "./handlers/merge.handler";
 import { NodeHandlerRegistry } from "./node-handler-registry";
 import { NodeexecService } from "./nodeexec.service";
 import { NodeExecutionLedgerService } from "../runs/node-execution-ledger.service";
+import { RunStreamEventService } from "../runs/run-stream-event.service";
 
 const TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const RUN_ID = "run_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
@@ -26,6 +27,10 @@ function fakeLedger(): NodeExecutionLedgerService {
     }),
     recordSucceeded: vi.fn().mockResolvedValue(undefined),
     recordFailed: vi.fn().mockResolvedValue(undefined),
+    finalizeRun: vi.fn().mockResolvedValue({
+      status: "completed",
+      endedAt: "2026-07-28T00:00:01.000Z",
+    }),
   } as unknown as NodeExecutionLedgerService;
 }
 
@@ -148,6 +153,105 @@ describe("NodeexecService.executeNode", () => {
         node_type: "Merge",
         config_json: "{}",
         inputs_json: "[1,2,3]",
+      }),
+    ).rejects.toThrow(NodeHandlerValidationError);
+  });
+
+  it("records the predecessor keys read as input_ref and the node's own key as output_ref on success", async () => {
+    const ledger = fakeLedger();
+    await service(ledger).executeNode({
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_merge",
+      node_type: "Merge",
+      config_json: "{}",
+      inputs_json: JSON.stringify({ node_a: { x: 1 }, node_b: { y: 2 } }),
+    });
+
+    expect(ledger.recordStarted).toHaveBeenCalledWith(
+      expect.objectContaining({ inputRef: "node_a,node_b" }),
+    );
+    expect(ledger.recordSucceeded).toHaveBeenCalledWith(
+      expect.objectContaining({ outputRef: "node_merge" }),
+    );
+  });
+
+  it("omits input_ref for a source node with no predecessor data", async () => {
+    const ledger = fakeLedger();
+    await service(ledger).executeNode({
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_merge",
+      node_type: "Merge",
+      config_json: "{}",
+      inputs_json: "{}",
+    });
+
+    expect(ledger.recordStarted).toHaveBeenCalledWith(
+      expect.not.objectContaining({ inputRef: expect.anything() }),
+    );
+  });
+});
+
+describe("NodeexecService.finalizeRun", () => {
+  it("finalizes a completed run and emits a run.status SSE event", async () => {
+    const ledger = fakeLedger();
+    const streamEvents = { append: vi.fn().mockResolvedValue(undefined) };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]),
+      ledger,
+      streamEvents as unknown as RunStreamEventService,
+    );
+
+    const response = await nodeexec.finalizeRun({
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      status: "completed",
+      error_json: "",
+    });
+
+    expect(response.status).toBe("completed");
+    expect(ledger.finalizeRun).toHaveBeenCalledWith(TENANT_ID, RUN_ID, "completed");
+    expect(streamEvents.append).toHaveBeenCalledWith(
+      TENANT_ID,
+      RUN_ID,
+      expect.objectContaining({ event: "run.status", data: { status: "completed" } }),
+    );
+  });
+
+  it("does not emit run.status when the run was already terminal for another reason", async () => {
+    const ledger = fakeLedger();
+    vi.mocked(ledger.finalizeRun).mockResolvedValue({
+      status: "cancelled",
+      endedAt: "2026-07-28T00:00:01.000Z",
+    });
+    const streamEvents = { append: vi.fn().mockResolvedValue(undefined) };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]),
+      ledger,
+      streamEvents as unknown as RunStreamEventService,
+    );
+
+    const response = await nodeexec.finalizeRun({
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      status: "failed",
+      error_json: "{}",
+    });
+
+    expect(response.status).toBe("cancelled");
+    expect(streamEvents.append).not.toHaveBeenCalled();
+  });
+
+  it("rejects a status other than completed or failed", async () => {
+    await expect(
+      service().finalizeRun({
+        tenant_id: TENANT_ID,
+        run_id: RUN_ID,
+        status: "running",
+        error_json: "",
       }),
     ).rejects.toThrow(NodeHandlerValidationError);
   });

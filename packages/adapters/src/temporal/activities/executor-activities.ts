@@ -17,8 +17,17 @@ export interface ExecuteNodeActivityResult {
   readonly metadataJson: string;
 }
 
+export interface FinalizeRunActivityInput {
+  readonly tenantId: string; // ten_ prefixed UUIDv7
+  readonly runId: string; // run_ prefixed UUIDv7
+  readonly status: "completed" | "failed";
+  readonly errorJson: string; // empty string when status = "completed"
+}
+
 export interface ExecutorActivities {
   executeNode(input: ExecuteNodeActivityInput): Promise<ExecuteNodeActivityResult>;
+  /** Called once from the workflow's try/finally -- see executor-workflow.ts. */
+  finalizeRun(input: FinalizeRunActivityInput): Promise<void>;
 }
 
 /**
@@ -82,6 +91,15 @@ export function createExecutorActivities(
         outputJson: response.output_json,
         metadataJson: response.metadata_json,
       };
+    },
+
+    async finalizeRun(input: FinalizeRunActivityInput): Promise<void> {
+      await nodeExecutionClient.finalizeRun({
+        tenant_id: input.tenantId,
+        run_id: input.runId,
+        status: input.status,
+        error_json: input.errorJson,
+      });
     },
   };
 }

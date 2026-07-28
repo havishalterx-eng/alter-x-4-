@@ -33,7 +33,7 @@ function validationFailure(message: string): ApplicationFailure {
   );
 }
 
-const { executeNode } = proxyActivities<ExecutorActivities>({
+const { executeNode, finalizeRun } = proxyActivities<ExecutorActivities>({
   startToCloseTimeout: "2 minutes",
   retry: {
     // A handler validation/unimplemented-type failure will never succeed on
@@ -62,63 +62,99 @@ function orderedWaves(dag: CompiledDag): CompiledDag["waves"] {
   return [...dag.waves].sort((a, b) => a.order - b.order);
 }
 
+/**
+ * Serializable failure summary for the finalizeRun activity -- never the
+ * raw Error/ApplicationFailure object (workflow code must only pass
+ * deterministic, JSON-safe values to activities), never a stack trace or
+ * vendor internal (RFC 9457 discipline applies here too).
+ */
+function errorSummaryJson(error: unknown): string {
+  if (error instanceof ApplicationFailure) {
+    return JSON.stringify({ name: error.type ?? error.name, message: error.message });
+  }
+  if (error instanceof Error) {
+    return JSON.stringify({ name: error.name, message: error.message });
+  }
+  return JSON.stringify({ name: "UnknownError", message: "Executor workflow failed" });
+}
+
 export async function executorWorkflow(
   input: ExecutorWorkflowInput,
 ): Promise<ExecutorWorkflowResult> {
-  let raw: unknown;
   try {
-    raw = JSON.parse(input.compiledDagJson);
-  } catch (error: unknown) {
-    throw validationFailure(
-      `compiledDagJson is not valid JSON: ${(error as Error).message}`,
-    );
-  }
-  const parsed = CompiledDagSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw validationFailure(
-      `compiledDagJson does not match CompiledDag: ${parsed.error.message}`,
-    );
-  }
-  const dag = parsed.data;
-  const nodesByKey = new Map(dag.nodes.map((node) => [node.key, node]));
-
-  const outputs: Record<string, Record<string, unknown>> = {};
-
-  // Parallel-wave execution (EXEC-7): waves run in order (wave N depends
-  // on wave N-1), but every node within a wave is independent of its
-  // wave-mates by construction (Graph Compiler's Kahn's-algorithm wave
-  // assignment guarantees this) -- so they execute concurrently via
-  // Promise.all. Cross-node data flows through the Blackboard (each
-  // activity reads its own predecessors and writes its own output there,
-  // see executor-activities.ts), not through this workflow's local
-  // memory, so concurrent execution within a wave never races on shared
-  // in-process state.
-  for (const wave of orderedWaves(dag)) {
-    const waveResults = await Promise.all(
-      wave.node_keys.map(async (nodeKey) => {
-        const node = nodesByKey.get(nodeKey);
-        if (node === undefined) {
-          throw validationFailure(`Wave references unknown node key "${nodeKey}"`);
-        }
-
-        const result = await executeNode({
-          tenantId: input.tenantId,
-          runId: input.runId,
-          nodeExecutionId: nodeExecutionId(),
-          nodeKey: node.key,
-          nodeType: node.type,
-          configJson: JSON.stringify(node.config),
-          predecessorKeys: directPredecessorKeys(dag, nodeKey),
-        });
-
-        return [nodeKey, JSON.parse(result.outputJson) as Record<string, unknown>] as const;
-      }),
-    );
-
-    for (const [nodeKey, output] of waveResults) {
-      outputs[nodeKey] = output;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(input.compiledDagJson);
+    } catch (error: unknown) {
+      throw validationFailure(
+        `compiledDagJson is not valid JSON: ${(error as Error).message}`,
+      );
     }
-  }
+    const parsed = CompiledDagSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw validationFailure(
+        `compiledDagJson does not match CompiledDag: ${parsed.error.message}`,
+      );
+    }
+    const dag = parsed.data;
+    const nodesByKey = new Map(dag.nodes.map((node) => [node.key, node]));
 
-  return { outputs };
+    const outputs: Record<string, Record<string, unknown>> = {};
+
+    // Parallel-wave execution (EXEC-7): waves run in order (wave N depends
+    // on wave N-1), but every node within a wave is independent of its
+    // wave-mates by construction (Graph Compiler's Kahn's-algorithm wave
+    // assignment guarantees this) -- so they execute concurrently via
+    // Promise.all. Cross-node data flows through the Blackboard (each
+    // activity reads its own predecessors and writes its own output there,
+    // see executor-activities.ts), not through this workflow's local
+    // memory, so concurrent execution within a wave never races on shared
+    // in-process state.
+    for (const wave of orderedWaves(dag)) {
+      const waveResults = await Promise.all(
+        wave.node_keys.map(async (nodeKey) => {
+          const node = nodesByKey.get(nodeKey);
+          if (node === undefined) {
+            throw validationFailure(`Wave references unknown node key "${nodeKey}"`);
+          }
+
+          const result = await executeNode({
+            tenantId: input.tenantId,
+            runId: input.runId,
+            nodeExecutionId: nodeExecutionId(),
+            nodeKey: node.key,
+            nodeType: node.type,
+            configJson: JSON.stringify(node.config),
+            predecessorKeys: directPredecessorKeys(dag, nodeKey),
+          });
+
+          return [nodeKey, JSON.parse(result.outputJson) as Record<string, unknown>] as const;
+        }),
+      );
+
+      for (const [nodeKey, output] of waveResults) {
+        outputs[nodeKey] = output;
+      }
+    }
+
+    await finalizeRun({
+      tenantId: input.tenantId,
+      runId: input.runId,
+      status: "completed",
+      errorJson: "",
+    });
+    return { outputs };
+  } catch (error: unknown) {
+    // finalizeRun is the only durable write of the run's terminal status
+    // (EXEC-14) -- it must run for every failure path, including the
+    // early validation throws above, so the `runs` row never gets stuck
+    // in "running" forever.
+    await finalizeRun({
+      tenantId: input.tenantId,
+      runId: input.runId,
+      status: "failed",
+      errorJson: errorSummaryJson(error),
+    });
+    throw error;
+  }
 }

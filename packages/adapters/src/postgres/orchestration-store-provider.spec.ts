@@ -186,7 +186,7 @@ describe.sequential("PostgresOrchestrationStoreProvider integration", () => {
       ORDER BY source.relname, target.relname
     `);
 
-    expect(result.rows).toHaveLength(8);
+    expect(result.rows).toHaveLength(9);
     expect(result.rows).toEqual(expect.arrayContaining([
       { table_name: "events", foreign_table_name: "conversations" },
       { table_name: "events", foreign_table_name: "triggers" },
@@ -194,6 +194,7 @@ describe.sequential("PostgresOrchestrationStoreProvider integration", () => {
       { table_name: "runs", foreign_table_name: "conversations" },
       { table_name: "runs", foreign_table_name: "triggers" },
       { table_name: "runs", foreign_table_name: "workflows" },
+      { table_name: "runs", foreign_table_name: "workflow_versions" },
       { table_name: "trigger_versions", foreign_table_name: "triggers" },
       { table_name: "triggers", foreign_table_name: "workflows" },
     ]));

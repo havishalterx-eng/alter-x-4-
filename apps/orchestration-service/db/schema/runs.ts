@@ -11,6 +11,7 @@ import {
 } from "@alterx/adapters";
 import { conversations } from "./conversations";
 import { triggers } from "./triggers";
+import { workflowVersions } from "./workflow_versions";
 import { workflows } from "./workflows";
 
 export const runs = pgTable(
@@ -21,6 +22,7 @@ export const runs = pgTable(
     workspaceId: uuid("workspace_id").notNull(),
     parentKind: text("parent_kind").notNull(),
     workflowId: text("workflow_id"),
+    workflowVersionId: text("workflow_version_id"),
     conversationId: text("conversation_id"),
     triggerId: text("trigger_id"),
     status: text("status").notNull().default("pending"),
@@ -41,6 +43,11 @@ export const runs = pgTable(
       name: "runs_workflow_tenant_fk",
       columns: [table.tenantId, table.workflowId],
       foreignColumns: [workflows.tenantId, workflows.id],
+    }),
+    foreignKey({
+      name: "runs_workflow_version_tenant_fk",
+      columns: [table.tenantId, table.workflowVersionId],
+      foreignColumns: [workflowVersions.tenantId, workflowVersions.id],
     }),
     foreignKey({
       name: "runs_conversation_tenant_fk",

@@ -26,6 +26,7 @@ describe("orchestration migration files", () => {
       "0009_create_blackboard_checkpoints.sql",
       "0010_create_node_executions.sql",
       "0011_create_run_stream_events.sql",
+      "0012_add_run_workflow_version.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -44,6 +45,7 @@ describe("orchestration migration files", () => {
       "0009_drop_blackboard_checkpoints.sql",
       "0010_drop_node_executions.sql",
       "0011_drop_run_stream_events.sql",
+      "0012_remove_run_workflow_version.sql",
     ]);
   });
 
@@ -142,6 +144,9 @@ describe("orchestration migration files", () => {
     );
     expect(allSql).toContain(
       `CONSTRAINT "node_executions_status_check" CHECK ("status" IN ('running', 'succeeded', 'failed', 'skipped', 'recovered'))`,
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "runs_workflow_version_tenant_fk" FOREIGN KEY ("tenant_id", "workflow_version_id") REFERENCES "workflow_versions"("tenant_id", "id")',
     );
   });
 

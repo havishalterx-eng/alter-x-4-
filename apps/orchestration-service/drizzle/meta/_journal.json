@@ -85,6 +85,13 @@
       "when": 1784861011000,
       "tag": "0011_create_run_stream_events",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784861012000,
+      "tag": "0012_add_run_workflow_version",
+      "breakpoints": true
     }
   ]
 }

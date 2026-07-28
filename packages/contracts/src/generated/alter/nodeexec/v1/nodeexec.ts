@@ -27,3 +27,19 @@ export interface ExecuteNodeResponse {
   output_json: string;
   metadata_json: string;
 }
+
+export interface FinalizeRunRequest {
+  /** ten_ prefixed UUIDv7 */
+  tenant_id: string;
+  /** run_ prefixed UUIDv7 */
+  run_id: string;
+  /** "completed" or "failed" */
+  status: string;
+  /** empty string when status = "completed" */
+  error_json: string;
+}
+
+export interface FinalizeRunResponse {
+  status: string;
+  ended_at: string;
+}

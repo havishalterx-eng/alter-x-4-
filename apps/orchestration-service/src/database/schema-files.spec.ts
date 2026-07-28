@@ -84,6 +84,7 @@ describe("orchestration Drizzle schemas", () => {
       'index("idx_node_executions_run_dag_node_attempt")',
       'foreignKey({\n      name: "run_stream_events_run_tenant_fk"',
       'index("idx_run_stream_events_tenant_run_seq")',
+      'foreignKey({\n      name: "runs_workflow_version_tenant_fk"',
     ]) {
       expect(allSources).toContain(expected);
     }

@@ -8,6 +8,10 @@ package alter.nodeexec.v1;
 // Activity calls -- all handler dispatch logic stays server-side.
 service NodeExecutionService {
   rpc ExecuteNode(ExecuteNodeRequest) returns (ExecuteNodeResponse);
+  // Called once by the Executor workflow's try/finally, after every wave
+  // completes or the workflow fails -- the only durable write of the run's
+  // terminal (or resumed-running) status. EXEC-14.
+  rpc FinalizeRun(FinalizeRunRequest) returns (FinalizeRunResponse);
 }
 
 message ExecuteNodeRequest {
@@ -27,4 +31,20 @@ message ExecuteNodeResponse {
 
   string output_json = 1;
   string metadata_json = 2;
+}
+
+message FinalizeRunRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string status = 3; // "completed" or "failed"
+  string error_json = 4; // empty string when status = "completed"
+}
+
+message FinalizeRunResponse {
+  reserved 100 to 199;
+
+  string status = 1;
+  string ended_at = 2;
 }

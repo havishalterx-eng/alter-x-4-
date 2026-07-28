@@ -34,6 +34,8 @@ export interface NodeExecutionStart {
   readonly dagNodeId: string;
   readonly nodeType: string;
   readonly modelAlias?: ModelAlias;
+  /** Blackboard keys this node's inputs were read from -- comma-joined, empty for a source node. */
+  readonly inputRef?: string;
 }
 
 export interface NodeExecutionRecord extends Record<string, unknown> {
@@ -160,14 +162,16 @@ export class NodeExecutionLedgerService {
     const started = await this.store.withTenant(tenantId, async (tx) => {
       const result = await tx.query<StartedNodeExecution>(
         `INSERT INTO node_executions
-           (id, tenant_id, run_id, dag_node_id, node_type, model_alias, status)
-         SELECT $3, $1, $2, $4, $5, $6, 'running'
+           (id, tenant_id, run_id, dag_node_id, node_type, model_alias, status, input_ref)
+         SELECT $3, $1, $2, $4, $5, $6, 'running', $7
          FROM runs
          WHERE tenant_id = $1 AND id = $2
          ON CONFLICT (id) DO UPDATE
            SET attempt = node_executions.attempt + 1,
                status = 'running',
                error = NULL,
+               output_ref = NULL,
+               input_ref = EXCLUDED.input_ref,
                ended_at = NULL,
                started_at = clock_timestamp()
          WHERE node_executions.tenant_id = EXCLUDED.tenant_id
@@ -184,6 +188,7 @@ export class NodeExecutionLedgerService {
           request.dagNodeId,
           request.nodeType,
           request.modelAlias ?? null,
+          request.inputRef ?? null,
         ],
       );
       return result.rows[0];
@@ -196,16 +201,18 @@ export class NodeExecutionLedgerService {
   }
 
   async recordSucceeded(
-    request: Pick<NodeExecutionStart, "tenantId" | "runId" | "nodeExecutionId">,
+    request: Pick<NodeExecutionStart, "tenantId" | "runId" | "nodeExecutionId"> & {
+      readonly outputRef?: string;
+    },
   ): Promise<void> {
-    await this.transition(request, "succeeded", null);
+    await this.transition(request, "succeeded", null, request.outputRef ?? null);
   }
 
   async recordFailed(
     request: Pick<NodeExecutionStart, "tenantId" | "runId" | "nodeExecutionId">,
     error: Record<string, unknown>,
   ): Promise<void> {
-    await this.transition(request, "failed", error);
+    await this.transition(request, "failed", error, null);
   }
 
   async list(
@@ -293,10 +300,46 @@ export class NodeExecutionLedgerService {
     return startedAt;
   }
 
+  /**
+   * Terminal write for the `runs` row itself (EXEC-14) -- called once by
+   * the Executor workflow's try/finally via the FinalizeRun RPC. Idempotent:
+   * a run already in a terminal state (e.g. cancelled concurrently, or a
+   * retried Temporal Activity attempt after an already-acknowledged
+   * finalize) is a no-op that returns the row's real current state rather
+   * than erroring or clobbering a newer transition.
+   */
+  async finalizeRun(
+    tenantIdInput: string,
+    runId: string,
+    status: "completed" | "failed",
+  ): Promise<{ readonly status: string; readonly endedAt: string }> {
+    const tenantId = bareTenantUuid(tenantIdInput);
+    requireRunId(runId);
+    return this.store.withTenant(tenantId, async (tx) => {
+      const updated = await tx.query<{ readonly status: string; readonly ended_at: string }>(
+        `UPDATE runs SET status = $3, ended_at = clock_timestamp()
+         WHERE tenant_id = $1 AND id = $2 AND status IN ('pending', 'running')
+         RETURNING status, ended_at::text`,
+        [tenantId, runId, status],
+      );
+      const row = updated.rows[0];
+      if (row !== undefined) return { status: row.status, endedAt: row.ended_at };
+
+      const current = await tx.query<{ readonly status: string; readonly ended_at: string | null }>(
+        "SELECT status, ended_at::text FROM runs WHERE tenant_id = $1 AND id = $2",
+        [tenantId, runId],
+      );
+      const currentRow = current.rows[0];
+      if (currentRow === undefined) throw new NodeExecutionRunNotFoundError(runId);
+      return { status: currentRow.status, endedAt: currentRow.ended_at ?? new Date().toISOString() };
+    });
+  }
+
   private async transition(
     request: Pick<NodeExecutionStart, "tenantId" | "runId" | "nodeExecutionId">,
     status: "succeeded" | "failed",
     error: Record<string, unknown> | null,
+    outputRef: string | null,
   ): Promise<void> {
     const tenantId = bareTenantUuid(request.tenantId);
     requireRunId(request.runId);
@@ -306,6 +349,7 @@ export class NodeExecutionLedgerService {
         `UPDATE node_executions
          SET status = $4,
              error = $5::jsonb,
+             output_ref = $6,
              ended_at = clock_timestamp()
          WHERE tenant_id = $1 AND run_id = $2 AND id = $3 AND status = 'running'
          RETURNING status`,
@@ -315,6 +359,7 @@ export class NodeExecutionLedgerService {
           request.nodeExecutionId,
           status,
           error === null ? null : JSON.stringify(error),
+          outputRef,
         ],
       ),
     );

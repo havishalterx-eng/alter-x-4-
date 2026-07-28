@@ -34,6 +34,9 @@ interface StoredExecution extends Record<string, unknown> {
   readonly status: string;
   readonly attempt: number;
   readonly error: Record<string, unknown> | null;
+  readonly dag_node_id?: string;
+  readonly input_ref?: string | null;
+  readonly output_ref?: string | null;
 }
 
 class EchoMergeHandler implements NodeHandler {
@@ -138,13 +141,26 @@ describe.sequential("node executions durable ledger", () => {
   async function executions(tenantId: string, runId: string): Promise<readonly StoredExecution[]> {
     return executionStore.withTenant(tenantId, async (tx) => {
       const result = await tx.query<StoredExecution>(
-        `SELECT id, status, attempt, error
+        `SELECT id, dag_node_id, status, attempt, error, input_ref, output_ref
          FROM node_executions
          WHERE tenant_id = $1 AND run_id = $2
          ORDER BY started_at`,
         [tenantId, runId],
       );
       return result.rows;
+    });
+  }
+
+  async function runStatus(
+    tenantId: string,
+    runId: string,
+  ): Promise<{ readonly status: string; readonly ended_at: string | null }> {
+    return executionStore.withTenant(tenantId, async (tx) => {
+      const result = await tx.query<{ readonly status: string; readonly ended_at: string | null }>(
+        "SELECT status, ended_at::text FROM runs WHERE tenant_id = $1 AND id = $2",
+        [tenantId, runId],
+      );
+      return result.rows[0]!;
     });
   }
 
@@ -172,6 +188,51 @@ describe.sequential("node executions durable ledger", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ status: "succeeded", attempt: 1, error: null });
     expect(rows[0]?.id).toMatch(/^node_[0-9a-f-]+$/i);
+  }, 120_000);
+
+  it("finalizes the run as completed and records input_ref/output_ref (EXEC-14)", async () => {
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new EchoMergeHandler()]),
+      ledger,
+    );
+    const twoNodeDag: CompiledDag = {
+      schema_version: "v1",
+      entry_node_keys: ["node_a"],
+      nodes: [
+        { key: "node_a", type: "Merge", config: {}, metadata: { ui: {} } },
+        { key: "node_b", type: "Merge", config: {}, metadata: { ui: {} } },
+      ],
+      edges: [{ key: "node_a-to-node_b", from: "node_a", to: "node_b", kind: "sequential" }],
+      waves: [
+        { key: "wave_0", order: 0, node_keys: ["node_a"], depends_on: [] },
+        { key: "wave_1", order: 1, node_keys: ["node_b"], depends_on: ["wave_0"] },
+      ],
+    };
+    const harness = await createExecutorTestHarness(
+      "node-execution-ledger-finalize-e2e",
+      createExecutorActivities(nodeexec, blackboard()),
+    );
+    try {
+      await harness.run("node-execution-ledger-finalize-e2e-workflow", {
+        tenantId: TENANT_A_REQUEST,
+        runId: RUN_A,
+        compiledDagJson: JSON.stringify(twoNodeDag),
+      });
+    } finally {
+      await harness.teardown();
+    }
+
+    const status = await runStatus(TENANT_A, RUN_A);
+    expect(status.status).toBe("completed");
+    expect(status.ended_at).not.toBeNull();
+
+    const rows = await executions(TENANT_A, RUN_A);
+    const nodeA = rows.find((row) => row.dag_node_id === "node_a");
+    const nodeB = rows.find((row) => row.dag_node_id === "node_b");
+    expect(nodeA?.input_ref ?? null).toBeNull();
+    expect(nodeA?.output_ref).toBe("node_a");
+    expect(nodeB?.input_ref).toBe("node_a");
+    expect(nodeB?.output_ref).toBe("node_b");
   }, 120_000);
 
   it("records failed execution and retries same node execution as a new attempt", async () => {

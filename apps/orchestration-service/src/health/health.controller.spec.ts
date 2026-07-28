@@ -32,6 +32,7 @@ describe("GET /health", () => {
       TEMPORAL_ADDRESS: "127.0.0.1:7233",
       TEMPORAL_NAMESPACE: "default",
       CONVERSATION_LIFECYCLE_TASK_QUEUE: "conversation-lifecycle",
+      EXECUTOR_TASK_QUEUE: "executor",
     };
     for (const [name, value] of Object.entries(config)) {
       vi.stubEnv(name, value);

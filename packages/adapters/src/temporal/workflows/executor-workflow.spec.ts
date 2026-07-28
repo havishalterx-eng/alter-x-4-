@@ -66,6 +66,7 @@ function parallelWaveDag(): CompiledDag {
 function echoingActivities(
   callOrder: string[],
   predecessorsSeenByNode: Record<string, readonly string[]> = {},
+  finalizeCalls: unknown[] = [],
 ): ExecutorActivities {
   return {
     async executeNode(input) {
@@ -75,6 +76,9 @@ function echoingActivities(
         outputJson: JSON.stringify({ from: input.nodeKey }),
         metadataJson: "{}",
       };
+    },
+    async finalizeRun(input) {
+      finalizeCalls.push(input);
     },
   };
 }
@@ -98,6 +102,7 @@ function concurrencyTrackingActivities(): {
           metadataJson: "{}",
         };
       },
+      async finalizeRun() {},
     },
     maxConcurrent: () => max,
   };
@@ -122,15 +127,16 @@ describe.sequential("executorWorkflow", () => {
     };
   }
 
-  it("walks a sequential chain in order, passing only direct predecessors", async () => {
+  it("walks a sequential chain in order, passing only direct predecessors, and finalizes the run as completed", async () => {
     const taskQueue = "executor-sequential";
     const callOrder: string[] = [];
     const predecessorsSeen: Record<string, readonly string[]> = {};
+    const finalizeCalls: unknown[] = [];
     const running = startWorker(
       await createExecutorWorker(
         config(taskQueue),
         environment.nativeConnection,
-        echoingActivities(callOrder, predecessorsSeen),
+        echoingActivities(callOrder, predecessorsSeen, finalizeCalls),
       ),
     );
 
@@ -156,6 +162,14 @@ describe.sequential("executorWorkflow", () => {
       });
       expect(predecessorsSeen["node_b"]).toEqual(["node_a"]);
       expect(predecessorsSeen["node_a"]).toEqual([]);
+      expect(finalizeCalls).toEqual([
+        expect.objectContaining({
+          tenantId: "ten_test",
+          runId: "run_test",
+          status: "completed",
+          errorJson: "",
+        }),
+      ]);
     } finally {
       await stopWorker(running);
     }
@@ -199,13 +213,14 @@ describe.sequential("executorWorkflow", () => {
     }
   });
 
-  it("fails the workflow on malformed compiledDagJson", async () => {
+  it("fails the workflow on malformed compiledDagJson and finalizes the run as failed", async () => {
     const taskQueue = "executor-bad-json";
+    const finalizeCalls: unknown[] = [];
     const running = startWorker(
       await createExecutorWorker(
         config(taskQueue),
         environment.nativeConnection,
-        echoingActivities([]),
+        echoingActivities([], {}, finalizeCalls),
       ),
     );
 
@@ -217,6 +232,12 @@ describe.sequential("executorWorkflow", () => {
       });
 
       await expect(handle.result()).rejects.toThrow();
+      expect(finalizeCalls).toEqual([
+        expect.objectContaining({ tenantId: "ten_test", runId: "run_test", status: "failed" }),
+      ]);
+      expect(JSON.parse((finalizeCalls[0] as { errorJson: string }).errorJson)).toMatchObject({
+        name: "ExecutorWorkflowValidationError",
+      });
     } finally {
       await stopWorker(running);
     }

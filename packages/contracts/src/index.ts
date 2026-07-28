@@ -20,6 +20,8 @@ export {
   NonEmptyStringSchema,
   RunIdSchema,
   TenantIdSchema,
+  WorkflowIdSchema,
+  WorkflowVersionIdSchema,
 } from "./ids";
 export {
   ProviderCapabilitiesSchema,
@@ -79,6 +81,8 @@ export type {
 export type {
   ExecuteNodeRequest as NodeexecExecuteNodeRequest,
   ExecuteNodeResponse as NodeexecExecuteNodeResponse,
+  FinalizeRunRequest as NodeexecFinalizeRunRequest,
+  FinalizeRunResponse as NodeexecFinalizeRunResponse,
 } from "./generated/alter/nodeexec/v1/nodeexec";
 export type {
   ReadValueRequest as BlackboardReadValueRequest,
@@ -135,6 +139,19 @@ export {
   VerificationResultDataSchema,
   type SseEnvelope,
 } from "./sse";
+export {
+  CreateRunRequestSchema,
+  RetryNodeRequestSchema,
+  RunLifecycleStatusSchema,
+  RunListResponseSchema,
+  RunParentKindSchema,
+  RunRecordSchema,
+  type CreateRunRequest,
+  type RetryNodeRequest,
+  type RunLifecycleStatus,
+  type RunListResponse,
+  type RunRecord,
+} from "./runs";
 export {
   CompiledDagSchema,
   NodeRequirementsSchema,
