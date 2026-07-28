@@ -27,6 +27,9 @@ export const platformApiEnvSchema = z
     ENGINE_M2M_CLIENT_SECRET_REF: z.string().min(1).optional(),
     ENGINE_REQUEST_TIMEOUT_MS: z.string().regex(/^[1-9]\d*$/).optional(),
     IDEMPOTENCY_TTL_SECONDS: z.string().regex(/^[1-9]\d*$/).optional(),
+    RAZORPAY_KEY_ID_SECRET_REF: z.string().min(1).optional(),
+    RAZORPAY_KEY_SECRET_SECRET_REF: z.string().min(1).optional(),
+    AWS_REGION: z.string().min(1).optional(),
   })
   .superRefine((env, context) => {
     if (env.SIGNING_KEY_PROVIDER === "secrets" && !env.ACTOR_TOKEN_SIGNING_KEY_REF) {

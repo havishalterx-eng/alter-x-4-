@@ -12,6 +12,7 @@ export default defineConfig({
       "apps/platform-api/src/signup/**/*.integration.spec.ts",
       "apps/platform-api/src/idempotency/**/*.integration.spec.ts",
       "apps/platform-api/src/credentials/**/*.integration.spec.ts",
+      "apps/platform-api/src/billing/**/*.integration.spec.ts",
     ],
     coverage: {
       provider: "v8",
@@ -40,6 +41,7 @@ export default defineConfig({
         "apps/platform-api/src/ads/**/*.ts",
         "apps/platform-api/src/integrations/**/*.ts",
         "apps/platform-api/src/triggers/**/*.ts",
+        "apps/platform-api/src/billing/**/*.ts",
       ],
       exclude: [
         "apps/platform-api/src/db/**/*.spec.ts",
@@ -65,6 +67,7 @@ export default defineConfig({
         "apps/platform-api/src/ads/**/*.spec.ts",
         "apps/platform-api/src/integrations/**/*.spec.ts",
         "apps/platform-api/src/triggers/**/*.spec.ts",
+        "apps/platform-api/src/billing/**/*.spec.ts",
       ],
       thresholds: {
         lines: 90,
@@ -180,6 +183,14 @@ export default defineConfig({
           branches: 80
         },
         "apps/platform-api/src/triggers/{trigger.controller,trigger.service,trigger-etag.resolver}.ts": {
+          lines: 90,
+          branches: 90
+        },
+        "apps/platform-api/src/billing/**/*.ts": {
+          lines: 85,
+          branches: 80
+        },
+        "apps/platform-api/src/billing/{billing.service,billing.repository}.ts": {
           lines: 90,
           branches: 90
         },

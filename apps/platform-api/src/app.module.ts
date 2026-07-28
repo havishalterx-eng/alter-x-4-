@@ -22,6 +22,7 @@ import { CredentialModule } from "./credentials";
 import { AdsModule } from "./ads";
 import { IntegrationModule } from "./integrations";
 import { TriggerModule } from "./triggers";
+import { BillingModule } from "./billing";
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { TriggerModule } from "./triggers";
     AdsModule,
     IntegrationModule,
     TriggerModule,
+    BillingModule,
   ],
   controllers: [HealthController],
 })

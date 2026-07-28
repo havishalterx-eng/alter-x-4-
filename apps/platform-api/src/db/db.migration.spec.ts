@@ -44,9 +44,26 @@ async function applyMigration(client: pg.Client): Promise<void> {
 async function seedRows(client: pg.Client): Promise<void> {
   const credentialA = randomUUID();
   const credentialB = randomUUID();
+  const billingProfileA = randomUUID();
+  const billingProfileB = randomUUID();
   await client.query(
     `INSERT INTO tenants (id, name, status)
      VALUES ($1, 'Tenant A', 'active'), ($2, 'Tenant B', 'active')`,
+    [tenantA, tenantB],
+  );
+  await client.query(
+    `INSERT INTO billing_profiles
+       (tenant_id, id, provider_id, provider_customer_ref,
+        subscription_ref, status, current_plan)
+     VALUES ($1, $2, 'razorpay', 'customer-a', 'subscription-a', 'active', 'basic'),
+            ($3, $4, 'razorpay', 'customer-b', 'subscription-b', 'active', 'basic')`,
+    [tenantA, billingProfileA, tenantB, billingProfileB],
+  );
+  await client.query(
+    `INSERT INTO billing_payment_method_refs
+       (tenant_id, ref, type, brand, last4)
+     VALUES ($1, 'token-a', 'card', 'Visa', '1111'),
+            ($2, 'token-b', 'card', 'Visa', '2222')`,
     [tenantA, tenantB],
   );
   await client.query(
@@ -186,6 +203,8 @@ describe("platform_db migration", () => {
     );
 
     expect(tables.map((row) => row.table_name)).toEqual([
+      "billing_payment_method_refs",
+      "billing_profiles",
       "credential_refs",
       "credential_use_audits",
       "entitlements",
@@ -221,6 +240,20 @@ describe("platform_db migration", () => {
         (column) =>
           column.table_name === "credential_refs" &&
           ["value", "secret", "plaintext"].includes(column.column_name),
+      ),
+    ).toBe(false);
+    expect(
+      columns.some(
+        (column) =>
+          column.table_name === "billing_payment_method_refs" &&
+          [
+            "card_number",
+            "pan",
+            "cvv",
+            "provider_token",
+            "api_key",
+            "secret",
+          ].includes(column.column_name),
       ),
     ).toBe(false);
     expect(columns).toContainEqual({
@@ -313,6 +346,8 @@ describe("platform_db migration", () => {
         "idempotency_keys",
         "credential_refs",
         "credential_use_audits",
+        "billing_profiles",
+        "billing_payment_method_refs",
       ]) {
         await rlsClient.query("RESET app.current_tenant_id");
         const unset = await rlsClient.query<{ count: string }>(
@@ -339,7 +374,7 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
-    expect(rows[0]?.count).toBe("11");
+    expect(rows[0]?.count).toBe("13");
   });
 
   it("prevents tenant_id mutation on tenant-owned rows", async () => {
@@ -370,6 +405,21 @@ describe("platform_db migration", () => {
       adminClient.query(
         `UPDATE idempotency_keys SET tenant_id = $1
           WHERE tenant_id = $2 AND idempotency_key = 'key-a'`,
+        [tenantB, tenantA],
+      ),
+    ).rejects.toThrow("tenant_id is immutable");
+
+    await expect(
+      adminClient.query(
+        `UPDATE billing_profiles SET tenant_id = $1 WHERE tenant_id = $2`,
+        [tenantB, tenantA],
+      ),
+    ).rejects.toThrow("tenant_id is immutable");
+
+    await expect(
+      adminClient.query(
+        `UPDATE billing_payment_method_refs
+         SET tenant_id = $1 WHERE tenant_id = $2`,
         [tenantB, tenantA],
       ),
     ).rejects.toThrow("tenant_id is immutable");

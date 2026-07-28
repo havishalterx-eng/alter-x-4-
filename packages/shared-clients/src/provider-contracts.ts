@@ -1,6 +1,7 @@
 import { ProviderCapabilitiesSchema } from "@alterx/contracts";
 import type { ProviderContractSuite } from "./contract-testing";
 import type {
+  BillingProvider,
   CacheProvider,
   ConfigProvider,
   DurableExecutionProvider,
@@ -63,6 +64,58 @@ export const secretsProviderContract: ProviderContractSuite<SecretsProvider> = {
           "Unknown secret references must be rejected",
         );
         return { resolved: true };
+      },
+    },
+  ],
+};
+
+export const billingProviderContract: ProviderContractSuite<BillingProvider> = {
+  name: "BillingProvider",
+  cases: [
+    {
+      name: "publishes valid billing metadata and capabilities",
+      assert: async (provider) => {
+        ensure(
+          provider.metadata.interfaceName === "BillingProvider",
+          "Billing adapter must identify its canonical interface",
+        );
+        ProviderCapabilitiesSchema.parse(provider.capabilities);
+        const health = await provider.healthCheck();
+        ensure(health.status === "healthy", "Contract fixture must be healthy");
+        return {
+          capabilities: provider.capabilities,
+          health,
+          interfaceName: provider.metadata.interfaceName,
+        };
+      },
+    },
+    {
+      name: "supports plans, subscription lifecycle, invoices, and token references",
+      assert: async (provider) => {
+        const tenantId = "tenant-contract";
+        const availablePlans = await provider.listPlans();
+        ensure(availablePlans.length > 0, "Contract needs at least one plan");
+        const planId = availablePlans[0]!.id;
+        const method = await provider.attachPaymentMethod(
+          tenantId,
+          "token_contract",
+        );
+        const created = await provider.createSubscription(
+          tenantId,
+          planId,
+          method.ref,
+        );
+        const changed = await provider.changeSubscription(tenantId, planId);
+        const invoices = await provider.listInvoices(tenantId);
+        const cancelled = await provider.cancelSubscription(tenantId);
+        await provider.detachPaymentMethod(tenantId, method.ref);
+        return {
+          cancelled: cancelled.status,
+          changed: changed.planId,
+          created: created.planId,
+          invoiceCount: invoices.items.length,
+          methods: (await provider.listPaymentMethods(tenantId)).length,
+        };
       },
     },
   ],

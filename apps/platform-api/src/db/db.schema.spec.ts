@@ -3,6 +3,8 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { DbModule } from "./db.module";
 import {
+  billingPaymentMethodRefs,
+  billingProfiles,
   credentialRefs,
   credentialUseAudits,
   entitlements,
@@ -21,6 +23,8 @@ describe("platform database schema", () => {
     expect(DbModule).toBeDefined();
     expect(
       [
+        billingPaymentMethodRefs,
+        billingProfiles,
         entitlements,
         credentialRefs,
         credentialUseAudits,
@@ -34,6 +38,8 @@ describe("platform database schema", () => {
         workspaces,
       ].map(getTableName),
     ).toEqual([
+      "billing_payment_method_refs",
+      "billing_profiles",
       "entitlements",
       "credential_refs",
       "credential_use_audits",
@@ -52,6 +58,8 @@ describe("platform database schema", () => {
     const foreignKeyNames: string[] = [];
 
     for (const table of [
+      billingPaymentMethodRefs,
+      billingProfiles,
       entitlements,
       credentialRefs,
       credentialUseAudits,
@@ -68,10 +76,14 @@ describe("platform database schema", () => {
       );
     }
 
-    expect(foreignKeyNames).toHaveLength(11);
+    expect(foreignKeyNames).toHaveLength(13);
     expect(getTableConfig(idempotencyKeys).indexes).toHaveLength(2);
     expect(getTableColumns(credentialRefs)).not.toHaveProperty("value");
     expect(getTableColumns(credentialRefs)).not.toHaveProperty("secret");
+    expect(getTableColumns(billingPaymentMethodRefs)).not.toHaveProperty(
+      "cardNumber",
+    );
+    expect(getTableColumns(billingPaymentMethodRefs)).not.toHaveProperty("cvv");
     expect(getTableConfig(workspaces).indexes).toHaveLength(2);
     expect(getTableConfig(tenantMembers).indexes).toHaveLength(1);
     expect(getTableConfig(workspaceMembers).indexes).toHaveLength(1);

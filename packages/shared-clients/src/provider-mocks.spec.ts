@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createMockBillingProvider } from "./mocks/billing-provider";
 import { createMockConfigProvider } from "./mocks/config-provider";
 import {
   DurableWorkflowAlreadyExistsError,
@@ -34,6 +35,18 @@ describe("SecretsProvider mock", () => {
     await expect(provider.getSecret("unknown/ref")).rejects.toBeInstanceOf(
       SecretNotFoundError,
     );
+  });
+});
+
+describe("BillingProvider mock", () => {
+  it("stores provider references without accepting card data", async () => {
+    const provider = createMockBillingProvider();
+    const method = await provider.attachPaymentMethod(
+      "tenant-a",
+      "token_contract",
+    );
+    expect(method).toMatchObject({ ref: "token_contract", last4: "1111" });
+    expect(await provider.listPaymentMethods("tenant-a")).toEqual([method]);
   });
 });
 

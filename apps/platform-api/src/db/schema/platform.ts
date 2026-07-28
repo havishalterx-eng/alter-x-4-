@@ -240,3 +240,47 @@ export const credentialUseAudits = pgTable(
     }),
   ],
 );
+
+export const billingProfiles = pgTable(
+  "billing_profiles",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    id: uuid("id").primaryKey(),
+    providerId: text("provider_id").notNull(),
+    providerCustomerRef: text("provider_customer_ref"),
+    subscriptionRef: text("subscription_ref"),
+    status: text("status").notNull(),
+    currentPlan: text("current_plan"),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("billing_profiles_tenant_id_unique").on(table.tenantId),
+    uniqueIndex("billing_profiles_tenant_id_id_unique").on(
+      table.tenantId,
+      table.id,
+    ),
+  ],
+);
+
+export const billingPaymentMethodRefs = pgTable(
+  "billing_payment_method_refs",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    ref: text("ref").notNull(),
+    type: text("type").notNull(),
+    brand: text("brand"),
+    last4: text("last4"),
+    createdAt,
+  },
+  (table) => [
+    uniqueIndex("billing_payment_method_refs_tenant_ref_unique").on(
+      table.tenantId,
+      table.ref,
+    ),
+  ],
+);
