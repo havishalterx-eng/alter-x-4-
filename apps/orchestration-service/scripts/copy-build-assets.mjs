@@ -35,3 +35,8 @@ await cp(
   resolve(output, "proto/deployctl.proto"),
   { force: true },
 );
+await cp(
+  resolve(root, "packages/contracts/proto/alter/registry/v1/registry.proto"),
+  resolve(output, "proto/registry.proto"),
+  { force: true },
+);

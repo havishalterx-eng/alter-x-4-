@@ -203,6 +203,13 @@ export {
   type DeployctlHandler,
 } from "./grpc/deployctl-grpc-transport";
 export {
+  REGISTRY_HANDLER,
+  RegistryGrpcController,
+  connectRegistryGrpcTransport,
+  type RegistryGrpcTransportConfig,
+  type RegistryHandler,
+} from "./grpc/registry-grpc-transport";
+export {
   REDIS_CACHE_CAPABILITIES,
   RedisCacheProvider,
   type RedisCacheProviderConfig,

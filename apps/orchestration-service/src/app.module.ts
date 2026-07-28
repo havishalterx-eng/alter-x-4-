@@ -4,12 +4,14 @@ import {
   COMPILER_HANDLER,
   CONVERSATION_HANDLER,
   DEPLOYCTL_HANDLER,
+  REGISTRY_HANDLER,
   CompilerGrpcController,
   ConversationDispatchClient,
   ConversationGrpcController,
   DeployctlGrpcController,
   ModelGatewayClient,
   PostgresOrchestrationStoreProvider,
+  RegistryGrpcController,
 } from "@alterx/adapters";
 import {
   ActorTokenValidator,
@@ -22,6 +24,7 @@ import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import { ConversationManagerService } from "./conversation/conversation-manager.service";
 import { GraphCompilerService } from "./compiler/graph-compiler.service";
 import { DeploymentControllerService } from "./deployment-controller/deployment-controller.service";
+import { RegistryService } from "./registry/registry.service";
 import { loadConversationManagerEnvironment } from "./config/environment";
 import { loadConversationDispatchEnvironment } from "./config/conversation-dispatch-environment";
 import { loadWhatsappWebhookEnvironment } from "./config/whatsapp-webhook-environment";
@@ -39,6 +42,7 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
     ConversationGrpcController,
     CompilerGrpcController,
     DeployctlGrpcController,
+    RegistryGrpcController,
     TriggerRegistryController,
     WhatsappWebhookController,
   ],
@@ -160,6 +164,13 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
         });
         return new DeploymentControllerService(store);
       },
+    },
+    {
+      // No PostgresOrchestrationStoreProvider here -- the Node Type
+      // Registry is a global, tenant-free static catalog (see
+      // node-type-catalog.ts), not database-backed.
+      provide: REGISTRY_HANDLER,
+      useClass: RegistryService,
     },
     {
       provide: WhatsappWebhookService,

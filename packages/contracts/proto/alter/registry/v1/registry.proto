@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package alter.registry.v1;
+
+// The Node Type Registry is a global, tenant-free catalog: node types and
+// their handler availability are the same for every tenant. No tenant_id
+// on any message here -- this is deliberate, not an omission.
+service NodeTypeRegistryService {
+  rpc ListNodeTypes(ListNodeTypesRequest) returns (ListNodeTypesResponse);
+  rpc GetNodeType(GetNodeTypeRequest) returns (GetNodeTypeResponse);
+}
+
+message NodeTypeDescriptor {
+  reserved 100 to 199;
+
+  string type = 1; // one of the 11 alter.registry.v1 node types, e.g. "Gate"
+  string display_name = 2;
+  string description = 3;
+  string category = 4;
+  string config_schema_json = 5; // JSON Schema describing this type's config shape
+  bool handler_implemented = 6; // false while the handler is a stub
+}
+
+message ListNodeTypesRequest {
+  reserved 100 to 199;
+}
+
+message ListNodeTypesResponse {
+  reserved 100 to 199;
+
+  repeated NodeTypeDescriptor node_types = 1;
+}
+
+message GetNodeTypeRequest {
+  reserved 100 to 199;
+
+  string type = 1;
+}
+
+message GetNodeTypeResponse {
+  reserved 100 to 199;
+
+  NodeTypeDescriptor node_type = 1;
+}

@@ -62,6 +62,13 @@ export type {
   StartCanaryRequest as DeployctlStartCanaryRequest,
   StartCanaryResponse as DeployctlStartCanaryResponse,
 } from "./generated/alter/deployctl/v1/deployctl";
+export type {
+  GetNodeTypeRequest as RegistryGetNodeTypeRequest,
+  GetNodeTypeResponse as RegistryGetNodeTypeResponse,
+  ListNodeTypesRequest as RegistryListNodeTypesRequest,
+  ListNodeTypesResponse as RegistryListNodeTypesResponse,
+  NodeTypeDescriptor as RegistryNodeTypeDescriptor,
+} from "./generated/alter/registry/v1/registry";
 export {
   CostLimitBindingSchema,
   FallbackBindingSchema,

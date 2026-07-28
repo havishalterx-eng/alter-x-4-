@@ -4,20 +4,24 @@ import { NestFactory } from "@nestjs/core";
 import {
   connectCompilerGrpcTransport,
   connectDeployctlGrpcTransport,
+  connectRegistryGrpcTransport,
   startConversationGrpcTransport,
 } from "@alterx/adapters";
 import { AppModule } from "./app.module";
 import { loadCompilerEnvironment } from "./config/compiler-environment";
 import { loadConversationManagerEnvironment } from "./config/environment";
 import { loadDeploymentControllerEnvironment } from "./config/deployment-controller-environment";
+import { loadRegistryEnvironment } from "./config/registry-environment";
 import { COMPILER_PROTO_PATH } from "./compiler/grpc.constants";
 import { CONVERSATION_PROTO_PATH } from "./conversation/grpc.constants";
 import { DEPLOYCTL_PROTO_PATH } from "./deployment-controller/grpc.constants";
+import { REGISTRY_PROTO_PATH } from "./registry/grpc.constants";
 
 async function bootstrap(): Promise<void> {
   const conversationConfig = loadConversationManagerEnvironment(process.env);
   const compilerConfig = loadCompilerEnvironment(process.env);
   const deploymentConfig = loadDeploymentControllerEnvironment(process.env);
+  const registryConfig = loadRegistryEnvironment(process.env);
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
@@ -41,6 +45,10 @@ async function bootstrap(): Promise<void> {
   connectDeployctlGrpcTransport(app, {
     bindAddress: deploymentConfig.grpcBindAddress,
     protoPath: DEPLOYCTL_PROTO_PATH,
+  });
+  connectRegistryGrpcTransport(app, {
+    bindAddress: registryConfig.grpcBindAddress,
+    protoPath: REGISTRY_PROTO_PATH,
   });
   await startConversationGrpcTransport(app, {
     bindAddress: conversationConfig.grpcBindAddress,
