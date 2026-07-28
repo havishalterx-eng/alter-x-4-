@@ -416,6 +416,48 @@ export const modelProviderContract: ProviderContractSuite<ModelProvider> = {
         return result;
       },
     },
+    {
+      name: "streams incremental deltas and a terminal usage chunk",
+      assert: async (provider) => {
+        ensure(
+          provider.capabilities.streaming,
+          "A streaming ModelProvider must advertise streaming capability",
+        );
+        const chunks = [];
+        for await (const chunk of provider.stream({
+          tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+          runId: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
+          nodeExecutionId: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
+          modelId: "contract-model",
+          capabilityTags: ["general"],
+          inputJson: JSON.stringify({
+            messages: [{ role: "user", content: "contract fixture" }],
+          }),
+        })) {
+          chunks.push(chunk);
+        }
+        ensure(chunks.length >= 2, "Stream must emit data before its final chunk");
+        ensure(
+          chunks.slice(0, -1).some((chunk) => chunk.delta.length > 0),
+          "Stream must emit at least one non-empty incremental delta",
+        );
+        ensure(
+          chunks.every((chunk, index) => chunk.sequence === index + 1),
+          "Stream sequence must be contiguous and one-based",
+        );
+        ensure(
+          chunks.slice(0, -1).every((chunk) => !chunk.final),
+          "Only the last stream chunk may be final",
+        );
+        const final = chunks[chunks.length - 1];
+        ensure(final?.final === true, "Stream must end with a final chunk");
+        ensure(
+          final.final && JSON.parse(final.usageJson) !== undefined,
+          "Final stream chunk must carry valid usage JSON",
+        );
+        return chunks;
+      },
+    },
   ],
 };
 

@@ -1,6 +1,10 @@
 import {
   BedrockRuntimeClient,
   ConverseCommand,
+  ConverseStreamCommand,
+  type ConverseCommandOutput,
+  type ConverseStreamCommandOutput,
+  type ConverseStreamOutput,
 } from "@aws-sdk/client-bedrock-runtime";
 
 import {
@@ -12,6 +16,7 @@ import {
 import type {
   ModelInvocationRequest,
   ModelInvocationResult,
+  ModelInvocationStreamChunk,
   ModelProvider,
   ProviderHealth,
   ProviderMetadata,
@@ -22,23 +27,13 @@ export interface AwsBedrockModelProviderConfig {
 }
 
 export interface BedrockRuntimeCommandClient {
-  send(command: ConverseCommand): Promise<{
-    readonly output?: {
-      readonly message?: {
-        readonly content?: readonly { readonly text?: string }[];
-      };
-    };
-    readonly stopReason?: string;
-    readonly usage?: {
-      readonly inputTokens?: number;
-      readonly outputTokens?: number;
-    };
-  }>;
+  send(command: ConverseCommand): Promise<ConverseCommandOutput>;
+  send(command: ConverseStreamCommand): Promise<ConverseStreamCommandOutput>;
   destroy?(): void;
 }
 
 export const BEDROCK_CAPABILITIES: ProviderCapabilities = {
-  streaming: false,
+  streaming: true,
   tool_calling: false,
   vision: false,
   structured_output: true,
@@ -84,33 +79,10 @@ export class AwsBedrockModelProvider implements ModelProvider {
   async invoke(
     request: ModelInvocationRequest,
   ): Promise<ModelInvocationResult> {
-    const payload = ModelInvocationPayloadSchema.parse(
-      JSON.parse(request.inputJson),
-    );
-
-    const systemPrompts = payload.messages
-      .filter((message) => message.role === "system")
-      .map((message) => ({ text: message.content }));
-    const conversationMessages = payload.messages
-      .filter((message) => message.role !== "system")
-      .map((message) => ({
-        role: message.role as "user" | "assistant",
-        content: [{ text: message.content }],
-      }));
-
     const response = await this.#client.send(
       new ConverseCommand({
         modelId: request.modelId,
-        messages: conversationMessages,
-        ...(systemPrompts.length === 0 ? {} : { system: systemPrompts }),
-        inferenceConfig: {
-          ...(payload.max_tokens === undefined
-            ? {}
-            : { maxTokens: payload.max_tokens }),
-          ...(payload.temperature === undefined
-            ? {}
-            : { temperature: payload.temperature }),
-        },
+        ...converseInput(request),
       }),
     );
 
@@ -137,6 +109,55 @@ export class AwsBedrockModelProvider implements ModelProvider {
     };
   }
 
+  async *stream(
+    request: ModelInvocationRequest,
+  ): AsyncIterable<ModelInvocationStreamChunk> {
+    const response = await this.#client.send(
+      new ConverseStreamCommand({
+        modelId: request.modelId,
+        ...converseInput(request),
+      }),
+    );
+    if (response.stream === undefined) {
+      throw new Error("Bedrock ConverseStream response contained no event stream");
+    }
+
+    let sequence = 0;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    for await (const event of response.stream) {
+      const failure = bedrockStreamFailure(event);
+      if (failure !== undefined) {
+        throw failure;
+      }
+      const delta = event.contentBlockDelta?.delta?.text;
+      if (delta !== undefined && delta.length > 0) {
+        sequence += 1;
+        yield {
+          sequence,
+          delta,
+          final: false,
+          servedBy: this.metadata.providerId,
+        };
+      }
+      inputTokens = event.metadata?.usage?.inputTokens ?? inputTokens;
+      outputTokens = event.metadata?.usage?.outputTokens ?? outputTokens;
+    }
+    if (sequence === 0) {
+      throw new Error("Bedrock ConverseStream returned no text deltas");
+    }
+    yield {
+      sequence: sequence + 1,
+      delta: "",
+      final: true,
+      usageJson: JSON.stringify({
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+      }),
+      servedBy: this.metadata.providerId,
+    };
+  }
+
   async healthCheck(): Promise<ProviderHealth> {
     // Bedrock Runtime has no no-op ping; a real Converse call spends tokens
     // on every poll. Matches AwsSecretsManagerProvider's precedent: report
@@ -152,4 +173,43 @@ export class AwsBedrockModelProvider implements ModelProvider {
   close(): void {
     this.#client.destroy?.();
   }
+}
+
+function converseInput(request: ModelInvocationRequest) {
+  const payload = ModelInvocationPayloadSchema.parse(
+    JSON.parse(request.inputJson),
+  );
+  const systemPrompts = payload.messages
+    .filter((message) => message.role === "system")
+    .map((message) => ({ text: message.content }));
+  const messages = payload.messages
+    .filter((message) => message.role !== "system")
+    .map((message) => ({
+      role: message.role as "user" | "assistant",
+      content: [{ text: message.content }],
+    }));
+  return {
+    messages,
+    ...(systemPrompts.length === 0 ? {} : { system: systemPrompts }),
+    inferenceConfig: {
+      ...(payload.max_tokens === undefined
+        ? {}
+        : { maxTokens: payload.max_tokens }),
+      ...(payload.temperature === undefined
+        ? {}
+        : { temperature: payload.temperature }),
+    },
+  };
+}
+
+function bedrockStreamFailure(event: ConverseStreamOutput): Error | undefined {
+  const failure =
+    event.internalServerException ??
+    event.modelStreamErrorException ??
+    event.serviceUnavailableException ??
+    event.throttlingException ??
+    event.validationException;
+  return failure === undefined
+    ? undefined
+    : new Error(failure.message ?? "Bedrock ConverseStream failed");
 }

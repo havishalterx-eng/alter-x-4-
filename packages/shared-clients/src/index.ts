@@ -93,6 +93,7 @@ export {
   ModelGatewayInvalidResponseError,
   type ModelInvocationRequest,
   type ModelInvocationResult,
+  type ModelInvocationStreamChunk,
   type ModelProvider,
   type NetworkConnectivityProvider,
   type ObjectStorageProvider,

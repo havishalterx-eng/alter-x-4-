@@ -283,8 +283,24 @@ export interface ModelInvocationResult {
   readonly servedBy: string;
 }
 
+export type ModelInvocationStreamChunk =
+  | {
+      readonly sequence: number;
+      readonly delta: string;
+      readonly final: false;
+      readonly servedBy: string;
+    }
+  | {
+      readonly sequence: number;
+      readonly delta: string;
+      readonly final: true;
+      readonly usageJson: string;
+      readonly servedBy: string;
+    };
+
 export interface ModelProvider extends BaseProvider<"ModelProvider"> {
   invoke(request: ModelInvocationRequest): Promise<ModelInvocationResult>;
+  stream(request: ModelInvocationRequest): AsyncIterable<ModelInvocationStreamChunk>;
 }
 
 export type EmbeddingDimensions = 512 | 1024;

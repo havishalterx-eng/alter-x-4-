@@ -5,6 +5,7 @@ import {
   credentials,
   loadPackageDefinition,
   type Client,
+  type ClientReadableStream,
   type ServiceClientConstructor,
   type ServiceError,
 } from "@grpc/grpc-js";
@@ -19,8 +20,13 @@ import type {
   ModelgwInvokeResponse,
   ModelgwRedactRequest,
   ModelgwRedactResponse,
+  ModelgwStreamRequest,
+  ModelgwStreamResponse,
 } from "@alterx/contracts";
-import { ModelAliasResolutionError } from "@alterx/shared-clients";
+import {
+  ModelAliasResolutionError,
+  ModelGatewayCostLimitExceededError,
+} from "@alterx/shared-clients";
 import {
   MODELGW_HANDLER,
   ModelgwGrpcController,
@@ -37,9 +43,8 @@ interface ModelgwGrpcClient extends Client {
     ) => void,
   ): void;
   stream(
-    request: ModelgwInvokeRequest,
-    callback: (error: ServiceError | null, response: unknown) => void,
-  ): void;
+    request: ModelgwStreamRequest,
+  ): ClientReadableStream<ModelgwStreamResponse>;
   redact(
     request: ModelgwRedactRequest,
     callback: (
@@ -75,6 +80,20 @@ const handler: ModelgwHandler = {
       resolved_capability: request.model_alias,
     } satisfies ModelgwInvokeResponse;
   }),
+  stream: async function* (request: ModelgwStreamRequest) {
+    if (request.model_alias === "UNKNOWN") {
+      throw new ModelAliasResolutionError(request.model_alias);
+    }
+    if (request.model_alias === "CEILING") {
+      throw new ModelGatewayCostLimitExceededError("stream budget exceeded");
+    }
+    if (request.model_alias === "ADVANCED") {
+      throw new Error("aws credential and internals");
+    }
+    yield { sequence: 1, delta: "hello", final: false };
+    yield { sequence: 2, delta: " world", final: false };
+    yield { sequence: 3, delta: "", final: true };
+  },
   redact: vi.fn(async (request: ModelgwRedactRequest) => {
     return {
       redacted_content: request.content.replace("ABCDE1234F", "<IN_PAN>"),
@@ -94,6 +113,17 @@ function request(
     input_json: JSON.stringify({ prompt: "hello" }),
     ...overrides,
   };
+}
+
+async function stream(
+  client: ModelgwGrpcClient,
+  req: ModelgwStreamRequest,
+): Promise<ModelgwStreamResponse[]> {
+  const responses: ModelgwStreamResponse[] = [];
+  for await (const response of client.stream(req)) {
+    responses.push(response);
+  }
+  return responses;
 }
 
 async function availablePort(): Promise<number> {
@@ -166,7 +196,7 @@ describe("modelgw gRPC transport adapter", () => {
     await app.init();
 
     const loaded = loadPackageDefinition(
-      loadSync(protoPath, { keepCase: true }),
+      loadSync(protoPath, { keepCase: true, longs: Number }),
     ) as unknown as ModelgwPackageDefinition;
     client = new loaded.alter.modelgw.v1.ModelgwService(
       `127.0.0.1:${port}`,
@@ -187,6 +217,35 @@ describe("modelgw gRPC transport adapter", () => {
     });
   });
 
+  it("streams incremental responses through the declared server-streaming RPC", async () => {
+    await expect(stream(client, request())).resolves.toEqual([
+      { sequence: 1, delta: "hello", final: false },
+      { sequence: 2, delta: " world", final: false },
+      { sequence: 3, delta: "", final: true },
+    ]);
+  });
+
+  it("maps stream alias failures to INVALID_ARGUMENT", async () => {
+    await expect(
+      stream(client, request({ model_alias: "UNKNOWN" })),
+    ).rejects.toMatchObject({ code: 3 });
+  });
+
+  it("maps stream cost failures to RESOURCE_EXHAUSTED", async () => {
+    await expect(
+      stream(client, request({ model_alias: "CEILING" })),
+    ).rejects.toMatchObject({ code: 8 });
+  });
+
+  it("hides unexpected stream failures behind INTERNAL", async () => {
+    await expect(
+      stream(client, request({ model_alias: "ADVANCED" })),
+    ).rejects.toMatchObject({
+      code: 13,
+      details: "Model stream could not be completed",
+    });
+  });
+
   it("maps unresolvable aliases to INVALID_ARGUMENT", async () => {
     await expect(
       invoke(client, request({ model_alias: "UNKNOWN" })),
@@ -198,6 +257,7 @@ describe("modelgw gRPC transport adapter", () => {
       invoke: vi.fn(async () => {
         throw new Error("aws credential and internals");
       }),
+      stream: async function* () {},
       redact: vi.fn(),
     });
     await expect(failing.invoke(request())).rejects.toMatchObject({
@@ -208,9 +268,8 @@ describe("modelgw gRPC transport adapter", () => {
     });
   });
 
-  it("reports Stream and SelectFallback as not yet implemented", () => {
+  it("keeps SelectFallback explicitly unimplemented", () => {
     const controller = new ModelgwGrpcController(handler);
-    expect(() => controller.stream()).toThrow(/later Gateways ticket/);
     expect(() => controller.selectFallback()).toThrow(/GATE-3/);
   });
 
@@ -230,6 +289,7 @@ describe("modelgw gRPC transport adapter", () => {
   it("hides internal redact handler failures behind INTERNAL", async () => {
     const failing = new ModelgwGrpcController({
       invoke: vi.fn(),
+      stream: async function* () {},
       redact: vi.fn(async () => {
         throw new Error("presidio credential and internals");
       }),

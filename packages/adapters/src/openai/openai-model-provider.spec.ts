@@ -27,10 +27,22 @@ function request(overrides: Partial<Parameters<OpenAiModelProvider["invoke"]>[0]
 }
 
 function realProvider(): ModelProvider {
-  const create = vi.fn(async () => ({
-    choices: [{ finish_reason: "stop", message: { content: "hi there" } }],
-    usage: { prompt_tokens: 3, completion_tokens: 4 },
-  }));
+  const create = vi.fn(async (params: { stream?: boolean }) => {
+    if (params.stream) {
+      return (async function* () {
+        yield { choices: [{ delta: { content: "hi " } }] };
+        yield { choices: [{ delta: { content: "there" } }] };
+        yield {
+          choices: [],
+          usage: { prompt_tokens: 3, completion_tokens: 4 },
+        };
+      })();
+    }
+    return {
+      choices: [{ finish_reason: "stop", message: { content: "hi there" } }],
+      usage: { prompt_tokens: 3, completion_tokens: 4 },
+    };
+  });
   return new OpenAiModelProvider(
     { apiKey: "sk-test" },
     { chat: { completions: { create } } } as unknown as OpenAiChatCompletionsCommandClient,
@@ -55,6 +67,17 @@ function equivalentMockProvider(): ModelProvider {
       usageJson: JSON.stringify({ input_tokens: 3, output_tokens: 4 }),
       servedBy: "openai-secondary",
     }),
+    stream: async function* () {
+      yield { sequence: 1, delta: "hi ", final: false, servedBy: "openai-secondary" };
+      yield { sequence: 2, delta: "there", final: false, servedBy: "openai-secondary" };
+      yield {
+        sequence: 3,
+        delta: "",
+        final: true,
+        usageJson: JSON.stringify({ input_tokens: 3, output_tokens: 4 }),
+        servedBy: "openai-secondary",
+      };
+    },
   });
 }
 
@@ -170,7 +193,7 @@ describe("ModelProvider contract", () => {
     ]);
 
     expect(report.passed).toBe(true);
-    expect(report.results).toHaveLength(4);
+    expect(report.results).toHaveLength(6);
   });
 
   it("passes the unmodified shared contract suite across the real adapter and the mock", async () => {
@@ -180,6 +203,6 @@ describe("ModelProvider contract", () => {
     ]);
 
     expect(report.passed).toBe(true);
-    expect(report.results).toHaveLength(4);
+    expect(report.results).toHaveLength(6);
   });
 });

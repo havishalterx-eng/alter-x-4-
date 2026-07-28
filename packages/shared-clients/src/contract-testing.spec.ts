@@ -99,7 +99,7 @@ describe("provider contract runner", () => {
     ]);
 
     expect(report.passed).toBe(true);
-    expect(report.results).toHaveLength(4);
+    expect(report.results).toHaveLength(6);
   });
 
   it("reports violations from either implementation without hiding the cause", async () => {

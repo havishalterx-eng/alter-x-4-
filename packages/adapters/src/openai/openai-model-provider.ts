@@ -9,6 +9,7 @@ import {
 import type {
   ModelInvocationRequest,
   ModelInvocationResult,
+  ModelInvocationStreamChunk,
   ModelProvider,
   ProviderHealth,
   ProviderMetadata,
@@ -29,6 +30,7 @@ export interface OpenAiChatCompletionsCommandClient {
           role: "system" | "user" | "assistant";
           content: string;
         }[];
+        stream?: false;
       }): Promise<{
         readonly choices: readonly {
           readonly finish_reason: string;
@@ -39,12 +41,34 @@ export interface OpenAiChatCompletionsCommandClient {
           readonly completion_tokens: number;
         };
       }>;
+      create(params: {
+        model: string;
+        max_tokens?: number;
+        temperature?: number;
+        messages: readonly {
+          role: "system" | "user" | "assistant";
+          content: string;
+        }[];
+        stream: true;
+        stream_options: { readonly include_usage: true };
+      }): Promise<AsyncIterable<OpenAiStreamChunk>>;
     };
   };
 }
 
+export interface OpenAiStreamChunk {
+  readonly choices: readonly {
+    readonly delta: { readonly content?: string | null };
+    readonly finish_reason?: string | null;
+  }[];
+  readonly usage?: {
+    readonly prompt_tokens: number;
+    readonly completion_tokens: number;
+  } | null;
+}
+
 export const OPENAI_CAPABILITIES: ProviderCapabilities = {
-  streaming: false,
+  streaming: true,
   tool_calling: false,
   vision: false,
   structured_output: true,
@@ -93,19 +117,8 @@ export class OpenAiModelProvider implements ModelProvider {
   async invoke(
     request: ModelInvocationRequest,
   ): Promise<ModelInvocationResult> {
-    const payload = ModelInvocationPayloadSchema.parse(
-      JSON.parse(request.inputJson),
-    );
-
     const response = await this.#client.chat.completions.create({
-      model: request.modelId,
-      messages: payload.messages,
-      ...(payload.max_tokens === undefined
-        ? {}
-        : { max_tokens: payload.max_tokens }),
-      ...(payload.temperature === undefined
-        ? {}
-        : { temperature: payload.temperature }),
+      ...openAiInput(request),
     });
 
     const choice = response.choices[0];
@@ -131,6 +144,46 @@ export class OpenAiModelProvider implements ModelProvider {
     };
   }
 
+  async *stream(
+    request: ModelInvocationRequest,
+  ): AsyncIterable<ModelInvocationStreamChunk> {
+    const stream = await this.#client.chat.completions.create({
+      ...openAiInput(request),
+      stream: true,
+      stream_options: { include_usage: true },
+    });
+    let sequence = 0;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta.content;
+      if (delta !== undefined && delta !== null && delta.length > 0) {
+        sequence += 1;
+        yield {
+          sequence,
+          delta,
+          final: false,
+          servedBy: this.metadata.providerId,
+        };
+      }
+      inputTokens = chunk.usage?.prompt_tokens ?? inputTokens;
+      outputTokens = chunk.usage?.completion_tokens ?? outputTokens;
+    }
+    if (sequence === 0) {
+      throw new Error("OpenAI stream returned no text deltas");
+    }
+    yield {
+      sequence: sequence + 1,
+      delta: "",
+      final: true,
+      usageJson: JSON.stringify({
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+      }),
+      servedBy: this.metadata.providerId,
+    };
+  }
+
   async healthCheck(): Promise<ProviderHealth> {
     // Same rationale as the other model-invocation adapters: a real
     // completion call spends tokens on every poll.
@@ -141,4 +194,20 @@ export class OpenAiModelProvider implements ModelProvider {
       details: { configured: true },
     };
   }
+}
+
+function openAiInput(request: ModelInvocationRequest) {
+  const payload = ModelInvocationPayloadSchema.parse(
+    JSON.parse(request.inputJson),
+  );
+  return {
+    model: request.modelId,
+    messages: payload.messages,
+    ...(payload.max_tokens === undefined
+      ? {}
+      : { max_tokens: payload.max_tokens }),
+    ...(payload.temperature === undefined
+      ? {}
+      : { temperature: payload.temperature }),
+  };
 }

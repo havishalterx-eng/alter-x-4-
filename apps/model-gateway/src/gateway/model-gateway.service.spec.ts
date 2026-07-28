@@ -215,6 +215,191 @@ describe("ModelGatewayService", () => {
     });
   });
 
+  it("forwards model deltas incrementally instead of buffering the completion", async () => {
+    let releaseSecond!: () => void;
+    const secondAllowed = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    const stream = vi.fn(async function* () {
+      yield {
+        sequence: 1,
+        delta: "first",
+        final: false as const,
+        servedBy: "aws-bedrock",
+      };
+      await secondAllowed;
+      yield {
+        sequence: 2,
+        delta: " second",
+        final: false as const,
+        servedBy: "aws-bedrock",
+      };
+      yield {
+        sequence: 3,
+        delta: "",
+        final: true as const,
+        usageJson: JSON.stringify({ input_tokens: 2, output_tokens: 2 }),
+        servedBy: "aws-bedrock",
+      };
+    });
+    const service = buildService({
+      modelProvider: createMockModelProvider({ stream }),
+    });
+    const iterator = service.stream(request())[Symbol.asyncIterator]();
+
+    await expect(iterator.next()).resolves.toEqual({
+      done: false,
+      value: { sequence: 1, delta: "first", final: false },
+    });
+    const second = iterator.next();
+    let secondSettled = false;
+    void second.finally(() => {
+      secondSettled = true;
+    });
+    await Promise.resolve();
+    expect(secondSettled).toBe(false);
+    releaseSecond();
+    await expect(second).resolves.toMatchObject({
+      value: { sequence: 2, delta: " second", final: false },
+    });
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { sequence: 3, delta: "", final: true },
+    });
+    await expect(iterator.next()).resolves.toEqual({
+      done: true,
+      value: undefined,
+    });
+  });
+
+  it("redacts PII before opening the provider stream", async () => {
+    const stream = vi.fn(async function* () {
+      yield {
+        sequence: 1,
+        delta: "",
+        final: true as const,
+        usageJson: JSON.stringify({ input_tokens: 1, output_tokens: 0 }),
+        servedBy: "aws-bedrock",
+      };
+    });
+    const service = buildService({
+      modelProvider: createMockModelProvider({ stream }),
+    });
+
+    const iterator = service.stream(
+      request({
+        input_json: JSON.stringify({
+          messages: [{ role: "user", content: "my PAN is ABCDE1234F" }],
+        }),
+      }),
+    )[Symbol.asyncIterator]();
+    while (!(await iterator.next()).done) {
+      // Drain stream so final usage validation runs.
+    }
+
+    expect(stream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputJson: JSON.stringify({
+          messages: [{ role: "user", content: "my PAN is <IN_PAN>" }],
+        }),
+      }),
+    );
+  });
+
+  it("rejects a stream that ends without a terminal usage chunk", async () => {
+    const service = buildService({
+      modelProvider: createMockModelProvider({
+        stream: async function* () {
+          yield {
+            sequence: 1,
+            delta: "unfinished",
+            final: false,
+            servedBy: "aws-bedrock",
+          };
+        },
+      }),
+    });
+
+    const drain = async () => {
+      const iterator = service.stream(request())[Symbol.asyncIterator]();
+      while (!(await iterator.next()).done) {
+        // Drain malformed stream to force end-of-stream validation.
+      }
+    };
+    await expect(drain()).rejects.toThrow(/without a final usage chunk/);
+  });
+
+  it("emits stream usage to the cost queue after the terminal chunk", async () => {
+    const publish = vi.fn(async () => undefined);
+    const service = buildService({
+      queueProvider: createMockQueueProvider({ publish }),
+      modelProvider: createMockModelProvider({
+        stream: async function* () {
+          yield {
+            sequence: 1,
+            delta: "done",
+            final: false,
+            servedBy: "mock.model",
+          };
+          yield {
+            sequence: 2,
+            delta: "",
+            final: true,
+            usageJson: JSON.stringify({ input_tokens: 4, output_tokens: 4 }),
+            servedBy: "mock.model",
+          };
+        },
+      }),
+    });
+
+    const chunks = [];
+    for await (const chunk of service.stream(request())) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.at(-1)).toMatchObject({ final: true });
+    expect(publish).toHaveBeenCalledOnce();
+    expect(publish).toHaveBeenCalledWith(
+      COST_EVENTS_QUEUE_NAME,
+      expect.objectContaining({
+        tenant_id: request().tenant_id,
+        usage_json: JSON.stringify({ input_tokens: 4, output_tokens: 4 }),
+      }),
+    );
+  });
+
+  it("fails a streamed completion closed when terminal usage exceeds its cost limit", async () => {
+    const service = buildService({
+      configProvider: createMockConfigProvider({
+        costLimit: { maxTokensPerCall: 1, maxCostUsdPerCall: 1 },
+      }),
+      modelProvider: createMockModelProvider({
+        stream: async function* () {
+          yield {
+            sequence: 1,
+            delta: "done",
+            final: false,
+            servedBy: "mock.model",
+          };
+          yield {
+            sequence: 2,
+            delta: "",
+            final: true,
+            usageJson: JSON.stringify({ input_tokens: 2, output_tokens: 2 }),
+            servedBy: "mock.model",
+          };
+        },
+      }),
+    });
+    const drain = async () => {
+      const iterator = service.stream(request())[Symbol.asyncIterator]();
+      while (!(await iterator.next()).done) {
+        // Drain until terminal usage is checked.
+      }
+    };
+
+    await expect(drain()).rejects.toThrow(/tokens exceeds the resolved limit/);
+  });
+
   it("emits a cost event to the configured queue on a successful invocation", async () => {
     const publish: Mock<(queueName: string, message: unknown) => Promise<void>> =
       vi.fn(async () => undefined);

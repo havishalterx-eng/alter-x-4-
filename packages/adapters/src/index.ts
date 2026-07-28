@@ -238,6 +238,7 @@ export {
   ModelGatewayClient,
   type ModelGatewayClientConfig,
   type ModelGatewayHandler,
+  type ModelGatewayStreamHandler,
 } from "./grpc/modelgw-client";
 export {
   ToolGatewayClient,

@@ -6,6 +6,7 @@ import { createMockProvider } from "../mock-provider";
 import type {
   ModelInvocationRequest,
   ModelInvocationResult,
+  ModelInvocationStreamChunk,
   ModelProvider,
   ProviderHealth,
   ProviderMetadata,
@@ -26,6 +27,33 @@ export interface MockModelProviderOptions {
   readonly invoke?: (
     request: ModelInvocationRequest,
   ) => Promise<ModelInvocationResult>;
+  readonly stream?: (
+    request: ModelInvocationRequest,
+  ) => AsyncIterable<ModelInvocationStreamChunk>;
+}
+
+function defaultStream(
+  providerId: string,
+): (request: ModelInvocationRequest) => AsyncIterable<ModelInvocationStreamChunk> {
+  return async function* (request) {
+    const payload = ModelInvocationPayloadSchema.parse(
+      JSON.parse(request.inputJson),
+    );
+    const lastMessage = payload.messages[payload.messages.length - 1];
+    yield {
+      sequence: 1,
+      delta: `mock response to: ${lastMessage?.content ?? ""}`,
+      final: false,
+      servedBy: providerId,
+    };
+    yield {
+      sequence: 2,
+      delta: "",
+      final: true,
+      usageJson: JSON.stringify({ input_tokens: 0, output_tokens: 0 }),
+      servedBy: providerId,
+    };
+  };
 }
 
 function defaultInvoke(
@@ -61,6 +89,7 @@ export function createMockModelProvider(
     ...(options.health === undefined ? {} : { health: options.health }),
     implementation: {
       invoke: options.invoke ?? defaultInvoke(providerId),
+      stream: options.stream ?? defaultStream(providerId),
     },
   });
 }

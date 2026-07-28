@@ -2,6 +2,7 @@ import type { FallbackProvider } from "@alterx/contracts";
 import type {
   ModelInvocationRequest,
   ModelInvocationResult,
+  ModelInvocationStreamChunk,
   ModelProvider,
   ProviderHealth,
   ProviderMetadata,
@@ -75,6 +76,44 @@ export class FailoverModelProvider implements ModelProvider {
       }
       throw lastError;
     }
+  }
+
+  async *stream(
+    request: ModelInvocationRequest,
+  ): AsyncIterable<ModelInvocationStreamChunk> {
+    let lastError: unknown;
+    const candidates: Array<{
+      provider: ModelProvider;
+      request: ModelInvocationRequest;
+    }> = [{ provider: this.#primary, request }];
+    for (const entry of request.fallbackChain ?? []) {
+      const provider = this.#fallbacks[entry.provider];
+      if (provider !== undefined) {
+        candidates.push({
+          provider,
+          request: { ...request, modelId: entry.model_id },
+        });
+      }
+    }
+
+    for (const candidate of candidates) {
+      let emitted = false;
+      try {
+        for await (const chunk of candidate.provider.stream(candidate.request)) {
+          emitted = true;
+          yield chunk;
+        }
+        return;
+      } catch (error: unknown) {
+        if (emitted) {
+          // Switching providers after bytes reached the caller would splice
+          // two unrelated completions into one corrupt stream.
+          throw error;
+        }
+        lastError = error;
+      }
+    }
+    throw lastError ?? new Error("No streaming model provider was available");
   }
 
   async healthCheck(): Promise<ProviderHealth> {

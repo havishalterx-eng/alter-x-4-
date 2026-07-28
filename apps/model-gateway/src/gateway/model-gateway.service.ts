@@ -5,6 +5,8 @@ import {
   type ModelgwInvokeResponse,
   type ModelgwRedactRequest,
   type ModelgwRedactResponse,
+  type ModelgwStreamRequest,
+  type ModelgwStreamResponse,
 } from "@alterx/contracts";
 import type { ModelgwHandler } from "@alterx/adapters";
 import {
@@ -165,6 +167,91 @@ export class ModelGatewayService implements ModelgwHandler {
     await this.#storeCacheBestEffort(request.tenant_id, embedding, response);
 
     return response;
+  }
+
+  async *stream(
+    request: ModelgwStreamRequest,
+  ): AsyncIterable<ModelgwStreamResponse> {
+    const parsedAlias = ModelAliasSchema.safeParse(request.model_alias);
+    if (!parsedAlias.success) {
+      throw new InvalidModelAliasError(request.model_alias);
+    }
+    const alias = parsedAlias.data;
+    const binding = await this.configProvider.resolveModelAlias(alias);
+    const redacted = await this.piiRedactionProvider.redact({
+      tenantId: request.tenant_id,
+      text: request.input_json,
+    });
+    const limit = await this.configProvider.resolveCostLimit({
+      tenantId: request.tenant_id,
+      runId: request.run_id,
+    });
+
+    let expectedSequence = 1;
+    let finalSeen = false;
+    let servedBy: string | undefined;
+    for await (const chunk of this.modelProvider.stream({
+      tenantId: request.tenant_id,
+      runId: request.run_id,
+      nodeExecutionId: request.node_execution_id,
+      modelId: binding.model_id,
+      capabilityTags: binding.capability_tags,
+      inputJson: redacted.redactedText,
+      ...(binding.fallback_chain === undefined
+        ? {}
+        : { fallbackChain: binding.fallback_chain }),
+    })) {
+      if (finalSeen) {
+        throw new ModelGatewayInvalidResponseError(
+          "model stream emitted data after its final chunk",
+        );
+      }
+      if (chunk.sequence !== expectedSequence) {
+        throw new ModelGatewayInvalidResponseError(
+          `model stream expected sequence ${expectedSequence}, received ${chunk.sequence}`,
+        );
+      }
+      expectedSequence += 1;
+      if (servedBy !== undefined && chunk.servedBy !== servedBy) {
+        throw new ModelGatewayInvalidResponseError(
+          "model stream changed providers after emission began",
+        );
+      }
+      servedBy = chunk.servedBy;
+
+      if (chunk.final) {
+        finalSeen = true;
+        const usage = this.#parseUsage(chunk.usageJson);
+        const totalTokens = usage.input_tokens + usage.output_tokens;
+        const estimatedCostUsd = totalTokens * ESTIMATED_USD_PER_TOKEN;
+        await this.#emitCostEventBestEffort(
+          request,
+          chunk.servedBy,
+          chunk.usageJson,
+          estimatedCostUsd,
+        );
+        if (totalTokens > limit.maxTokensPerCall) {
+          throw new ModelGatewayCostLimitExceededError(
+            `${totalTokens} tokens exceeds the resolved limit of ${limit.maxTokensPerCall} tokens for tenant ${request.tenant_id}`,
+          );
+        }
+        if (estimatedCostUsd > limit.maxCostUsdPerCall) {
+          throw new ModelGatewayCostLimitExceededError(
+            `estimated $${estimatedCostUsd.toFixed(4)} exceeds the resolved limit of $${limit.maxCostUsdPerCall} for tenant ${request.tenant_id}`,
+          );
+        }
+      }
+      yield {
+        sequence: chunk.sequence,
+        delta: chunk.delta,
+        final: chunk.final,
+      };
+    }
+    if (!finalSeen) {
+      throw new ModelGatewayInvalidResponseError(
+        "model stream ended without a final usage chunk",
+      );
+    }
   }
 
   async redact(request: ModelgwRedactRequest): Promise<ModelgwRedactResponse> {

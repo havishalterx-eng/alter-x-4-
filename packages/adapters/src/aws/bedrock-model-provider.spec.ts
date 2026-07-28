@@ -1,4 +1,7 @@
-import { ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
+import {
+  ConverseCommand,
+  ConverseStreamCommand,
+} from "@aws-sdk/client-bedrock-runtime";
 import {
   assertProviderContractParity,
   createMockModelProvider,
@@ -32,8 +35,17 @@ function request(overrides: Partial<Parameters<AwsBedrockModelProvider["invoke"]
 }
 
 function realProvider(): ModelProvider {
-  const send = vi.fn(async (command: ConverseCommand) => {
+  const send = vi.fn(async (command: ConverseCommand | ConverseStreamCommand) => {
     expect(command.input.modelId).toBeDefined();
+    if (command instanceof ConverseStreamCommand) {
+      return {
+        stream: (async function* () {
+          yield { contentBlockDelta: { delta: { text: "hi " } } };
+          yield { contentBlockDelta: { delta: { text: "there" } } };
+          yield { metadata: { usage: { inputTokens: 3, outputTokens: 4 } } };
+        })(),
+      };
+    }
     return {
       output: { message: { content: [{ text: "hi there" }] } },
       stopReason: "end_turn",
@@ -64,6 +76,17 @@ function equivalentMockProvider(): ModelProvider {
       usageJson: JSON.stringify({ input_tokens: 3, output_tokens: 4 }),
       servedBy: "aws-bedrock",
     }),
+    stream: async function* () {
+      yield { sequence: 1, delta: "hi ", final: false, servedBy: "aws-bedrock" };
+      yield { sequence: 2, delta: "there", final: false, servedBy: "aws-bedrock" };
+      yield {
+        sequence: 3,
+        delta: "",
+        final: true,
+        usageJson: JSON.stringify({ input_tokens: 3, output_tokens: 4 }),
+        servedBy: "aws-bedrock",
+      };
+    },
   });
 }
 
@@ -93,6 +116,36 @@ describe("AwsBedrockModelProvider", () => {
     expect(JSON.parse(result.usageJson)).toEqual({
       input_tokens: 3,
       output_tokens: 4,
+    });
+  });
+
+  it("yields Bedrock text deltas before the upstream stream completes", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const send = vi.fn(async () => ({
+      stream: (async function* () {
+        yield { contentBlockDelta: { delta: { text: "first" } } };
+        await gate;
+        yield { contentBlockDelta: { delta: { text: "second" } } };
+        yield { metadata: { usage: { inputTokens: 1, outputTokens: 2 } } };
+      })(),
+    }));
+    const provider = new AwsBedrockModelProvider(baseConfig(), {
+      send,
+    } as unknown as BedrockRuntimeCommandClient);
+    const iterator = provider.stream(request())[Symbol.asyncIterator]();
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { sequence: 1, delta: "first", final: false },
+    });
+    release();
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { sequence: 2, delta: "second", final: false },
+    });
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { sequence: 3, final: true },
     });
   });
 
@@ -180,7 +233,7 @@ describe("ModelProvider contract", () => {
     ]);
 
     expect(report.passed).toBe(true);
-    expect(report.results).toHaveLength(4);
+    expect(report.results).toHaveLength(6);
   });
 
   it("passes the unmodified shared contract suite across the real adapter and the mock", async () => {
@@ -190,6 +243,6 @@ describe("ModelProvider contract", () => {
     ]);
 
     expect(report.passed).toBe(true);
-    expect(report.results).toHaveLength(4);
+    expect(report.results).toHaveLength(6);
   });
 });

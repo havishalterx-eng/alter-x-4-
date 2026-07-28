@@ -6,12 +6,15 @@ import {
   Transport,
   type MicroserviceOptions,
 } from "@nestjs/microservices";
+import { Observable } from "rxjs";
 
 import type {
   ModelgwInvokeRequest,
   ModelgwInvokeResponse,
   ModelgwRedactRequest,
   ModelgwRedactResponse,
+  ModelgwStreamRequest,
+  ModelgwStreamResponse,
   ModelgwSelectFallbackResponse,
 } from "@alterx/contracts";
 import {
@@ -25,6 +28,7 @@ export const MODELGW_HANDLER = Symbol("MODELGW_HANDLER");
 
 export interface ModelgwHandler {
   invoke(request: ModelgwInvokeRequest): Promise<ModelgwInvokeResponse>;
+  stream(request: ModelgwStreamRequest): AsyncIterable<ModelgwStreamResponse>;
   redact(request: ModelgwRedactRequest): Promise<ModelgwRedactResponse>;
 }
 
@@ -47,42 +51,39 @@ export class ModelgwGrpcController {
     try {
       return await this.handler.invoke(request);
     } catch (error: unknown) {
-      if (
-        error instanceof ModelAliasResolutionError ||
-        error instanceof InvalidModelAliasError
-      ) {
-        throw new RpcException({
-          code: status.INVALID_ARGUMENT,
-          message: error.message,
-        });
-      }
-      if (error instanceof ModelGatewayCostLimitExceededError) {
-        throw new RpcException({
-          code: status.RESOURCE_EXHAUSTED,
-          message: error.message,
-        });
-      }
-      if (error instanceof ModelGatewayInvalidResponseError) {
-        throw new RpcException({
-          code: status.INTERNAL,
-          message: error.message,
-        });
-      }
-      throw new RpcException({
-        code: status.INTERNAL,
-        message: "Model invocation could not be completed",
-      });
+      throw mapModelgwError(error, "Model invocation could not be completed");
     }
   }
 
-  // Streaming responses are built in a later Gateways ticket; the RPC is
-  // wired here so the full alter.modelgw.v1 service is served, but it is
-  // not yet implemented.
   @GrpcMethod("ModelgwService", "Stream")
-  stream(): never {
-    throw new RpcException({
-      code: status.UNIMPLEMENTED,
-      message: "Streaming invocation ships in a later Gateways ticket",
+  stream(request: ModelgwStreamRequest): Observable<ModelgwStreamResponse> {
+    return new Observable((subscriber) => {
+      let cancelled = false;
+      let iterator: AsyncIterator<ModelgwStreamResponse> | undefined;
+      void (async () => {
+        try {
+          iterator = this.handler.stream(request)[Symbol.asyncIterator]();
+          while (!cancelled) {
+            const item = await iterator.next();
+            if (item.done) {
+              subscriber.complete();
+              return;
+            }
+            subscriber.next(item.value);
+          }
+        } catch (error: unknown) {
+          subscriber.error(
+            mapModelgwError(error, "Model stream could not be completed"),
+          );
+        }
+      })();
+      return () => {
+        cancelled = true;
+        const returned = iterator?.return?.();
+        if (returned !== undefined) {
+          void Promise.resolve(returned).catch(() => undefined);
+        }
+      };
     });
   }
 
@@ -108,6 +109,28 @@ export class ModelgwGrpcController {
       message: "Fallback selection ships in GATE-3",
     });
   }
+}
+
+function mapModelgwError(error: unknown, fallbackMessage: string): RpcException {
+  if (
+    error instanceof ModelAliasResolutionError ||
+    error instanceof InvalidModelAliasError
+  ) {
+    return new RpcException({
+      code: status.INVALID_ARGUMENT,
+      message: error.message,
+    });
+  }
+  if (error instanceof ModelGatewayCostLimitExceededError) {
+    return new RpcException({
+      code: status.RESOURCE_EXHAUSTED,
+      message: error.message,
+    });
+  }
+  if (error instanceof ModelGatewayInvalidResponseError) {
+    return new RpcException({ code: status.INTERNAL, message: error.message });
+  }
+  return new RpcException({ code: status.INTERNAL, message: fallbackMessage });
 }
 
 export async function startModelgwGrpcTransport(

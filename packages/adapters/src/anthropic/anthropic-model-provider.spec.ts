@@ -27,11 +27,34 @@ function request(overrides: Partial<Parameters<AnthropicModelProvider["invoke"]>
 }
 
 function realProvider(): ModelProvider {
-  const create = vi.fn(async () => ({
-    content: [{ type: "text", text: "hi there" }],
-    stop_reason: "end_turn",
-    usage: { input_tokens: 3, output_tokens: 4 },
-  }));
+  const create = vi.fn(async (params: { stream?: boolean }) => {
+    if (params.stream) {
+      return (async function* () {
+        yield {
+          type: "message_start" as const,
+          message: { usage: { input_tokens: 3, output_tokens: 0 } },
+        };
+        yield {
+          type: "content_block_delta" as const,
+          delta: { type: "text_delta", text: "hi " },
+        };
+        yield {
+          type: "content_block_delta" as const,
+          delta: { type: "text_delta", text: "there" },
+        };
+        yield {
+          type: "message_delta" as const,
+          usage: { output_tokens: 4 },
+        };
+        yield { type: "message_stop" as const };
+      })();
+    }
+    return {
+      content: [{ type: "text", text: "hi there" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 3, output_tokens: 4 },
+    };
+  });
   return new AnthropicModelProvider(
     { apiKey: "sk-test" },
     { messages: { create } } as unknown as AnthropicMessagesCommandClient,
@@ -56,6 +79,17 @@ function equivalentMockProvider(): ModelProvider {
       usageJson: JSON.stringify({ input_tokens: 3, output_tokens: 4 }),
       servedBy: "anthropic-direct",
     }),
+    stream: async function* () {
+      yield { sequence: 1, delta: "hi ", final: false, servedBy: "anthropic-direct" };
+      yield { sequence: 2, delta: "there", final: false, servedBy: "anthropic-direct" };
+      yield {
+        sequence: 3,
+        delta: "",
+        final: true,
+        usageJson: JSON.stringify({ input_tokens: 3, output_tokens: 4 }),
+        servedBy: "anthropic-direct",
+      };
+    },
   });
 }
 
@@ -194,7 +228,7 @@ describe("ModelProvider contract", () => {
     ]);
 
     expect(report.passed).toBe(true);
-    expect(report.results).toHaveLength(4);
+    expect(report.results).toHaveLength(6);
   });
 
   it("passes the unmodified shared contract suite across the real adapter and the mock", async () => {
@@ -204,6 +238,6 @@ describe("ModelProvider contract", () => {
     ]);
 
     expect(report.passed).toBe(true);
-    expect(report.results).toHaveLength(4);
+    expect(report.results).toHaveLength(6);
   });
 });

@@ -164,4 +164,75 @@ describe("FailoverModelProvider", () => {
       status: "healthy",
     });
   });
+
+  it("fails over a stream only when the primary fails before emitting", async () => {
+    const primaryStream = vi.fn(async function* () {
+      throw new Error("bedrock stream unavailable");
+    });
+    const fallbackStream = vi.fn(async function* (req: { modelId: string }) {
+      expect(req.modelId).toBe("claude-sonnet-5");
+      yield {
+        sequence: 1,
+        delta: "fallback",
+        final: false as const,
+        servedBy: "anthropic-direct",
+      };
+      yield {
+        sequence: 2,
+        delta: "",
+        final: true as const,
+        usageJson: JSON.stringify({ input_tokens: 1, output_tokens: 1 }),
+        servedBy: "anthropic-direct",
+      };
+    });
+    const provider = new FailoverModelProvider(
+      createMockModelProvider({ stream: primaryStream }),
+      {
+        anthropic: createMockModelProvider({ stream: fallbackStream }),
+      },
+    );
+
+    const chunks = [];
+    for await (const chunk of provider.stream(request())) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.map((chunk) => chunk.delta)).toEqual(["fallback", ""]);
+    expect(fallbackStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("never splices a fallback completion after primary bytes were emitted", async () => {
+    const primaryStream = vi.fn(async function* () {
+      yield {
+        sequence: 1,
+        delta: "partial primary",
+        final: false as const,
+        servedBy: "aws-bedrock",
+      };
+      throw new Error("primary stream broke after emission");
+    });
+    const fallbackStream = vi.fn(async function* () {
+      yield {
+        sequence: 1,
+        delta: "unrelated fallback",
+        final: false as const,
+        servedBy: "anthropic-direct",
+      };
+    });
+    const provider = new FailoverModelProvider(
+      createMockModelProvider({ stream: primaryStream }),
+      {
+        anthropic: createMockModelProvider({ stream: fallbackStream }),
+      },
+    );
+    const iterator = provider.stream(request())[Symbol.asyncIterator]();
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { delta: "partial primary" },
+    });
+    await expect(iterator.next()).rejects.toThrow(
+      "primary stream broke after emission",
+    );
+    expect(fallbackStream).not.toHaveBeenCalled();
+  });
 });
