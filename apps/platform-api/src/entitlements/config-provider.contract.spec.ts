@@ -27,9 +27,18 @@ const configDocument = {
     purchasesPerDay: 10,
     purchaseAmountPerDay: 1000,
   },
+  dunning: {
+    gracePeriodSeconds: 60,
+    suspensionThresholdSeconds: 120,
+    limitedStateLimits: expectedFree,
+  },
 };
 
-function runContract(name: string, createProvider: () => ConfigProvider): void {
+function runContract(
+  name: string,
+  createProvider: () => ConfigProvider,
+  expectedDunning = configDocument.dunning,
+): void {
   describe(`${name} ConfigProvider contract`, () => {
     it("returns exact free-tier defaults and abuse thresholds", async () => {
       const provider = createProvider();
@@ -38,6 +47,9 @@ function runContract(name: string, createProvider: () => ConfigProvider): void {
       );
       await expect(provider.getAbuseThresholds()).resolves.toEqual(
         configDocument.abuse,
+      );
+      await expect(provider.getDunningConfig()).resolves.toEqual(
+        expectedDunning,
       );
     });
 
@@ -49,7 +61,16 @@ function runContract(name: string, createProvider: () => ConfigProvider): void {
   });
 }
 
-runContract("local-file", () => new LocalFileConfigProvider());
+runContract("local-file", () => new LocalFileConfigProvider(), {
+  gracePeriodSeconds: 259200,
+  suspensionThresholdSeconds: 604800,
+  limitedStateLimits: {
+    ...expectedFree,
+    maxRunsPerDay: 5,
+    maxSandboxMinutesPerMonth: 15,
+    maxIntegrations: 1,
+  },
+});
 
 runContract("AppConfig", () => {
   const bytes = new TextEncoder().encode(JSON.stringify(configDocument));
@@ -120,6 +141,22 @@ describe("entitlement config validation", () => {
     expect(() =>
       parseConfigDocument(JSON.stringify({ plans: configDocument.plans })),
     ).toThrow("abuse must be an object");
+    expect(() =>
+      parseConfigDocument(
+        JSON.stringify({ ...configDocument, dunning: undefined }),
+      ),
+    ).toThrow("dunning must be an object");
+    expect(() =>
+      parseConfigDocument(
+        JSON.stringify({
+          ...configDocument,
+          dunning: {
+            ...configDocument.dunning,
+            suspensionThresholdSeconds: 30,
+          },
+        }),
+      ),
+    ).toThrow("must be at least gracePeriodSeconds");
   });
 });
 

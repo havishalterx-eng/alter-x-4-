@@ -1,6 +1,8 @@
 import type {
   EffectiveEntitlement,
+  EntitlementAccessState,
   EntitlementLimitKey,
+  EntitlementLimits,
   LimitCheckResult,
 } from "./types";
 import type { PoolClient } from "pg";
@@ -18,5 +20,9 @@ export interface EntitlementProvider {
     tenantId: string,
     plan: string,
     transactionClient?: PoolClient,
+    options?: {
+      accessState?: EntitlementAccessState;
+      limits?: Partial<EntitlementLimits>;
+    },
   ): Promise<EffectiveEntitlement>;
 }

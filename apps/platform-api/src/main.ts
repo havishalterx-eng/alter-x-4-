@@ -10,6 +10,7 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter(),
+    { rawBody: true },
   );
   await app.listen(3000, "0.0.0.0");
 }

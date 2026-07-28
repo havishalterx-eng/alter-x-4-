@@ -2,7 +2,11 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ConfigProvider } from "../../config-provider.interface";
 import { parseConfigDocument } from "../../config-document";
-import type { AbuseThresholds, EntitlementLimits } from "../../types";
+import type {
+  AbuseThresholds,
+  DunningConfig,
+  EntitlementLimits,
+} from "../../types";
 
 const defaultConfigPath = resolve(
   process.cwd(),
@@ -24,6 +28,14 @@ export class LocalFileConfigProvider implements ConfigProvider {
   async getAbuseThresholds(): Promise<AbuseThresholds> {
     const document = await this.readDocument();
     return { ...document.abuse };
+  }
+
+  async getDunningConfig(): Promise<DunningConfig> {
+    const dunning = (await this.readDocument()).dunning;
+    return {
+      ...dunning,
+      limitedStateLimits: { ...dunning.limitedStateLimits },
+    };
   }
 
   private async readDocument() {

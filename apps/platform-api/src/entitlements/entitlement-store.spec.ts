@@ -21,12 +21,14 @@ describe("PostgresEntitlementStore", () => {
       tenant_id: "tenant-1",
       plan: "free",
       limits: { maxWorkflows: 5 },
+      access_state: "active",
     });
 
     await expect(store.findEffective("tenant-1")).resolves.toEqual({
       tenantId: "tenant-1",
       plan: "free",
       limits: { maxWorkflows: 5 },
+      accessState: "active",
     });
     expect(query).toHaveBeenCalledWith(
       "SELECT set_config('app.current_tenant_id', $1, true)",
@@ -49,15 +51,21 @@ describe("PostgresEntitlementStore", () => {
       tenant_id: "tenant-1",
       plan: "free",
       limits: {},
+      access_state: "active",
     });
     await expect(store.create("tenant-1", "free")).resolves.toEqual({
       tenantId: "tenant-1",
       plan: "free",
       limits: {},
+      accessState: "active",
     });
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO entitlements"),
-      [expect.any(String), "tenant-1", "free"],
+      [expect.any(String), "tenant-1", "free", "{}", "active"],
+    );
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("SET effective_to"),
+      ["tenant-1"],
     );
   });
 

@@ -6,8 +6,10 @@ import type {
 } from "./entitlement-provider.interface";
 import type { EntitlementRow, EntitlementStore } from "./entitlement-store";
 import {
+  ENTITLEMENT_LIMIT_KEYS,
   EMERGENCY_FREE_LIMITS,
   type EffectiveEntitlement,
+  type EntitlementAccessState,
   type EntitlementLimitKey,
   type EntitlementLimits,
   type LimitCheckResult,
@@ -23,7 +25,15 @@ export class InternalEntitlementProvider implements EntitlementProvider {
 
   async getEffectiveEntitlement(tenantId: string): Promise<EffectiveEntitlement> {
     const row = await this.store.findEffective(tenantId);
-    return this.resolve(tenantId, row ?? { tenantId, plan: "free", limits: null });
+    return this.resolve(
+      tenantId,
+      row ?? {
+        tenantId,
+        plan: "free",
+        limits: null,
+        accessState: "active",
+      },
+    );
   }
 
   async checkLimit(
@@ -49,10 +59,14 @@ export class InternalEntitlementProvider implements EntitlementProvider {
     tenantId: string,
     plan: string,
     transactionClient?: PoolClient,
+    options?: {
+      accessState?: EntitlementAccessState;
+      limits?: Partial<EntitlementLimits>;
+    },
   ): Promise<EffectiveEntitlement> {
     const row = transactionClient
-      ? await this.store.create(tenantId, plan, transactionClient)
-      : await this.store.create(tenantId, plan);
+      ? await this.store.create(tenantId, plan, transactionClient, options)
+      : await this.store.create(tenantId, plan, undefined, options);
     return this.resolve(tenantId, row);
   }
 
@@ -77,12 +91,47 @@ export class InternalEntitlementProvider implements EntitlementProvider {
     if (Object.keys(overrides).length > 0 && source !== "emergency-fallback") {
       source = "tenant-override";
     }
+    let limits = { ...defaults, ...overrides };
+    if (row.accessState === "limited" || row.accessState === "suspended") {
+      const dunning = await this.configProvider.getDunningConfig();
+      const limitedLimits = this.requireCompleteLimits(
+        dunning.limitedStateLimits,
+      );
+      limits =
+        row.accessState === "limited"
+          ? limitedLimits
+          : Object.fromEntries(
+              ENTITLEMENT_LIMIT_KEYS.map((key) => [key, 0]),
+            ) as unknown as EntitlementLimits;
+      source = "dunning";
+    }
     return {
       tenantId,
       plan: row.plan,
-      limits: { ...defaults, ...overrides },
+      limits,
+      accessState: row.accessState,
       source,
     };
+  }
+
+  private requireCompleteLimits(
+    limits: Partial<EntitlementLimits>,
+  ): EntitlementLimits {
+    for (const key of ENTITLEMENT_LIMIT_KEYS) {
+      const value = limits[key];
+      if (
+        typeof value !== "number" ||
+        !Number.isFinite(value) ||
+        value < 0
+      ) {
+        throw new Error(
+          `dunning.limitedStateLimits.${key} must be a non-negative number`,
+        );
+      }
+    }
+    return Object.fromEntries(
+      ENTITLEMENT_LIMIT_KEYS.map((key) => [key, limits[key]]),
+    ) as unknown as EntitlementLimits;
   }
 
   private validOverrides(

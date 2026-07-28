@@ -244,8 +244,12 @@ export class RazorpayBillingProvider implements BillingProvider {
   parseWebhookEvent(rawBody: Uint8Array): BillingEvent {
     const parsed = object(JSON.parse(new TextDecoder().decode(rawBody)));
     return {
-      id: string(parsed.id ?? parsed.account_id, "unknown"),
-      type: string(parsed.event, "unknown"),
+      id: requiredString(
+        parsed.id ?? parsed.account_id,
+        "webhook event",
+        "id",
+      ),
+      type: requiredString(parsed.event, "webhook event", "event"),
       createdAt: epoch(parsed.created_at),
       payload: parsed as BillingEvent["payload"],
     };

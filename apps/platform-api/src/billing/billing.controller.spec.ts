@@ -41,6 +41,8 @@ import {
 } from "../rbac";
 import { BillingEtagResolver } from "./billing-etag.resolver";
 import { BillingExceptionFilter } from "./billing-exception.filter";
+import { BillingWebhookService } from "./billing-webhook.service";
+import { BillingHttpError } from "./problem";
 import { BillingController } from "./billing.controller";
 import { BillingRepository } from "./billing.repository";
 import { BillingService } from "./billing.service";
@@ -69,6 +71,14 @@ describe("billing routes", () => {
   const repository = new MemoryBillingRepository();
   const provider = new MemoryBillingProvider();
   const store = new MemoryIdempotencyStore();
+  const webhookService = {
+    receive: vi.fn(async () => ({
+      accepted: true as const,
+      event_id: "event_1",
+      state: "active" as const,
+      replayed: false,
+    })),
+  };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -78,6 +88,10 @@ describe("billing routes", () => {
         BillingService,
         BillingEtagResolver,
         BillingExceptionFilter,
+        {
+          provide: BillingWebhookService,
+          useValue: webhookService,
+        },
         IdempotencyInterceptor,
         IdempotencyExceptionFilter,
         IfMatchGuard,
@@ -94,6 +108,7 @@ describe("billing routes", () => {
     }).compile();
     app = moduleRef.createNestApplication<NestFastifyApplication>(
       new FastifyAdapter(),
+      { rawBody: true },
     );
     app.getHttpAdapter().getInstance().addHook(
       "preHandler",
@@ -115,9 +130,58 @@ describe("billing routes", () => {
     repository.clear();
     provider.clear();
     store.clear();
+    webhookService.receive.mockClear();
   });
 
   afterAll(async () => app.close());
+
+  it("relays exact raw webhook bytes without bearer auth", async () => {
+    const payload = '{"id":"event_1", "amount":100}';
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/billing/webhooks/razorpay",
+      headers: {
+        "content-type": "application/json",
+        "x-razorpay-signature": "signature",
+        "x-razorpay-event-id": "event_1",
+      },
+      payload,
+    });
+    expect(response.statusCode).toBe(202);
+    expect(webhookService.receive).toHaveBeenCalledWith(
+      "razorpay",
+      Buffer.from(payload),
+      "signature",
+      "event_1",
+    );
+
+    const unsigned = await app.inject({
+      method: "POST",
+      url: "/api/v1/billing/webhooks/razorpay",
+      headers: { "content-type": "application/json" },
+      payload: "{}",
+    });
+    expect(unsigned.statusCode).toBe(202);
+    expect(webhookService.receive).toHaveBeenLastCalledWith(
+      "razorpay",
+      Buffer.from("{}"),
+      "",
+      "",
+    );
+
+    const controller = new BillingController(
+      {} as BillingService,
+      webhookService as unknown as BillingWebhookService,
+    );
+    expect(() =>
+      controller.webhook(
+        "razorpay",
+        undefined,
+        undefined,
+        {} as Parameters<BillingController["webhook"]>[3],
+      ),
+    ).toThrow(BillingHttpError);
+  });
 
   it("serves plans, subscription, invoices, and payment methods", async () => {
     expect((await request("GET", "/api/v1/billing/plans", admin)).statusCode).toBe(
@@ -301,7 +365,7 @@ describe("billing routes", () => {
 
   it("rejects card data and keeps all sensitive values out of responses and logs", async () => {
     const cardNumber = "4111111111111111";
-    const cvv = "987";
+    const cvv = "987-cvv-never-log";
     const providerSecret = "rzp_secret_never_log";
     const logs: unknown[][] = [];
     const spies = (["log", "info", "warn", "error"] as const).map((method) =>

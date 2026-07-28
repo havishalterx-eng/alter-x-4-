@@ -3,11 +3,14 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   Param,
   Patch,
   Post,
   Query,
+  Req,
+  type RawBodyRequest,
   UseFilters,
   UseInterceptors,
 } from "@nestjs/common";
@@ -17,15 +20,22 @@ import type {
   Page,
   PaymentMethodRef,
 } from "@alterx/shared-clients";
+import type { FastifyRequest } from "fastify";
 import { EtagConstrained, EtagResponseInterceptor } from "../concurrency";
 import { Idempotent } from "../idempotency";
 import {
   ActorContext,
+  Public,
   RequirePermission,
   RequireTenantRole,
   type ActorContextType,
 } from "../rbac";
 import { BillingExceptionFilter } from "./billing-exception.filter";
+import { BillingHttpError } from "./problem";
+import {
+  BillingWebhookService,
+  type BillingWebhookResult,
+} from "./billing-webhook.service";
 import { BillingService } from "./billing.service";
 import type { BillingSubscriptionView } from "./types";
 import {
@@ -39,7 +49,35 @@ import {
 @Controller("/api/v1/billing")
 @UseFilters(BillingExceptionFilter)
 export class BillingController {
-  constructor(private readonly billing: BillingService) {}
+  constructor(
+    private readonly billing: BillingService,
+    private readonly webhooks: BillingWebhookService,
+  ) {}
+
+  @Post("webhooks/:providerId")
+  @HttpCode(202)
+  @Public()
+  webhook(
+    @Param("providerId") providerId: string,
+    @Headers("x-razorpay-signature") signature: string | undefined,
+    @Headers("x-razorpay-event-id") providerEventId: string | undefined,
+    @Req() request: RawBodyRequest<FastifyRequest>,
+  ): Promise<BillingWebhookResult> {
+    if (!request.rawBody) {
+      throw new BillingHttpError(
+        400,
+        "BILLING_WEBHOOK_RAW_BODY_REQUIRED",
+        "Webhook raw body is required",
+        `/api/v1/billing/webhooks/${encodeURIComponent(providerId)}`,
+      );
+    }
+    return this.webhooks.receive(
+      providerId,
+      request.rawBody,
+      signature ?? "",
+      providerEventId ?? "",
+    );
+  }
 
   @Get("plans")
   @RequireTenantRole("admin")

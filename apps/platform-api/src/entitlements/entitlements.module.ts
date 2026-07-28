@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import { Pool } from "pg";
 import { CONFIG_PROVIDER, type ConfigProvider } from "./config-provider.interface";
 import { AppConfigConfigProvider } from "./adapters/appconfig/appconfig-config-provider";
@@ -6,6 +7,7 @@ import { LocalFileConfigProvider } from "./adapters/local-file/local-file-config
 import { ENTITLEMENT_PROVIDER } from "./entitlement-provider.interface";
 import { PostgresEntitlementStore } from "./entitlement-store";
 import { InternalEntitlementProvider } from "./internal-entitlement-provider";
+import { EntitlementAccessGuard } from "./entitlement-access.guard";
 
 const ENTITLEMENT_STORE = Symbol("ENTITLEMENT_STORE");
 
@@ -38,6 +40,10 @@ const ENTITLEMENT_STORE = Symbol("ENTITLEMENT_STORE");
         store: ConstructorParameters<typeof InternalEntitlementProvider>[0],
         configProvider: ConfigProvider,
       ) => new InternalEntitlementProvider(store, configProvider),
+    },
+    {
+      provide: APP_GUARD,
+      useClass: EntitlementAccessGuard,
     },
   ],
   exports: [CONFIG_PROVIDER, ENTITLEMENT_PROVIDER],

@@ -118,6 +118,7 @@ export const entitlements = pgTable("entitlements", {
   limits: jsonb("limits"),
   effectiveFrom: timestamp("effective_from", { withTimezone: true }),
   effectiveTo: timestamp("effective_to", { withTimezone: true }),
+  accessState: text("access_state").notNull().default("active"),
   createdAt,
 });
 
@@ -281,6 +282,58 @@ export const billingPaymentMethodRefs = pgTable(
     uniqueIndex("billing_payment_method_refs_tenant_ref_unique").on(
       table.tenantId,
       table.ref,
+    ),
+  ],
+);
+
+export const billingEvents = pgTable(
+  "billing_events",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    providerId: text("provider_id").notNull(),
+    providerEventId: text("provider_event_id").notNull().unique(),
+    type: text("type").notNull(),
+    payload: jsonb("payload").notNull(),
+    createdAt,
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("billing_events_tenant_provider_event_unique").on(
+      table.tenantId,
+      table.providerEventId,
+    ),
+  ],
+);
+
+export const billingDunningStates = pgTable("billing_dunning_states", {
+  tenantId: uuid("tenant_id")
+    .primaryKey()
+    .references(() => tenants.id),
+  state: text("state").notNull().default("active"),
+  currentPlan: text("current_plan"),
+  firstFailedAt: timestamp("first_failed_at", { withTimezone: true }),
+  updatedAt,
+});
+
+export const billingDunningAudits = pgTable(
+  "billing_dunning_audits",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    id: uuid("id").primaryKey(),
+    providerEventId: text("provider_event_id").notNull(),
+    fromState: text("from_state").notNull(),
+    toState: text("to_state").notNull(),
+    reason: text("reason").notNull(),
+    createdAt,
+  },
+  (table) => [
+    index("billing_dunning_audits_tenant_created_at_idx").on(
+      table.tenantId,
+      table.createdAt,
     ),
   ],
 );

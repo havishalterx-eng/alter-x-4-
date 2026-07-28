@@ -1,19 +1,15 @@
-import type { AbuseThresholds, EntitlementLimits } from "./types";
+import type {
+  AbuseThresholds,
+  DunningConfig,
+  EntitlementLimits,
+} from "./types";
+import { ENTITLEMENT_LIMIT_KEYS } from "./types";
 
 export interface EntitlementConfigDocument {
   plans: Record<string, EntitlementLimits>;
   abuse: AbuseThresholds;
+  dunning: DunningConfig;
 }
-
-const limitKeys: readonly (keyof EntitlementLimits)[] = [
-  "maxWorkflows",
-  "maxProjects",
-  "maxRunsPerDay",
-  "maxConcurrentRuns",
-  "maxSandboxMinutesPerMonth",
-  "maxAdsStorageMb",
-  "maxIntegrations",
-];
 
 const abuseKeys: readonly (keyof AbuseThresholds)[] = [
   "tenantRequestsPerMinute",
@@ -52,9 +48,31 @@ export function parseConfigDocument(input: string): EntitlementConfigDocument {
   }
 
   for (const [plan, limits] of Object.entries(document.plans)) {
-    assertPositiveNumbers(limits, limitKeys, `plans.${plan}`);
+    assertPositiveNumbers(limits, ENTITLEMENT_LIMIT_KEYS, `plans.${plan}`);
   }
   assertPositiveNumbers(document.abuse, abuseKeys, "abuse");
+  if (!document.dunning || typeof document.dunning !== "object") {
+    throw new Error("dunning must be an object");
+  }
+  const dunning = document.dunning as Record<string, unknown>;
+  assertPositiveNumbers(
+    dunning,
+    ["gracePeriodSeconds", "suspensionThresholdSeconds"],
+    "dunning",
+  );
+  assertPositiveNumbers(
+    dunning.limitedStateLimits,
+    ENTITLEMENT_LIMIT_KEYS,
+    "dunning.limitedStateLimits",
+  );
+  if (
+    (dunning.suspensionThresholdSeconds as number) <
+    (dunning.gracePeriodSeconds as number)
+  ) {
+    throw new Error(
+      "dunning.suspensionThresholdSeconds must be at least gracePeriodSeconds",
+    );
+  }
 
   return parsed as EntitlementConfigDocument;
 }

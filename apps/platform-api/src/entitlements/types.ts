@@ -9,6 +9,26 @@ export interface EntitlementLimits {
 }
 
 export type EntitlementLimitKey = keyof EntitlementLimits;
+export const ENTITLEMENT_LIMIT_KEYS: readonly EntitlementLimitKey[] = [
+  "maxWorkflows",
+  "maxProjects",
+  "maxRunsPerDay",
+  "maxConcurrentRuns",
+  "maxSandboxMinutesPerMonth",
+  "maxAdsStorageMb",
+  "maxIntegrations",
+];
+export type EntitlementAccessState =
+  | "active"
+  | "grace"
+  | "limited"
+  | "suspended";
+
+export interface DunningConfig {
+  gracePeriodSeconds: number;
+  suspensionThresholdSeconds: number;
+  limitedStateLimits: EntitlementLimits;
+}
 
 export interface AbuseThresholds {
   tenantRequestsPerMinute: number;
@@ -22,7 +42,8 @@ export interface EffectiveEntitlement {
   tenantId: string;
   plan: string;
   limits: EntitlementLimits;
-  source: "config" | "tenant-override" | "emergency-fallback";
+  accessState: EntitlementAccessState;
+  source: "config" | "tenant-override" | "dunning" | "emergency-fallback";
 }
 
 export type EntitlementReasonCode =

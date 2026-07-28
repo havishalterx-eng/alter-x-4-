@@ -5,6 +5,9 @@ import { DbModule } from "./db.module";
 import {
   billingPaymentMethodRefs,
   billingProfiles,
+  billingDunningAudits,
+  billingDunningStates,
+  billingEvents,
   credentialRefs,
   credentialUseAudits,
   entitlements,
@@ -25,6 +28,9 @@ describe("platform database schema", () => {
       [
         billingPaymentMethodRefs,
         billingProfiles,
+        billingDunningAudits,
+        billingDunningStates,
+        billingEvents,
         entitlements,
         credentialRefs,
         credentialUseAudits,
@@ -40,6 +46,9 @@ describe("platform database schema", () => {
     ).toEqual([
       "billing_payment_method_refs",
       "billing_profiles",
+      "billing_dunning_audits",
+      "billing_dunning_states",
+      "billing_events",
       "entitlements",
       "credential_refs",
       "credential_use_audits",
@@ -60,6 +69,9 @@ describe("platform database schema", () => {
     for (const table of [
       billingPaymentMethodRefs,
       billingProfiles,
+      billingDunningAudits,
+      billingDunningStates,
+      billingEvents,
       entitlements,
       credentialRefs,
       credentialUseAudits,
@@ -76,7 +88,7 @@ describe("platform database schema", () => {
       );
     }
 
-    expect(foreignKeyNames).toHaveLength(13);
+    expect(foreignKeyNames).toHaveLength(16);
     expect(getTableConfig(idempotencyKeys).indexes).toHaveLength(2);
     expect(getTableColumns(credentialRefs)).not.toHaveProperty("value");
     expect(getTableColumns(credentialRefs)).not.toHaveProperty("secret");

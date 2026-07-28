@@ -204,13 +204,13 @@ describe("RazorpayBillingProvider", () => {
       id: "event_1",
       type: "subscription.charged",
     });
-    expect(
+    expect(() =>
       provider.parseWebhookEvent(
         new TextEncoder().encode(
           JSON.stringify({ account_id: "account_1", created_at: 1 }),
         ),
       ),
-    ).toMatchObject({ id: "account_1", type: "unknown" });
+    ).toThrow("malformed webhook event: event");
   });
 
   it("health-checks a cheap endpoint and maps provider failures", async () => {

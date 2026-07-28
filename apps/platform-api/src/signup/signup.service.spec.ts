@@ -182,6 +182,7 @@ describe("SignupService", () => {
       landing.tenantId,
       "free",
       expect.anything(),
+      undefined,
     );
     expect(identityBroker.mintActorToken).toHaveBeenCalledWith(
       expect.objectContaining({

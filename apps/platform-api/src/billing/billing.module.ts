@@ -12,15 +12,22 @@ import {
   IfMatchGuard,
 } from "../concurrency";
 import { IdempotencyModule } from "../idempotency";
+import { EntitlementsModule } from "../entitlements/entitlements.module";
 import { BillingEtagResolver } from "./billing-etag.resolver";
 import { BillingExceptionFilter } from "./billing-exception.filter";
+import { BillingWebhookRepository } from "./billing-webhook.repository";
+import { BillingWebhookService } from "./billing-webhook.service";
 import { BillingController } from "./billing.controller";
 import { BillingRepository } from "./billing.repository";
 import { BillingService } from "./billing.service";
-import { BILLING_PROVIDER, BILLING_SECRETS_PROVIDER } from "./tokens";
+import {
+  BILLING_PROVIDER,
+  BILLING_SECRETS_PROVIDER,
+  BILLING_WEBHOOK_SECRET_REF,
+} from "./tokens";
 
 @Module({
-  imports: [IdempotencyModule],
+  imports: [IdempotencyModule, EntitlementsModule],
   controllers: [BillingController],
   providers: [
     {
@@ -37,6 +44,20 @@ import { BILLING_PROVIDER, BILLING_SECRETS_PROVIDER } from "./tokens";
         new AwsSecretsManagerProvider({
           region: process.env.AWS_REGION ?? "ap-south-1",
         }),
+    },
+    {
+      provide: BILLING_WEBHOOK_SECRET_REF,
+      useFactory: () =>
+        process.env.RAZORPAY_WEBHOOK_SECRET_REF ??
+        "/alter/billing/razorpay/webhook-secret",
+    },
+    {
+      provide: BillingWebhookRepository,
+      useFactory: () =>
+        new BillingWebhookRepository(
+          new Pool({ connectionString: process.env.DATABASE_URL }),
+          true,
+        ),
     },
     {
       provide: BILLING_PROVIDER,
@@ -59,6 +80,7 @@ import { BILLING_PROVIDER, BILLING_SECRETS_PROVIDER } from "./tokens";
         ),
     },
     BillingService,
+    BillingWebhookService,
     BillingEtagResolver,
     {
       provide: ETAG_RESOURCE_RESOLVER,
