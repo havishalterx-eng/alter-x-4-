@@ -266,7 +266,29 @@ export interface QueueProvider extends BaseProvider<"QueueProvider"> {
   publish(queueName: string, message: JsonValue): Promise<void>;
   consume(queueName: string): Promise<JsonValue | undefined>;
 }
-export interface SandboxProvider extends BaseProvider<"SandboxProvider"> {}
+export interface SandboxSessionCreateRequest {
+  readonly tenantId: string;
+  readonly runId: string;
+  readonly cycleId: string;
+  readonly templateId: string;
+  readonly environment: Readonly<Record<string, string>>;
+}
+
+export interface SandboxSession {
+  readonly sessionId: string;
+  readonly expiresAt: string;
+}
+
+export interface SandboxFile {
+  readonly path: string;
+  readonly content: string;
+}
+
+export interface SandboxProvider extends BaseProvider<"SandboxProvider"> {
+  createSession(request: SandboxSessionCreateRequest): Promise<SandboxSession>;
+  writeFiles(sessionId: string, files: readonly SandboxFile[]): Promise<void>;
+  closeSession(sessionId: string): Promise<void>;
+}
 export interface RepositoryProvider
   extends BaseProvider<"RepositoryProvider"> {}
 export class ModelAliasResolutionError extends Error {

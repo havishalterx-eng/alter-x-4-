@@ -100,6 +100,9 @@ export {
   type RelationalDatabaseProvider,
   type RepositoryProvider,
   type SandboxProvider,
+  type SandboxFile,
+  type SandboxSession,
+  type SandboxSessionCreateRequest,
   type SearchProvider,
   type SearchRequest,
   type SearchResult,
@@ -214,3 +217,8 @@ export {
   createMockSecretsProvider,
   type MockSecretsProviderOptions,
 } from "./mocks/secrets-provider";
+export {
+  MOCK_SANDBOX_CAPABILITIES,
+  createMockSandboxProvider,
+  type MockSandboxProvider,
+} from "./mocks/sandbox-provider";

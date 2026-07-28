@@ -215,3 +215,9 @@ export {
   type RedisCacheProviderConfig,
   type RedisCommandClient,
 } from "./redis/redis-cache-provider";
+export {
+  E2bSandboxProvider,
+  type E2bSandboxFactory,
+  type E2bSandboxHandle,
+  type E2bSandboxProviderConfig,
+} from "./e2b/e2b-sandbox-provider";

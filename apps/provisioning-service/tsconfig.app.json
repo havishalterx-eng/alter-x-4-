@@ -1,0 +1,1 @@
+{ "extends": "./tsconfig.json", "compilerOptions": { "noEmit": false, "outDir": "../../dist/apps/provisioning-service", "paths": {}, "rootDir": "./src", "sourceMap": true }, "exclude": ["src/**/*.spec.ts"] }
