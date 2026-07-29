@@ -7,6 +7,7 @@ import type {
   DurableExecutionProvider,
   EmbeddingProvider,
   ModelProvider,
+  ObjectStorageProvider,
   ObservabilityProvider,
   PIIRedactionProvider,
   SearchProvider,
@@ -64,6 +65,36 @@ export const secretsProviderContract: ProviderContractSuite<SecretsProvider> = {
           "Unknown secret references must be rejected",
         );
         return { resolved: true };
+      },
+    },
+  ],
+};
+
+export const objectStorageProviderContract: ProviderContractSuite<ObjectStorageProvider> = {
+  name: "ObjectStorageProvider",
+  cases: [
+    {
+      name: "publishes valid object-storage metadata and capabilities",
+      assert: async (provider) => {
+        ensure(
+          provider.metadata.interfaceName === "ObjectStorageProvider",
+          "Object-storage adapter must identify its canonical interface",
+        );
+        ProviderCapabilitiesSchema.parse(provider.capabilities);
+        const health = await provider.healthCheck();
+        ensure(health.status === "healthy", "Contract fixture must be healthy");
+        return { interfaceName: provider.metadata.interfaceName, health: health.status };
+      },
+    },
+    {
+      name: "deletes an object idempotently and verifies absence",
+      assert: async (provider) => {
+        const reference = "s3://contract-bucket/regulated/object";
+        ensure(await provider.objectExists(reference), "Contract object must initially exist");
+        await provider.deleteObject(reference);
+        ensure(!(await provider.objectExists(reference)), "Deleted object must verify absent");
+        await provider.deleteObject(reference);
+        return { deleted: true, exists: await provider.objectExists(reference) };
       },
     },
   ],

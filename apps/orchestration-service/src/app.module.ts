@@ -72,6 +72,11 @@ import { TOOLGW_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
 import { ConversationDispatchService } from "./webhooks/conversation-dispatch.service";
 import { WhatsappWebhookController } from "./webhooks/whatsapp-webhook.controller";
 import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
+import {
+  DeletionController,
+  ORCHESTRATION_DELETION_TOKEN_HASH,
+} from "./deletion/deletion.controller";
+import { OrchestrationDeletionService } from "./deletion/deletion.service";
 
 @Module({
   controllers: [
@@ -90,8 +95,38 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
     ApprovalsController,
     TriggerRegistryController,
     WhatsappWebhookController,
+    DeletionController,
   ],
   providers: [
+    {
+      provide: ORCHESTRATION_DELETION_TOKEN_HASH,
+      useFactory: () => requireSha256Fingerprint(
+        process.env.DELETION_SERVICE_TOKEN_SHA256,
+        "DELETION_SERVICE_TOKEN_SHA256",
+      ),
+    },
+    {
+      provide: OrchestrationDeletionService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const tenantStore = new PostgresOrchestrationStoreProvider({
+          authentication: "iam", host: dbConfig.databaseHost, port: dbConfig.databasePort,
+          database: dbConfig.databaseName, user: dbConfig.databaseUser, region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        const deletionDatabaseUser = process.env.DELETION_DATABASE_USER?.trim();
+        if (deletionDatabaseUser === undefined || deletionDatabaseUser.length === 0) {
+          throw new Error("DELETION_DATABASE_USER is required for internal deletion sweeps");
+        }
+        const systemStore = new PostgresOrchestrationStoreProvider({
+          authentication: "iam", host: dbConfig.databaseHost, port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: deletionDatabaseUser,
+          region: dbConfig.awsRegion, migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        return new OrchestrationDeletionService(tenantStore, systemStore);
+      },
+    },
     {
       provide: APP_GUARD,
       useFactory: () => {
@@ -542,6 +577,14 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
     durable,
   );
   return new RecoveryPolicyService(store, modelGateway, dispatch);
+}
+
+function requireSha256Fingerprint(value: string | undefined, field: string): string {
+  const normalized = value?.trim() ?? "";
+  if (!/^[0-9a-f]{64}$/i.test(normalized)) {
+    throw new Error(`${field} must be a 64-character SHA-256 fingerprint`);
+  }
+  return normalized;
 }
 
 function sessionGatewayEnvironment(

@@ -98,6 +98,7 @@ def client(database: DatabaseHarness) -> Generator[TestClient, None, None]:
         ads_db_url_sync=database.url,
         ads_ingestion_max_content_bytes=1024,
         ads_uploads_bucket_name="",  # forces InMemoryObjectStorageProvider
+        deletion_service_token_sha256="a" * 64,
     )
     app = FastAPI()
     app.include_router(router)

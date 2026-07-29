@@ -380,7 +380,10 @@ export interface BrowserProvider extends BaseProvider<"BrowserProvider"> {
 export interface DeploymentProvider
   extends BaseProvider<"DeploymentProvider"> {}
 export interface ObjectStorageProvider
-  extends BaseProvider<"ObjectStorageProvider"> {}
+  extends BaseProvider<"ObjectStorageProvider"> {
+  deleteObject(reference: string): Promise<void>;
+  objectExists(reference: string): Promise<boolean>;
+}
 export interface QueueProvider extends BaseProvider<"QueueProvider"> {
   publish(queueName: string, message: JsonValue): Promise<void>;
   consume(queueName: string): Promise<JsonValue | undefined>;

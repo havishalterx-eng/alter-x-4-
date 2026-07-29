@@ -5,6 +5,8 @@ import {
   calculateAuditEntryHash,
   type AuditEventToAppend,
   type AuditStoreProvider,
+  type DeletionCertificateToStore,
+  type DeletionLedgerEntry,
   type StoredAuditEvent,
 } from "../audit-ports";
 import type { ProviderMetadata } from "../provider-types";
@@ -15,6 +17,8 @@ export const MOCK_AUDIT_STORE_CAPABILITIES: ProviderCapabilities =
 
 export interface MockAuditStoreProvider extends AuditStoreProvider {
   snapshot(): readonly StoredAuditEvent[];
+  deletionCertificates(): readonly DeletionCertificateToStore[];
+  deletionLedger(): readonly DeletionLedgerEntry[];
 }
 
 export interface MockAuditStoreProviderOptions {
@@ -38,6 +42,8 @@ export function createMockAuditStoreProvider(
 ): MockAuditStoreProvider {
   const providerId = options.providerId ?? "mock.audit-store";
   const events: StoredAuditEvent[] = [];
+  const certificates: DeletionCertificateToStore[] = [];
+  const ledger: DeletionLedgerEntry[] = [];
   let appendBarrier: Promise<void> = Promise.resolve();
 
   const append = async (event: AuditEventToAppend): Promise<StoredAuditEvent> => {
@@ -64,8 +70,22 @@ export function createMockAuditStoreProvider(
       migrate: async () => undefined,
       append,
       readGlobalChain: async () => events.map(cloneEvent),
+      storeDeletionCertificate: async (certificate) => {
+        certificates.push(structuredClone(certificate));
+      },
+      appendDeletionLedger: async (entry) => {
+        ledger.push(structuredClone(entry));
+      },
+      storeDeletionCompletion: async (certificate, entry) => {
+        certificates.push(structuredClone(certificate));
+        ledger.push(structuredClone(entry));
+      },
+      listDeletionLedgerSince: async (since) =>
+        ledger.filter((entry) => entry.deletedAt >= since).map((entry) => structuredClone(entry)),
       close: async () => undefined,
       snapshot: () => events.map(cloneEvent),
+      deletionCertificates: () => certificates.map((entry) => structuredClone(entry)),
+      deletionLedger: () => ledger.map((entry) => structuredClone(entry)),
     },
   });
 }

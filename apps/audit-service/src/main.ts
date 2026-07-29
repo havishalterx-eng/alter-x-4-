@@ -6,6 +6,7 @@ import { NestFactory } from "@nestjs/core";
 import {
   AwsSecretsManagerProvider,
   PostgresAuditStoreProvider,
+  S3ObjectStorageProvider,
   startAuditGrpcTransport,
 } from "@alterx/adapters";
 
@@ -14,6 +15,7 @@ import { AUDIT_PROTO_PATH } from "./audit/grpc.constants";
 import { loadAuditEnvironment } from "./config/environment";
 import { AUDIT_MIGRATIONS_PATH } from "./database/migrations-path";
 import { resolveDatabaseConnectionString } from "./database/resolve-database-secret";
+import { resolveDeletionSecrets } from "./deletion/resolve-deletion-secrets";
 
 async function bootstrap(): Promise<void> {
   const environment = loadAuditEnvironment(process.env);
@@ -22,6 +24,7 @@ async function bootstrap(): Promise<void> {
 
   try {
     if (environment.databaseAuthentication === "iam") {
+      secretsProvider = new AwsSecretsManagerProvider({ region: environment.region });
       store = new PostgresAuditStoreProvider({
         authentication: "iam",
         host: environment.databaseHost,
@@ -46,8 +49,20 @@ async function bootstrap(): Promise<void> {
       });
     }
     await store.migrate();
+    const { serviceToken, pseudonymKey } = await resolveDeletionSecrets(secretsProvider, {
+      serviceTokenReference: environment.deletionServiceTokenReference,
+      pseudonymKeyReference: environment.deletionPseudonymKeyReference,
+    });
+    const serviceTokenHash = (await import("node:crypto")).createHash("sha256").update(serviceToken).digest("hex");
     const app = await NestFactory.create<NestFastifyApplication>(
-      AppModule.register(store),
+      AppModule.register(store, {
+        adsBaseUrl: environment.adsDeletionBaseUrl,
+        orchestrationBaseUrl: environment.orchestrationDeletionBaseUrl,
+        serviceToken,
+        serviceTokenHash,
+        pseudonymKey,
+        objectStorage: new S3ObjectStorageProvider({ region: environment.region }),
+      }),
       new FastifyAdapter(),
     );
     await startAuditGrpcTransport(app, {

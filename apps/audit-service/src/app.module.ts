@@ -10,18 +10,42 @@ import {
 import { AuditService } from "./audit/audit.service";
 import { AuditStoreLifecycle } from "./database/store.lifecycle";
 import { HealthController } from "./health/health.controller";
+import type { ObjectStorageProvider } from "@alterx/shared-clients";
+import { DELETION_SERVICE_TOKEN_HASH, DeletionController } from "./deletion/deletion.controller";
+import { DeletionOrchestrator } from "./deletion/deletion-orchestrator";
+import { HttpDeletionProvider } from "./deletion/http-deletion-provider";
+
+export interface AuditDeletionWiring {
+  readonly adsBaseUrl: string;
+  readonly orchestrationBaseUrl: string;
+  readonly serviceToken: string;
+  readonly serviceTokenHash: string;
+  readonly pseudonymKey: string;
+  readonly objectStorage: ObjectStorageProvider;
+}
 
 @Module({})
 export class AppModule {
-  static register(store: AuditStoreProvider): DynamicModule {
+  static register(store: AuditStoreProvider, deletion?: AuditDeletionWiring): DynamicModule {
+    const orchestrator = deletion === undefined ? undefined : new DeletionOrchestrator(
+      store,
+      [new HttpDeletionProvider(deletion.adsBaseUrl, deletion.serviceToken, "ads-core"),
+       new HttpDeletionProvider(deletion.orchestrationBaseUrl, deletion.serviceToken, "orchestration-service")],
+      deletion.objectStorage,
+      deletion.pseudonymKey,
+    );
     return {
       module: AppModule,
-      controllers: [AuditGrpcController, HealthController],
+      controllers: [AuditGrpcController, HealthController, ...(deletion === undefined ? [] : [DeletionController])],
       providers: [
         { provide: AUDIT_STORE_PROVIDER, useValue: store },
         AuditService,
         { provide: AUDIT_EVENT_HANDLER, useExisting: AuditService },
         AuditStoreLifecycle,
+        ...(orchestrator === undefined || deletion === undefined ? [] : [
+          { provide: DeletionOrchestrator, useValue: orchestrator },
+          { provide: DELETION_SERVICE_TOKEN_HASH, useValue: deletion.serviceTokenHash },
+        ]),
       ],
     };
   }

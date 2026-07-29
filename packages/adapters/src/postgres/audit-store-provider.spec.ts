@@ -99,6 +99,75 @@ describe.sequential("PostgresAuditStoreProvider", () => {
     });
   });
 
+  it("stores a deletion certificate and ledger atomically without a raw tenant ID", async () => {
+    const tenantId = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890a1";
+    const pseudonym = "tnp_2ba0b21d4bf47fb593b90a7e7289a8e633097e791a0fd57e129ce13240af3d64";
+    const completedAt = new Date("2026-07-30T10:00:00.000Z");
+    await provider.storeDeletionCompletion(
+      {
+        id: randomUUID(),
+        tenantPseudonym: pseudonym,
+        manifest: { status: "completed", providers: ["ads-core", "orchestration-service"] },
+        requestedAt: new Date("2026-07-30T09:59:00.000Z"),
+        completedAt,
+        verifiedBy: "audit-service/deletion-orchestrator",
+      },
+      {
+        id: randomUUID(),
+        subjectPseudonym: pseudonym,
+        subjectSelectors: { scheme: "hmac-sha256-v1" },
+        deletedAt: completedAt,
+      },
+    );
+
+    const records = await pool.query<{
+      certificate: string;
+      ledger: string;
+    }>(
+      `SELECT row_to_json(c)::text AS certificate, row_to_json(l)::text AS ledger
+       FROM deletion_certificates c CROSS JOIN deletion_ledger l`,
+    );
+    expect(records.rows).toHaveLength(1);
+    const serialized = JSON.stringify(records.rows);
+    expect(serialized).toContain(pseudonym);
+    expect(serialized).not.toContain(tenantId);
+    await expect(provider.listDeletionLedgerSince(new Date("2026-07-30T00:00:00.000Z"))).resolves.toEqual([
+      expect.objectContaining({ subjectPseudonym: pseudonym, deletedAt: completedAt }),
+    ]);
+
+    await expect(pool.query("UPDATE deletion_ledger SET deleted_at=now()"))
+      .rejects.toMatchObject({ code: "P0001" });
+    await expect(pool.query("DELETE FROM deletion_certificates"))
+      .rejects.toMatchObject({ code: "P0001" });
+  });
+
+  it("rolls back the ledger insert when atomic certificate persistence fails", async () => {
+    const ledgerId = randomUUID();
+    const pseudonym = "tnp_f2f12543c4ddf8304015a81fc9ee7e5f6fdad53d85d9a8cd48c37ed5fe40b6d1";
+    await expect(provider.storeDeletionCompletion(
+      {
+        id: "not-a-uuid",
+        tenantPseudonym: pseudonym,
+        manifest: { status: "completed" },
+        requestedAt: new Date("2026-07-30T10:00:00.000Z"),
+        completedAt: new Date("2026-07-30T10:01:00.000Z"),
+        verifiedBy: "audit-service/deletion-orchestrator",
+      },
+      {
+        id: ledgerId,
+        subjectPseudonym: pseudonym,
+        subjectSelectors: { scheme: "hmac-sha256-v1" },
+        deletedAt: new Date("2026-07-30T10:01:00.000Z"),
+      },
+    )).rejects.toMatchObject({ code: "22P02" });
+
+    const result = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM deletion_ledger WHERE id=$1",
+      [ledgerId],
+    );
+    expect(result.rows).toEqual([{ count: "0" }]);
+  });
+
   it("validates config and reports unreachable database health", async () => {
     expect(
       () =>

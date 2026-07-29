@@ -334,3 +334,8 @@ export {
   type E2bSandboxHandle,
   type E2bSandboxProviderConfig,
 } from "./e2b/e2b-sandbox-provider";
+export {
+  S3ObjectStorageProvider,
+  type S3CommandClient,
+  type S3ObjectStorageProviderConfig,
+} from "./aws/s3-object-storage-provider";

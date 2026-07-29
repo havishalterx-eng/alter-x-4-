@@ -20,6 +20,8 @@ describe("GET /health", () => {
       ORCHESTRATION_DATABASE_PORT: "5432",
       ORCHESTRATION_DATABASE_NAME: "orchestration_db",
       ORCHESTRATION_DATABASE_USER: "orchestration_service",
+      DELETION_DATABASE_USER: "orchestration_deletion",
+      DELETION_SERVICE_TOKEN_SHA256: "a".repeat(64),
       AWS_REGION: "ap-south-1",
       ALTER_ENV: "prod",
       MODEL_GATEWAY_ADDRESS: "127.0.0.1:50051",

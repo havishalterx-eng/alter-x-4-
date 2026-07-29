@@ -9,6 +9,10 @@ interface AuditEnvironmentBase {
   readonly auditArchiveBucketParameter: string;
   readonly httpPort: number;
   readonly grpcBindAddress: string;
+  readonly adsDeletionBaseUrl: string;
+  readonly orchestrationDeletionBaseUrl: string;
+  readonly deletionPseudonymKeyReference: string;
+  readonly deletionServiceTokenReference: string;
 }
 
 export interface AuditIamEnvironment extends AuditEnvironmentBase {
@@ -140,6 +144,10 @@ export function loadAuditEnvironment(
     ),
     httpPort: parsePort(environment.PORT),
     grpcBindAddress: parseGrpcAddress(environment.GRPC_BIND_ADDRESS),
+    adsDeletionBaseUrl: requireValue(environment, "ADS_DELETION_BASE_URL"),
+    orchestrationDeletionBaseUrl: requireValue(environment, "ORCHESTRATION_DELETION_BASE_URL"),
+    deletionPseudonymKeyReference: requireValue(environment, "DELETION_PSEUDONYM_KEY_REF"),
+    deletionServiceTokenReference: requireValue(environment, "DELETION_SERVICE_TOKEN_REF"),
   };
 
   if (alterEnvironment === "local") {

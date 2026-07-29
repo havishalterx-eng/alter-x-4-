@@ -8,6 +8,13 @@
       "when": 1784860200000,
       "tag": "0000_create_audit_events",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785388200000,
+      "tag": "0001_create_deletion_records",
+      "breakpoints": true
     }
   ]
 }

@@ -167,6 +167,14 @@ export {
   type RunListResponse,
   type RunRecord,
 } from "./runs";
+export type {
+  DeletionProvider,
+  DeletionResult,
+  ReplayResult,
+  RetentionSweepResult,
+  SubjectDataLocation,
+  VerificationResult,
+} from "./deletion";
 export {
   FailureClassSchema,
   FailureObservationSchema,

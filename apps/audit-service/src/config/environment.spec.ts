@@ -12,6 +12,10 @@ function environment(
     ALTER_CONFIG_SOURCE: "local-file",
     DATABASE_SECRET_REF: "/alter/local/audit-service/system/database_credentials",
     AUDIT_ARCHIVE_BUCKET_PARAM: "/alter/local/audit/archive-bucket",
+    ADS_DELETION_BASE_URL: "http://ads-core.internal:8000",
+    ORCHESTRATION_DELETION_BASE_URL: "http://orchestration-service.internal:3000",
+    DELETION_PSEUDONYM_KEY_REF: "/alter/local/audit-service/system/deletion-pseudonym-key",
+    DELETION_SERVICE_TOKEN_REF: "/alter/local/audit-service/system/deletion-service-token",
     ...overrides,
   };
 }
@@ -29,6 +33,10 @@ describe("loadAuditEnvironment", () => {
       auditArchiveBucketParameter: "/alter/local/audit/archive-bucket",
       httpPort: 3000,
       grpcBindAddress: "0.0.0.0:50051",
+      adsDeletionBaseUrl: "http://ads-core.internal:8000",
+      orchestrationDeletionBaseUrl: "http://orchestration-service.internal:3000",
+      deletionPseudonymKeyReference: "/alter/local/audit-service/system/deletion-pseudonym-key",
+      deletionServiceTokenReference: "/alter/local/audit-service/system/deletion-service-token",
     });
   });
 

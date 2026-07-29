@@ -38,6 +38,22 @@ export interface StoredAuditEvent extends AuditEventToAppend {
   readonly entryHash: Buffer;
 }
 
+export interface DeletionCertificateToStore {
+  readonly id: string;
+  readonly tenantPseudonym: string;
+  readonly manifest: Readonly<Record<string, JsonValue>>;
+  readonly requestedAt: Date;
+  readonly completedAt: Date | null;
+  readonly verifiedBy: string;
+}
+
+export interface DeletionLedgerEntry {
+  readonly id: string;
+  readonly subjectPseudonym: string;
+  readonly subjectSelectors: Readonly<Record<string, JsonValue>>;
+  readonly deletedAt: Date;
+}
+
 export type AuditChainVerificationIssue =
   | "broken-link"
   | "hash-mismatch"
@@ -55,6 +71,13 @@ export interface AuditStoreProvider extends BaseProvider<"AuditStoreProvider"> {
   migrate(): Promise<void>;
   append(event: AuditEventToAppend): Promise<StoredAuditEvent>;
   readGlobalChain(): Promise<readonly StoredAuditEvent[]>;
+  storeDeletionCertificate(certificate: DeletionCertificateToStore): Promise<void>;
+  appendDeletionLedger(entry: DeletionLedgerEntry): Promise<void>;
+  storeDeletionCompletion(
+    certificate: DeletionCertificateToStore,
+    ledgerEntry: DeletionLedgerEntry,
+  ): Promise<void>;
+  listDeletionLedgerSince(since: Date): Promise<readonly DeletionLedgerEntry[]>;
   close(): Promise<void>;
 }
 

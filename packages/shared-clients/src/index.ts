@@ -38,6 +38,8 @@ export {
   type AuditChainVerificationResult,
   type AuditEventHandler,
   type AuditEventToAppend,
+  type DeletionCertificateToStore,
+  type DeletionLedgerEntry,
   type AuditResult,
   type AuditStoreProvider,
   type StoredAuditEvent,
@@ -50,6 +52,7 @@ export {
   modelProviderContract,
   cacheProviderContract,
   observabilityProviderContract,
+  objectStorageProviderContract,
   piiRedactionProviderContract,
   searchProviderContract,
   secretsProviderContract,
@@ -240,3 +243,7 @@ export {
   type MockSandboxProvider,
 } from "./mocks/sandbox-provider";
 export { MOCK_BROWSER_CAPABILITIES, createMockBrowserProvider } from "./mocks/browser-provider";
+export {
+  createMockObjectStorageProvider,
+  type MockObjectStorageProvider,
+} from "./mocks/object-storage-provider";

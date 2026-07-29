@@ -13,6 +13,7 @@ export default defineConfig({
         "apps/audit-service/src/audit/**/*.ts",
         "apps/audit-service/src/config/**/*.ts",
         "apps/audit-service/src/database/**/*.ts",
+        "apps/audit-service/src/deletion/**/*.ts",
         "apps/audit-service/src/health/**/*.ts"
       ],
       exclude: ["apps/audit-service/src/**/*.spec.ts"],

@@ -14,6 +14,8 @@ import {
   calculateAuditEntryHash,
   type AuditEventToAppend,
   type AuditStoreProvider,
+  type DeletionCertificateToStore,
+  type DeletionLedgerEntry,
   type ProviderHealth,
   type ProviderMetadata,
   type StoredAuditEvent,
@@ -275,6 +277,73 @@ export class PostgresAuditStoreProvider implements AuditStoreProvider {
     } finally {
       client.release();
     }
+  }
+
+  async storeDeletionCertificate(certificate: DeletionCertificateToStore): Promise<void> {
+    await this.#pool.query(
+      `INSERT INTO deletion_certificates
+         (id, tenant_pseudonym, manifest, requested_at, completed_at, verified_by)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [certificate.id, certificate.tenantPseudonym, certificate.manifest,
+        certificate.requestedAt, certificate.completedAt, certificate.verifiedBy],
+    );
+  }
+
+  async appendDeletionLedger(entry: DeletionLedgerEntry): Promise<void> {
+    await this.#pool.query(
+      `INSERT INTO deletion_ledger
+         (id, subject_pseudonym, subject_selectors, deleted_at)
+       VALUES ($1,$2,$3,$4)`,
+      [entry.id, entry.subjectPseudonym, entry.subjectSelectors, entry.deletedAt],
+    );
+  }
+
+  async storeDeletionCompletion(
+    certificate: DeletionCertificateToStore,
+    entry: DeletionLedgerEntry,
+  ): Promise<void> {
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO deletion_ledger
+           (id, subject_pseudonym, subject_selectors, deleted_at)
+         VALUES ($1,$2,$3,$4)`,
+        [entry.id, entry.subjectPseudonym, entry.subjectSelectors, entry.deletedAt],
+      );
+      await client.query(
+        `INSERT INTO deletion_certificates
+           (id, tenant_pseudonym, manifest, requested_at, completed_at, verified_by)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [certificate.id, certificate.tenantPseudonym, certificate.manifest,
+          certificate.requestedAt, certificate.completedAt, certificate.verifiedBy],
+      );
+      await client.query("COMMIT");
+    } catch (error: unknown) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listDeletionLedgerSince(since: Date): Promise<readonly DeletionLedgerEntry[]> {
+    const result = await this.#pool.query<{
+      id: string;
+      subject_pseudonym: string;
+      subject_selectors: Readonly<Record<string, import("@alterx/shared-clients").JsonValue>>;
+      deleted_at: Date;
+    }>(
+      `SELECT id, subject_pseudonym, subject_selectors, deleted_at
+       FROM deletion_ledger WHERE deleted_at >= $1 ORDER BY deleted_at, id`,
+      [since],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      subjectPseudonym: row.subject_pseudonym,
+      subjectSelectors: row.subject_selectors,
+      deletedAt: row.deleted_at,
+    }));
   }
 
   async healthCheck(): Promise<ProviderHealth> {
