@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import pytest
 import sqlalchemy as sa
@@ -18,6 +19,7 @@ from testcontainers.community.postgres import PostgresContainer
 from alembic import command
 from src.db.ids import new_prefixed_id
 from src.ingestion.models import IngestionPayload, ScanResult
+from src.ingestion.normalization import ContentNormalizer, TextAwareNormalizer
 from src.ingestion.pipeline import IngestionPipeline
 from src.ingestion.repository import (
     IngestionRepository,
@@ -71,6 +73,12 @@ def database() -> Generator[DatabaseHarness, None, None]:
                 sa.text(
                     f"GRANT SELECT, INSERT, UPDATE ON ingestion_jobs TO {RUNTIME_ROLE}"
                 )
+            )
+            connection.execute(
+                sa.text(f"GRANT SELECT, INSERT ON documents TO {RUNTIME_ROLE}")
+            )
+            connection.execute(
+                sa.text(f"GRANT SELECT, INSERT ON document_versions TO {RUNTIME_ROLE}")
             )
 
         runtime_url = sa.engine.make_url(admin_url).set(
@@ -131,6 +139,7 @@ def _pipeline(
     max_content_bytes: int = 1024,
     repository: IngestionRepository | None = None,
     scanner: ContentScanner | None = None,
+    normalizer: ContentNormalizer | None = None,
 ) -> IngestionPipeline:
     return IngestionPipeline(
         repository=repository or SqlAlchemyIngestionRepository(database.sessions),
@@ -139,6 +148,7 @@ def _pipeline(
             allowed_content_types=ALLOWED_TYPES,
         ),
         scanner=scanner or DisclosedStubScanner((KNOWN_BAD,)),
+        normalizer=normalizer or TextAwareNormalizer(),
     )
 
 
@@ -169,6 +179,11 @@ class RecordingRepository:
         self._record(str(kwargs["tenant_uuid"]), job.ingestion_job_id)
         return job
 
+    def complete_deduplication(self, **kwargs: object) -> StoredIngestionJob:
+        job = self._delegate.complete_deduplication(**kwargs)  # type: ignore[arg-type]
+        self._record(str(kwargs["tenant_uuid"]), job.ingestion_job_id)
+        return job
+
     def _record(self, tenant_uuid: str, ingestion_job_id: str) -> None:
         with self._sessions.begin() as session:
             session.execute(
@@ -183,7 +198,7 @@ class RecordingRepository:
             self.committed_stages.append(str(stage))
 
 
-def test_upload_walks_all_three_durable_stages(database: DatabaseHarness) -> None:
+def test_upload_walks_all_five_durable_stages(database: DatabaseHarness) -> None:
     tenant_id, tenant_uuid = _new_tenant()
     source_id = _seed_source(database, tenant_uuid)
     recording = RecordingRepository(
@@ -208,10 +223,23 @@ def test_upload_walks_all_three_durable_stages(database: DatabaseHarness) -> Non
 
     assert response.status_code == 202
     body = response.json()
-    assert body["stage"] == "scanned"
+    assert body["stage"] == "deduplicated"
     assert body["stats"]["content_hash"] == hashlib.sha256(content).hexdigest()
-    assert body["stats"]["stage_history"] == ["received", "validated", "scanned"]
-    assert recording.committed_stages == ["received", "validated", "scanned"]
+    assert body["stats"]["stage_history"] == [
+        "received",
+        "validated",
+        "scanned",
+        "normalized",
+        "deduplicated",
+    ]
+    assert body["stats"]["deduplication"]["is_duplicate"] is False
+    assert recording.committed_stages == [
+        "received",
+        "validated",
+        "scanned",
+        "normalized",
+        "deduplicated",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -301,7 +329,7 @@ def test_stub_clean_result_discloses_its_limits(database: DatabaseHarness) -> No
         IngestionPayload(tenant_id, source_id, "text/plain", b"ordinary clean fixture")
     )
 
-    assert result.stage == "scanned"
+    assert result.stage == "deduplicated"
     assert result.stats["scanned_by"] == "stub"
     assert result.stats["scan_limitations"] == [
         "signature_only",
@@ -367,3 +395,134 @@ def test_runtime_role_cannot_read_another_tenants_job(database: DatabaseHarness)
 
     assert hidden_count == 0
     assert visible_count == 1
+
+
+def _dedup_stats(stats: dict[str, object]) -> dict[str, object]:
+    return cast(dict[str, object], stats["deduplication"])
+
+
+def _normalization_stats(stats: dict[str, object]) -> dict[str, object]:
+    return cast(dict[str, object], stats["normalization"])
+
+
+def _tenant_scoped(database: DatabaseHarness, tenant_uuid: str) -> sa.engine.Connection:
+    connection = database.runtime_engine.connect()
+    connection.execute(
+        sa.text("SELECT set_config('app.current_tenant_id', :tenant_id, true)"),
+        {"tenant_id": tenant_uuid},
+    )
+    return connection
+
+
+def test_distinct_content_creates_a_real_document_and_version(
+    database: DatabaseHarness,
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+
+    result = _pipeline(database).ingest(
+        IngestionPayload(tenant_id, source_id, "text/plain", b"a brand new document")
+    )
+
+    assert result.stage == "deduplicated"
+    document_id = _dedup_stats(result.stats)["document_id"]
+
+    with _tenant_scoped(database, tenant_uuid) as connection:
+        document = connection.execute(
+            sa.text(
+                "SELECT source_id, kind, current_version, permissions, status "
+                "FROM documents WHERE id = :id"
+            ),
+            {"id": document_id},
+        ).mappings().one()
+        version = connection.execute(
+            sa.text(
+                "SELECT content_ref, normalized_ref, content_hash, provenance, ingestion_job_id "
+                "FROM document_versions WHERE document_id = :id AND version = 1"
+            ),
+            {"id": document_id},
+        ).mappings().one()
+
+    assert document["source_id"] == source_id
+    assert document["kind"] == "file"
+    assert document["current_version"] == 1
+    assert document["status"] == "active"
+    assert dict(document["permissions"]) == {"visibility": "tenant", "shared_with": []}
+    assert version["content_ref"] != version["normalized_ref"]
+    assert version["content_hash"] == TextAwareNormalizer().normalize(
+        content=b"a brand new document", content_type="text/plain"
+    ).content_hash
+    assert version["ingestion_job_id"] == result.ingestion_job_id
+    provenance = dict(version["provenance"])
+    assert provenance["raw_content_hash"] == hashlib.sha256(b"a brand new document").hexdigest()
+    assert provenance["normalized_by"] == "text-nfc-lines-v1"
+
+
+def test_json_canonicalization_dedups_differently_formatted_duplicates(
+    database: DatabaseHarness,
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    pipeline = _pipeline(database)
+
+    first = pipeline.ingest(
+        IngestionPayload(tenant_id, source_id, "application/json", b'{"a":1,"b":2}')
+    )
+    # Same object, different key order and whitespace -- different raw bytes,
+    # so this is a genuinely new ingestion job (not caught by stage-1's raw
+    # content_hash idempotency), but canonically identical JSON.
+    second = pipeline.ingest(
+        IngestionPayload(tenant_id, source_id, "application/json", b'{  "b": 2, "a": 1  }')
+    )
+
+    assert first.ingestion_job_id != second.ingestion_job_id
+    assert _dedup_stats(first.stats)["is_duplicate"] is False
+    assert _dedup_stats(second.stats)["is_duplicate"] is True
+    assert (
+        _dedup_stats(second.stats)["duplicate_of_document_id"]
+        == _dedup_stats(first.stats)["document_id"]
+    )
+    with _tenant_scoped(database, tenant_uuid) as connection:
+        document_count = connection.scalar(
+            sa.text("SELECT count(*) FROM documents WHERE source_id = :source"),
+            {"source": source_id},
+        )
+    assert document_count == 1
+
+
+def test_text_normalization_dedups_trailing_whitespace_and_blank_line_variants(
+    database: DatabaseHarness,
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    pipeline = _pipeline(database)
+
+    first = pipeline.ingest(
+        IngestionPayload(tenant_id, source_id, "text/plain", b"line one\nline two")
+    )
+    second = pipeline.ingest(
+        IngestionPayload(
+            tenant_id, source_id, "text/plain", b"line one   \r\nline two\r\n\n\n"
+        )
+    )
+
+    assert _dedup_stats(first.stats)["is_duplicate"] is False
+    assert _dedup_stats(second.stats)["is_duplicate"] is True
+
+
+def test_binary_content_normalization_is_an_honest_passthrough(
+    database: DatabaseHarness,
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    png_content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+
+    result = _pipeline(database).ingest(
+        IngestionPayload(tenant_id, source_id, "image/png", png_content)
+    )
+
+    assert result.stage == "deduplicated"
+    normalization = _normalization_stats(result.stats)
+    assert normalization["normalized_by"] == "passthrough"
+    assert normalization["limitations"] == ["no_text_extraction_for_binary_content"]
+    assert normalization["normalized_content_hash"] == hashlib.sha256(png_content).hexdigest()

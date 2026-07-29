@@ -7,7 +7,7 @@ from typing import Protocol, cast
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.db.models import IngestionJob, Source
+from src.db.models import Document, DocumentVersion, IngestionJob, Source
 
 from .models import IngestionStage
 
@@ -66,6 +66,20 @@ class IngestionRepository(Protocol):
         expected_stage: IngestionStage,
         error: dict[str, object],
         stats: dict[str, object] | None = None,
+    ) -> StoredIngestionJob: ...
+
+    def complete_deduplication(
+        self,
+        *,
+        tenant_uuid: str,
+        ingestion_job_id: str,
+        source_id: str,
+        candidate_document_id: str,
+        normalized_content_hash: str,
+        content_ref: str,
+        normalized_ref: str,
+        provenance: dict[str, object],
+        permissions: dict[str, object],
     ) -> StoredIngestionJob: ...
 
 
@@ -177,6 +191,90 @@ class SqlAlchemyIngestionRepository:
             job.error = error
             job.stage = "failed"
             job.completed_at = datetime.now(UTC)
+            session.flush()
+            return self._stored(job)
+
+    def complete_deduplication(
+        self,
+        *,
+        tenant_uuid: str,
+        ingestion_job_id: str,
+        source_id: str,
+        candidate_document_id: str,
+        normalized_content_hash: str,
+        content_ref: str,
+        normalized_ref: str,
+        provenance: dict[str, object],
+        permissions: dict[str, object],
+    ) -> StoredIngestionJob:
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            job = self._get(session, tenant_uuid, ingestion_job_id, for_update=True)
+            if job.stage != "normalized":
+                return self._stored(job)
+
+            scope_id = session.scalar(
+                select(Source.scope_id).where(
+                    Source.tenant_id == tenant_uuid, Source.id == source_id
+                )
+            )
+            if scope_id is None:
+                raise SourceNotFoundError("Source does not exist for requesting tenant")
+
+            existing_document_id = session.scalar(
+                select(DocumentVersion.document_id)
+                .join(Document, Document.id == DocumentVersion.document_id)
+                .where(
+                    Document.tenant_id == tenant_uuid,
+                    Document.scope_id == scope_id,
+                    Document.source_id == source_id,
+                    DocumentVersion.content_hash == normalized_content_hash,
+                )
+                .limit(1)
+            )
+
+            current_stats = dict(job.stats or {})
+            history = list(cast(list[object], current_stats.get("stage_history", [])))
+            history.append("deduplicated")
+
+            if existing_document_id is not None:
+                current_stats["deduplication"] = {
+                    "is_duplicate": True,
+                    "duplicate_of_document_id": existing_document_id,
+                }
+            else:
+                session.add(
+                    Document(
+                        id=candidate_document_id,
+                        tenant_id=tenant_uuid,
+                        scope_id=scope_id,
+                        source_id=source_id,
+                        kind="file",
+                        current_version=1,
+                        permissions=permissions,
+                        status="active",
+                    )
+                )
+                session.flush()
+                session.add(
+                    DocumentVersion(
+                        document_id=candidate_document_id,
+                        version=1,
+                        content_ref=content_ref,
+                        content_hash=normalized_content_hash,
+                        normalized_ref=normalized_ref,
+                        provenance=provenance,
+                        ingestion_job_id=ingestion_job_id,
+                    )
+                )
+                current_stats["deduplication"] = {
+                    "is_duplicate": False,
+                    "document_id": candidate_document_id,
+                }
+
+            current_stats["stage_history"] = history
+            job.stats = current_stats
+            job.stage = "deduplicated"
             session.flush()
             return self._stored(job)
 

@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from src.config import get_settings
 
 from .models import IngestionJobResponse, IngestionPayload
+from .normalization import TextAwareNormalizer
 from .pipeline import IngestionPipeline
 from .repository import SourceNotFoundError, SqlAlchemyIngestionRepository
 from .scanner import DisclosedStubScanner
@@ -44,6 +45,7 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
             allowed_content_types=allowed_content_types,
         ),
         scanner=DisclosedStubScanner(signatures),
+        normalizer=TextAwareNormalizer(),
     )
     try:
         yield

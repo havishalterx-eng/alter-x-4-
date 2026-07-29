@@ -5,6 +5,8 @@ import hashlib
 from src.db.ids import new_prefixed_id, validate_prefixed_id
 
 from .models import IngestionError, IngestionJobResponse, IngestionPayload
+from .normalization import ContentNormalizer
+from .permissions import default_permissions
 from .repository import IngestionRepository, StoredIngestionJob
 from .scanner import ContentScanner
 from .validation import PayloadValidationError, PayloadValidator
@@ -17,10 +19,12 @@ class IngestionPipeline:
         repository: IngestionRepository,
         validator: PayloadValidator,
         scanner: ContentScanner,
+        normalizer: ContentNormalizer,
     ) -> None:
         self._repository = repository
         self._validator = validator
         self._scanner = scanner
+        self._normalizer = normalizer
 
     def ingest(self, payload: IngestionPayload) -> IngestionJobResponse:
         validate_prefixed_id("ten", payload.tenant_id)
@@ -37,7 +41,7 @@ class IngestionPipeline:
             content_bytes=len(payload.content),
             content_type=content_type,
         )
-        if job.stage in {"scanned", "failed"}:
+        if job.stage in {"deduplicated", "failed"}:
             return self._response(job)
 
         if job.stage == "received":
@@ -98,6 +102,48 @@ class IngestionPipeline:
                 expected_stage="validated",
                 target_stage="scanned",
                 stats=scan_stats,
+            )
+
+        # Computed unconditionally (not only inside the "scanned" branch below) so
+        # a resumed job that already reached "normalized" in a prior call still has
+        # `normalized` available -- normalize() is a pure function of the payload,
+        # safe and cheap to recompute on every call.
+        normalized = self._normalizer.normalize(content=payload.content, content_type=content_type)
+
+        if job.stage == "scanned":
+            job = self._repository.transition(
+                tenant_uuid=tenant_uuid,
+                ingestion_job_id=job.ingestion_job_id,
+                expected_stage="scanned",
+                target_stage="normalized",
+                stats={
+                    "normalization": {
+                        "normalized_by": normalized.normalized_by,
+                        "limitations": list(normalized.limitations),
+                        "normalized_content_hash": normalized.content_hash,
+                    }
+                },
+            )
+
+        if job.stage == "normalized":
+            candidate_document_id = new_prefixed_id("doc")
+            job = self._repository.complete_deduplication(
+                tenant_uuid=tenant_uuid,
+                ingestion_job_id=job.ingestion_job_id,
+                source_id=payload.source_id,
+                candidate_document_id=candidate_document_id,
+                normalized_content_hash=normalized.content_hash,
+                content_ref=f"ads-synthetic://{tenant_uuid}/{candidate_document_id}/raw",
+                normalized_ref=f"ads-synthetic://{tenant_uuid}/{candidate_document_id}/normalized",
+                provenance={
+                    "ingestion_job_id": job.ingestion_job_id,
+                    "source_id": payload.source_id,
+                    "content_type": content_type,
+                    "raw_content_hash": content_hash,
+                    "normalized_by": normalized.normalized_by,
+                    "normalization_limitations": list(normalized.limitations),
+                },
+                permissions=default_permissions(),
             )
 
         return self._response(job)
