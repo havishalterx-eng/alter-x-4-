@@ -38,7 +38,7 @@ export const nodeExecutions = pgTable(
     check("node_executions_attempt_check", sql`${table.attempt} >= 1`),
     check(
       "node_executions_status_check",
-      sql`${table.status} IN ('running', 'succeeded', 'failed', 'skipped', 'recovered')`,
+      sql`${table.status} IN ('running', 'succeeded', 'failed', 'blocked_pending_recovery', 'skipped', 'recovered')`,
     ),
     check(
       "node_executions_model_alias_check",

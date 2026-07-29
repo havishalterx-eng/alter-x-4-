@@ -24,6 +24,7 @@ export type NodeExecutionStatus =
   | "running"
   | "succeeded"
   | "failed"
+  | "blocked_pending_recovery"
   | "skipped"
   | "recovered";
 
@@ -215,6 +216,16 @@ export class NodeExecutionLedgerService {
     await this.transition(request, "failed", error, null);
   }
 
+  async recordBlockedPendingRecovery(
+    request: Pick<NodeExecutionStart, "tenantId" | "runId" | "nodeExecutionId">,
+    reason: string,
+  ): Promise<void> {
+    await this.transition(request, "blocked_pending_recovery", {
+      code: "VERIFICATION_BLOCKED_PENDING_RECOVERY",
+      detail: reason,
+    }, null);
+  }
+
   async list(
     tenantIdInput: string,
     runId: string,
@@ -337,7 +348,7 @@ export class NodeExecutionLedgerService {
 
   private async transition(
     request: Pick<NodeExecutionStart, "tenantId" | "runId" | "nodeExecutionId">,
-    status: "succeeded" | "failed",
+    status: "succeeded" | "failed" | "blocked_pending_recovery",
     error: Record<string, unknown> | null,
     outputRef: string | null,
   ): Promise<void> {

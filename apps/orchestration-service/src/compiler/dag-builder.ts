@@ -274,7 +274,8 @@ export function compileTaskSkeletonToDag(
     }
   }
 
-  const waves = computeWaves(skeleton, nodesByKey);
+  injectVerificationGates(nodes, edges, skeleton.entry_point);
+  const waves = computeWaves(nodes, edges);
 
   const dag: CompiledDag = {
     schema_version: dagSchemaVersion,
@@ -297,18 +298,69 @@ export function compileTaskSkeletonToDag(
   return validated.data;
 }
 
+/**
+ * Every ToolCall/SandboxExec requires a preceding result to verify. A source
+ * external action therefore has no safe edge and is rejected rather than
+ * silently bypassing the verification law.
+ */
+function injectVerificationGates(
+  nodes: CompiledDag["nodes"],
+  edges: CompiledDag["edges"],
+  entryPoint: string,
+): void {
+  const externalActions = nodes.filter((node) => node.type === "ToolCall" || node.type === "SandboxExec");
+  let gateIndex = 0;
+  for (const action of externalActions) {
+    const incoming = edges.filter((edge) => edge.to === action.key);
+    if (incoming.length === 0) {
+      const entryHint = action.key === entryPoint ? " entry point" : "";
+      throw new CompilerValidationError(
+        `External action "${action.key}" cannot be a${entryHint} source node: no upstream output exists to verify`,
+      );
+    }
+    for (const edge of incoming) {
+      const gateKey = `verify_step_${gateIndex}`;
+      gateIndex += 1;
+      nodes.push({
+        key: gateKey,
+        type: "Gate",
+        config: {
+          verification: {
+            source_node_key: edge.from,
+            protected_node_key: action.key,
+            policy: "provisional-quality-pass-and-noncritical-safety",
+          },
+        },
+        metadata: { ui: {} },
+      });
+      const edgeIndex = edges.indexOf(edge);
+      edges.splice(edgeIndex, 1,
+        { ...edge, key: `${edge.from}-to-${gateKey}`, to: gateKey },
+        {
+          key: `${gateKey}-to-${action.key}`,
+          from: gateKey,
+          to: action.key,
+          kind: "conditional",
+          condition: { expression: "true", language: "cel" },
+        },
+      );
+    }
+  }
+}
+
 function computeWaves(
-  skeleton: TaskSkeleton,
-  nodesByKey: Map<string, TaskSkeletonNode>,
+  nodes: CompiledDag["nodes"],
+  edges: CompiledDag["edges"],
 ): CompiledDag["waves"] {
+  const dependencies = new Map(nodes.map((node) => [node.key, new Set<string>()]));
+  for (const edge of edges) dependencies.get(edge.to)?.add(edge.from);
   const waveIndexByNode = new Map<string, number>();
-  const remaining = new Set(nodesByKey.keys());
+  const remaining = new Set(nodes.map((node) => node.key));
   let waveIndex = 0;
 
   while (remaining.size > 0) {
     const ready = [...remaining].filter((key) => {
-      const node = nodesByKey.get(key);
-      return node !== undefined && node.depends_on.every((dep) => waveIndexByNode.has(dep));
+      return [...(dependencies.get(key) ?? [])].every((dep) => waveIndexByNode.has(dep));
     });
 
     if (ready.length === 0) {
@@ -334,8 +386,7 @@ function computeWaves(
 
     const dependsOnWaveIndexes = new Set<number>();
     for (const key of nodeKeys) {
-      const node = nodesByKey.get(key);
-      for (const dependency of node?.depends_on ?? []) {
+      for (const dependency of dependencies.get(key) ?? []) {
         const dependencyWave = waveIndexByNode.get(dependency);
         if (dependencyWave !== undefined) {
           dependsOnWaveIndexes.add(dependencyWave);

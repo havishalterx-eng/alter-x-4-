@@ -32,6 +32,7 @@ describe("orchestration migration files", () => {
       "0015_create_run_outcomes.sql",
       "0016_create_approvals.sql",
       "0017_allow_pending_recovery_policy.sql",
+      "0018_add_blocked_pending_recovery_status.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -56,6 +57,7 @@ describe("orchestration migration files", () => {
       "0015_drop_run_outcomes.sql",
       "0016_drop_approvals.sql",
       "0017_require_recovery_policy.sql",
+      "0018_remove_blocked_pending_recovery_status.sql",
     ]);
   });
 

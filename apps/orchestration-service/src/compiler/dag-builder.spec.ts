@@ -12,9 +12,9 @@ function sequentialSkeleton(): TaskSkeleton {
     version: "1",
     entry_point: "node_a",
     nodes: [
-      { key: "node_a", type: "tool", config: { component: "Provisioning" }, depends_on: [] },
-      { key: "node_b", type: "llm", config: {}, depends_on: ["node_a"] },
-      { key: "node_c", type: "tool", config: {}, depends_on: ["node_b"] },
+      { key: "node_a", type: "llm", config: {}, depends_on: [] },
+      { key: "node_b", type: "tool", config: { component: "Provisioning" }, depends_on: ["node_a"] },
+      { key: "node_c", type: "llm", config: {}, depends_on: ["node_b"] },
     ],
   };
 }
@@ -93,9 +93,10 @@ describe("compileTaskSkeletonToDag", () => {
     const dag = compileTaskSkeletonToDag(sequentialSkeleton(), "v1");
 
     expect(dag.nodes.map((n) => [n.key, n.type])).toEqual([
-      ["node_a", "ToolCall"],
-      ["node_b", "LLMTask"],
-      ["node_c", "ToolCall"],
+      ["node_a", "LLMTask"],
+      ["node_b", "ToolCall"],
+      ["node_c", "LLMTask"],
+      ["verify_step_0", "Gate"],
     ]);
     for (const node of dag.nodes) {
       expect(node.metadata).toEqual({ ui: {} });
@@ -110,8 +111,8 @@ describe("compileTaskSkeletonToDag", () => {
 
   it("preserves canonical ToolCall credential_ref into compiled config", () => {
     const skeleton = sequentialSkeleton();
-    skeleton.nodes[0] = {
-      ...skeleton.nodes[0]!,
+    skeleton.nodes[1] = {
+      ...skeleton.nodes[1]!,
       config: {
         tool_name: "search.web",
         arguments: { query: "AlterX" },
@@ -122,7 +123,7 @@ describe("compileTaskSkeletonToDag", () => {
 
     const dag = compileTaskSkeletonToDag(skeleton, "v1");
 
-    expect(dag.nodes[0]?.config).toMatchObject({
+    expect(dag.nodes.find((node) => node.key === "node_b")?.config).toMatchObject({
       tool_name: "search.web",
       credential_ref:
         "/alter/prod/tenant/ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab/integration/search/access-token",
@@ -139,7 +140,8 @@ describe("compileTaskSkeletonToDag", () => {
     const dag = compileTaskSkeletonToDag(sequentialSkeleton(), "v1");
 
     expect(dag.edges).toEqual([
-      { key: "node_a-to-node_b", from: "node_a", to: "node_b", kind: "sequential" },
+      { key: "node_a-to-verify_step_0", from: "node_a", to: "verify_step_0", kind: "sequential" },
+      { key: "verify_step_0-to-node_b", from: "verify_step_0", to: "node_b", kind: "conditional", condition: { expression: "true", language: "cel" } },
       { key: "node_b-to-node_c", from: "node_b", to: "node_c", kind: "sequential" },
     ]);
   });
@@ -159,8 +161,9 @@ describe("compileTaskSkeletonToDag", () => {
 
     expect(dag.waves).toEqual([
       { key: "wave_0", order: 0, node_keys: ["node_a"], depends_on: [] },
-      { key: "wave_1", order: 1, node_keys: ["node_b"], depends_on: ["wave_0"] },
-      { key: "wave_2", order: 2, node_keys: ["node_c"], depends_on: ["wave_1"] },
+      { key: "wave_1", order: 1, node_keys: ["verify_step_0"], depends_on: ["wave_0"] },
+      { key: "wave_2", order: 2, node_keys: ["node_b"], depends_on: ["wave_1"] },
+      { key: "wave_3", order: 3, node_keys: ["node_c"], depends_on: ["wave_2"] },
     ]);
   });
 
@@ -226,7 +229,7 @@ describe("compileTaskSkeletonToDag", () => {
     const skeleton: TaskSkeleton = {
       version: "1",
       entry_point: "only",
-      nodes: [{ key: "only", type: "tool", config: {}, depends_on: [] }],
+      nodes: [{ key: "only", type: "llm", config: {}, depends_on: [] }],
     };
     const dag = compileTaskSkeletonToDag(skeleton, "v1");
 
@@ -235,6 +238,27 @@ describe("compileTaskSkeletonToDag", () => {
     expect(dag.waves).toEqual([
       { key: "wave_0", order: 0, node_keys: ["only"], depends_on: [] },
     ]);
+  });
+
+  it("inserts a verification Gate before every external action edge", () => {
+    const dag = compileTaskSkeletonToDag(sequentialSkeleton(), "v1");
+    const gate = dag.nodes.find((node) => node.key === "verify_step_0");
+
+    expect(gate).toMatchObject({
+      type: "Gate",
+      config: { verification: { source_node_key: "node_a", protected_node_key: "node_b" } },
+    });
+    expect(dag.edges).toContainEqual({
+      key: "verify_step_0-to-node_b", from: "verify_step_0", to: "node_b",
+      kind: "conditional", condition: { expression: "true", language: "cel" },
+    });
+  });
+
+  it("rejects an external action entry point with no output to verify", () => {
+    const skeleton: TaskSkeleton = {
+      version: "1", entry_point: "unsafe", nodes: [{ key: "unsafe", type: "tool", config: {}, depends_on: [] }],
+    };
+    expect(() => compileTaskSkeletonToDag(skeleton, "v1")).toThrow(/no upstream output exists to verify/);
   });
 
   // -------------------------------------------------------------------------
@@ -387,7 +411,7 @@ describe("compileTaskSkeletonToDag", () => {
       nodes: [
         {
           key: "node_a",
-          type: "tool",
+          type: "llm",
           config: {
             component: "Provisioning",
             metadata_ui: { position_x: 100, position_y: 200, label: "Provision" },
@@ -413,7 +437,7 @@ describe("compileTaskSkeletonToDag", () => {
       nodes: [
         {
           key: "node_a",
-          type: "tool",
+          type: "llm",
           config: { component: "Provisioning", metadata_ui: { x: 1 } },
           depends_on: [],
         },
@@ -441,7 +465,7 @@ describe("compileTaskSkeletonToDag", () => {
       nodes: [
         {
           key: "node_a",
-          type: "tool",
+          type: "llm",
           config: { metadata_ui: "not an object" },
           depends_on: [],
         },
@@ -494,7 +518,7 @@ describe("compileTaskSkeletonToDag", () => {
       nodes: [
         {
           key: "node_a",
-          type: "tool",
+          type: "llm",
           config: {
             metadata_ui: {
               position: { x: 10, y: 20 },

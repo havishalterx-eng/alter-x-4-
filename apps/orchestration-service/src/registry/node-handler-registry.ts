@@ -18,6 +18,7 @@ import { SandboxExecHandler } from "./handlers/sandbox-exec.handler";
 import { SynthesisHandler } from "./handlers/synthesis.handler";
 import { ToolCallHandler } from "./handlers/toolcall.handler";
 import { YamlImportHandler } from "./handlers/yaml-import.handler";
+import type { VerificationGateReader } from "./verification-gate-reader";
 
 export class NodeTypeNotImplementedError extends Error {
   constructor(nodeType: string) {
@@ -87,6 +88,7 @@ export interface RuntimeNodeHandlerProviders {
   readonly sandboxService: SandboxExecuteHandler;
   readonly queueProvider: QueueProvider;
   readonly approvalRequester: ApprovalRequester;
+  readonly verificationGateReader: VerificationGateReader;
 }
 
 /** Single runtime composition list; catalog-implemented handlers live here. */
@@ -94,7 +96,7 @@ export function createRuntimeNodeHandlerRegistry(
   providers: RuntimeNodeHandlerProviders,
 ): NodeHandlerRegistry {
   return new NodeHandlerRegistry([
-    new GateHandler(),
+    new GateHandler(providers.verificationGateReader),
     new MergeHandler(),
     new PubSubHandler(providers.queueProvider),
     new GroupChatHandler(),

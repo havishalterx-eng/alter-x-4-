@@ -84,8 +84,8 @@ function skeletonJson(): string {
     version: "1",
     entry_point: "node_a",
     nodes: [
-      { key: "node_a", type: "tool", config: {}, depends_on: [] },
-      { key: "node_b", type: "llm", config: {}, depends_on: ["node_a"] },
+      { key: "node_a", type: "llm", config: {}, depends_on: [] },
+      { key: "node_b", type: "tool", config: {}, depends_on: ["node_a"] },
     ],
   });
 }
@@ -134,7 +134,7 @@ describe("GraphCompilerService.compileWorkflow", () => {
     const dag = JSON.parse(response.compiled_dag_json);
 
     expect(dag.entry_node_keys).toEqual(["node_a"]);
-    expect(dag.nodes).toHaveLength(2);
+    expect(dag.nodes).toHaveLength(3);
   });
 
   it("increments version on a second compile of the same workflow", async () => {

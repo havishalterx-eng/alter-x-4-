@@ -127,6 +127,13 @@
       "when": 1784861017000,
       "tag": "0017_allow_pending_recovery_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1784861018000,
+      "tag": "0018_add_blocked_pending_recovery_status",
+      "breakpoints": true
     }
   ]
 }

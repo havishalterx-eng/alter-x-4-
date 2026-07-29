@@ -118,6 +118,14 @@ export class NodeexecService {
       const outputJson = JSON.stringify(result.output);
       const metadataJson = JSON.stringify(result.metadata ?? {});
 
+      if (result.metadata?.["execution_status"] === "blocked_pending_recovery") {
+        await this.ledger.recordBlockedPendingRecovery(
+          { tenantId: request.tenant_id, runId: request.run_id, nodeExecutionId: request.node_execution_id },
+          String(result.output["reason"] ?? "verification blocked external action"),
+        );
+        return { output_json: outputJson, metadata_json: metadataJson };
+      }
+
       if (result.metadata?.["execution_status"] === "pending_approval") {
         // HEAL-7: this node_execution is not done -- it stays 'running'
         // until FinalizeApprovalNode resolves it. Do not call recordSucceeded/

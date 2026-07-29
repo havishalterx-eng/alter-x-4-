@@ -47,6 +47,7 @@ import { loadRunLauncherEnvironment } from "./config/run-launcher-environment";
 import { ApprovalsController } from "./approvals/approvals.controller";
 import { ApprovalsService } from "./approvals/approvals.service";
 import { createRuntimeNodeHandlerRegistry } from "./registry/node-handler-registry";
+import { PostgresVerificationGateReader } from "./registry/verification-gate-reader";
 import { BlackboardGrpcService } from "./blackboard/blackboard-grpc.service";
 import { BlackboardService } from "./blackboard/blackboard.service";
 import { parseRedisHostPort } from "./config/blackboard-environment";
@@ -268,6 +269,7 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
               return { approvalId: created.id, expiryAt: created.expiryAt };
             },
           },
+          verificationGateReader: new PostgresVerificationGateReader(store),
         });
         const ledger = new NodeExecutionLedgerService(store);
         return new NodeexecService(registry, ledger, new RunStreamEventService(store));

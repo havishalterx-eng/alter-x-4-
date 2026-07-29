@@ -312,7 +312,7 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
 
     expect(second.workflow_version_id).not.toBe(first.workflow_version_id);
     const secondDag = JSON.parse(second.compiled_dag_json) as { nodes: unknown[] };
-    expect(secondDag.nodes).toHaveLength(2);
+    expect(secondDag.nodes).toHaveLength(3);
 
     const versions = await storeProvider.withTenant(BARE_TENANT_ID, (tx) =>
       tx.query<{ version: number }>(
