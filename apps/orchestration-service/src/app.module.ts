@@ -521,17 +521,15 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
   const compiler = new GraphCompilerService(store);
   const planner = new PlannerClient({ baseUrl: recoveryConfig.plannerBaseUrl });
   const runLauncherConfig = loadRunLauncherEnvironment(process.env);
-  const approvals = new ApprovalsService(
-    store,
-    new TemporalDurableExecutionProvider({
-      address: runLauncherConfig.temporalAddress,
-      namespace: runLauncherConfig.temporalNamespace,
-      taskQueue: runLauncherConfig.taskQueue,
-      ...(runLauncherConfig.temporalApiKey === undefined
-        ? {}
-        : { apiKey: runLauncherConfig.temporalApiKey }),
-    }),
-  );
+  const durable = new TemporalDurableExecutionProvider({
+    address: runLauncherConfig.temporalAddress,
+    namespace: runLauncherConfig.temporalNamespace,
+    taskQueue: runLauncherConfig.taskQueue,
+    ...(runLauncherConfig.temporalApiKey === undefined
+      ? {}
+      : { apiKey: runLauncherConfig.temporalApiKey }),
+  });
+  const approvals = new ApprovalsService(store, durable);
   const runReader = new PostgresRecoveryRunReader(store);
   const dispatch = new RecoveryDispatchService(
     modelGateway,
@@ -539,6 +537,7 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
     planner,
     approvals,
     runReader,
+    durable,
   );
   return new RecoveryPolicyService(store, modelGateway, dispatch);
 }

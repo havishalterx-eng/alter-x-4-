@@ -184,17 +184,19 @@ export class NodeexecService {
       }
       return { output_json: outputJson, metadata_json: metadataJson };
     } catch (error: unknown) {
+      const failure = persistedError(error);
       await this.ledger.recordFailed(
         {
           tenantId: request.tenant_id,
           runId: request.run_id,
           nodeExecutionId: request.node_execution_id,
         },
-        persistedError(error),
+        failure,
       );
       await this.#appendBestEffort(failedEvent(request, nodeType.data, started.attempt, {
         error_code: "NODE_EXECUTION_FAILED", message: "Node execution failed", retryable: false,
       }), request);
+      await this.#triggerRecoveryForFailureBestEffort(request, failure);
       throw error;
     }
   }
@@ -226,6 +228,37 @@ export class NodeexecService {
       // recovery_actions row if this best-effort trigger fails. The block
       // write above already durably succeeded either way.
       console.error("recovery trigger failed for blocked node", {
+        node_execution_id: request.node_execution_id,
+        run_id: request.run_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Self-Healing exit-check closure: genuine node exceptions (thrown, not
+   * Gate-blocked) previously never reached HEAL-5/6 at all, so retry/backoff
+   * (and every other strategy) could never actually fire on a real failure
+   * class like timeout/infrastructure_failure/rate_limit -- only against
+   * Gate-blocked nodes. This is the same best-effort contract as the
+   * blocked-node trigger: the failed ledger write above already succeeded
+   * durably, so a trigger failure here must not crash the node's response
+   * to the Executor.
+   */
+  async #triggerRecoveryForFailureBestEffort(
+    request: NodeexecExecuteNodeRequest,
+    failure: { readonly code: string; readonly detail: string },
+  ): Promise<void> {
+    try {
+      await this.recovery?.triggerForFailedNode({
+        tenantId: request.tenant_id,
+        runId: request.run_id,
+        nodeExecutionId: request.node_execution_id,
+        errorCode: failure.code,
+        detail: failure.detail,
+      });
+    } catch (error: unknown) {
+      console.error("recovery trigger failed for failed node", {
         node_execution_id: request.node_execution_id,
         run_id: request.run_id,
         error: error instanceof Error ? error.message : String(error),
@@ -431,7 +464,7 @@ function modelAliasFromConfigJson(configJson: string): { readonly modelAlias?: "
   }
 }
 
-function persistedError(error: unknown): Record<string, unknown> {
+function persistedError(error: unknown): { readonly code: string; readonly detail: string } {
   if (error instanceof NodeHandlerValidationError) {
     return { code: "NODE_HANDLER_VALIDATION_FAILED", detail: error.message };
   }

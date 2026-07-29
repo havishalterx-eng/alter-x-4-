@@ -10,6 +10,7 @@ import { NodeHandlerRegistry } from "./node-handler-registry";
 import { NodeexecService } from "./nodeexec.service";
 import { NodeExecutionLedgerService } from "../runs/node-execution-ledger.service";
 import { RunStreamEventService } from "../runs/run-stream-event.service";
+import type { RecoveryTriggerService } from "../recovery/recovery-trigger.service";
 
 const TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const RUN_ID = "run_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
@@ -141,6 +142,67 @@ describe("NodeexecService.executeNode", () => {
         inputs_json: "{}",
       }),
     ).rejects.toThrow(persistenceFailure);
+  });
+
+  it("triggers recovery for a genuine node exception, not only for Gate-blocked nodes", async () => {
+    const ledger = fakeLedger();
+    const recovery = {
+      triggerForBlockedNode: vi.fn().mockResolvedValue(undefined),
+      triggerForFailedNode: vi.fn().mockResolvedValue(undefined),
+    } as unknown as RecoveryTriggerService;
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]),
+      ledger,
+      undefined,
+      recovery,
+    );
+
+    await expect(
+      nodeexec.executeNode({
+        tenant_id: TENANT_ID,
+        run_id: RUN_ID,
+        node_execution_id: NODE_EXECUTION_ID,
+        node_key: "node_merge",
+        node_type: "Merge",
+        config_json: "{not json",
+        inputs_json: "{}",
+      }),
+    ).rejects.toThrow(NodeHandlerValidationError);
+
+    expect(recovery.triggerForFailedNode).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      runId: RUN_ID,
+      nodeExecutionId: NODE_EXECUTION_ID,
+      errorCode: "NODE_HANDLER_VALIDATION_FAILED",
+      detail: expect.stringContaining("config_json is not valid JSON"),
+    });
+    expect(recovery.triggerForBlockedNode).not.toHaveBeenCalled();
+  });
+
+  it("does not let a recovery-trigger failure mask the real node failure (best-effort)", async () => {
+    const ledger = fakeLedger();
+    const recovery = {
+      triggerForBlockedNode: vi.fn().mockResolvedValue(undefined),
+      triggerForFailedNode: vi.fn().mockRejectedValue(new Error("trigger unreachable")),
+    } as unknown as RecoveryTriggerService;
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]),
+      ledger,
+      undefined,
+      recovery,
+    );
+
+    await expect(
+      nodeexec.executeNode({
+        tenant_id: TENANT_ID,
+        run_id: RUN_ID,
+        node_execution_id: NODE_EXECUTION_ID,
+        node_key: "node_merge",
+        node_type: "Merge",
+        config_json: "{not json",
+        inputs_json: "{}",
+      }),
+    ).rejects.toThrow(NodeHandlerValidationError);
   });
 
   it("rejects malformed inputs_json", async () => {

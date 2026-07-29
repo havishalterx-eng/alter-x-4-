@@ -38,14 +38,15 @@ function mintPrefixedUuidV7(prefix: string, now = Date.now()): string {
 }
 
 /**
- * Closes the real gap between HEAL-4 (writes node_executions.status =
- * 'blocked_pending_recovery') and HEAL-5/6 (only respond if invoked --
- * nothing called them automatically before this). Best-effort by design:
- * the blocked_pending_recovery ledger write already succeeded durably
- * before this runs, so a trigger failure here must not crash the node's
- * response to the Executor. Known gap: there is no background reconciler
- * yet that re-scans blocked nodes lacking a recovery_actions row if this
- * one-shot trigger fails -- that would be a real, disclosed follow-up.
+ * Closes the real gap between node execution failures (Gate-blocked via
+ * HEAL-4, or a genuine exception/ProblemDetails failure) and HEAL-5/6 (only
+ * respond if invoked -- nothing called them automatically before this).
+ * Best-effort by design: the durable ledger write (blocked or failed)
+ * already succeeded before either trigger method runs, so a trigger
+ * failure here must not crash the node's response to the Executor. Known
+ * gap: there is no background reconciler yet that re-scans nodes lacking a
+ * recovery_actions row if this one-shot trigger fails -- that would be a
+ * real, disclosed follow-up.
  */
 export class RecoveryTriggerService {
   constructor(
@@ -59,11 +60,39 @@ export class RecoveryTriggerService {
     readonly nodeExecutionId: string;
     readonly reason: string;
   }): Promise<void> {
+    return this.#trigger(params, "VERIFICATION_BLOCKED_PENDING_RECOVERY", params.reason);
+  }
+
+  /**
+   * Self-Healing exit-check closure: genuine node exceptions/ProblemDetails
+   * failures previously never reached HEAL-5/6 at all -- only Gate-blocked
+   * nodes did (see class docstring). Without this, strategies whose policy
+   * table entries target real failure classes (retry/backoff on
+   * timeout/infrastructure_failure/rate_limit) could never actually fire in
+   * a live run. Real error_code/detail passed through instead of the
+   * Gate-block's hardcoded synthetic one, so the classifier sees the real
+   * failure, not a fabricated "verification blocked" reason.
+   */
+  async triggerForFailedNode(params: {
+    readonly tenantId: string; // ten_ prefixed
+    readonly runId: string;
+    readonly nodeExecutionId: string;
+    readonly errorCode: string;
+    readonly detail: string;
+  }): Promise<void> {
+    return this.#trigger(params, params.errorCode, params.detail);
+  }
+
+  async #trigger(
+    params: { readonly tenantId: string; readonly runId: string; readonly nodeExecutionId: string },
+    errorCode: string,
+    detail: string,
+  ): Promise<void> {
     const errorJson = JSON.stringify({
       trace_id: mintPrefixedUuidV7("trc"),
       request_id: mintPrefixedUuidV7("req"),
-      error_code: "VERIFICATION_BLOCKED_PENDING_RECOVERY",
-      detail: params.reason,
+      error_code: errorCode,
+      detail,
     });
     const classified = await this.classifier.classifyFailure({
       tenant_id: params.tenantId,

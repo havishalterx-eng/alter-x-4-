@@ -15,6 +15,8 @@ export interface ExecutorWorkflowInput {
   readonly tenantId: string; // ten_ prefixed UUIDv7
   readonly runId: string; // run_ prefixed UUIDv7
   readonly compiledDagJson: string;
+  /** Defaults to NODE_RECOVERY_TIMEOUT_MS; overridable for tests. */
+  readonly nodeRecoveryTimeoutMs?: number;
 }
 
 export interface ExecutorWorkflowResult {
@@ -39,9 +41,35 @@ export const approvalDecidedSignal = defineSignal<[ApprovalDecisionSignal]>(
   "approvalDecided",
 );
 
+export interface NodeRetryDecision {
+  readonly nodeExecutionId: string; // node_ prefixed UUIDv7
+  readonly action: "retry" | "give_up";
+}
+
+/**
+ * Durable pause point for a genuinely failed node (Self-Healing exit-check
+ * closure -- retry/backoff strategies). Sent by RecoveryDispatchService
+ * once HEAL-6's policy table selects `retry` or `backoff` for this node's
+ * failure. Mirrors approvalDecidedSignal's exact pattern: the workflow's
+ * condition() wait survives a worker restart, replayed from Temporal
+ * history, same as every other durable pause in this file.
+ */
+export const nodeRetryDecidedSignal = defineSignal<[NodeRetryDecision]>(
+  "nodeRetryDecided",
+);
+
+/**
+ * Unlike HumanApproval, a failed node has no natural expiry of its own --
+ * this reuses HEAL-6's ask_user approval-expiry convention (86400s) for
+ * consistency rather than inventing an unrelated number.
+ */
+const NODE_RECOVERY_TIMEOUT_MS = 86_400_000;
+
 const EXECUTOR_WORKFLOW_VALIDATION_ERROR_TYPE = "ExecutorWorkflowValidationError";
 const HUMAN_APPROVAL_REJECTED_ERROR_TYPE = "HumanApprovalRejectedError";
 const HUMAN_APPROVAL_EXPIRED_ERROR_TYPE = "HumanApprovalExpiredError";
+const NODE_RECOVERY_GIVEN_UP_ERROR_TYPE = "NodeRecoveryGivenUpError";
+const NODE_RECOVERY_TIMED_OUT_ERROR_TYPE = "NodeRecoveryTimedOutError";
 
 /**
  * A plain `throw new Error(...)` inside workflow code is treated by
@@ -148,6 +176,84 @@ function errorSummaryJson(error: unknown): string {
   return JSON.stringify({ name: "UnknownError", message: "Executor workflow failed" });
 }
 
+/**
+ * Calls executeNode for one node, and on a genuine activity failure
+ * (already recorded as node_executions.status='failed' by
+ * NodeexecService's own catch-and-rethrow before this ever sees it),
+ * pauses instead of propagating immediately -- mirroring
+ * awaitApprovalDecision's exact condition()-wait shape, but for a failed
+ * node awaiting a recovery decision (HEAL-6's retry/backoff strategies)
+ * rather than an approval. Known gap, disclosed: a node whose handler
+ * returns a ProblemDetails-shaped "soft failure" (status >= 400) without
+ * throwing is NOT covered by this -- that path returns normally today and
+ * is a separate, not-yet-fixed instance of the same class of bug the Gate
+ * enforcement fix closed. Only genuine thrown/exhausted-retry activity
+ * failures pause here.
+ */
+async function executeNodeWithRecovery(
+  input: ExecutorWorkflowInput,
+  node: CompiledDag["nodes"][number],
+  predecessorKeys: readonly string[],
+  approvalDecisions: Map<string, ApprovalDecisionSignal>,
+  nodeRetryDecisions: Map<string, NodeRetryDecision>,
+): Promise<Record<string, unknown>> {
+  const nodeExecId = nodeExecutionId();
+  try {
+    const result = await executeNode({
+      tenantId: input.tenantId,
+      runId: input.runId,
+      nodeExecutionId: nodeExecId,
+      nodeKey: node.key,
+      nodeType: node.type,
+      configJson: JSON.stringify(node.config),
+      predecessorKeys: [...predecessorKeys],
+    });
+
+    if (result.pending === true) {
+      return awaitApprovalDecision(
+        input,
+        node.key,
+        nodeExecId,
+        result.expiresInMs ?? 0,
+        approvalDecisions,
+      );
+    }
+    return JSON.parse(result.outputJson) as Record<string, unknown>;
+  } catch (error: unknown) {
+    const decided = await condition(
+      () => nodeRetryDecisions.has(nodeExecId),
+      input.nodeRecoveryTimeoutMs ?? NODE_RECOVERY_TIMEOUT_MS,
+    );
+    const decision = decided ? nodeRetryDecisions.get(nodeExecId) : undefined;
+
+    if (decision === undefined) {
+      throw ApplicationFailure.nonRetryable(
+        `Node "${node.key}" failed and timed out awaiting a recovery decision`,
+        NODE_RECOVERY_TIMED_OUT_ERROR_TYPE,
+        errorSummaryJson(error),
+      );
+    }
+    if (decision.action === "give_up") {
+      throw ApplicationFailure.nonRetryable(
+        `Node "${node.key}" failed and recovery gave up`,
+        NODE_RECOVERY_GIVEN_UP_ERROR_TYPE,
+        errorSummaryJson(error),
+      );
+    }
+    // "retry" -- re-attempt with a fresh node_execution_id. The ledger
+    // (NodeExecutionLedgerService.recordStarted) increments `attempt` for
+    // the same dag_node_id automatically; this recursion is what produces
+    // that second (or third, ...) real attempt.
+    return executeNodeWithRecovery(
+      input,
+      node,
+      predecessorKeys,
+      approvalDecisions,
+      nodeRetryDecisions,
+    );
+  }
+}
+
 export async function executorWorkflow(
   input: ExecutorWorkflowInput,
 ): Promise<ExecutorWorkflowResult> {
@@ -157,6 +263,10 @@ export async function executorWorkflow(
   const approvalDecisions = new Map<string, ApprovalDecisionSignal>();
   setHandler(approvalDecidedSignal, (decision) => {
     approvalDecisions.set(decision.nodeExecutionId, decision);
+  });
+  const nodeRetryDecisions = new Map<string, NodeRetryDecision>();
+  setHandler(nodeRetryDecidedSignal, (decision) => {
+    nodeRetryDecisions.set(decision.nodeExecutionId, decision);
   });
 
   try {
@@ -203,31 +313,14 @@ export async function executorWorkflow(
             return [nodeKey, gatedOffOutput(gateNodeKeys)] as const;
           }
 
-          const nodeExecId = nodeExecutionId();
-          const result = await executeNode({
-            tenantId: input.tenantId,
-            runId: input.runId,
-            nodeExecutionId: nodeExecId,
-            nodeKey: node.key,
-            nodeType: node.type,
-            configJson: JSON.stringify(node.config),
-            predecessorKeys: directPredecessorKeys(dag, nodeKey),
-          });
-
-          if (result.pending === true) {
-            return [
-              nodeKey,
-              await awaitApprovalDecision(
-                input,
-                node.key,
-                nodeExecId,
-                result.expiresInMs ?? 0,
-                approvalDecisions,
-              ),
-            ] as const;
-          }
-
-          return [nodeKey, JSON.parse(result.outputJson) as Record<string, unknown>] as const;
+          const output = await executeNodeWithRecovery(
+            input,
+            node,
+            directPredecessorKeys(dag, nodeKey),
+            approvalDecisions,
+            nodeRetryDecisions,
+          );
+          return [nodeKey, output] as const;
         }),
       );
 

@@ -5,6 +5,7 @@ import type { RootCauseEstimate } from "@alterx/contracts";
 import {
   RecoveryDispatchService,
   type GraphCompilerHandler,
+  type NodeRetrySignaler,
   type PlannerReplanHandler,
   type RecoveryRunReader,
 } from "./recovery-dispatch.service";
@@ -49,6 +50,7 @@ function buildService(overrides: {
   createPending?: (request: unknown) => Promise<{ readonly id: string; readonly expiryAt: string }>;
   loadCompiledDagJson?: RecoveryRunReader["loadCompiledDagJson"];
   writeTerminalFailed?: RecoveryRunReader["writeTerminalFailed"];
+  signalWorkflow?: NodeRetrySignaler["signalWorkflow"];
 } = {}): RecoveryDispatchService {
   const modelGateway = {
     invoke:
@@ -87,12 +89,19 @@ function buildService(overrides: {
       }),
     writeTerminalFailed: overrides.writeTerminalFailed ?? vi.fn().mockResolvedValue(undefined),
   };
+  const nodeRetrySignaler: NodeRetrySignaler = {
+    signalWorkflow: overrides.signalWorkflow ?? vi.fn().mockResolvedValue(undefined),
+  };
   return new RecoveryDispatchService(
     modelGateway as never,
     compiler,
     planner,
     approvals as never,
     runs,
+    nodeRetrySignaler,
+    // Real delay, kept tiny here so no test pays the real 5s default --
+    // the dedicated backoff test below asserts the delay actually happens.
+    5,
   );
 }
 
@@ -188,6 +197,57 @@ describe("RecoveryDispatchService", () => {
     expect(result.outcome).toBe("resolved");
     expect(replan).toHaveBeenCalledTimes(1);
     expect(compileWorkflow).toHaveBeenCalledTimes(1);
+  });
+
+  it("retry sends a real nodeRetryDecidedSignal to the run's Executor workflow", async () => {
+    const signalWorkflow = vi.fn().mockResolvedValue(undefined);
+    const service = buildService({ signalWorkflow });
+
+    const result = await service.dispatch("retry", CONTEXT);
+
+    expect(result.outcome).toBe("resolved");
+    expect(signalWorkflow).toHaveBeenCalledWith({
+      workflowId: CONTEXT.runId,
+      signalName: "nodeRetryDecided",
+      payload: { nodeExecutionId: CONTEXT.nodeExecutionId, action: "retry" },
+    });
+  });
+
+  it("retry fails (not throws) when signaling the workflow fails", async () => {
+    const signalWorkflow = vi.fn().mockRejectedValue(new Error("workflow not found"));
+    const service = buildService({ signalWorkflow });
+
+    const result = await service.dispatch("retry", CONTEXT);
+
+    expect(result.outcome).toBe("failed");
+  });
+
+  it("backoff sends the same real signal as retry, after a real (injectable, here tiny) delay", async () => {
+    const signalWorkflow = vi.fn().mockResolvedValue(undefined);
+    const service = new RecoveryDispatchService(
+      { invoke: vi.fn() } as never,
+      { compileWorkflow: vi.fn() } as never,
+      { replan: vi.fn() } as never,
+      { createPending: vi.fn() } as never,
+      {
+        loadCompiledDagJson: vi.fn(),
+        writeTerminalFailed: vi.fn(),
+      } as never,
+      { signalWorkflow },
+      25, // real delay, injected small so the test doesn't burn 5 real seconds
+    );
+
+    const start = Date.now();
+    const result = await service.dispatch("backoff", CONTEXT);
+    const elapsedMs = Date.now() - start;
+
+    expect(result.outcome).toBe("resolved");
+    expect(elapsedMs).toBeGreaterThanOrEqual(20);
+    expect(signalWorkflow).toHaveBeenCalledWith({
+      workflowId: CONTEXT.runId,
+      signalName: "nodeRetryDecided",
+      payload: { nodeExecutionId: CONTEXT.nodeExecutionId, action: "retry" },
+    });
   });
 
   it("degrade always resolves via the honest Synthesis stub, never claims real synthesis", async () => {

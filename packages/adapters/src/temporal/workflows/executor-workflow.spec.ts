@@ -7,7 +7,7 @@ import type { CompiledDag } from "@alterx/contracts";
 
 import { createExecutorWorker } from "../worker";
 import type { ExecutorActivities } from "../activities/executor-activities";
-import { approvalDecidedSignal } from "./executor-workflow";
+import { approvalDecidedSignal, nodeRetryDecidedSignal } from "./executor-workflow";
 
 const WORKFLOW_TYPE = "executorWorkflow";
 
@@ -38,6 +38,46 @@ function sequentialDag(): CompiledDag {
       { key: "wave_0", order: 0, node_keys: ["node_a"], depends_on: [] },
       { key: "wave_1", order: 1, node_keys: ["node_b"], depends_on: ["wave_0"] },
     ],
+  };
+}
+
+function singleNodeDag(): CompiledDag {
+  return {
+    schema_version: "v1",
+    entry_node_keys: ["node_a"],
+    nodes: [{ key: "node_a", type: "ToolCall", config: {}, metadata: { ui: {} } }],
+    edges: [],
+    waves: [{ key: "wave_0", order: 0, node_keys: ["node_a"], depends_on: [] }],
+  };
+}
+
+/**
+ * Fails every call up to (and including) `failuresBeforeSuccess`, then
+ * succeeds. proxyActivities' own maximumAttempts: 3 retries a thrown
+ * activity BEFORE executor-workflow.ts's own catch ever sees it -- set
+ * `failuresBeforeSuccess >= 3` for a test to reach the real recovery
+ * pause; the same or a higher number to exhaust it entirely for a
+ * give_up/timeout test.
+ */
+function failNTimesThenSucceedActivities(
+  failuresBeforeSuccess: number,
+  nodeExecutionIdsCaptured: string[],
+): ExecutorActivities {
+  let callCount = 0;
+  return {
+    async executeNode(input) {
+      callCount += 1;
+      nodeExecutionIdsCaptured.push(input.nodeExecutionId);
+      if (callCount <= failuresBeforeSuccess) {
+        throw new Error(`simulated failure ${callCount}`);
+      }
+      return {
+        outputJson: JSON.stringify({ from: input.nodeKey, attempt: callCount }),
+        metadataJson: "{}",
+      };
+    },
+    async finalizeRun() {},
+    async recordApprovalDecision() {},
   };
 }
 
@@ -733,6 +773,132 @@ describe.sequential("executorWorkflow", () => {
 
       expect(callOrder).toEqual(["node_gate", "node_protected"]);
       expect(result.outputs["node_protected"]).toEqual({ from: "node_protected" });
+    } finally {
+      await stopWorker(running);
+    }
+  });
+
+  it("retry/backoff: a failed node pauses, resumes on a retry decision, and the second attempt completes the run (Self-Healing exit-check closure)", async () => {
+    const taskQueue = "executor-node-retry-succeeds";
+    const workflowId = "executor-node-retry-succeeds-workflow";
+    const nodeExecutionIdsCaptured: string[] = [];
+    // 3 failures exhausts proxyActivities' own maximumAttempts: 3 before
+    // executor-workflow.ts's catch ever runs; the 4th call (post-signal)
+    // succeeds.
+    const running = startWorker(
+      await createExecutorWorker(
+        config(taskQueue),
+        environment.nativeConnection,
+        failNTimesThenSucceedActivities(3, nodeExecutionIdsCaptured),
+      ),
+    );
+
+    try {
+      const handle = await environment.client.workflow.start(WORKFLOW_TYPE, {
+        taskQueue,
+        workflowId,
+        args: [
+          {
+            tenantId: "ten_test",
+            runId: "run_test",
+            compiledDagJson: JSON.stringify(singleNodeDag()),
+            nodeRecoveryTimeoutMs: 5_000,
+          },
+        ],
+      });
+
+      // Poll until the first (exhausted) attempt has actually happened and
+      // the workflow is durably parked in its recovery condition() wait --
+      // real nodeExecutionId is only known once the activity has run.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const nodeExecutionId = nodeExecutionIdsCaptured[0];
+      expect(nodeExecutionId).toBeDefined();
+
+      await environment.client.workflow.getHandle(workflowId).signal(nodeRetryDecidedSignal, {
+        nodeExecutionId: nodeExecutionId!,
+        action: "retry",
+      });
+
+      const result = await handle.result();
+      expect(result.outputs["node_a"]).toEqual({ from: "node_a", attempt: 4 });
+    } finally {
+      await stopWorker(running);
+    }
+  });
+
+  it("retry/backoff: a give_up decision fails the workflow instead of retrying forever", async () => {
+    const taskQueue = "executor-node-retry-gives-up";
+    const workflowId = "executor-node-retry-gives-up-workflow";
+    const nodeExecutionIdsCaptured: string[] = [];
+    const running = startWorker(
+      await createExecutorWorker(
+        config(taskQueue),
+        environment.nativeConnection,
+        // Always fails -- there is no "eventually succeeds" attempt here.
+        failNTimesThenSucceedActivities(Number.POSITIVE_INFINITY, nodeExecutionIdsCaptured),
+      ),
+    );
+
+    try {
+      const handle = await environment.client.workflow.start(WORKFLOW_TYPE, {
+        taskQueue,
+        workflowId,
+        args: [
+          {
+            tenantId: "ten_test",
+            runId: "run_test",
+            compiledDagJson: JSON.stringify(singleNodeDag()),
+            nodeRecoveryTimeoutMs: 5_000,
+          },
+        ],
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const nodeExecutionId = nodeExecutionIdsCaptured[0];
+      expect(nodeExecutionId).toBeDefined();
+
+      await environment.client.workflow.getHandle(workflowId).signal(nodeRetryDecidedSignal, {
+        nodeExecutionId: nodeExecutionId!,
+        action: "give_up",
+      });
+
+      const error = await handle.result().catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(WorkflowFailedError);
+      expect((error as WorkflowFailedError).cause?.message).toMatch(/recovery gave up/);
+    } finally {
+      await stopWorker(running);
+    }
+  });
+
+  it("retry/backoff: times out and fails the workflow if no recovery decision ever arrives", async () => {
+    const taskQueue = "executor-node-retry-times-out";
+    const workflowId = "executor-node-retry-times-out-workflow";
+    const nodeExecutionIdsCaptured: string[] = [];
+    const running = startWorker(
+      await createExecutorWorker(
+        config(taskQueue),
+        environment.nativeConnection,
+        failNTimesThenSucceedActivities(Number.POSITIVE_INFINITY, nodeExecutionIdsCaptured),
+      ),
+    );
+
+    try {
+      const handle = await environment.client.workflow.start(WORKFLOW_TYPE, {
+        taskQueue,
+        workflowId,
+        args: [
+          {
+            tenantId: "ten_test",
+            runId: "run_test",
+            compiledDagJson: JSON.stringify(singleNodeDag()),
+            nodeRecoveryTimeoutMs: 200,
+          },
+        ],
+      });
+
+      const error = await handle.result().catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(WorkflowFailedError);
+      expect((error as WorkflowFailedError).cause?.message).toMatch(/timed out awaiting a recovery decision/);
     } finally {
       await stopWorker(running);
     }

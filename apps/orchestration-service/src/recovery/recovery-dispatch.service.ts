@@ -45,6 +45,15 @@ export interface RecoveryRunReader {
   writeTerminalFailed(tenantId: string, runId: string): Promise<void>;
 }
 
+/** Same generic shape as ApprovalDecisionSignaler (approvals.service.ts). */
+export interface NodeRetrySignaler {
+  signalWorkflow(request: {
+    readonly workflowId: string;
+    readonly signalName: string;
+    readonly payload: unknown;
+  }): Promise<void>;
+}
+
 export interface DispatchResult {
   readonly outcome: RecoveryOutcome;
   readonly detail: string;
@@ -60,6 +69,8 @@ function assertNever(value: never): never {
  * today; the other 5 are real, auditable decisions with no dispatch path
  * yet (see PR body) -- this never fakes a call to make a gap look closed.
  */
+const DEFAULT_BACKOFF_DELAY_MS = 5_000;
+
 export class RecoveryDispatchService {
   constructor(
     private readonly modelGateway: ModelGatewayHandler,
@@ -67,6 +78,8 @@ export class RecoveryDispatchService {
     private readonly planner: PlannerReplanHandler,
     private readonly approvals: ApprovalsService,
     private readonly runs: RecoveryRunReader,
+    private readonly nodeRetrySignaler: NodeRetrySignaler,
+    private readonly backoffDelayMs: number = DEFAULT_BACKOFF_DELAY_MS,
   ) {}
 
   async dispatch(
@@ -96,16 +109,15 @@ export class RecoveryDispatchService {
         await this.runs.writeTerminalFailed(context.tenantId, context.runId);
         return { outcome: "failed", detail: "run terminated by recovery policy" };
       case "retry":
+        return this.#retryNode(context, { withBackoff: false });
       case "backoff":
+        return this.#retryNode(context, { withBackoff: true });
       case "repair":
       case "swap_agent":
-        // Genuine node-failure retry needs a workflow-level pause-and-
-        // await-decision mechanism (mirroring HumanApproval's condition()
-        // wait, but for a failed node instead of an approval) -- separate,
-        // still-unscoped Temporal design work, same magnitude as the Gate-
-        // enforcement fix this closure pass just made. Not built yet;
-        // disclosed, not faked. repair also still has no defined concept
-        // anywhere in the codebase.
+        // repair still has no defined concept anywhere in the codebase.
+        // swap_agent's real dispatch target (Selection & Binding) exists
+        // (HEAL-6 PR B) but the ranked-match path it needs has no real
+        // embedding transport yet -- disclosed, separate follow-up.
         return {
           outcome: "escalated",
           detail: `strategy_dispatch_deferred: "${strategy}" has no real target system wired yet (see HEAL-6 PR known-gaps)`,
@@ -168,6 +180,47 @@ export class RecoveryDispatchService {
       return {
         outcome: "failed",
         detail: `replan failed: ${(error as Error).message}`,
+      };
+    }
+  }
+
+  /**
+   * Real target: nodeRetryDecidedSignal on the run's Executor workflow
+   * (executor-workflow.ts, Self-Healing exit-check closure). `runId` is
+   * the workflow's own workflowId (RunLauncherService starts it with
+   * workflowId: row.id) -- `nodeExecutionId` here is the exact same ID
+   * the workflow's condition() wait is keyed on, since it originated from
+   * that same node's real executeNode call.
+   *
+   * `backoff` is a real fixed delay (backoffDelayMs, default 5s, injectable
+   * for tests) before sending the signal, run
+   * here in normal Node.js code (not Temporal workflow code, so a plain
+   * setTimeout is safe) -- disclosed interim behavior: this blocks the
+   * SelectStrategy RPC response for the delay duration rather than using
+   * an external delayed-job mechanism, acceptable for a first real
+   * implementation, not a permanent design commitment.
+   */
+  async #retryNode(
+    context: DispatchContext,
+    options: { readonly withBackoff: boolean },
+  ): Promise<DispatchResult> {
+    try {
+      if (options.withBackoff) {
+        await new Promise((resolve) => setTimeout(resolve, this.backoffDelayMs));
+      }
+      await this.nodeRetrySignaler.signalWorkflow({
+        workflowId: context.runId,
+        signalName: "nodeRetryDecided",
+        payload: { nodeExecutionId: context.nodeExecutionId, action: "retry" },
+      });
+      return {
+        outcome: "resolved",
+        detail: `${options.withBackoff ? "backoff" : "retry"} signal sent for node_execution_id=${context.nodeExecutionId}`,
+      };
+    } catch (error: unknown) {
+      return {
+        outcome: "failed",
+        detail: `${options.withBackoff ? "backoff" : "retry"} dispatch failed: ${(error as Error).message}`,
       };
     }
   }
