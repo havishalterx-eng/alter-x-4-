@@ -76,11 +76,13 @@ export {
 export {
   PostgresOrchestrationStoreProvider,
   POSTGRES_ORCHESTRATION_FEATURE_DECISION,
+  boolean,
   check,
   foreignKey,
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   primaryKey,
   sql,

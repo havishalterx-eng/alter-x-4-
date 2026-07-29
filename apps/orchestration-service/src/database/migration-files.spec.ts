@@ -27,6 +27,9 @@ describe("orchestration migration files", () => {
       "0010_create_node_executions.sql",
       "0011_create_run_stream_events.sql",
       "0012_add_run_workflow_version.sql",
+      "0013_create_verification_results.sql",
+      "0014_create_recovery_actions.sql",
+      "0015_create_run_outcomes.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -46,6 +49,9 @@ describe("orchestration migration files", () => {
       "0010_drop_node_executions.sql",
       "0011_drop_run_stream_events.sql",
       "0012_remove_run_workflow_version.sql",
+      "0013_drop_verification_results.sql",
+      "0014_drop_recovery_actions.sql",
+      "0015_drop_run_outcomes.sql",
     ]);
   });
 
@@ -62,13 +68,13 @@ describe("orchestration migration files", () => {
     },
   );
 
-  it("defines immutability function once and reuses it eleven times", () => {
+  it("defines immutability function once and reuses it fourteen times", () => {
     const allSql = migrationSql.map(({ sql }) => sql).join("\n");
 
     expect(allSql.match(/CREATE OR REPLACE FUNCTION reject_tenant_id_change/g))
       .toHaveLength(1);
     expect(allSql.match(/EXECUTE FUNCTION reject_tenant_id_change\(\)/g))
-      .toHaveLength(11);
+      .toHaveLength(14);
   });
 
   it("persists a bounded traffic percentage only for canary versions", () => {
@@ -147,6 +153,33 @@ describe("orchestration migration files", () => {
     );
     expect(allSql).toContain(
       'CONSTRAINT "runs_workflow_version_tenant_fk" FOREIGN KEY ("tenant_id", "workflow_version_id") REFERENCES "workflow_versions"("tenant_id", "id")',
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "verification_results_run_tenant_fk" FOREIGN KEY ("tenant_id", "run_id") REFERENCES "runs"("tenant_id", "id") ON DELETE CASCADE',
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "verification_results_node_execution_tenant_fk" FOREIGN KEY ("tenant_id", "node_execution_id") REFERENCES "node_executions"("tenant_id", "id") ON DELETE CASCADE',
+    );
+    expect(allSql).toContain(
+      `CONSTRAINT "verification_results_gate_type_check" CHECK ("gate_type" IN ('quality', 'hallucination', 'safety', 'build', 'render', 'placeholder', 'security', 'acceptance'))`,
+    );
+    expect(allSql).toContain(
+      `CONSTRAINT "verification_results_verdict_check" CHECK ("verdict" IN ('pass', 'fail', 'warn'))`,
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "recovery_actions_run_tenant_fk" FOREIGN KEY ("tenant_id", "run_id") REFERENCES "runs"("tenant_id", "id") ON DELETE CASCADE',
+    );
+    expect(allSql).toContain(
+      `CONSTRAINT "recovery_actions_strategy_check" CHECK ("strategy" IN ('repair', 'retry', 'backoff', 'swap_agent', 'escalate_model', 'recompile', 'replan', 'degrade', 'ask_user', 'terminate'))`,
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "run_outcomes_run_tenant_fk" FOREIGN KEY ("tenant_id", "run_id") REFERENCES "runs"("tenant_id", "id") ON DELETE CASCADE',
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "run_outcomes_tenant_run_unique" UNIQUE ("tenant_id", "run_id")',
+    );
+    expect(allSql).toContain(
+      `CONSTRAINT "run_outcomes_verdict_check" CHECK ("verdict" IN ('completed_verified', 'rescued', 'escalated', 'failed', 'abandoned', 'degraded'))`,
     );
   });
 

@@ -12,6 +12,9 @@ import { triggerVersions } from "../../db/schema/trigger_versions";
 import { triggers } from "../../db/schema/triggers";
 import { workflowVersions } from "../../db/schema/workflow_versions";
 import { workflows } from "../../db/schema/workflows";
+import { verificationResults } from "../../db/schema/verification_results";
+import { recoveryActions } from "../../db/schema/recovery_actions";
+import { runOutcomes } from "../../db/schema/run_outcomes";
 
 const schemaRoot = resolve(
   process.cwd(),
@@ -30,10 +33,13 @@ const schemas = [
   ["blackboard_checkpoints.ts", "blackboard_checkpoints"],
   ["node_executions.ts", "node_executions"],
   ["run_stream_events.ts", "run_stream_events"],
+  ["verification_results.ts", "verification_results"],
+  ["recovery_actions.ts", "recovery_actions"],
+  ["run_outcomes.ts", "run_outcomes"],
 ] as const;
 
 describe("orchestration Drizzle schemas", () => {
-  it("loads all eleven executable Drizzle table definitions", () => {
+  it("loads all fourteen executable Drizzle table definitions", () => {
     for (const table of [
       workflows,
       triggers,
@@ -46,6 +52,9 @@ describe("orchestration Drizzle schemas", () => {
       blackboardCheckpoints,
       nodeExecutions,
       runStreamEvents,
+      verificationResults,
+      recoveryActions,
+      runOutcomes,
     ]) {
       expect(table).toBeDefined();
     }
@@ -85,6 +94,14 @@ describe("orchestration Drizzle schemas", () => {
       'foreignKey({\n      name: "run_stream_events_run_tenant_fk"',
       'index("idx_run_stream_events_tenant_run_seq")',
       'foreignKey({\n      name: "runs_workflow_version_tenant_fk"',
+      'foreignKey({\n      name: "verification_results_run_tenant_fk"',
+      'foreignKey({\n      name: "verification_results_node_execution_tenant_fk"',
+      'index("idx_verification_results_tenant_run_created")',
+      'foreignKey({\n      name: "recovery_actions_run_tenant_fk"',
+      'index("idx_recovery_actions_tenant_run_created")',
+      'foreignKey({\n      name: "run_outcomes_run_tenant_fk"',
+      'unique("run_outcomes_tenant_run_unique")',
+      'index("idx_run_outcomes_tenant_mode_eligible_decided")',
     ]) {
       expect(allSources).toContain(expected);
     }

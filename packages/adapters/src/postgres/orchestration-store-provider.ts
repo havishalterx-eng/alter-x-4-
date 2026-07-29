@@ -19,11 +19,13 @@ import type {
 
 export { sql } from "drizzle-orm";
 export {
+  boolean,
   check,
   foreignKey,
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   primaryKey,
   text,

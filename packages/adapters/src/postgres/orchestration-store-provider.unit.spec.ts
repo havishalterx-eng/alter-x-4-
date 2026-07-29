@@ -302,18 +302,21 @@ describe("PostgresOrchestrationStoreProvider", () => {
       .mocked(client.query)
       .mock.calls.map(([statement]) => String(statement));
     expect(statements[0]).toBe("BEGIN");
-    expect(statements[1]).toContain('DROP CONSTRAINT IF EXISTS "runs_workflow_version_tenant_fk"');
-    expect(statements[1]).toContain('DROP COLUMN IF EXISTS "workflow_version_id"');
-    expect(statements[2]).toContain('DROP TABLE IF EXISTS "run_stream_events"');
-    expect(statements[3]).toContain('DROP TABLE IF EXISTS "node_executions"');
-    expect(statements[4]).toContain('DROP TABLE IF EXISTS "blackboard_checkpoints"');
-    expect(statements[5]).toContain("workflow_versions_canary_traffic_check");
-    expect(statements[6]).toContain("workflow_versions_reject_tenant_id_change");
-    expect(statements[7]).toContain("conversation_goal_states_reject_tenant_id_change");
-    expect(statements[8]).toContain("runs_reject_tenant_id_change");
-    expect(statements[13]).toContain("workflows_reject_tenant_id_change");
-    expect(statements[14]).toBe("DROP SCHEMA IF EXISTS drizzle CASCADE");
-    expect(statements[15]).toBe("COMMIT");
+    expect(statements[1]).toContain('DROP TABLE IF EXISTS "run_outcomes"');
+    expect(statements[2]).toContain('DROP TABLE IF EXISTS "recovery_actions"');
+    expect(statements[3]).toContain('DROP TABLE IF EXISTS "verification_results"');
+    expect(statements[4]).toContain('DROP CONSTRAINT IF EXISTS "runs_workflow_version_tenant_fk"');
+    expect(statements[4]).toContain('DROP COLUMN IF EXISTS "workflow_version_id"');
+    expect(statements[5]).toContain('DROP TABLE IF EXISTS "run_stream_events"');
+    expect(statements[6]).toContain('DROP TABLE IF EXISTS "node_executions"');
+    expect(statements[7]).toContain('DROP TABLE IF EXISTS "blackboard_checkpoints"');
+    expect(statements[8]).toContain("workflow_versions_canary_traffic_check");
+    expect(statements[9]).toContain("workflow_versions_reject_tenant_id_change");
+    expect(statements[10]).toContain("conversation_goal_states_reject_tenant_id_change");
+    expect(statements[11]).toContain("runs_reject_tenant_id_change");
+    expect(statements[16]).toContain("workflows_reject_tenant_id_change");
+    expect(statements[17]).toBe("DROP SCHEMA IF EXISTS drizzle CASCADE");
+    expect(statements[18]).toBe("COMMIT");
     expect(client.release).toHaveBeenCalledOnce();
   });
 
