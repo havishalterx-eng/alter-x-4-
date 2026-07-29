@@ -4,8 +4,23 @@ output "control_plane_cluster_arn" {
 }
 
 output "ads_cluster_arn" {
-  description = "Separate empty ADS Aurora cluster ARN."
+  description = "Separate ADS Aurora cluster ARN."
   value       = aws_rds_cluster.ads.arn
+}
+
+output "ads_cluster_endpoint" {
+  description = "Writer endpoint for the separate ADS Aurora cluster."
+  value       = aws_rds_cluster.ads.endpoint
+}
+
+output "ads_cluster_reader_endpoint" {
+  description = "Reader endpoint for the separate ADS Aurora cluster."
+  value       = aws_rds_cluster.ads.reader_endpoint
+}
+
+output "ads_database_credentials_secret_arn" {
+  description = "ADS Core credential-container secret ARN."
+  value       = aws_secretsmanager_secret.ads_database_credentials.arn
 }
 
 output "redis_replication_group_id" {

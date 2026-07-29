@@ -70,6 +70,32 @@ resource "aws_vpc_security_group_ingress_rule" "postgres" {
   to_port           = 5432
 }
 
+resource "aws_security_group" "ads_postgres" {
+  name_prefix = "alter-${var.environment}-ads-postgres-"
+  description = "Aurora PostgreSQL access restricted to approved ADS Client workloads."
+  vpc_id      = var.vpc_id
+
+  tags = {
+    Name        = "alter-${var.environment}-ads-postgres"
+    Environment = var.environment
+    Scope       = "ads-core"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "ads_postgres" {
+  for_each                     = var.allowed_source_security_group_ids
+  security_group_id            = aws_security_group.ads_postgres.id
+  referenced_security_group_id = each.value
+  description                  = "PostgreSQL from approved ADS Client workload"
+  from_port                    = 5432
+  ip_protocol                  = "tcp"
+  to_port                      = 5432
+}
+
 resource "aws_rds_cluster_parameter_group" "postgres" {
   name        = "alter-${var.environment}-aurora-postgresql"
   family      = var.aurora_parameter_group_family
@@ -161,12 +187,13 @@ resource "aws_rds_cluster" "ads" {
   engine                              = "aurora-postgresql"
   engine_mode                         = "provisioned"
   engine_version                      = var.aurora_engine_version
+  database_name                       = "ads"
   master_username                     = "ads_admin"
   manage_master_user_password         = true
   master_user_secret_kms_key_id       = var.secrets_kms_key_arn
   db_cluster_parameter_group_name     = aws_rds_cluster_parameter_group.postgres.name
   db_subnet_group_name                = aws_db_subnet_group.this.name
-  vpc_security_group_ids              = [aws_security_group.postgres.id]
+  vpc_security_group_ids              = [aws_security_group.ads_postgres.id]
   storage_encrypted                   = true
   kms_key_id                          = var.environment_kms_key_arn
   iam_database_authentication_enabled = true
@@ -188,7 +215,7 @@ resource "aws_rds_cluster" "ads" {
   tags = {
     Name        = "alter-${var.environment}-ads"
     Environment = var.environment
-    Scope       = "ads-shell-only"
+    Scope       = "ads-core"
   }
 }
 
@@ -231,6 +258,22 @@ resource "aws_secretsmanager_secret" "database_credentials" {
     Database           = each.key
     OwningService      = each.value
     CredentialBoundary = "one-service-one-database"
+  }
+}
+
+resource "aws_secretsmanager_secret" "ads_database_credentials" {
+  #checkov:skip=CKV2_AWS_57:IAM database authentication uses ephemeral tokens; this is a path-enforcement container with no static password version.
+
+  name                    = "/alter/${var.environment}/ads-core/system/database_credentials"
+  description             = "Credential container for ADS Core's dedicated ads database."
+  kms_key_id              = var.secrets_kms_key_arn
+  recovery_window_in_days = 30
+
+  tags = {
+    Environment        = var.environment
+    Database           = "ads"
+    OwningService      = "ads-core"
+    CredentialBoundary = "separate-ads-cluster"
   }
 }
 

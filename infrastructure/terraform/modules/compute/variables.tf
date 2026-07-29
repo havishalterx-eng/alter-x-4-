@@ -12,3 +12,8 @@ variable "environment_kms_key_arn" {
   description = "Environment KMS key used for ECS execute-command logs."
   type        = string
 }
+
+variable "vpc_id" {
+  description = "VPC containing the dedicated ADS Client workload security group."
+  type        = string
+}

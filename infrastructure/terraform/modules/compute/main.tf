@@ -46,3 +46,19 @@ resource "aws_ecs_cluster_capacity_providers" "this" {
     weight            = 1
   }
 }
+
+resource "aws_security_group" "ads_client" {
+  name_prefix = "alter-${var.environment}-ads-client-"
+  description = "Outbound-only identity for workloads permitted to reach ADS Aurora."
+  vpc_id      = var.vpc_id
+
+  tags = {
+    Name        = "alter-${var.environment}-ads-client"
+    Environment = var.environment
+    Scope       = "ads-client"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}

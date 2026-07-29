@@ -53,6 +53,16 @@ variable "vpc_cidr" {
   }
 }
 
+variable "allowed_source_security_group_ids" {
+  description = "Workload security groups permitted to reach the ADS Aurora cluster."
+  type        = map(string)
+
+  validation {
+    condition     = length(var.allowed_source_security_group_ids) > 0
+    error_message = "At least one ADS Client source security group is required."
+  }
+}
+
 variable "private_subnet_ids" {
   description = "Private subnet IDs keyed by availability zone."
   type        = map(string)

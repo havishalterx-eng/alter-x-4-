@@ -67,24 +67,25 @@ module "runtime_config" {
 module "data" {
   source = "../../modules/data"
 
-  environment                   = "staging"
-  account_id                    = var.configuration.account_id
-  aws_partition                 = var.aws_partition
-  aws_region                    = var.aws_region
-  vpc_id                        = module.environment.vpc_id
-  vpc_cidr                      = var.configuration.network.vpc_cidr
-  private_subnet_ids            = module.environment.private_subnet_ids
-  environment_kms_key_arn       = module.environment.kms_key_arn
-  secrets_kms_key_arn           = module.runtime_config.secrets_kms_key_arn
-  aurora_engine_version         = var.configuration.foundation.aurora_engine_version
-  aurora_parameter_group_family = var.configuration.foundation.aurora_parameter_group_family
-  aurora_min_capacity           = var.configuration.foundation.aurora_min_capacity
-  aurora_max_capacity           = var.configuration.foundation.aurora_max_capacity
-  backup_retention_days         = var.configuration.foundation.backup_retention_days
-  deletion_protection           = var.configuration.foundation.deletion_protection
-  redis_engine_version          = var.configuration.foundation.redis_engine_version
-  redis_node_type               = var.configuration.foundation.redis_node_type
-  redis_snapshot_retention_days = var.configuration.foundation.redis_snapshot_retention_days
+  environment                       = "staging"
+  account_id                        = var.configuration.account_id
+  aws_partition                     = var.aws_partition
+  aws_region                        = var.aws_region
+  vpc_id                            = module.environment.vpc_id
+  vpc_cidr                          = var.configuration.network.vpc_cidr
+  allowed_source_security_group_ids = { ads_client = module.compute.ads_client_security_group_id }
+  private_subnet_ids                = module.environment.private_subnet_ids
+  environment_kms_key_arn           = module.environment.kms_key_arn
+  secrets_kms_key_arn               = module.runtime_config.secrets_kms_key_arn
+  aurora_engine_version             = var.configuration.foundation.aurora_engine_version
+  aurora_parameter_group_family     = var.configuration.foundation.aurora_parameter_group_family
+  aurora_min_capacity               = var.configuration.foundation.aurora_min_capacity
+  aurora_max_capacity               = var.configuration.foundation.aurora_max_capacity
+  backup_retention_days             = var.configuration.foundation.backup_retention_days
+  deletion_protection               = var.configuration.foundation.deletion_protection
+  redis_engine_version              = var.configuration.foundation.redis_engine_version
+  redis_node_type                   = var.configuration.foundation.redis_node_type
+  redis_snapshot_retention_days     = var.configuration.foundation.redis_snapshot_retention_days
 }
 
 module "messaging" {
@@ -100,6 +101,7 @@ module "compute" {
 
   environment             = "staging"
   environment_kms_key_arn = module.environment.kms_key_arn
+  vpc_id                  = module.environment.vpc_id
 }
 
 output "kms_key_arn" { value = module.environment.kms_key_arn }
