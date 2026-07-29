@@ -14,11 +14,19 @@ import {
 } from "@testcontainers/postgresql";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { RecoveryDispatchService } from "./recovery-dispatch.service";
 import {
   RecoveryNodeNotFoundError,
   RecoveryPolicyService,
   RecoveryRootCauseUnavailableError,
 } from "./recovery-policy.service";
+
+// HEAL-6: classifyFailure (this spec's whole surface) never calls dispatch
+// -- selectStrategy does. A stub satisfies the constructor without
+// pretending this spec exercises real strategy dispatch.
+const NOOP_DISPATCH = {
+  dispatch: vi.fn().mockResolvedValue({ outcome: "resolved", detail: "unused in this spec" }),
+} as unknown as RecoveryDispatchService;
 
 const migrationsFolder = resolve(
   process.cwd(),
@@ -127,6 +135,7 @@ describe.sequential("RecoveryPolicyService PostgreSQL integration", () => {
     service = new RecoveryPolicyService(
       recoveryStore,
       { invoke } as unknown as ModelGatewayHandler,
+      NOOP_DISPATCH,
       () => {
         idSequence += 1;
         return `rec_018f47a5-7b2c-7d10-8f11-${String(idSequence).padStart(12, "0")}`;
@@ -263,6 +272,7 @@ describe.sequential("RecoveryPolicyService PostgreSQL integration", () => {
     const unavailableService = new RecoveryPolicyService(
       recoveryStore,
       unavailableModelGateway,
+      NOOP_DISPATCH,
     );
 
     await expect(

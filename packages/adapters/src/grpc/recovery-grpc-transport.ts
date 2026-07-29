@@ -10,7 +10,9 @@ import {
 import type {
   RecoveryClassifyFailureRequest,
   RecoveryClassifyFailureResponse,
+  RecoveryRecordOutcomeRequest,
   RecoveryRecordOutcomeResponse,
+  RecoverySelectStrategyRequest,
   RecoverySelectStrategyResponse,
 } from "@alterx/contracts";
 
@@ -20,6 +22,12 @@ export interface RecoveryHandler {
   classifyFailure(
     request: RecoveryClassifyFailureRequest,
   ): Promise<RecoveryClassifyFailureResponse>;
+  selectStrategy(
+    request: RecoverySelectStrategyRequest,
+  ): Promise<RecoverySelectStrategyResponse>;
+  recordOutcome(
+    request: RecoveryRecordOutcomeRequest,
+  ): Promise<RecoveryRecordOutcomeResponse>;
 }
 
 export interface RecoveryGrpcTransportConfig {
@@ -45,19 +53,25 @@ export class RecoveryGrpcController {
   }
 
   @GrpcMethod("RecoveryService", "SelectStrategy")
-  selectStrategy(): RecoverySelectStrategyResponse {
-    throw new RpcException({
-      code: status.UNIMPLEMENTED,
-      message: "Strategy selection ships in HEAL-6",
-    });
+  async selectStrategy(
+    request: RecoverySelectStrategyRequest,
+  ): Promise<RecoverySelectStrategyResponse> {
+    try {
+      return await this.handler.selectStrategy(request);
+    } catch (error: unknown) {
+      throw mapRecoveryError(error);
+    }
   }
 
   @GrpcMethod("RecoveryService", "RecordOutcome")
-  recordOutcome(): RecoveryRecordOutcomeResponse {
-    throw new RpcException({
-      code: status.UNIMPLEMENTED,
-      message: "Outcome recording ships after strategy execution",
-    });
+  async recordOutcome(
+    request: RecoveryRecordOutcomeRequest,
+  ): Promise<RecoveryRecordOutcomeResponse> {
+    try {
+      return await this.handler.recordOutcome(request);
+    } catch (error: unknown) {
+      throw mapRecoveryError(error);
+    }
   }
 }
 
@@ -100,6 +114,18 @@ function mapRecoveryError(error: unknown): RpcException {
     return new RpcException({
       code: status.ABORTED,
       message: "Recovery classification persistence conflicted",
+    });
+  }
+  if (isNamedError(error, "RecoveryActionNotClassifiedError")) {
+    return new RpcException({
+      code: status.FAILED_PRECONDITION,
+      message: error.message,
+    });
+  }
+  if (isNamedError(error, "RecoveryActionNotFoundError")) {
+    return new RpcException({
+      code: status.NOT_FOUND,
+      message: error.message,
     });
   }
   return new RpcException({

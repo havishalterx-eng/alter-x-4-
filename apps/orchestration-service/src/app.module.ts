@@ -14,6 +14,7 @@ import {
   ConversationGrpcController,
   DeployctlGrpcController,
   ModelGatewayClient,
+  PlannerClient,
   SandboxServiceClient,
   NodeexecGrpcController,
   PostgresOrchestrationStoreProvider,
@@ -59,6 +60,10 @@ import { SANDBOX_CLIENT_PROTO_PATH } from "./registry/sandbox-client.constants";
 import { ORCHESTRATION_MIGRATIONS_PATH } from "./database/migrations-path";
 import { HealthController } from "./health/health.controller";
 import { RecoveryPolicyService } from "./recovery/recovery-policy.service";
+import { RecoveryDispatchService } from "./recovery/recovery-dispatch.service";
+import { PostgresRecoveryRunReader } from "./recovery/recovery-run-reader";
+import { RecoveryTriggerService } from "./recovery/recovery-trigger.service";
+import { loadRecoveryEnvironment } from "./config/recovery-environment";
 import { TriggerRegistryController } from "./trigger-registry/trigger-registry.controller";
 import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
 import { TOOLGW_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
@@ -272,29 +277,19 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
           verificationGateReader: new PostgresVerificationGateReader(store),
         });
         const ledger = new NodeExecutionLedgerService(store);
-        return new NodeexecService(registry, ledger, new RunStreamEventService(store));
+        const recoveryPolicy = buildRecoveryPolicyService();
+        const recoveryTrigger = new RecoveryTriggerService(recoveryPolicy, recoveryPolicy);
+        return new NodeexecService(
+          registry,
+          ledger,
+          new RunStreamEventService(store),
+          recoveryTrigger,
+        );
       },
     },
     {
       provide: RECOVERY_HANDLER,
-      useFactory: () => {
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
-        const modelConfig = loadConversationManagerEnvironment(process.env);
-        const modelGateway = new ModelGatewayClient({
-          address: modelConfig.modelGatewayAddress,
-          protoPath: MODELGW_CLIENT_PROTO_PATH,
-        });
-        return new RecoveryPolicyService(store, modelGateway);
-      },
+      useFactory: () => buildRecoveryPolicyService(),
     },
     {
       provide: NodeExecutionLedgerService,
@@ -469,6 +464,56 @@ interface SessionGatewayEnvironment {
   readonly databaseName: string;
   readonly databaseUser: string;
   readonly awsRegion: string;
+}
+
+/**
+ * HEAL-6: both the RECOVERY_HANDLER gRPC factory and NodeexecService's
+ * factory need a fully-wired RecoveryPolicyService (the latter to trigger
+ * recovery automatically when a node blocks). Each factory in this file
+ * builds its own store/provider instances rather than sharing another
+ * factory's closure (same rule ApprovalsService already follows above) --
+ * this just avoids repeating the wiring verbatim twice in one file.
+ */
+function buildRecoveryPolicyService(): RecoveryPolicyService {
+  const dbConfig = sessionGatewayEnvironment(process.env);
+  const store = new PostgresOrchestrationStoreProvider({
+    authentication: "iam",
+    host: dbConfig.databaseHost,
+    port: dbConfig.databasePort,
+    database: dbConfig.databaseName,
+    user: dbConfig.databaseUser,
+    region: dbConfig.awsRegion,
+    migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+  });
+  const modelConfig = loadConversationManagerEnvironment(process.env);
+  const modelGateway = new ModelGatewayClient({
+    address: modelConfig.modelGatewayAddress,
+    protoPath: MODELGW_CLIENT_PROTO_PATH,
+  });
+  const recoveryConfig = loadRecoveryEnvironment(process.env);
+  const compiler = new GraphCompilerService(store);
+  const planner = new PlannerClient({ baseUrl: recoveryConfig.plannerBaseUrl });
+  const runLauncherConfig = loadRunLauncherEnvironment(process.env);
+  const approvals = new ApprovalsService(
+    store,
+    new TemporalDurableExecutionProvider({
+      address: runLauncherConfig.temporalAddress,
+      namespace: runLauncherConfig.temporalNamespace,
+      taskQueue: runLauncherConfig.taskQueue,
+      ...(runLauncherConfig.temporalApiKey === undefined
+        ? {}
+        : { apiKey: runLauncherConfig.temporalApiKey }),
+    }),
+  );
+  const runReader = new PostgresRecoveryRunReader(store);
+  const dispatch = new RecoveryDispatchService(
+    modelGateway,
+    compiler,
+    planner,
+    approvals,
+    runReader,
+  );
+  return new RecoveryPolicyService(store, modelGateway, dispatch);
 }
 
 function sessionGatewayEnvironment(

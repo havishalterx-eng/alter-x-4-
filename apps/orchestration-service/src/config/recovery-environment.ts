@@ -1,5 +1,12 @@
 export interface RecoveryEnvironment {
   readonly grpcBindAddress: string;
+  /**
+   * HEAL-6: first real wiring of PlannerClient into orchestration-service's
+   * bootstrap (the "replan" strategy's real dispatch target). No prior
+   * convention existed for this -- disclosed new env var, default matches
+   * intelligence-service's local `uv run uvicorn` dev port.
+   */
+  readonly plannerBaseUrl: string;
 }
 
 export class RecoveryConfigurationError extends Error {
@@ -25,5 +32,12 @@ export function loadRecoveryEnvironment(
       "RECOVERY_GRPC_BIND_ADDRESS port must be from 1 to 65535",
     );
   }
-  return { grpcBindAddress };
+  const plannerBaseUrl =
+    environment.PLANNER_BASE_URL?.trim() ?? "http://localhost:8000";
+  try {
+    new URL(plannerBaseUrl);
+  } catch {
+    throw new RecoveryConfigurationError("PLANNER_BASE_URL must be a valid URL");
+  }
+  return { grpcBindAddress, plannerBaseUrl };
 }

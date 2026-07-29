@@ -1,4 +1,5 @@
 import {
+  FailureClassSchema,
   FailureObservationSchema,
   NodeExecutionIdSchema,
   RecoveryActionIdSchema,
@@ -8,6 +9,10 @@ import {
   type FailureObservation,
   type RecoveryClassifyFailureRequest,
   type RecoveryClassifyFailureResponse,
+  type RecoveryRecordOutcomeRequest,
+  type RecoveryRecordOutcomeResponse,
+  type RecoverySelectStrategyRequest,
+  type RecoverySelectStrategyResponse,
   type RootCauseEstimate,
 } from "@alterx/contracts";
 import type { ModelGatewayHandler } from "@alterx/adapters";
@@ -17,6 +22,12 @@ import {
   type FailureClassification,
 } from "./failure-classifier";
 import { createRecoveryActionId } from "./recovery-action-id";
+import type { RecoveryDispatchService } from "./recovery-dispatch.service";
+import {
+  POLICY_ID,
+  selectRecoveryStrategy,
+  type RecoveryStrategy,
+} from "./recovery-strategy-table";
 
 interface RecoveryTransaction {
   query<TRow extends Record<string, unknown> = Record<string, unknown>>(
@@ -79,12 +90,27 @@ export class RecoveryPersistenceConflictError extends Error {
   }
 }
 
+export class RecoveryActionNotFoundError extends Error {
+  constructor(recoveryActionId: string) {
+    super(`Recovery action ${recoveryActionId} was not found`);
+    this.name = "RecoveryActionNotFoundError";
+  }
+}
+
+export class RecoveryActionNotClassifiedError extends Error {
+  constructor(nodeExecutionId: string) {
+    super(`No pending classification exists for node execution ${nodeExecutionId}`);
+    this.name = "RecoveryActionNotClassifiedError";
+  }
+}
+
 export class RecoveryPolicyService {
   readonly #mintRecoveryActionId: () => string;
 
   constructor(
     private readonly store: RecoveryTenantStore,
     private readonly modelGateway: ModelGatewayHandler,
+    private readonly dispatch: RecoveryDispatchService,
     mintRecoveryActionId: () => string = createRecoveryActionId,
   ) {
     this.#mintRecoveryActionId = mintRecoveryActionId;
@@ -136,6 +162,201 @@ export class RecoveryPolicyService {
     );
   }
 
+  async selectStrategy(
+    request: RecoverySelectStrategyRequest,
+  ): Promise<RecoverySelectStrategyResponse> {
+    const tenantId = parsePrefixedId(
+      TenantIdSchema,
+      request.tenant_id,
+      "tenant_id must be a ten_ prefixed UUIDv7",
+    );
+    parsePrefixedId(RunIdSchema, request.run_id, "run_id must be a run_ prefixed UUIDv7");
+    parsePrefixedId(
+      NodeExecutionIdSchema,
+      request.node_execution_id,
+      "node_execution_id must be a node_ prefixed UUIDv7",
+    );
+    const failureClass = parsePrefixedId(
+      FailureClassSchema,
+      request.failure_class,
+      "failure_class must be one of the locked FailureClassSchema values",
+    );
+    const estimate = parseRootCauseEstimateJson(request.root_cause_estimate_json);
+    if (estimate.failure_class !== failureClass) {
+      throw new RecoveryValidationError(
+        "failure_class does not match root_cause_estimate_json.failure_class",
+      );
+    }
+    const bareTenantId = tenantId.slice("ten_".length);
+
+    // Idempotency law for this ticket: a strategy already chosen AND
+    // already dispatched-to-completion (outcome set) is a true no-op
+    // replay. But a strategy chosen with no outcome yet means a prior call
+    // crashed between #persistStrategy and #persistOutcome -- that must
+    // RESUME dispatch with the SAME strategy (never re-decide), not
+    // silently pretend it already ran. Treating "strategy set" alone as
+    // "done" would let a chosen strategy sit forever, never dispatched.
+    const existing = await this.#loadDecided(bareTenantId, request);
+    if (existing !== undefined && existing.outcome !== null) {
+      return existing.response;
+    }
+
+    let recoveryActionId: string;
+    let strategy: RecoveryStrategy;
+    let policyVersion: string;
+    if (existing !== undefined) {
+      recoveryActionId = existing.response.recovery_action_id;
+      strategy = existing.response.strategy as RecoveryStrategy;
+      policyVersion = existing.response.policy_version;
+    } else {
+      const decision = selectRecoveryStrategy(failureClass, estimate.node_attempt);
+      recoveryActionId = await this.#persistStrategy(bareTenantId, request, decision);
+      strategy = decision.strategy;
+      policyVersion = decision.policyVersion;
+    }
+
+    const dispatchResult = await this.dispatch.dispatch(strategy, {
+      tenantId: bareTenantId,
+      runId: request.run_id,
+      nodeExecutionId: request.node_execution_id,
+      failureClass,
+      estimate,
+    });
+    await this.#persistOutcome(
+      bareTenantId,
+      recoveryActionId,
+      request.run_id,
+      strategy,
+      dispatchResult.outcome,
+    );
+
+    return {
+      recovery_action_id: recoveryActionId,
+      strategy,
+      policy_id: POLICY_ID,
+      policy_version: policyVersion,
+    };
+  }
+
+  async recordOutcome(
+    request: RecoveryRecordOutcomeRequest,
+  ): Promise<RecoveryRecordOutcomeResponse> {
+    const tenantId = parsePrefixedId(
+      TenantIdSchema,
+      request.tenant_id,
+      "tenant_id must be a ten_ prefixed UUIDv7",
+    );
+    parsePrefixedId(RunIdSchema, request.run_id, "run_id must be a run_ prefixed UUIDv7");
+    const recoveryActionId = parsePrefixedId(
+      RecoveryActionIdSchema,
+      request.recovery_action_id,
+      "recovery_action_id must be a rec_ prefixed UUIDv7",
+    );
+    const outcome = parseOutcomeValue(request.outcome);
+    const bareTenantId = tenantId.slice("ten_".length);
+
+    const recorded = await this.store.withTenant(bareTenantId, async (tx) => {
+      const result = await tx.query(
+        `UPDATE recovery_actions
+         SET outcome = $1, resolved_at = clock_timestamp()
+         WHERE tenant_id = $2 AND id = $3 AND run_id = $4
+           AND strategy = $5 AND strategy IS NOT NULL
+         RETURNING id`,
+        [outcome, bareTenantId, recoveryActionId, request.run_id, request.strategy],
+      );
+      return result.rowCount === 1;
+    });
+    if (!recorded) throw new RecoveryActionNotFoundError(recoveryActionId);
+    return { recorded: true };
+  }
+
+  async #loadDecided(
+    tenantId: string,
+    request: RecoverySelectStrategyRequest,
+  ): Promise<
+    { readonly response: RecoverySelectStrategyResponse; readonly outcome: string | null }
+    | undefined
+  > {
+    return this.store.withTenant(tenantId, async (tx) => {
+      const result = await tx.query<{
+        readonly id: string;
+        readonly strategy: string | null;
+        readonly policy_version: string | null;
+        readonly outcome: string | null;
+      }>(
+        `SELECT id, strategy, policy_version, outcome FROM recovery_actions
+         WHERE tenant_id = $1 AND run_id = $2 AND node_execution_id = $3
+           AND failure_class = $4
+         ORDER BY created_at DESC LIMIT 1`,
+        [tenantId, request.run_id, request.node_execution_id, request.failure_class],
+      );
+      const row = result.rows[0];
+      if (row === undefined || row.strategy === null || row.policy_version === null) {
+        return undefined;
+      }
+      return {
+        response: {
+          recovery_action_id: row.id,
+          strategy: row.strategy,
+          policy_id: POLICY_ID,
+          policy_version: row.policy_version,
+        },
+        outcome: row.outcome,
+      };
+    });
+  }
+
+  async #persistStrategy(
+    tenantId: string,
+    request: RecoverySelectStrategyRequest,
+    decision: ReturnType<typeof selectRecoveryStrategy>,
+  ): Promise<string> {
+    const updated = await this.store.withTenant(tenantId, async (tx) => {
+      const result = await tx.query<{ readonly id: string }>(
+        `UPDATE recovery_actions
+         SET strategy = $1, policy_version = $2
+         WHERE tenant_id = $3 AND run_id = $4 AND node_execution_id = $5
+           AND failure_class = $6 AND strategy IS NULL
+         RETURNING id`,
+        [
+          decision.strategy,
+          decision.policyVersion,
+          tenantId,
+          request.run_id,
+          request.node_execution_id,
+          request.failure_class,
+        ],
+      );
+      return result.rows[0]?.id;
+    });
+    if (updated !== undefined) return updated;
+
+    // Lost a race, or classifyFailure was never called for this node.
+    const existing = await this.#loadDecided(tenantId, request);
+    if (existing === undefined) {
+      throw new RecoveryActionNotClassifiedError(request.node_execution_id);
+    }
+    return existing.response.recovery_action_id;
+  }
+
+  async #persistOutcome(
+    tenantId: string,
+    recoveryActionId: string,
+    runId: string,
+    strategy: string,
+    outcome: string,
+  ): Promise<void> {
+    await this.store.withTenant(tenantId, async (tx) => {
+      await tx.query(
+        `UPDATE recovery_actions
+         SET outcome = $1, resolved_at = clock_timestamp()
+         WHERE tenant_id = $2 AND id = $3 AND run_id = $4 AND strategy = $5
+           AND outcome IS NULL`,
+        [outcome, tenantId, recoveryActionId, runId, strategy],
+      );
+    });
+  }
+
   async #loadFailedNode(
     tenantId: string,
     request: RecoveryClassifyFailureRequest,
@@ -149,7 +370,11 @@ export class RecoveryPolicyService {
       );
       return result.rows[0];
     });
-    if (row === undefined || row.status !== "failed" || row.error === null) {
+    if (
+      row === undefined ||
+      (row.status !== "failed" && row.status !== "blocked_pending_recovery") ||
+      row.error === null
+    ) {
       throw new RecoveryNodeNotFoundError(request.node_execution_id);
     }
     return row;
@@ -287,6 +512,33 @@ function parseObservation(errorJson: string): FailureObservation {
     );
   }
   return parsed.data;
+}
+
+function parseRootCauseEstimateJson(json: string): RootCauseEstimate {
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch (error: unknown) {
+    throw new RecoveryValidationError(
+      `root_cause_estimate_json is not valid JSON: ${(error as Error).message}`,
+    );
+  }
+  const parsed = RootCauseEstimateSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new RecoveryValidationError(
+      "root_cause_estimate_json must match the locked RootCauseEstimateSchema",
+    );
+  }
+  return parsed.data;
+}
+
+function parseOutcomeValue(outcome: string): "resolved" | "failed" | "escalated" {
+  if (outcome === "resolved" || outcome === "failed" || outcome === "escalated") {
+    return outcome;
+  }
+  throw new RecoveryValidationError(
+    'outcome must be one of "resolved", "failed", "escalated"',
+  );
 }
 
 function parsePrefixedId<T>(

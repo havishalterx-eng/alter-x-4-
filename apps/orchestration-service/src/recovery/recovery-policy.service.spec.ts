@@ -5,12 +5,19 @@ import type {
   ModelgwInvokeRequest,
   RecoveryClassifyFailureRequest,
 } from "@alterx/contracts";
+import type { RecoveryDispatchService } from "./recovery-dispatch.service";
 import {
   RecoveryPolicyService,
   RecoveryRootCauseUnavailableError,
   RecoveryValidationError,
   type RecoveryTenantStore,
 } from "./recovery-policy.service";
+
+// HEAL-6: this spec only exercises classifyFailure, which never calls
+// dispatch (selectStrategy does) -- a stub satisfies the constructor.
+const NOOP_DISPATCH = {
+  dispatch: vi.fn().mockResolvedValue({ outcome: "resolved", detail: "unused in this spec" }),
+} as unknown as RecoveryDispatchService;
 
 const TENANT_ID = "ten_018f47a5-7b2c-7d10-8f11-123456789abc";
 const BARE_TENANT_ID = TENANT_ID.slice("ten_".length);
@@ -107,7 +114,7 @@ function harness(options: {
   });
   const model = { invoke } as unknown as ModelGatewayHandler;
   return {
-    service: new RecoveryPolicyService(store, model, () => RECOVERY_ID),
+    service: new RecoveryPolicyService(store, model, NOOP_DISPATCH, () => RECOVERY_ID),
     invoke,
     query,
   };

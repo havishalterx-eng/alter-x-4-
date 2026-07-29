@@ -17,6 +17,7 @@ import { NodeHandlerValidationError } from "./handler";
 import type { NodeHandlerRegistry } from "./node-handler-registry";
 import { NodeExecutionLedgerService } from "../runs/node-execution-ledger.service";
 import { RunStreamEventService } from "../runs/run-stream-event.service";
+import type { RecoveryTriggerService } from "../recovery/recovery-trigger.service";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -57,6 +58,7 @@ export class NodeexecService {
     private readonly registry: NodeHandlerRegistry,
     private readonly ledger: NodeExecutionLedgerService,
     private readonly streamEvents?: RunStreamEventService,
+    private readonly recovery?: RecoveryTriggerService,
   ) {}
 
   async executeNode(
@@ -119,10 +121,12 @@ export class NodeexecService {
       const metadataJson = JSON.stringify(result.metadata ?? {});
 
       if (result.metadata?.["execution_status"] === "blocked_pending_recovery") {
+        const reason = String(result.output["reason"] ?? "verification blocked external action");
         await this.ledger.recordBlockedPendingRecovery(
           { tenantId: request.tenant_id, runId: request.run_id, nodeExecutionId: request.node_execution_id },
-          String(result.output["reason"] ?? "verification blocked external action"),
+          reason,
         );
+        await this.#triggerRecoveryBestEffort(request, reason);
         return { output_json: outputJson, metadata_json: metadataJson };
       }
 
@@ -201,6 +205,29 @@ export class NodeexecService {
       await this.streamEvents?.append(request.tenant_id, request.run_id, event);
     } catch {
       // SSE journal is convenience transport. Durable node_executions remains source of truth.
+    }
+  }
+
+  async #triggerRecoveryBestEffort(
+    request: NodeexecExecuteNodeRequest,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await this.recovery?.triggerForBlockedNode({
+        tenantId: request.tenant_id,
+        runId: request.run_id,
+        nodeExecutionId: request.node_execution_id,
+        reason,
+      });
+    } catch (error: unknown) {
+      // HEAL-6 known gap: no reconciler re-scans blocked nodes lacking a
+      // recovery_actions row if this best-effort trigger fails. The block
+      // write above already durably succeeded either way.
+      console.error("recovery trigger failed for blocked node", {
+        node_execution_id: request.node_execution_id,
+        run_id: request.run_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
