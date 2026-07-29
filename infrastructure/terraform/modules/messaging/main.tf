@@ -448,3 +448,112 @@ resource "aws_sqs_queue_policy" "cost_events" {
     }]
   })
 }
+
+# KNOW-6: staging bucket for signed-URL uploads (ADS ingestion). Transient
+# by design -- the app deletes an object immediately after it's consumed
+# into the real ingestion pipeline (see apps/ads-core's
+# `complete_upload` handler); the lifecycle rule below is the backstop for
+# uploads that were presigned but never completed, not the primary
+# cleanup path.
+locals {
+  ads_uploads_bucket_name = "alter-${var.account_id}-${var.environment}-ads-uploads"
+}
+
+resource "aws_s3_bucket" "ads_uploads" {
+  #checkov:skip=CKV_AWS_144:Cross-region replication conflicts with the approved ap-south-1-only guardrail and environment/account isolation model.
+  bucket = local.ads_uploads_bucket_name
+
+  tags = {
+    Name        = local.ads_uploads_bucket_name
+    Environment = var.environment
+    Purpose     = "ads-upload-staging"
+    Scope       = "transient-pre-ingestion"
+  }
+}
+
+resource "aws_s3_bucket_ownership_controls" "ads_uploads" {
+  bucket = aws_s3_bucket.ads_uploads.id
+
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "ads_uploads" {
+  bucket = aws_s3_bucket.ads_uploads.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "ads_uploads" {
+  bucket = aws_s3_bucket.ads_uploads.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = var.environment_kms_key_arn
+      sse_algorithm     = "aws:kms"
+    }
+    bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_policy" "ads_uploads" {
+  bucket = aws_s3_bucket.ads_uploads.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "DenyInsecureTransport"
+      Effect    = "Deny"
+      Principal = "*"
+      Action    = "s3:*"
+      Resource = [
+        aws_s3_bucket.ads_uploads.arn,
+        "${aws_s3_bucket.ads_uploads.arn}/*",
+      ]
+      Condition = {
+        Bool = {
+          "aws:SecureTransport" = "false"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_s3_bucket_logging" "ads_uploads" {
+  bucket        = aws_s3_bucket.ads_uploads.id
+  target_bucket = aws_s3_bucket.access_logs.id
+  target_prefix = "ads-uploads/"
+
+  depends_on = [aws_s3_bucket_policy.access_logs]
+}
+
+# Real S3 event delivery is enabled here (same mechanism the `artifacts`
+# bucket already uses); no EventBridge rule or SQS consumer subscribes to
+# it yet -- real completion today is app-triggered after a server-side
+# `head_object` existence/size/type check (see apps/ads-core), not this
+# event. A follow-up ticket adds the real EventBridge rule + SQS consumer
+# so completion becomes provider-verified instead of client-triggered.
+resource "aws_s3_bucket_notification" "ads_uploads" {
+  bucket      = aws_s3_bucket.ads_uploads.id
+  eventbridge = true
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "ads_uploads" {
+  bucket = aws_s3_bucket.ads_uploads.id
+
+  rule {
+    id     = "expire-abandoned-uploads"
+    status = "Enabled"
+
+    filter {
+      prefix = "tenants/"
+    }
+
+    expiration {
+      days = 1
+    }
+  }
+}

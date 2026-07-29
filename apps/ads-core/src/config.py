@@ -12,6 +12,16 @@ class Settings(BaseSettings):
     )
     ads_ingestion_stub_bad_signatures: str = "EICAR-STANDARD-ANTIVIRUS-TEST-FILE"
 
+    # KNOW-6: presigned uploads. Empty bucket name (default) means "no real
+    # AWS/S3 config present" -- the app wires InMemoryObjectStorageProvider
+    # in that case, never assumes credentials exist. Setting a bucket name
+    # (and optionally an endpoint_url for LocalStack) is required to
+    # activate the real S3ObjectStorageProvider.
+    ads_uploads_bucket_name: str = ""
+    ads_uploads_s3_endpoint_url: str | None = None
+    ads_uploads_s3_region: str = "ap-south-1"
+    ads_uploads_presign_expiry_seconds: int = 900
+
     model_config = SettingsConfigDict(
         env_file=".env.local",
         env_file_encoding="utf-8",

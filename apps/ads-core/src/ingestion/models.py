@@ -45,6 +45,24 @@ class IngestionPayload:
     content: bytes
 
 
+class PresignUploadRequest(_StrictFrozenModel):
+    source_id: str
+    content_type: str
+
+
+class PresignUploadResponse(_StrictFrozenModel):
+    upload_url: str
+    upload_fields: dict[str, str]
+    upload_key: str
+    max_content_bytes: int
+    expires_in_seconds: int
+
+
+class CompleteUploadRequest(_StrictFrozenModel):
+    source_id: str
+    upload_key: str
+
+
 @dataclass(frozen=True)
 class ScanResult:
     accepted: bool

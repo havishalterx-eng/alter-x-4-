@@ -12,6 +12,7 @@ dependencies = [
   "asyncpg>=0.29.0,<1.0.0",
   "psycopg2-binary>=2.9.0,<3.0.0",
   "pgvector>=0.3.0,<1.0.0",
+  "boto3>=1.35.0,<2.0.0",
 ]
 
 [dependency-groups]
@@ -35,7 +36,7 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["alembic.*", "pgvector.*", "testcontainers.*"]
+module = ["alembic.*", "pgvector.*", "testcontainers.*", "boto3.*", "botocore.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

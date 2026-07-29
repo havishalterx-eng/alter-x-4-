@@ -82,6 +82,13 @@ class IngestionRepository(Protocol):
         permissions: dict[str, object],
     ) -> StoredIngestionJob: ...
 
+    def get(
+        self,
+        *,
+        tenant_uuid: str,
+        ingestion_job_id: str,
+    ) -> StoredIngestionJob: ...
+
 
 class SqlAlchemyIngestionRepository:
     def __init__(self, sessions: sessionmaker[Session]) -> None:
@@ -276,6 +283,17 @@ class SqlAlchemyIngestionRepository:
             job.stats = current_stats
             job.stage = "deduplicated"
             session.flush()
+            return self._stored(job)
+
+    def get(
+        self,
+        *,
+        tenant_uuid: str,
+        ingestion_job_id: str,
+    ) -> StoredIngestionJob:
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            job = self._get(session, tenant_uuid, ingestion_job_id, for_update=False)
             return self._stored(job)
 
     @staticmethod

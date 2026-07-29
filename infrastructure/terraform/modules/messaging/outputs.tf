@@ -17,3 +17,8 @@ output "cost_event_queue_arn" {
   description = "Cost-event queue ARN reserved for FOUND-7 reconciliation."
   value       = aws_sqs_queue.cost_events.arn
 }
+
+output "ads_uploads_bucket_name" {
+  description = "Transient staging bucket for ADS Core presigned uploads (KNOW-6)."
+  value       = aws_s3_bucket.ads_uploads.id
+}

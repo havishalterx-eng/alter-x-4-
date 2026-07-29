@@ -179,6 +179,9 @@ class RecordingRepository:
         self._record(str(kwargs["tenant_uuid"]), job.ingestion_job_id)
         return job
 
+    def get(self, **kwargs: object) -> StoredIngestionJob:
+        return self._delegate.get(**kwargs)  # type: ignore[arg-type]
+
     def complete_deduplication(self, **kwargs: object) -> StoredIngestionJob:
         job = self._delegate.complete_deduplication(**kwargs)  # type: ignore[arg-type]
         self._record(str(kwargs["tenant_uuid"]), job.ingestion_job_id)
