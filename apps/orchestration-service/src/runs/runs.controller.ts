@@ -23,6 +23,12 @@ import {
   WorkflowNotFoundError,
   type RunRow,
 } from "./run-launcher.service";
+import {
+  RunOutcomeService,
+  RunOutcomeRunNotFoundError,
+  RunOutcomeValidationError,
+  type RunOutcomeRow,
+} from "./run-outcome.service";
 
 interface CreateRunBody {
   readonly workflow_id: string;
@@ -61,9 +67,28 @@ function toRunResponse(row: RunRow): Record<string, unknown> {
   };
 }
 
+function toOutcomeResponse(row: RunOutcomeRow): Record<string, unknown> {
+  return {
+    run_id: row.run_id,
+    mode: row.mode,
+    eligible: row.eligible,
+    verdict: row.verdict,
+    human_rescue: row.human_rescue,
+    critical_external_error: row.critical_external_error,
+    gates_passed: row.gates_passed,
+    gates_failed: row.gates_failed,
+    recovery_count: row.recovery_count,
+    human_repair_after_complete: row.human_repair_after_complete,
+    decided_at: row.decided_at,
+  };
+}
+
 @Controller("api/v1/runs")
 export class RunsController {
-  constructor(private readonly launcher: RunLauncherService) {}
+  constructor(
+    private readonly launcher: RunLauncherService,
+    private readonly outcomes: RunOutcomeService,
+  ) {}
 
   @Post()
   @HttpCode(201)
@@ -118,6 +143,25 @@ export class RunsController {
     }
   }
 
+  @Get(":id/outcome")
+  async outcome(@Req() request: SessionGatewayRequest, @Param("id") runId: string) {
+    const tenantId = requiredTenantId(request);
+    try {
+      const row = await this.outcomes.getByRunId(tenantId, runId);
+      if (row === undefined) {
+        throw notFound(
+          request.url,
+          `Run ${runId} has no recorded outcome yet`,
+          "RUN_OUTCOME_NOT_FOUND",
+          "runs.outcome-not-found",
+        );
+      }
+      return toOutcomeResponse(row);
+    } catch (error: unknown) {
+      throw mapRunError(error, request.url);
+    }
+  }
+
   @Post(":id/actions/cancel")
   async cancel(@Req() request: SessionGatewayRequest, @Param("id") runId: string) {
     const tenantId = requiredTenantId(request);
@@ -159,6 +203,12 @@ function mapRunError(error: unknown, requestUrl: string | undefined): HttpExcept
   }
   if (error instanceof RunStateConflictError) {
     return conflict(requestUrl, error.message);
+  }
+  if (error instanceof RunOutcomeValidationError) {
+    return badRequest(requestUrl, error.message);
+  }
+  if (error instanceof RunOutcomeRunNotFoundError) {
+    return notFound(requestUrl, error.message, "RUN_NOT_FOUND", "runs.not-found");
   }
   if (error instanceof RunStartFailedError) {
     return new HttpException(

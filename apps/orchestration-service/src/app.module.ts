@@ -44,6 +44,7 @@ import { RunStreamEventService } from "./runs/run-stream-event.service";
 import { RunStreamController } from "./runs/run-stream.controller";
 import { RunLauncherService } from "./runs/run-launcher.service";
 import { RunsController } from "./runs/runs.controller";
+import { RunOutcomeService } from "./runs/run-outcome.service";
 import { loadRunLauncherEnvironment } from "./config/run-launcher-environment";
 import { ApprovalsController } from "./approvals/approvals.controller";
 import { ApprovalsService } from "./approvals/approvals.service";
@@ -284,6 +285,7 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
           ledger,
           new RunStreamEventService(store),
           recoveryTrigger,
+          buildRunOutcomeService(),
         );
       },
     },
@@ -343,8 +345,12 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
             ? {}
             : { apiKey: runLauncherConfig.temporalApiKey }),
         });
-        return new RunLauncherService(store, durable);
+        return new RunLauncherService(store, durable, buildRunOutcomeService());
       },
+    },
+    {
+      provide: RunOutcomeService,
+      useFactory: () => buildRunOutcomeService(),
     },
     {
       provide: ApprovalsService,
@@ -464,6 +470,27 @@ interface SessionGatewayEnvironment {
   readonly databaseName: string;
   readonly databaseUser: string;
   readonly awsRegion: string;
+}
+
+/**
+ * HEAL-8: NodeexecService, RunLauncherService, and RunsController (via its
+ * own RunOutcomeService provider below) all need a RunOutcomeService --
+ * the real writer for the VACR/VADR metric ledger, and the reader behind
+ * GET /runs/{id}/outcome. Same reasoning as buildRecoveryPolicyService
+ * just below: each caller gets its own store instance.
+ */
+function buildRunOutcomeService(): RunOutcomeService {
+  const dbConfig = sessionGatewayEnvironment(process.env);
+  const store = new PostgresOrchestrationStoreProvider({
+    authentication: "iam",
+    host: dbConfig.databaseHost,
+    port: dbConfig.databasePort,
+    database: dbConfig.databaseName,
+    user: dbConfig.databaseUser,
+    region: dbConfig.awsRegion,
+    migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+  });
+  return new RunOutcomeService(store);
 }
 
 /**

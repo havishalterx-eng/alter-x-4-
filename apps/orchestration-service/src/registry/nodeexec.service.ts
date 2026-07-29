@@ -18,6 +18,7 @@ import type { NodeHandlerRegistry } from "./node-handler-registry";
 import { NodeExecutionLedgerService } from "../runs/node-execution-ledger.service";
 import { RunStreamEventService } from "../runs/run-stream-event.service";
 import type { RecoveryTriggerService } from "../recovery/recovery-trigger.service";
+import type { RunOutcomeService } from "../runs/run-outcome.service";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -59,6 +60,7 @@ export class NodeexecService {
     private readonly ledger: NodeExecutionLedgerService,
     private readonly streamEvents?: RunStreamEventService,
     private readonly recovery?: RecoveryTriggerService,
+    private readonly runOutcomes?: RunOutcomeService,
   ) {}
 
   async executeNode(
@@ -231,6 +233,33 @@ export class NodeexecService {
     }
   }
 
+  /**
+   * HEAL-8: run_outcomes is the VACR/VADR metric source of truth -- a
+   * missing verdict is a real gap, not acceptable to silently swallow like
+   * the SSE best-effort calls elsewhere in this file. Still caught (not
+   * thrown) here so a metrics-write failure never breaks the actual
+   * finalizeRun RPC response the Executor workflow is waiting on -- but
+   * logged loudly, unlike the SSE convenience-transport catches.
+   */
+  async #recordOutcomeBestEffort(
+    tenantId: string,
+    runId: string,
+    status: string,
+  ): Promise<void> {
+    if (status !== "completed" && status !== "failed" && status !== "cancelled") {
+      return;
+    }
+    try {
+      await this.runOutcomes?.recordOutcome(tenantId, runId, status);
+    } catch (error: unknown) {
+      console.error("run_outcomes write failed -- VACR/VADR metrics gap", {
+        run_id: runId,
+        status,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   async #ensureRunStatusBestEffort(
     request: NodeexecExecuteNodeRequest,
   ): Promise<void> {
@@ -262,6 +291,7 @@ export class NodeexecService {
       request.run_id,
       request.status,
     );
+    await this.#recordOutcomeBestEffort(request.tenant_id, request.run_id, result.status);
     // Only emit when the ledger actually applied *this* finalize -- if the
     // run was already terminal for another reason (e.g. cancelled
     // concurrently), result.status reflects that real state instead, and

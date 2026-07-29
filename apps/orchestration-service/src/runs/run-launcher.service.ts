@@ -12,6 +12,7 @@ import type {
   DurableExecutionProvider,
   DurableWorkflowHandle,
 } from "@alterx/shared-clients";
+import type { RunOutcomeService } from "./run-outcome.service";
 
 const EXECUTOR_WORKFLOW_TYPE = "executorWorkflow";
 const RUNNABLE_VERSION_STATUSES = new Set(["compiled", "canary", "promoted"]);
@@ -139,6 +140,7 @@ export class RunLauncherService {
   constructor(
     private readonly store: OrchestrationTenantStore,
     private readonly durable: DurableExecutionProvider,
+    private readonly runOutcomes?: RunOutcomeService,
   ) {}
 
   async createRun(
@@ -272,7 +274,7 @@ export class RunLauncherService {
       }
     }
 
-    return this.store.withTenant(tenantId, async (tx) => {
+    const row = await this.store.withTenant(tenantId, async (tx) => {
       const updated = await tx.query<RunRow>(
         `UPDATE runs SET status = 'cancelled', ended_at = clock_timestamp()
          WHERE tenant_id = $1 AND id = $2 AND status IN ('pending', 'running', 'paused')
@@ -287,10 +289,31 @@ export class RunLauncherService {
         `SELECT ${RUN_SELECT_COLUMNS} FROM runs WHERE tenant_id = $1 AND id = $2`,
         [tenantId, runId],
       );
-      const row = result.rows[0];
-      if (row === undefined) throw new RunNotFoundError(runId);
-      return row;
+      const existing = result.rows[0];
+      if (existing === undefined) throw new RunNotFoundError(runId);
+      return existing;
     });
+
+    // HEAL-8: durable.terminateWorkflow (above) hard-kills the Temporal
+    // workflow execution when it succeeds -- the Executor's own
+    // try/finally (NodeexecService.finalizeRun) then never runs, so this
+    // is the only real write site for a 'cancelled' verdict. Idempotent
+    // (ON CONFLICT DO NOTHING) against the race the comment above already
+    // documents; also a safe no-op if the run was already terminal for a
+    // different real reason (completed/failed already wrote their own
+    // verdict first).
+    if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
+      try {
+        await this.runOutcomes?.recordOutcome(tenantIdInput, runId, row.status);
+      } catch (error: unknown) {
+        console.error("run_outcomes write failed -- VACR/VADR metrics gap", {
+          run_id: runId,
+          status: row.status,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return row;
   }
 
   async retryNode(
@@ -438,6 +461,19 @@ export class RunLauncherService {
           [tenantId, row.id],
         );
       });
+      // HEAL-8: this run's Temporal workflow never started, so the
+      // Executor's own try/finally (NodeexecService.finalizeRun) will
+      // never run for it either -- the only real write site for this
+      // run's verdict.
+      try {
+        await this.runOutcomes?.recordOutcome(tenantIdWithPrefix, row.id, "failed");
+      } catch (outcomeError: unknown) {
+        console.error("run_outcomes write failed -- VACR/VADR metrics gap", {
+          run_id: row.id,
+          status: "failed",
+          error: outcomeError instanceof Error ? outcomeError.message : String(outcomeError),
+        });
+      }
       throw new RunStartFailedError(row.id, error);
     }
     void handle;
