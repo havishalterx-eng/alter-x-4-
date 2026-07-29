@@ -65,6 +65,64 @@ function parallelWaveDag(): CompiledDag {
   };
 }
 
+/**
+ * A Gate protecting one external-action node via a conditional edge --
+ * the real shape Planning's Graph Compiler already produces
+ * (injectVerificationGates), used here to prove the Self-Healing
+ * exit-check finding: the Executor previously never read `kind:
+ * "conditional"` edges at all, so a Gate's decision had zero effect on
+ * whether the guarded node actually ran.
+ */
+function gatedDag(): CompiledDag {
+  return {
+    schema_version: "v1",
+    entry_node_keys: ["node_gate"],
+    nodes: [
+      { key: "node_gate", type: "Gate", config: {}, metadata: { ui: {} } },
+      { key: "node_protected", type: "ToolCall", config: {}, metadata: { ui: {} } },
+    ],
+    edges: [
+      {
+        key: "node_gate-to-node_protected",
+        from: "node_gate",
+        to: "node_protected",
+        kind: "conditional",
+        condition: { expression: "true", language: "cel" },
+      },
+    ],
+    waves: [
+      { key: "wave_0", order: 0, node_keys: ["node_gate"], depends_on: [] },
+      { key: "wave_1", order: 1, node_keys: ["node_protected"], depends_on: ["wave_0"] },
+    ],
+  };
+}
+
+/**
+ * Fakes the Gate node type's real output shape (GateHandler already
+ * computes `activeSuccessors` correctly -- see gate.handler.ts; this test
+ * targets only the Executor's enforcement of it, not Gate's own scoring
+ * logic, which verification-gate.integration.spec.ts already covers).
+ */
+function gateActivities(
+  gateOutput: Record<string, unknown>,
+  callOrder: string[],
+): ExecutorActivities {
+  return {
+    async executeNode(input) {
+      callOrder.push(input.nodeKey);
+      if (input.nodeType === "Gate") {
+        return { outputJson: JSON.stringify(gateOutput), metadataJson: "{}" };
+      }
+      return {
+        outputJson: JSON.stringify({ from: input.nodeKey }),
+        metadataJson: "{}",
+      };
+    },
+    async finalizeRun() {},
+    async recordApprovalDecision() {},
+  };
+}
+
 function humanApprovalDag(): CompiledDag {
   return {
     schema_version: "v1",
@@ -598,6 +656,83 @@ describe.sequential("executorWorkflow", () => {
       expect(recordCalls).toEqual([
         expect.objectContaining({ decision: "rejected" }),
       ]);
+    } finally {
+      await stopWorker(running);
+    }
+  });
+
+  it("real enforcement: a Gate that does not activate its successor prevents that node's activity from ever being invoked (Self-Healing exit-check finding)", async () => {
+    const taskQueue = "executor-gate-blocks-protected-node";
+    const callOrder: string[] = [];
+    const running = startWorker(
+      await createExecutorWorker(
+        config(taskQueue),
+        environment.nativeConnection,
+        gateActivities(
+          { activeSuccessors: [], verification_status: "blocked_pending_recovery" },
+          callOrder,
+        ),
+      ),
+    );
+
+    try {
+      const handle = await environment.client.workflow.start(WORKFLOW_TYPE, {
+        taskQueue,
+        workflowId: "executor-gate-blocks-protected-node-workflow",
+        args: [
+          {
+            tenantId: "ten_test",
+            runId: "run_test",
+            compiledDagJson: JSON.stringify(gatedDag()),
+          },
+        ],
+      });
+
+      const result = await handle.result();
+
+      expect(callOrder).toEqual(["node_gate"]);
+      expect(callOrder).not.toContain("node_protected");
+      expect(result.outputs["node_protected"]).toEqual({
+        skipped: true,
+        reason: "gated_off_by_verification",
+        gate_node_keys: ["node_gate"],
+      });
+    } finally {
+      await stopWorker(running);
+    }
+  });
+
+  it("real enforcement: a Gate that activates its successor lets that node's activity run normally", async () => {
+    const taskQueue = "executor-gate-allows-protected-node";
+    const callOrder: string[] = [];
+    const running = startWorker(
+      await createExecutorWorker(
+        config(taskQueue),
+        environment.nativeConnection,
+        gateActivities(
+          { activeSuccessors: ["node_protected"], verification_status: "passed" },
+          callOrder,
+        ),
+      ),
+    );
+
+    try {
+      const handle = await environment.client.workflow.start(WORKFLOW_TYPE, {
+        taskQueue,
+        workflowId: "executor-gate-allows-protected-node-workflow",
+        args: [
+          {
+            tenantId: "ten_test",
+            runId: "run_test",
+            compiledDagJson: JSON.stringify(gatedDag()),
+          },
+        ],
+      });
+
+      const result = await handle.result();
+
+      expect(callOrder).toEqual(["node_gate", "node_protected"]);
+      expect(result.outputs["node_protected"]).toEqual({ from: "node_protected" });
     } finally {
       await stopWorker(running);
     }

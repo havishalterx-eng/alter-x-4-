@@ -19,16 +19,20 @@ export type RecoveryStrategy =
   | "terminate";
 
 /**
- * Real dispatch exists today (RecoveryDispatchService) for these 5. The
- * other 5 (repair, retry, backoff, swap_agent, recompile) are selected
- * correctly by the deterministic table below (a real, auditable decision
- * lands in recovery_actions.strategy) but have no real system to call yet
- * -- dispatch honestly reports them as deferred instead of pretending to
+ * Real dispatch exists today (RecoveryDispatchService) for these 6.
+ * `recompile` shares `replan`'s real mechanism (no narrower
+ * "recompile without a new plan" primitive exists -- Self-Healing
+ * exit-check closure, disclosed merge, not two independent paths). The
+ * other 4 (repair, retry, backoff, swap_agent) are selected correctly by
+ * the deterministic table below (a real, auditable decision lands in
+ * recovery_actions.strategy) but have no real system to call yet --
+ * dispatch honestly reports them as deferred instead of pretending to
  * have acted. See PR body for the gap behind each one.
  */
 export const DISPATCHABLE_STRATEGIES = new Set<RecoveryStrategy>([
   "escalate_model",
   "replan",
+  "recompile",
   "degrade",
   "ask_user",
   "terminate",

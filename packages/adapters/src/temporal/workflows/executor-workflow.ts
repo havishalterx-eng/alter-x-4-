@@ -89,6 +89,50 @@ function orderedWaves(dag: CompiledDag): CompiledDag["waves"] {
 }
 
 /**
+ * Real enforcement of "verification precedes every external action"
+ * (HEAL-4) -- found missing entirely during Self-Healing exit-check
+ * closure: the Graph Compiler (Planning phase) already encodes Gate
+ * decisions as `kind: "conditional"` edges, but until this fix nothing
+ * in the Executor ever read them. Every node in a wave executed
+ * unconditionally regardless of what any guarding Gate decided.
+ *
+ * Deliberately reuses the Gate handler's own already-computed
+ * `activeSuccessors` output (real, already correct -- see
+ * gate.handler.ts) rather than re-evaluating CEL conditions inside
+ * workflow code. A node is gated off only if it has at least one
+ * incoming conditional edge AND none of them were satisfied (OR
+ * semantics across multiple conditional predecessors, matching how
+ * independent Gates can each unlock a shared downstream node).
+ */
+function isNodeGatedOff(
+  dag: CompiledDag,
+  nodeKey: string,
+  outputs: Record<string, Record<string, unknown>>,
+): boolean {
+  const incomingConditional = dag.edges.filter(
+    (edge) => edge.to === nodeKey && edge.kind === "conditional",
+  );
+  if (incomingConditional.length === 0) return false;
+
+  for (const edge of incomingConditional) {
+    const sourceOutput = outputs[edge.from];
+    const activeSuccessors = sourceOutput?.["activeSuccessors"];
+    if (Array.isArray(activeSuccessors) && activeSuccessors.includes(nodeKey)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function gatedOffOutput(gateNodeKeys: readonly string[]): Record<string, unknown> {
+  return {
+    skipped: true,
+    reason: "gated_off_by_verification",
+    gate_node_keys: gateNodeKeys,
+  };
+}
+
+/**
  * Serializable failure summary for the finalizeRun activity -- never the
  * raw Error/ApplicationFailure object (workflow code must only pass
  * deterministic, JSON-safe values to activities), never a stack trace or
@@ -150,6 +194,13 @@ export async function executorWorkflow(
           const node = nodesByKey.get(nodeKey);
           if (node === undefined) {
             throw validationFailure(`Wave references unknown node key "${nodeKey}"`);
+          }
+
+          if (isNodeGatedOff(dag, nodeKey, outputs)) {
+            const gateNodeKeys = dag.edges
+              .filter((edge) => edge.to === nodeKey && edge.kind === "conditional")
+              .map((edge) => edge.from);
+            return [nodeKey, gatedOffOutput(gateNodeKeys)] as const;
           }
 
           const nodeExecId = nodeExecutionId();

@@ -77,6 +77,12 @@ export class RecoveryDispatchService {
       case "escalate_model":
         return this.#escalateModel(context);
       case "replan":
+      case "recompile":
+        // No narrower "recompile without a new plan" primitive exists --
+        // GraphCompilerService.compileWorkflow always needs a task
+        // skeleton, and only Planner produces one. Disclosed merge
+        // (Self-Healing exit-check closure): both strategies share this
+        // one real mechanism today, never faked as two independent paths.
         return this.#replan(context);
       case "degrade":
         return {
@@ -89,11 +95,17 @@ export class RecoveryDispatchService {
       case "terminate":
         await this.runs.writeTerminalFailed(context.tenantId, context.runId);
         return { outcome: "failed", detail: "run terminated by recovery policy" };
-      case "repair":
       case "retry":
       case "backoff":
+      case "repair":
       case "swap_agent":
-      case "recompile":
+        // Genuine node-failure retry needs a workflow-level pause-and-
+        // await-decision mechanism (mirroring HumanApproval's condition()
+        // wait, but for a failed node instead of an approval) -- separate,
+        // still-unscoped Temporal design work, same magnitude as the Gate-
+        // enforcement fix this closure pass just made. Not built yet;
+        // disclosed, not faked. repair also still has no defined concept
+        // anywhere in the codebase.
         return {
           outcome: "escalated",
           detail: `strategy_dispatch_deferred: "${strategy}" has no real target system wired yet (see HEAL-6 PR known-gaps)`,

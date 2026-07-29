@@ -175,6 +175,21 @@ describe("RecoveryDispatchService", () => {
     expect(result.outcome).toBe("failed");
   });
 
+  it("recompile shares replan's real mechanism (no narrower primitive exists)", async () => {
+    const replan = vi.fn().mockResolvedValue({
+      revised_skeleton_json: '{"steps":[]}',
+      reason: "sandbox crash detected",
+    });
+    const compileWorkflow = vi.fn().mockResolvedValue({ workflow_version_id: "wfv_recompiled" });
+    const service = buildService({ replan, compileWorkflow });
+
+    const result = await service.dispatch("recompile", CONTEXT);
+
+    expect(result.outcome).toBe("resolved");
+    expect(replan).toHaveBeenCalledTimes(1);
+    expect(compileWorkflow).toHaveBeenCalledTimes(1);
+  });
+
   it("degrade always resolves via the honest Synthesis stub, never claims real synthesis", async () => {
     const service = buildService();
     const result = await service.dispatch("degrade", CONTEXT);
