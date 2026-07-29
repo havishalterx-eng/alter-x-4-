@@ -62,16 +62,54 @@ export interface RunOutcomeRow extends Record<string, unknown> {
   readonly decided_at: string;
 }
 
+export interface RunLearningNodeSummary extends Record<string, unknown> {
+  readonly node_execution_id: string;
+  readonly node_key: string;
+  readonly node_type: string;
+  readonly status: string;
+  readonly attempt: number;
+  readonly input_ref: string | null;
+  readonly output_ref: string | null;
+  readonly error_code: string | null;
+}
+
+export interface RunLearningRecoverySummary extends Record<string, unknown> {
+  readonly node_execution_id: string | null;
+  readonly failure_class: string;
+  readonly strategy: string;
+  readonly outcome: string | null;
+}
+
+export interface RunLearningSummary {
+  readonly tenant_id: string;
+  readonly run_id: string;
+  readonly workspace_id: string;
+  readonly verdict: string;
+  readonly gates_passed: number;
+  readonly gates_failed: number;
+  readonly recovery_count: number;
+  readonly nodes: readonly RunLearningNodeSummary[];
+  readonly recovery_actions: readonly RunLearningRecoverySummary[];
+}
+
 interface RunRow extends Record<string, unknown> {
   readonly workspace_id: string;
   readonly parent_kind: string;
   readonly workflow_version_id: string | null;
+  readonly status: string;
 }
 
 export class RunOutcomeRunNotFoundError extends Error {
   constructor(runId: string) {
     super(`Run ${runId} was not found`);
     this.name = "RunOutcomeRunNotFoundError";
+  }
+}
+
+export class RunOutcomeNotCompletedError extends Error {
+  constructor(runId: string) {
+    super(`Run ${runId} has no completed outcome`);
+    this.name = "RunOutcomeNotCompletedError";
   }
 }
 
@@ -88,6 +126,10 @@ function bareTenantUuid(tenantIdInput: string): string {
     throw new RunOutcomeValidationError("tenantId must be a ten_ prefixed UUIDv7");
   }
   return parsed.data.slice("ten_".length);
+}
+
+function isTerminalRunStatus(status: string): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
 }
 
 export class RunOutcomeService {
@@ -167,13 +209,75 @@ export class RunOutcomeService {
     });
   }
 
+  /**
+   * Minimal tenant-scoped projection for KNOW-13 post-run learning.
+   * Raw node error details are deliberately not exposed: only their code
+   * crosses the service boundary, avoiding accidental secret propagation.
+   */
+  async getLearningSummary(
+    tenantIdInput: string,
+    runId: string,
+  ): Promise<RunLearningSummary> {
+    const tenantId = bareTenantUuid(tenantIdInput);
+    if (!RunIdSchema.safeParse(runId).success) {
+      throw new RunOutcomeValidationError("runId must be a run_ prefixed UUIDv7");
+    }
+    return this.store.withTenant(tenantId, async (tx) => {
+      const run = await this.#loadRun(tx, tenantId, runId);
+      if (!isTerminalRunStatus(run.status)) {
+        throw new RunOutcomeNotCompletedError(runId);
+      }
+
+      const outcome = await tx.query<RunOutcomeRow>(
+        `SELECT run_id, mode, eligible, verdict, human_rescue,
+                critical_external_error, gates_passed, gates_failed,
+                recovery_count, human_repair_after_complete,
+                decided_at::text
+         FROM run_outcomes WHERE tenant_id = $1 AND run_id = $2`,
+        [tenantId, runId],
+      );
+      const outcomeRow = outcome.rows[0];
+      if (outcomeRow === undefined) {
+        throw new RunOutcomeNotCompletedError(runId);
+      }
+
+      const nodes = await tx.query<RunLearningNodeSummary>(
+        `SELECT id AS node_execution_id, dag_node_id AS node_key, node_type,
+                status, attempt, input_ref, output_ref, error->>'code' AS error_code
+         FROM node_executions
+         WHERE tenant_id = $1 AND run_id = $2
+         ORDER BY started_at ASC, id ASC`,
+        [tenantId, runId],
+      );
+      const recoveryActions = await tx.query<RunLearningRecoverySummary>(
+        `SELECT node_execution_id, failure_class, strategy, outcome
+         FROM recovery_actions
+         WHERE tenant_id = $1 AND run_id = $2
+         ORDER BY created_at ASC, id ASC`,
+        [tenantId, runId],
+      );
+
+      return {
+        tenant_id: tenantIdInput,
+        run_id: runId,
+        workspace_id: `ws_${run.workspace_id}`,
+        verdict: outcomeRow.verdict,
+        gates_passed: outcomeRow.gates_passed,
+        gates_failed: outcomeRow.gates_failed,
+        recovery_count: outcomeRow.recovery_count,
+        nodes: nodes.rows,
+        recovery_actions: recoveryActions.rows,
+      };
+    });
+  }
+
   async #loadRun(
     tx: RunOutcomeTransaction,
     tenantId: string,
     runId: string,
   ): Promise<RunRow> {
     const result = await tx.query<RunRow>(
-      `SELECT workspace_id::text, parent_kind, workflow_version_id
+      `SELECT workspace_id::text, parent_kind, workflow_version_id, status
        FROM runs WHERE tenant_id = $1 AND id = $2`,
       [tenantId, runId],
     );

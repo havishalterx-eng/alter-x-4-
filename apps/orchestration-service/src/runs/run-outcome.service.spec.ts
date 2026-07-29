@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  RunOutcomeNotCompletedError,
   RunOutcomeRunNotFoundError,
   RunOutcomeService,
   RunOutcomeValidationError,
@@ -15,7 +16,7 @@ const WORKSPACE_ID = "018f47a5-7b2c-7d10-8f11-000000000001";
 const WORKFLOW_VERSION_ID = "wfv_018f47a5-7b2c-7d10-8f11-123456789abc";
 
 interface FakeDb {
-  runs: { workspace_id: string; parent_kind: string; workflow_version_id: string | null } | undefined;
+  runs: { workspace_id: string; parent_kind: string; workflow_version_id: string | null; status: string } | undefined;
   workflowVersionStatus: string | undefined;
   verificationResults: readonly { verdict: string }[];
   recoveryActions: readonly { strategy: string | null; outcome: string | null }[];
@@ -97,6 +98,7 @@ function baseDb(overrides: Partial<FakeDb> = {}): FakeDb {
       workspace_id: WORKSPACE_ID,
       parent_kind: "workflow",
       workflow_version_id: WORKFLOW_VERSION_ID,
+      status: "completed",
     },
     workflowVersionStatus: "promoted",
     verificationResults: [],
@@ -240,7 +242,7 @@ describe("RunOutcomeService.recordOutcome", () => {
 
   it("not eligible when the run has no workflow_version_id at all", async () => {
     const db = baseDb({
-      runs: { workspace_id: WORKSPACE_ID, parent_kind: "workflow", workflow_version_id: null },
+      runs: { workspace_id: WORKSPACE_ID, parent_kind: "workflow", workflow_version_id: null, status: "completed" },
     });
     const service = new RunOutcomeService(fakeStore(db));
     await service.recordOutcome(TENANT_ID, RUN_ID, "completed");
@@ -269,4 +271,112 @@ describe("RunOutcomeService.getByRunId", () => {
     const service = new RunOutcomeService(store);
     await expect(service.getByRunId(TENANT_ID, RUN_ID)).resolves.toBeUndefined();
   });
+});
+
+describe("RunOutcomeService.getLearningSummary", () => {
+  function learningStore(status = "failed", withOutcome = true): RunOutcomeTenantStore {
+    return {
+      async withTenant(tenantId, operation) {
+        expect(tenantId).toBe(BARE_TENANT_ID);
+        return operation({
+          query: vi.fn(async (sql: string) => {
+            if (sql.includes("FROM runs WHERE")) {
+              return {
+                rowCount: 1,
+                rows: [{
+                  workspace_id: WORKSPACE_ID,
+                  parent_kind: "workflow",
+                  workflow_version_id: WORKFLOW_VERSION_ID,
+                  status,
+                }],
+              };
+            }
+            if (sql.includes("FROM run_outcomes")) {
+              return withOutcome
+                ? {
+                    rowCount: 1,
+                    rows: [{
+                      run_id: RUN_ID,
+                      mode: "workflow",
+                      eligible: true,
+                      verdict: "failed",
+                      human_rescue: false,
+                      critical_external_error: false,
+                      gates_passed: 2,
+                      gates_failed: 1,
+                      recovery_count: 1,
+                      human_repair_after_complete: null,
+                      decided_at: "2026-07-29T00:00:00.000Z",
+                    }],
+                  }
+                : { rowCount: 0, rows: [] };
+            }
+            if (sql.includes("FROM node_executions")) {
+              return {
+                rowCount: 1,
+                rows: [{
+                  node_execution_id: "node_a",
+                  node_key: "publish",
+                  node_type: "ToolCall",
+                  status: "failed",
+                  attempt: 2,
+                  input_ref: "research",
+                  output_ref: null,
+                  error_code: "TOOL_PERMISSION_DENIED",
+                }],
+              };
+            }
+            if (sql.includes("FROM recovery_actions")) {
+              return {
+                rowCount: 1,
+                rows: [{
+                  node_execution_id: "node_a",
+                  failure_class: "tool_permission_denial",
+                  strategy: "ask_user",
+                  outcome: "escalated",
+                }],
+              };
+            }
+            throw new Error(`Unexpected SQL: ${sql}`);
+          }) as unknown as RunOutcomeTransaction["query"],
+        });
+      },
+    };
+  }
+
+  it("returns the real outcome, node, and recovery projection", async () => {
+    const summary = await new RunOutcomeService(learningStore()).getLearningSummary(
+      TENANT_ID,
+      RUN_ID,
+    );
+
+    expect(summary).toEqual({
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      workspace_id: `ws_${WORKSPACE_ID}`,
+      verdict: "failed",
+      gates_passed: 2,
+      gates_failed: 1,
+      recovery_count: 1,
+      nodes: [expect.objectContaining({ node_key: "publish", attempt: 2 })],
+      recovery_actions: [
+        expect.objectContaining({ strategy: "ask_user", outcome: "escalated" }),
+      ],
+    });
+  });
+
+  it.each([
+    ["running", true],
+    ["failed", false],
+  ] as const)(
+    "rejects a run without a completed outcome (status=%s, outcome=%s)",
+    async (status, withOutcome) => {
+      await expect(
+        new RunOutcomeService(learningStore(status, withOutcome)).getLearningSummary(
+          TENANT_ID,
+          RUN_ID,
+        ),
+      ).rejects.toBeInstanceOf(RunOutcomeNotCompletedError);
+    },
+  );
 });

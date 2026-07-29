@@ -45,6 +45,7 @@ import { RunStreamController } from "./runs/run-stream.controller";
 import { RunLauncherService } from "./runs/run-launcher.service";
 import { RunsController } from "./runs/runs.controller";
 import { RunOutcomeService } from "./runs/run-outcome.service";
+import { RunLearningController } from "./runs/run-learning.controller";
 import { loadRunLauncherEnvironment } from "./config/run-launcher-environment";
 import { ApprovalsController } from "./approvals/approvals.controller";
 import { ApprovalsService } from "./approvals/approvals.service";
@@ -85,6 +86,7 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
     NodeExecutionsController,
     RunStreamController,
     RunsController,
+    RunLearningController,
     ApprovalsController,
     TriggerRegistryController,
     WhatsappWebhookController,

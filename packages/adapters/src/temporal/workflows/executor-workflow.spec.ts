@@ -62,12 +62,16 @@ function singleNodeDag(): CompiledDag {
 function failNTimesThenSucceedActivities(
   failuresBeforeSuccess: number,
   nodeExecutionIdsCaptured: string[],
+  onFirstNodeExecution?: (nodeExecutionId: string) => void,
 ): ExecutorActivities {
   let callCount = 0;
   return {
     async executeNode(input) {
       callCount += 1;
       nodeExecutionIdsCaptured.push(input.nodeExecutionId);
+      if (callCount === 1) {
+        onFirstNodeExecution?.(input.nodeExecutionId);
+      }
       if (callCount <= failuresBeforeSuccess) {
         throw new Error(`simulated failure ${callCount}`);
       }
@@ -782,6 +786,10 @@ describe.sequential("executorWorkflow", () => {
     const taskQueue = "executor-node-retry-succeeds";
     const workflowId = "executor-node-retry-succeeds-workflow";
     const nodeExecutionIdsCaptured: string[] = [];
+    let resolveFirstNodeExecution!: (nodeExecutionId: string) => void;
+    const firstNodeExecution = new Promise<string>((resolve) => {
+      resolveFirstNodeExecution = resolve;
+    });
     // 3 failures exhausts proxyActivities' own maximumAttempts: 3 before
     // executor-workflow.ts's catch ever runs; the 4th call (post-signal)
     // succeeds.
@@ -789,7 +797,7 @@ describe.sequential("executorWorkflow", () => {
       await createExecutorWorker(
         config(taskQueue),
         environment.nativeConnection,
-        failNTimesThenSucceedActivities(3, nodeExecutionIdsCaptured),
+        failNTimesThenSucceedActivities(3, nodeExecutionIdsCaptured, resolveFirstNodeExecution),
       ),
     );
 
@@ -807,12 +815,10 @@ describe.sequential("executorWorkflow", () => {
         ],
       });
 
-      // Poll until the first (exhausted) attempt has actually happened and
-      // the workflow is durably parked in its recovery condition() wait --
-      // real nodeExecutionId is only known once the activity has run.
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const nodeExecutionId = nodeExecutionIdsCaptured[0];
-      expect(nodeExecutionId).toBeDefined();
+      // Wait for the activity itself instead of guessing a wall-clock margin.
+      // Signals are durable, so an early retry decision remains available when
+      // the workflow reaches its recovery condition() after activity retries.
+      const nodeExecutionId = await firstNodeExecution;
 
       await environment.client.workflow.getHandle(workflowId).signal(nodeRetryDecidedSignal, {
         nodeExecutionId: nodeExecutionId!,
@@ -830,12 +836,20 @@ describe.sequential("executorWorkflow", () => {
     const taskQueue = "executor-node-retry-gives-up";
     const workflowId = "executor-node-retry-gives-up-workflow";
     const nodeExecutionIdsCaptured: string[] = [];
+    let resolveFirstNodeExecution!: (nodeExecutionId: string) => void;
+    const firstNodeExecution = new Promise<string>((resolve) => {
+      resolveFirstNodeExecution = resolve;
+    });
     const running = startWorker(
       await createExecutorWorker(
         config(taskQueue),
         environment.nativeConnection,
         // Always fails -- there is no "eventually succeeds" attempt here.
-        failNTimesThenSucceedActivities(Number.POSITIVE_INFINITY, nodeExecutionIdsCaptured),
+        failNTimesThenSucceedActivities(
+          Number.POSITIVE_INFINITY,
+          nodeExecutionIdsCaptured,
+          resolveFirstNodeExecution,
+        ),
       ),
     );
 
@@ -853,9 +867,7 @@ describe.sequential("executorWorkflow", () => {
         ],
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const nodeExecutionId = nodeExecutionIdsCaptured[0];
-      expect(nodeExecutionId).toBeDefined();
+      const nodeExecutionId = await firstNodeExecution;
 
       await environment.client.workflow.getHandle(workflowId).signal(nodeRetryDecidedSignal, {
         nodeExecutionId: nodeExecutionId!,
