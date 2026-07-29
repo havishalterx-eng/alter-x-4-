@@ -9,6 +9,8 @@ import {
 import { Observable } from "rxjs";
 
 import type {
+  ModelgwEmbedRequest,
+  ModelgwEmbedResponse,
   ModelgwInvokeRequest,
   ModelgwInvokeResponse,
   ModelgwRedactRequest,
@@ -30,6 +32,7 @@ export interface ModelgwHandler {
   invoke(request: ModelgwInvokeRequest): Promise<ModelgwInvokeResponse>;
   stream(request: ModelgwStreamRequest): AsyncIterable<ModelgwStreamResponse>;
   redact(request: ModelgwRedactRequest): Promise<ModelgwRedactResponse>;
+  embed(request: ModelgwEmbedRequest): Promise<ModelgwEmbedResponse>;
 }
 
 export interface ModelgwGrpcTransportConfig {
@@ -108,6 +111,18 @@ export class ModelgwGrpcController {
       code: status.UNIMPLEMENTED,
       message: "Fallback selection ships in GATE-3",
     });
+  }
+
+  @GrpcMethod("ModelgwService", "Embed")
+  async embed(request: ModelgwEmbedRequest): Promise<ModelgwEmbedResponse> {
+    try {
+      return await this.handler.embed(request);
+    } catch {
+      throw new RpcException({
+        code: status.INTERNAL,
+        message: "Embedding could not be completed",
+      });
+    }
   }
 }
 

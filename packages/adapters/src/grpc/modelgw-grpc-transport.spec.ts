@@ -16,6 +16,8 @@ import { FastifyAdapter } from "@nestjs/platform-fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type {
+  ModelgwEmbedRequest,
+  ModelgwEmbedResponse,
   ModelgwInvokeRequest,
   ModelgwInvokeResponse,
   ModelgwRedactRequest,
@@ -50,6 +52,13 @@ interface ModelgwGrpcClient extends Client {
     callback: (
       error: ServiceError | null,
       response: ModelgwRedactResponse,
+    ) => void,
+  ): void;
+  embed(
+    request: ModelgwEmbedRequest,
+    callback: (
+      error: ServiceError | null,
+      response: ModelgwEmbedResponse,
     ) => void,
   ): void;
 }
@@ -99,6 +108,13 @@ const handler: ModelgwHandler = {
       redacted_content: request.content.replace("ABCDE1234F", "<IN_PAN>"),
       redaction_count: request.content.includes("ABCDE1234F") ? 1 : 0,
     } satisfies ModelgwRedactResponse;
+  }),
+  embed: vi.fn(async (request: ModelgwEmbedRequest) => {
+    return {
+      embedding: Array.from({ length: request.dimensions }, () => 0.5),
+      dimensions: request.dimensions,
+      model_id: "amazon.titan-embed-text-v2:0",
+    } satisfies ModelgwEmbedResponse;
   }),
 };
 
@@ -165,6 +181,21 @@ function redact(
 ): Promise<ModelgwRedactResponse> {
   return new Promise((resolveResponse, reject) => {
     client.redact(req, (error, response) => {
+      if (error === null) {
+        resolveResponse(response);
+      } else {
+        reject(error);
+      }
+    });
+  });
+}
+
+function embed(
+  client: ModelgwGrpcClient,
+  req: ModelgwEmbedRequest,
+): Promise<ModelgwEmbedResponse> {
+  return new Promise((resolveResponse, reject) => {
+    client.embed(req, (error, response) => {
       if (error === null) {
         resolveResponse(response);
       } else {
@@ -259,6 +290,7 @@ describe("modelgw gRPC transport adapter", () => {
       }),
       stream: async function* () {},
       redact: vi.fn(),
+      embed: vi.fn(),
     });
     await expect(failing.invoke(request())).rejects.toMatchObject({
       error: {
@@ -293,6 +325,7 @@ describe("modelgw gRPC transport adapter", () => {
       redact: vi.fn(async () => {
         throw new Error("presidio credential and internals");
       }),
+      embed: vi.fn(),
     });
     await expect(
       failing.redact({
@@ -304,6 +337,43 @@ describe("modelgw gRPC transport adapter", () => {
       error: {
         code: 13,
         message: "PII redaction could not be completed",
+      },
+    });
+  });
+
+  it("round-trips an embed request through the generated contract types", async () => {
+    await expect(
+      embed(client, {
+        tenant_id: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+        text: "hello world",
+        dimensions: 1024,
+      }),
+    ).resolves.toEqual({
+      embedding: Array.from({ length: 1024 }, () => 0.5),
+      dimensions: 1024,
+      model_id: "amazon.titan-embed-text-v2:0",
+    });
+  });
+
+  it("hides internal embed handler failures behind INTERNAL", async () => {
+    const failing = new ModelgwGrpcController({
+      invoke: vi.fn(),
+      stream: async function* () {},
+      redact: vi.fn(),
+      embed: vi.fn(async () => {
+        throw new Error("bedrock credential and internals");
+      }),
+    });
+    await expect(
+      failing.embed({
+        tenant_id: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+        text: "x",
+        dimensions: 512,
+      }),
+    ).rejects.toMatchObject({
+      error: {
+        code: 13,
+        message: "Embedding could not be completed",
       },
     });
   });

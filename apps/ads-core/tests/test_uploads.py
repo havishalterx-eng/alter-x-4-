@@ -17,11 +17,23 @@ from alembic import command
 from src.config import Settings
 from src.db.ids import new_prefixed_id
 from src.ingestion import router as router_module
+from src.ingestion.chunking import ParagraphAwareChunkSplitter
+from src.ingestion.embedding_client import EmbeddingDimensions, EmbeddingResult
 from src.ingestion.router import router
 from src.storage.object_storage import InMemoryObjectStorageProvider
 
 SERVICE_ROOT = Path(__file__).parent.parent
 PGVECTOR_IMAGE = "pgvector/pgvector:pg16"
+
+
+class _FakeEmbeddingClient:
+    """Deterministic in-process fake -- this test never dials real gRPC."""
+
+    def embed(
+        self, *, tenant_id: str, text: str, dimensions: EmbeddingDimensions
+    ) -> EmbeddingResult:
+        del tenant_id, text
+        return EmbeddingResult(vector=tuple(0.5 for _ in range(dimensions)), model_id="fake-model")
 
 
 @dataclass(frozen=True)
@@ -118,6 +130,8 @@ def client(database: DatabaseHarness) -> Generator[TestClient, None, None]:
         ),
         scanner=DisclosedStubScanner((b"EICAR-STANDARD-ANTIVIRUS-TEST-FILE",)),
         normalizer=TextAwareNormalizer(),
+        chunk_splitter=ParagraphAwareChunkSplitter(),
+        embedding_client=_FakeEmbeddingClient(),
     )
     storage = InMemoryObjectStorageProvider()
     router_module._default_storage = storage
@@ -184,7 +198,7 @@ def test_complete_upload_runs_the_real_pipeline_end_to_end(
     )
     assert response.status_code == 202, response.text
     body = response.json()
-    assert body["stage"] == "deduplicated"
+    assert body["stage"] == "indexed"
 
     # Raw staging object is cleaned up post-ingestion -- not left dangling.
     assert client.storage.head_object(key=presign["upload_key"]) is None
@@ -266,7 +280,7 @@ def test_get_ingestion_job_returns_real_status(
         headers={"X-Alter-Tenant-Id": tenant_id},
     )
     assert response.status_code == 200
-    assert response.json()["stage"] == "deduplicated"
+    assert response.json()["stage"] == "indexed"
 
 
 def test_get_ingestion_job_404s_for_unknown_job(client: TestClient) -> None:

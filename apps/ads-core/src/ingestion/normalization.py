@@ -11,6 +11,7 @@ _TEXT_LIKE_CONTENT_TYPES = frozenset({"text/plain", "application/json"})
 
 @dataclass(frozen=True)
 class NormalizedContent:
+    content: bytes
     content_hash: str
     normalized_by: str
     limitations: tuple[str, ...]
@@ -44,6 +45,7 @@ class TextAwareNormalizer:
             canonical = json.dumps(json.loads(decoded), sort_keys=True, separators=(",", ":"))
             normalized_bytes = canonical.encode("utf-8")
             return NormalizedContent(
+                content=normalized_bytes,
                 content_hash=hashlib.sha256(normalized_bytes).hexdigest(),
                 normalized_by="json-canonical-v1",
                 limitations=(),
@@ -53,11 +55,13 @@ class TextAwareNormalizer:
             normalized_text = _normalize_text(decoded)
             normalized_bytes = normalized_text.encode("utf-8")
             return NormalizedContent(
+                content=normalized_bytes,
                 content_hash=hashlib.sha256(normalized_bytes).hexdigest(),
                 normalized_by="text-nfc-lines-v1",
                 limitations=(),
             )
         return NormalizedContent(
+            content=content,
             content_hash=hashlib.sha256(content).hexdigest(),
             normalized_by="passthrough",
             limitations=("no_text_extraction_for_binary_content",),

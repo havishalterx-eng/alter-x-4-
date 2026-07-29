@@ -1,6 +1,8 @@
 import {
   ModelAliasSchema,
   ModelInvocationUsageSchema,
+  type ModelgwEmbedRequest,
+  type ModelgwEmbedResponse,
   type ModelgwInvokeRequest,
   type ModelgwInvokeResponse,
   type ModelgwRedactRequest,
@@ -15,6 +17,7 @@ import {
   ModelGatewayInvalidResponseError,
   type CacheProvider,
   type ConfigProvider,
+  type EmbeddingDimensions,
   type EmbeddingProvider,
   type ModelProvider,
   type PIIRedactionProvider,
@@ -30,6 +33,13 @@ import { costEventId } from "./cost-event-id";
 const ESTIMATED_USD_PER_TOKEN = 0.00001;
 
 const CACHE_EMBEDDING_DIMENSIONS = 512;
+
+export class InvalidEmbeddingDimensionsError extends Error {
+  constructor(dimensions: number) {
+    super(`Embedding dimensions must be 512 or 1024, got ${dimensions}`);
+    this.name = "InvalidEmbeddingDimensionsError";
+  }
+}
 
 interface CachedInvokeValue {
   readonly output_json: string;
@@ -262,6 +272,29 @@ export class ModelGatewayService implements ModelgwHandler {
     return {
       redacted_content: result.redactedText,
       redaction_count: result.entities.length,
+    };
+  }
+
+  // Real transport for the embeddingProvider that already exists internally
+  // (used until now only for this service's own semantic-cache writes,
+  // #embedBestEffort below) -- callers outside model-gateway (e.g. ads-core's
+  // real chunk embedding, KNOW-5) previously had no way to reach it at all.
+  // Unlike #embedBestEffort, this never swallows a failure: a caller asking
+  // for an embedding needs to know if it didn't get one.
+  async embed(request: ModelgwEmbedRequest): Promise<ModelgwEmbedResponse> {
+    if (request.dimensions !== 512 && request.dimensions !== 1024) {
+      throw new InvalidEmbeddingDimensionsError(request.dimensions);
+    }
+    const dimensions: EmbeddingDimensions = request.dimensions;
+    const result = await this.embeddingProvider.embed({
+      tenantId: request.tenant_id,
+      text: request.text,
+      dimensions,
+    });
+    return {
+      embedding: [...result.vector],
+      dimensions: result.dimensions,
+      model_id: result.modelId,
     };
   }
 

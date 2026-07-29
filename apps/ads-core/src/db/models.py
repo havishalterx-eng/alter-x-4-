@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, Integer, Numeric, Text, UniqueConstraint
+from sqlalchemy import Computed, DateTime, Integer, Numeric, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -104,9 +104,17 @@ class Chunk(Base):
     embedding_model: Mapped[str] = mapped_column(Text, nullable=False)
     embedding_version: Mapped[str] = mapped_column(Text, nullable=False)
     distance_metric: Mapped[str] = mapped_column(Text, nullable=False, server_default="cosine")
-    # Generated column (STORED, defined in the migration's raw SQL) -- mapped
-    # read-only here, never written to via the ORM.
-    text_search: Mapped[str | None] = mapped_column(TSVECTOR, deferred=True)
+    # Generated column (STORED, defined in the migration's raw SQL).
+    # `Computed(...)` here is a read-only marker (the real formula lives in
+    # the migration, not duplicated for DDL purposes) that tells SQLAlchemy
+    # to exclude this column from INSERT/UPDATE -- Postgres rejects any
+    # explicit value, even NULL, for a GENERATED ALWAYS column. Plain
+    # `deferred=True` alone (KNOW-2's original mapping) does NOT achieve
+    # this -- deferred only affects SELECT loading strategy, and the first
+    # real chunk INSERT (KNOW-5) failed until this was added.
+    text_search: Mapped[str | None] = mapped_column(
+        TSVECTOR, Computed("to_tsvector('english', text_content)"), deferred=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

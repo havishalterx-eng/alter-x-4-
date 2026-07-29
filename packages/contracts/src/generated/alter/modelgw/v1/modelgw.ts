@@ -70,3 +70,17 @@ export interface SelectFallbackResponse {
   selected_alias: string;
   reason: string;
 }
+
+export interface EmbedRequest {
+  /** ten_ prefixed UUIDv7 */
+  tenant_id: string;
+  text: string;
+  /** 512 or 1024 */
+  dimensions: number;
+}
+
+export interface EmbedResponse {
+  embedding: number[];
+  dimensions: number;
+  model_id: string;
+}

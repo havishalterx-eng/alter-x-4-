@@ -81,6 +81,15 @@ class FakeFastModelGateway:
         await context.abort(grpc.StatusCode.UNIMPLEMENTED, "not used by classifier")
         raise AssertionError("context.abort must raise")
 
+    async def Embed(
+        self,
+        request: modelgw_pb2.EmbedRequest,
+        context: grpc.aio.ServicerContext[modelgw_pb2.EmbedRequest, modelgw_pb2.EmbedResponse],
+    ) -> modelgw_pb2.EmbedResponse:
+        del request
+        await context.abort(grpc.StatusCode.UNIMPLEMENTED, "not used by classifier")
+        raise AssertionError("context.abort must raise")
+
 
 @pytest.fixture(scope="module")
 def postgres_url() -> Generator[str, None, None]:

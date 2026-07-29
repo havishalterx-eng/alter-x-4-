@@ -19,6 +19,8 @@ from src.storage.object_storage import (
     S3ObjectStorageProvider,
 )
 
+from .chunking import ParagraphAwareChunkSplitter
+from .embedding_client import GrpcEmbeddingClient
 from .models import (
     CompleteUploadRequest,
     IngestionJobResponse,
@@ -40,6 +42,7 @@ _default_pipeline: IngestionPipeline | None = None
 _default_storage: ObjectStorageProvider | None = None
 _default_settings: Settings | None = None
 _default_repository: SqlAlchemyIngestionRepository | None = None
+_default_embedding_client: GrpcEmbeddingClient | None = None
 
 
 def _build_object_storage(settings: Settings) -> ObjectStorageProvider:
@@ -58,7 +61,8 @@ def _build_object_storage(settings: Settings) -> ObjectStorageProvider:
 @asynccontextmanager
 async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
     del app
-    global _default_pipeline, _default_storage, _default_settings, _default_repository
+    global _default_pipeline, _default_storage, _default_settings
+    global _default_repository, _default_embedding_client
     settings = get_settings()
     _default_settings = settings
     engine = create_engine(settings.ads_db_url_sync, pool_pre_ping=True)
@@ -75,6 +79,7 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     repository = SqlAlchemyIngestionRepository(sessions)
     _default_repository = repository
+    _default_embedding_client = GrpcEmbeddingClient(settings.model_gateway_grpc_target)
     _default_pipeline = IngestionPipeline(
         repository=repository,
         validator=PayloadValidator(
@@ -83,6 +88,8 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
         ),
         scanner=DisclosedStubScanner(signatures),
         normalizer=TextAwareNormalizer(),
+        chunk_splitter=ParagraphAwareChunkSplitter(),
+        embedding_client=_default_embedding_client,
     )
     _default_storage = _build_object_storage(settings)
     try:
@@ -92,6 +99,9 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
         _default_storage = None
         _default_settings = None
         _default_repository = None
+        if _default_embedding_client is not None:
+            _default_embedding_client.close()
+            _default_embedding_client = None
         engine.dispose()
 
 

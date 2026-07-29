@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol, cast
@@ -7,7 +8,7 @@ from typing import Protocol, cast
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.db.models import Document, DocumentVersion, IngestionJob, Source
+from src.db.models import Chunk, Document, DocumentVersion, IngestionJob, Source
 
 from .models import IngestionStage
 
@@ -34,6 +35,17 @@ class StoredIngestionJob:
     error: dict[str, object] | None
     created_at: datetime
     completed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class EmbeddedChunk:
+    chunk_id: str
+    seq: int
+    text: str
+    embedding: tuple[float, ...]
+    embedding_provider: str
+    embedding_model: str
+    embedding_version: str
 
 
 class IngestionRepository(Protocol):
@@ -87,6 +99,21 @@ class IngestionRepository(Protocol):
         *,
         tenant_uuid: str,
         ingestion_job_id: str,
+    ) -> StoredIngestionJob: ...
+
+    def mark_indexed_as_duplicate(
+        self, *, tenant_uuid: str, ingestion_job_id: str
+    ) -> StoredIngestionJob: ...
+
+    def create_chunks_and_index(
+        self,
+        *,
+        tenant_uuid: str,
+        ingestion_job_id: str,
+        scope_id: str,
+        document_id: str,
+        document_version: int,
+        chunks: Sequence[EmbeddedChunk],
     ) -> StoredIngestionJob: ...
 
 
@@ -248,6 +275,7 @@ class SqlAlchemyIngestionRepository:
                 current_stats["deduplication"] = {
                     "is_duplicate": True,
                     "duplicate_of_document_id": existing_document_id,
+                    "scope_id": scope_id,
                 }
             else:
                 session.add(
@@ -277,6 +305,7 @@ class SqlAlchemyIngestionRepository:
                 current_stats["deduplication"] = {
                     "is_duplicate": False,
                     "document_id": candidate_document_id,
+                    "scope_id": scope_id,
                 }
 
             current_stats["stage_history"] = history
@@ -294,6 +323,84 @@ class SqlAlchemyIngestionRepository:
         with self._sessions.begin() as session:
             self._set_tenant(session, tenant_uuid)
             job = self._get(session, tenant_uuid, ingestion_job_id, for_update=False)
+            return self._stored(job)
+
+    def mark_indexed_as_duplicate(
+        self, *, tenant_uuid: str, ingestion_job_id: str
+    ) -> StoredIngestionJob:
+        """Duplicate content: chunks/embeddings already exist for the original
+        document. No new chunk rows -- disclosed via `indexing.reused_existing_
+        chunks` rather than silently re-embedding (and re-billing) identical
+        content."""
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            job = self._get(session, tenant_uuid, ingestion_job_id, for_update=True)
+            if job.stage != "deduplicated":
+                return self._stored(job)
+
+            current_stats = dict(job.stats or {})
+            history = list(cast(list[object], current_stats.get("stage_history", [])))
+            history.extend(["chunked", "indexed"])
+            current_stats["stage_history"] = history
+            current_stats["indexing"] = {"chunk_count": 0, "reused_existing_chunks": True}
+            job.stats = current_stats
+            job.stage = "indexed"
+            job.completed_at = datetime.now(UTC)
+            session.flush()
+            return self._stored(job)
+
+    def create_chunks_and_index(
+        self,
+        *,
+        tenant_uuid: str,
+        ingestion_job_id: str,
+        scope_id: str,
+        document_id: str,
+        document_version: int,
+        chunks: Sequence[EmbeddedChunk],
+    ) -> StoredIngestionJob:
+        """One atomic transition: chunked -> indexed. There is no durable
+        "chunked but not embedded" state, because chunks.embedding is
+        NOT NULL (KNOW-2 schema) -- embeddings are computed by the caller
+        BEFORE this call (real network I/O to model-gateway's Embed RPC
+        never happens inside this DB transaction), so by the time a chunk
+        row can be written it is already fully indexed. Disclosed design
+        decision, not an accidental stage-skip."""
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            job = self._get(session, tenant_uuid, ingestion_job_id, for_update=True)
+            if job.stage != "deduplicated":
+                return self._stored(job)
+
+            for chunk in chunks:
+                session.add(
+                    Chunk(
+                        id=chunk.chunk_id,
+                        tenant_id=tenant_uuid,
+                        scope_id=scope_id,
+                        document_id=document_id,
+                        document_version=document_version,
+                        seq=chunk.seq,
+                        text_content=chunk.text,
+                        embedding=list(chunk.embedding),
+                        embedding_provider=chunk.embedding_provider,
+                        embedding_model=chunk.embedding_model,
+                        embedding_version=chunk.embedding_version,
+                    )
+                )
+
+            current_stats = dict(job.stats or {})
+            history = list(cast(list[object], current_stats.get("stage_history", [])))
+            history.extend(["chunked", "indexed"])
+            current_stats["stage_history"] = history
+            current_stats["indexing"] = {
+                "chunk_count": len(chunks),
+                "reused_existing_chunks": False,
+            }
+            job.stats = current_stats
+            job.stage = "indexed"
+            job.completed_at = datetime.now(UTC)
+            session.flush()
             return self._stored(job)
 
     @staticmethod

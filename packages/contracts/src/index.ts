@@ -34,6 +34,8 @@ export type {
   RecordEventResponse,
 } from "./generated/alter/audit/v1/audit";
 export type {
+  EmbedRequest as ModelgwEmbedRequest,
+  EmbedResponse as ModelgwEmbedResponse,
   InvokeRequest as ModelgwInvokeRequest,
   InvokeResponse as ModelgwInvokeResponse,
   RedactRequest as ModelgwRedactRequest,

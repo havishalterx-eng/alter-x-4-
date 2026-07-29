@@ -1,15 +1,29 @@
 from __future__ import annotations
 
 import hashlib
+from typing import cast
 
 from src.db.ids import new_prefixed_id, validate_prefixed_id
 
+from .chunking import Chunk, ChunkSplitter
+from .embedding_client import EmbeddingClient, EmbeddingDimensions
 from .models import IngestionError, IngestionJobResponse, IngestionPayload
 from .normalization import ContentNormalizer
 from .permissions import default_permissions
-from .repository import IngestionRepository, StoredIngestionJob
+from .repository import EmbeddedChunk, IngestionRepository, StoredIngestionJob
 from .scanner import ContentScanner
 from .validation import PayloadValidationError, PayloadValidator
+
+# ADS retrieval embedding space is 1024-dim (doc 04 section 1) -- separate
+# from model-gateway's own 512-dim semantic-cache space; never compared
+# across embedding spaces.
+_EMBEDDING_DIMENSIONS: EmbeddingDimensions = 1024
+_EMBEDDING_PROVIDER = "aws-bedrock"
+# Labels THIS pipeline's own embedding integration, not the vendor model
+# version (which is already captured verbatim in embedding_model from the
+# Embed RPC response) -- same "our own algorithm version" convention as
+# normalization.py's normalized_by strings.
+_EMBEDDING_PIPELINE_VERSION = "v1"
 
 
 class IngestionPipeline:
@@ -20,11 +34,15 @@ class IngestionPipeline:
         validator: PayloadValidator,
         scanner: ContentScanner,
         normalizer: ContentNormalizer,
+        chunk_splitter: ChunkSplitter,
+        embedding_client: EmbeddingClient,
     ) -> None:
         self._repository = repository
         self._validator = validator
         self._scanner = scanner
         self._normalizer = normalizer
+        self._chunk_splitter = chunk_splitter
+        self._embedding_client = embedding_client
 
     def ingest(self, payload: IngestionPayload) -> IngestionJobResponse:
         validate_prefixed_id("ten", payload.tenant_id)
@@ -41,7 +59,7 @@ class IngestionPipeline:
             content_bytes=len(payload.content),
             content_type=content_type,
         )
-        if job.stage in {"deduplicated", "failed"}:
+        if job.stage in {"indexed", "failed"}:
             return self._response(job)
 
         if job.stage == "received":
@@ -146,7 +164,48 @@ class IngestionPipeline:
                 permissions=default_permissions(),
             )
 
+        if job.stage == "deduplicated":
+            dedup = cast(dict[str, object], job.stats.get("deduplication", {}))
+            if dedup.get("is_duplicate") is True:
+                job = self._repository.mark_indexed_as_duplicate(
+                    tenant_uuid=tenant_uuid,
+                    ingestion_job_id=job.ingestion_job_id,
+                )
+            else:
+                document_id = str(dedup["document_id"])
+                scope_id = str(dedup["scope_id"])
+                chunks = self._chunk_splitter.split(
+                    content=normalized.content, content_type=content_type
+                )
+                embedded_chunks = tuple(
+                    self._embed_chunk(tenant_uuid=tenant_uuid, chunk=chunk) for chunk in chunks
+                )
+                job = self._repository.create_chunks_and_index(
+                    tenant_uuid=tenant_uuid,
+                    ingestion_job_id=job.ingestion_job_id,
+                    scope_id=scope_id,
+                    document_id=document_id,
+                    document_version=1,
+                    chunks=embedded_chunks,
+                )
+
         return self._response(job)
+
+    def _embed_chunk(self, *, tenant_uuid: str, chunk: Chunk) -> EmbeddedChunk:
+        result = self._embedding_client.embed(
+            tenant_id=f"ten_{tenant_uuid}",
+            text=chunk.text,
+            dimensions=_EMBEDDING_DIMENSIONS,
+        )
+        return EmbeddedChunk(
+            chunk_id=new_prefixed_id("chk"),
+            seq=chunk.seq,
+            text=chunk.text,
+            embedding=result.vector,
+            embedding_provider=_EMBEDDING_PROVIDER,
+            embedding_model=result.model_id,
+            embedding_version=_EMBEDDING_PIPELINE_VERSION,
+        )
 
     @staticmethod
     def _response(job: StoredIngestionJob) -> IngestionJobResponse:

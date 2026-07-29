@@ -18,6 +18,8 @@ from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
 from src.db.ids import new_prefixed_id
+from src.ingestion.chunking import ChunkSplitter, ParagraphAwareChunkSplitter
+from src.ingestion.embedding_client import EmbeddingClient, EmbeddingDimensions, EmbeddingResult
 from src.ingestion.models import IngestionPayload, ScanResult
 from src.ingestion.normalization import ContentNormalizer, TextAwareNormalizer
 from src.ingestion.pipeline import IngestionPipeline
@@ -80,6 +82,9 @@ def database() -> Generator[DatabaseHarness, None, None]:
             connection.execute(
                 sa.text(f"GRANT SELECT, INSERT ON document_versions TO {RUNTIME_ROLE}")
             )
+            connection.execute(
+                sa.text(f"GRANT SELECT, INSERT ON chunks TO {RUNTIME_ROLE}")
+            )
 
         runtime_url = sa.engine.make_url(admin_url).set(
             username=RUNTIME_ROLE,
@@ -133,6 +138,24 @@ def _seed_source(database: DatabaseHarness, tenant_uuid: str) -> str:
     return source_id
 
 
+FAKE_MODEL_ID = "amazon.titan-embed-text-v2:0"
+
+
+class FakeEmbeddingClient:
+    """Deterministic in-process fake -- unit tests never dial real gRPC."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, EmbeddingDimensions]] = []
+
+    def embed(
+        self, *, tenant_id: str, text: str, dimensions: EmbeddingDimensions
+    ) -> EmbeddingResult:
+        self.calls.append((tenant_id, text, dimensions))
+        seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest()[:8], 16)
+        vector = tuple(((seed + index) % 1000) / 1000 for index in range(dimensions))
+        return EmbeddingResult(vector=vector, model_id=FAKE_MODEL_ID)
+
+
 def _pipeline(
     database: DatabaseHarness,
     *,
@@ -140,9 +163,13 @@ def _pipeline(
     repository: IngestionRepository | None = None,
     scanner: ContentScanner | None = None,
     normalizer: ContentNormalizer | None = None,
+    chunk_splitter: ChunkSplitter | None = None,
+    embedding_client: EmbeddingClient | None = None,
 ) -> IngestionPipeline:
     return IngestionPipeline(
         repository=repository or SqlAlchemyIngestionRepository(database.sessions),
+        chunk_splitter=chunk_splitter or ParagraphAwareChunkSplitter(),
+        embedding_client=embedding_client or FakeEmbeddingClient(),
         validator=PayloadValidator(
             max_content_bytes=max_content_bytes,
             allowed_content_types=ALLOWED_TYPES,
@@ -187,6 +214,16 @@ class RecordingRepository:
         self._record(str(kwargs["tenant_uuid"]), job.ingestion_job_id)
         return job
 
+    def mark_indexed_as_duplicate(self, **kwargs: object) -> StoredIngestionJob:
+        job = self._delegate.mark_indexed_as_duplicate(**kwargs)  # type: ignore[arg-type]
+        self._record(str(kwargs["tenant_uuid"]), job.ingestion_job_id)
+        return job
+
+    def create_chunks_and_index(self, **kwargs: object) -> StoredIngestionJob:
+        job = self._delegate.create_chunks_and_index(**kwargs)  # type: ignore[arg-type]
+        self._record(str(kwargs["tenant_uuid"]), job.ingestion_job_id)
+        return job
+
     def _record(self, tenant_uuid: str, ingestion_job_id: str) -> None:
         with self._sessions.begin() as session:
             session.execute(
@@ -201,7 +238,7 @@ class RecordingRepository:
             self.committed_stages.append(str(stage))
 
 
-def test_upload_walks_all_five_durable_stages(database: DatabaseHarness) -> None:
+def test_upload_walks_all_seven_durable_stages(database: DatabaseHarness) -> None:
     tenant_id, tenant_uuid = _new_tenant()
     source_id = _seed_source(database, tenant_uuid)
     recording = RecordingRepository(
@@ -226,7 +263,7 @@ def test_upload_walks_all_five_durable_stages(database: DatabaseHarness) -> None
 
     assert response.status_code == 202
     body = response.json()
-    assert body["stage"] == "deduplicated"
+    assert body["stage"] == "indexed"
     assert body["stats"]["content_hash"] == hashlib.sha256(content).hexdigest()
     assert body["stats"]["stage_history"] == [
         "received",
@@ -234,14 +271,18 @@ def test_upload_walks_all_five_durable_stages(database: DatabaseHarness) -> None
         "scanned",
         "normalized",
         "deduplicated",
+        "chunked",
+        "indexed",
     ]
     assert body["stats"]["deduplication"]["is_duplicate"] is False
+    assert body["stats"]["indexing"] == {"chunk_count": 1, "reused_existing_chunks": False}
     assert recording.committed_stages == [
         "received",
         "validated",
         "scanned",
         "normalized",
         "deduplicated",
+        "indexed",
     ]
 
 
@@ -332,7 +373,7 @@ def test_stub_clean_result_discloses_its_limits(database: DatabaseHarness) -> No
         IngestionPayload(tenant_id, source_id, "text/plain", b"ordinary clean fixture")
     )
 
-    assert result.stage == "deduplicated"
+    assert result.stage == "indexed"
     assert result.stats["scanned_by"] == "stub"
     assert result.stats["scan_limitations"] == [
         "signature_only",
@@ -427,7 +468,7 @@ def test_distinct_content_creates_a_real_document_and_version(
         IngestionPayload(tenant_id, source_id, "text/plain", b"a brand new document")
     )
 
-    assert result.stage == "deduplicated"
+    assert result.stage == "indexed"
     document_id = _dedup_stats(result.stats)["document_id"]
 
     with _tenant_scoped(database, tenant_uuid) as connection:
@@ -524,8 +565,124 @@ def test_binary_content_normalization_is_an_honest_passthrough(
         IngestionPayload(tenant_id, source_id, "image/png", png_content)
     )
 
-    assert result.stage == "deduplicated"
+    assert result.stage == "indexed"
     normalization = _normalization_stats(result.stats)
     assert normalization["normalized_by"] == "passthrough"
     assert normalization["limitations"] == ["no_text_extraction_for_binary_content"]
     assert normalization["normalized_content_hash"] == hashlib.sha256(png_content).hexdigest()
+
+
+def _indexing_stats(stats: dict[str, object]) -> dict[str, object]:
+    return cast(dict[str, object], stats["indexing"])
+
+
+def test_new_document_gets_real_chunks_with_real_embeddings(
+    database: DatabaseHarness,
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    embedding_client = FakeEmbeddingClient()
+    content = b"first paragraph here.\n\nsecond paragraph here."
+
+    result = _pipeline(database, embedding_client=embedding_client).ingest(
+        IngestionPayload(tenant_id, source_id, "text/plain", content)
+    )
+
+    assert result.stage == "indexed"
+    document_id = _dedup_stats(result.stats)["document_id"]
+    indexing = _indexing_stats(result.stats)
+    assert indexing["reused_existing_chunks"] is False
+    assert indexing["chunk_count"] == 1  # both paragraphs fit in one window
+    assert len(embedding_client.calls) == 1
+    _, embedded_text, dimensions = embedding_client.calls[0]
+    assert dimensions == 1024
+    assert "first paragraph here." in embedded_text
+    assert "second paragraph here." in embedded_text
+
+    with _tenant_scoped(database, tenant_uuid) as connection:
+        chunk = connection.execute(
+            sa.text(
+                "SELECT document_id, document_version, seq, text_content, "
+                "embedding_provider, embedding_model, embedding_version "
+                "FROM chunks WHERE document_id = :id"
+            ),
+            {"id": document_id},
+        ).mappings().one()
+        embedding_dim = connection.execute(
+            sa.text(
+                "SELECT atttypmod FROM pg_attribute "
+                "JOIN pg_class ON attrelid = pg_class.oid "
+                "WHERE relname = 'chunks' AND attname = 'embedding'"
+            )
+        ).scalar()
+
+    assert chunk["document_id"] == document_id
+    assert chunk["document_version"] == 1
+    assert chunk["seq"] == 0
+    assert chunk["embedding_provider"] == "aws-bedrock"
+    assert chunk["embedding_model"] == FAKE_MODEL_ID
+    assert chunk["embedding_version"] == "v1"
+    assert embedding_dim == 1024
+
+
+def test_duplicate_content_reuses_chunks_without_re_embedding(
+    database: DatabaseHarness,
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    embedding_client = FakeEmbeddingClient()
+    pipeline = _pipeline(database, embedding_client=embedding_client)
+
+    first = pipeline.ingest(
+        IngestionPayload(tenant_id, source_id, "application/json", b'{"a":1,"b":2}')
+    )
+    calls_after_first = len(embedding_client.calls)
+    second = pipeline.ingest(
+        IngestionPayload(tenant_id, source_id, "application/json", b'{  "b": 2, "a": 1  }')
+    )
+
+    assert first.stage == "indexed"
+    assert second.stage == "indexed"
+    assert _indexing_stats(first.stats) == {"chunk_count": 1, "reused_existing_chunks": False}
+    assert _indexing_stats(second.stats) == {"chunk_count": 0, "reused_existing_chunks": True}
+    # The duplicate must never call the embedding provider again.
+    assert len(embedding_client.calls) == calls_after_first
+
+    with _tenant_scoped(database, tenant_uuid) as connection:
+        chunk_count = connection.scalar(
+            sa.text("SELECT count(*) FROM chunks WHERE document_id = :id"),
+            {"id": _dedup_stats(first.stats)["document_id"]},
+        )
+    assert chunk_count == 1
+
+
+def test_long_text_splits_into_multiple_chunks_without_cutting_a_paragraph(
+    database: DatabaseHarness,
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    paragraph_a = "alpha " * 200  # ~1200 chars, exceeds the 1000-char window alone
+    paragraph_b = "beta " * 50
+    content = f"{paragraph_a}\n\n{paragraph_b}".encode()
+
+    result = _pipeline(
+        database, max_content_bytes=len(content) + 10
+    ).ingest(IngestionPayload(tenant_id, source_id, "text/plain", content))
+
+    assert result.stage == "indexed"
+    indexing = _indexing_stats(result.stats)
+    assert cast(int, indexing["chunk_count"]) >= 2
+
+    with _tenant_scoped(database, tenant_uuid) as connection:
+        chunks = connection.execute(
+            sa.text(
+                "SELECT seq, text_content FROM chunks "
+                "WHERE document_id = :id ORDER BY seq"
+            ),
+            {"id": _dedup_stats(result.stats)["document_id"]},
+        ).mappings().all()
+
+    assert [row["seq"] for row in chunks] == list(range(len(chunks)))
+    # Neither paragraph was cut mid-string across chunk boundaries.
+    assert any(paragraph_a.strip() in row["text_content"] for row in chunks)
+    assert any(paragraph_b.strip() in row["text_content"] for row in chunks)

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
         "application/json,text/plain,application/pdf,image/png,image/jpeg"
     )
     ads_ingestion_stub_bad_signatures: str = "EICAR-STANDARD-ANTIVIRUS-TEST-FILE"
+    model_gateway_grpc_target: str = "localhost:50051"
 
     # KNOW-6: presigned uploads. Empty bucket name (default) means "no real
     # AWS/S3 config present" -- the app wires InMemoryObjectStorageProvider

@@ -215,6 +215,58 @@ describe("ModelGatewayService", () => {
     });
   });
 
+  it("embed() delegates to the EmbeddingProvider and returns its real vector", async () => {
+    const embed = vi.fn(createMockEmbeddingProvider().embed);
+    const embeddingProvider = createMockEmbeddingProvider({ embed });
+    const service = buildService({ embeddingProvider });
+
+    const response = await service.embed({
+      tenant_id: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+      text: "hello world",
+      dimensions: 1024,
+    });
+
+    expect(embed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+        text: "hello world",
+        dimensions: 1024,
+      }),
+    );
+    expect(response.dimensions).toBe(1024);
+    expect(response.embedding).toHaveLength(1024);
+    expect(response.model_id).toBe("mock.embedding");
+  });
+
+  it("embed() never swallows a provider failure -- unlike the internal cache best-effort path", async () => {
+    const embeddingProvider = createMockEmbeddingProvider({
+      embed: async () => {
+        throw new Error("bedrock throttled");
+      },
+    });
+    const service = buildService({ embeddingProvider });
+
+    await expect(
+      service.embed({
+        tenant_id: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+        text: "hello world",
+        dimensions: 512,
+      }),
+    ).rejects.toThrow("bedrock throttled");
+  });
+
+  it("embed() rejects a dimensions value that is not 512 or 1024", async () => {
+    const service = buildService();
+
+    await expect(
+      service.embed({
+        tenant_id: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+        text: "hello world",
+        dimensions: 768,
+      }),
+    ).rejects.toThrow(/512 or 1024/);
+  });
+
   it("forwards model deltas incrementally instead of buffering the completion", async () => {
     let releaseSecond!: () => void;
     const secondAllowed = new Promise<void>((resolve) => {

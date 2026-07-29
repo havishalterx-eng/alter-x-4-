@@ -7,6 +7,7 @@ service ModelgwService {
   rpc Stream(StreamRequest) returns (stream StreamResponse);
   rpc Redact(RedactRequest) returns (RedactResponse);
   rpc SelectFallback(SelectFallbackRequest) returns (SelectFallbackResponse);
+  rpc Embed(EmbedRequest) returns (EmbedResponse);
 }
 
 message InvokeRequest {
@@ -75,4 +76,20 @@ message SelectFallbackResponse {
 
   string selected_alias = 1;
   string reason = 2;
+}
+
+message EmbedRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string text = 2;
+  uint32 dimensions = 3; // 512 or 1024
+}
+
+message EmbedResponse {
+  reserved 100 to 199;
+
+  repeated float embedding = 1;
+  uint32 dimensions = 2;
+  string model_id = 3;
 }

@@ -7,7 +7,18 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "uv sync --frozen",
+        "commands": [
+          "uv sync --frozen",
+          "uv run python scripts/generate_protos.py --check"
+        ],
+        "cwd": "apps/ads-core",
+        "parallel": false
+      }
+    },
+    "proto": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "uv run python scripts/generate_protos.py --check",
         "cwd": "apps/ads-core"
       }
     },
