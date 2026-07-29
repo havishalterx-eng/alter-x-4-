@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package alter.verification.v1;
+
+// The Verification & Quality Gate's reviewer-scoring surface (HEAL-2).
+// Independent per-node-type grading: content-bearing node types (LLMTask,
+// ToolCall, SandboxExec, Synthesis) are scored by an ADVANCED-tier reviewer
+// against a rubric specific to that node type; deterministic/control-flow
+// node types (Gate, Merge, PubSub, HumanApproval, GroupChat, YAMLImport,
+// MemoryWrite) get a structural completeness check instead -- an LLM
+// judgment call on a boolean routing decision would be meaningless.
+//
+// Descriptive contract only, matching alter.planner.v1's precedent: the
+// real service (apps/verification-service, Python/FastAPI) exposes this as
+// HTTP routes mirroring these RPC names, not yet wired into buf generate.
+// Swap to real gRPC at integration time without renaming fields.
+service VerificationService {
+  rpc ScoreNode(ScoreNodeRequest) returns (ScoreNodeResponse);
+}
+
+message ScoreNodeRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string node_key = 4;
+  string node_type = 5; // one of the 11 alter.registry.v1 node types
+  string config_json = 6;
+  string output_json = 7; // the node's produced output, to be reviewed
+}
+
+message ScoreNodeResponse {
+  reserved 100 to 199;
+
+  string verdict = 1; // pass | fail | warn (verification_results.verdict)
+  double score = 2; // 0.0-1.0
+  double threshold = 3;
+  string reviewer_model = 4; // model alias (e.g. "ADVANCED") or "deterministic"
+  string details_json = 5; // rationale + per-criterion breakdown
+}
