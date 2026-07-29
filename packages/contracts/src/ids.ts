@@ -42,6 +42,15 @@ export const ClarificationIdSchema = prefixedUuidV7("clr");
 export const TraceIdSchema = prefixedUuidV7("trc");
 export const RequestIdSchema = prefixedUuidV7("req");
 
+// ADS Core (KNOW-2, doc 04 §9). DocumentIdSchema ("doc") already existed above.
+export const ScopeIdSchema = prefixedUuidV7("scp");
+export const SourceIdSchema = prefixedUuidV7("src");
+export const ChunkIdSchema = prefixedUuidV7("chk");
+export const RecordIdSchema = prefixedUuidV7("brec");
+export const MemoryNamespaceIdSchema = prefixedUuidV7("mns");
+export const IngestionJobIdSchema = prefixedUuidV7("ing");
+export const RetrievalAuditIdSchema = prefixedUuidV7("rta");
+
 export const ServiceActorIdSchema = z
   .string()
   .regex(/^svc_[a-z0-9][a-z0-9._:-]{2,127}$/i, {
