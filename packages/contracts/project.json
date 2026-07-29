@@ -48,7 +48,7 @@
         "commands": [
           "buf lint",
           "buf build",
-          "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto --path alter/compiler/v1/compiler.proto --path alter/deployctl/v1/deployctl.proto"
+          "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto --path alter/compiler/v1/compiler.proto --path alter/deployctl/v1/deployctl.proto --path alter/verify/v1/verify.proto"
         ],
         "cwd": "packages/contracts/proto",
         "parallel": false
@@ -66,10 +66,11 @@
         "{projectRoot}/src/generated/alter/registry/v1/registry.ts",
         "{projectRoot}/src/generated/alter/nodeexec/v1/nodeexec.ts",
         "{projectRoot}/src/generated/alter/blackboard/v1/blackboard.ts",
-        "{projectRoot}/src/generated/alter/sandbox/v1/sandbox.ts"
+        "{projectRoot}/src/generated/alter/sandbox/v1/sandbox.ts",
+        "{projectRoot}/src/generated/alter/verify/v1/verify.ts"
       ],
       "options": {
-        "command": "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto --path alter/compiler/v1/compiler.proto --path alter/deployctl/v1/deployctl.proto --path alter/registry/v1/registry.proto --path alter/nodeexec/v1/nodeexec.proto --path alter/blackboard/v1/blackboard.proto --path alter/sandbox/v1/sandbox.proto",
+        "command": "buf generate --template buf.gen.yaml --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto --path alter/compiler/v1/compiler.proto --path alter/deployctl/v1/deployctl.proto --path alter/registry/v1/registry.proto --path alter/nodeexec/v1/nodeexec.proto --path alter/blackboard/v1/blackboard.proto --path alter/sandbox/v1/sandbox.proto --path alter/verify/v1/verify.proto",
         "cwd": "packages/contracts/proto"
       }
     },

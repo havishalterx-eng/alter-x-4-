@@ -95,6 +95,15 @@ export type {
   ExecuteResponse as SandboxExecuteResponse,
 } from "./generated/alter/sandbox/v1/sandbox";
 export {
+  SafetySeverity as VerifySafetySeverity,
+} from "./generated/alter/verify/v1/verify";
+export type {
+  AssessSeverityRequest as VerifyAssessSeverityRequest,
+  AssessSeverityResponse as VerifyAssessSeverityResponse,
+  CheckHallucinationRequest as VerifyCheckHallucinationRequest,
+  CheckHallucinationResponse as VerifyCheckHallucinationResponse,
+} from "./generated/alter/verify/v1/verify";
+export {
   CostLimitBindingSchema,
   FallbackBindingSchema,
   FallbackProviderSchema,

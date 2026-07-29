@@ -3,18 +3,25 @@ name = "alterx-verification-service"
 version = "0.0.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+  "asyncpg>=0.29.0,<1.0.0",
   "fastapi>=0.116.0,<1.0.0",
+  "grpcio>=1.70.0,<2.0.0",
   "pydantic>=2.11.0,<3.0.0",
+  "protobuf>=5.29.0,<7.0.0",
+  "sqlalchemy[asyncio]>=2.0.0,<3.0.0",
   "uvicorn[standard]>=0.35.0,<1.0.0",
 ]
 
 [dependency-groups]
 dev = [
   "httpx>=0.28.0,<1.0.0",
+  "grpcio-tools>=1.70.0,<2.0.0",
   "mypy>=1.17.0,<2.0.0",
+  "psycopg2-binary>=2.9.0,<3.0.0",
   "pytest>=8.4.0,<10.0.0",
   "pytest-asyncio>=0.24.0,<1.0.0",
   "ruff>=0.12.0,<1.0.0",
+  "testcontainers[postgres]>=4.8.0,<5.0.0",
 ]
 
 [tool.pytest.ini_options]
@@ -26,10 +33,20 @@ asyncio_mode = "auto"
 python_version = "3.12"
 strict = true
 files = ["src", "tests"]
+exclude = ["^alter/"]
+
+[[tool.mypy.overrides]]
+module = ["google.protobuf.*", "grpc.*", "psycopg2.*", "testcontainers.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["alter.*"]
+ignore_errors = true
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["alter"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]

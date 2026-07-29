@@ -7,7 +7,18 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "uv sync --frozen",
+        "commands": [
+          "uv sync --frozen",
+          "uv run python scripts/generate_protos.py --check"
+        ],
+        "cwd": "apps/verification-service",
+        "parallel": false
+      }
+    },
+    "proto": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "uv run python scripts/generate_protos.py --check",
         "cwd": "apps/verification-service"
       }
     },
@@ -15,6 +26,13 @@
       "executor": "nx:run-commands",
       "options": {
         "command": "uv run uvicorn src.main:app",
+        "cwd": "apps/verification-service"
+      }
+    },
+    "serve-grpc": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "uv run python -m src.grpc_server",
         "cwd": "apps/verification-service"
       }
     },

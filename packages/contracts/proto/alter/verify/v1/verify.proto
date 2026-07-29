@@ -32,8 +32,10 @@ message CheckHallucinationRequest {
   string tenant_id = 1; // ten_ prefixed UUIDv7
   string run_id = 2; // run_ prefixed UUIDv7
   string node_execution_id = 3; // node_ prefixed UUIDv7
-  string response_artifact_id = 4; // art_ prefixed UUIDv7
-  repeated string evidence_artifact_ids = 5; // art_ prefixed UUIDv7 values
+  string response_artifact_id = 4 [deprecated = true]; // compatibility only; rejected by HEAL-3
+  repeated string evidence_artifact_ids = 5 [deprecated = true]; // compatibility only
+  string response_node_ref = 6; // compiled DAG node key / Blackboard output_ref
+  repeated string evidence_node_refs = 7; // compiled DAG node keys / Blackboard input refs
 }
 
 message CheckHallucinationResponse {
@@ -56,6 +58,15 @@ message AssessSeverityRequest {
 message AssessSeverityResponse {
   reserved 100 to 199;
 
-  string severity = 1;
+  string severity = 1 [deprecated = true]; // compatibility mirror of severity_tier
   string rationale = 2;
+  SafetySeverity severity_tier = 3;
+}
+
+enum SafetySeverity {
+  SAFETY_SEVERITY_UNSPECIFIED = 0;
+  SAFETY_SEVERITY_LOW = 1;
+  SAFETY_SEVERITY_MEDIUM = 2;
+  SAFETY_SEVERITY_HIGH = 3;
+  SAFETY_SEVERITY_CRITICAL = 4;
 }

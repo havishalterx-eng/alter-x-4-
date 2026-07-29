@@ -1,0 +1,1 @@
+"""Generated Alter protobuf namespace."""
