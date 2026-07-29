@@ -1,4 +1,11 @@
-import { ApplicationFailure, proxyActivities, uuid4 } from "@temporalio/workflow";
+import {
+  ApplicationFailure,
+  condition,
+  defineSignal,
+  proxyActivities,
+  setHandler,
+  uuid4,
+} from "@temporalio/workflow";
 
 import { CompiledDagSchema, type CompiledDag } from "@alterx/contracts";
 
@@ -15,7 +22,26 @@ export interface ExecutorWorkflowResult {
   readonly outputs: Record<string, Record<string, unknown>>;
 }
 
+export interface ApprovalDecisionSignal {
+  readonly nodeExecutionId: string; // node_ prefixed UUIDv7
+  readonly approved: boolean;
+  readonly note?: string;
+}
+
+/**
+ * Durable pause point for HumanApproval nodes (HEAL-7). Sent by the
+ * /approvals REST API's approve/reject actions. Signals are persisted in
+ * Temporal's workflow history -- a worker restart between the pending
+ * ExecuteNode call and this signal arriving loses nothing; the workflow
+ * replays and resumes its condition() wait exactly where it left off.
+ */
+export const approvalDecidedSignal = defineSignal<[ApprovalDecisionSignal]>(
+  "approvalDecided",
+);
+
 const EXECUTOR_WORKFLOW_VALIDATION_ERROR_TYPE = "ExecutorWorkflowValidationError";
+const HUMAN_APPROVAL_REJECTED_ERROR_TYPE = "HumanApprovalRejectedError";
+const HUMAN_APPROVAL_EXPIRED_ERROR_TYPE = "HumanApprovalExpiredError";
 
 /**
  * A plain `throw new Error(...)` inside workflow code is treated by
@@ -33,7 +59,7 @@ function validationFailure(message: string): ApplicationFailure {
   );
 }
 
-const { executeNode, finalizeRun } = proxyActivities<ExecutorActivities>({
+const { executeNode, finalizeRun, recordApprovalDecision } = proxyActivities<ExecutorActivities>({
   startToCloseTimeout: "2 minutes",
   retry: {
     // A handler validation/unimplemented-type failure will never succeed on
@@ -81,6 +107,14 @@ function errorSummaryJson(error: unknown): string {
 export async function executorWorkflow(
   input: ExecutorWorkflowInput,
 ): Promise<ExecutorWorkflowResult> {
+  // Registered as the very first statement (synchronous, before any
+  // await) so a decision signal can never arrive before this workflow is
+  // able to receive it.
+  const approvalDecisions = new Map<string, ApprovalDecisionSignal>();
+  setHandler(approvalDecidedSignal, (decision) => {
+    approvalDecisions.set(decision.nodeExecutionId, decision);
+  });
+
   try {
     let raw: unknown;
     try {
@@ -118,15 +152,29 @@ export async function executorWorkflow(
             throw validationFailure(`Wave references unknown node key "${nodeKey}"`);
           }
 
+          const nodeExecId = nodeExecutionId();
           const result = await executeNode({
             tenantId: input.tenantId,
             runId: input.runId,
-            nodeExecutionId: nodeExecutionId(),
+            nodeExecutionId: nodeExecId,
             nodeKey: node.key,
             nodeType: node.type,
             configJson: JSON.stringify(node.config),
             predecessorKeys: directPredecessorKeys(dag, nodeKey),
           });
+
+          if (result.pending === true) {
+            return [
+              nodeKey,
+              await awaitApprovalDecision(
+                input,
+                node.key,
+                nodeExecId,
+                result.expiresInMs ?? 0,
+                approvalDecisions,
+              ),
+            ] as const;
+          }
 
           return [nodeKey, JSON.parse(result.outputJson) as Record<string, unknown>] as const;
         }),
@@ -157,4 +205,64 @@ export async function executorWorkflow(
     });
     throw error;
   }
+}
+
+/**
+ * Durably waits (survives a worker restart -- Temporal replays this
+ * condition() from history) for an approvalDecided signal matching this
+ * node's execution ID, up to its expiry. Resolves the node's ledger row
+ * via recordApprovalDecision either way, then either returns the node's
+ * output (approved) or throws (rejected/expired), matching every other
+ * node-failure path's semantics -- no partial-run continuation exists
+ * yet (Recovery Policy Engine, not built).
+ */
+async function awaitApprovalDecision(
+  input: ExecutorWorkflowInput,
+  nodeKey: string,
+  nodeExecutionId: string,
+  expiresInMs: number,
+  approvalDecisions: Map<string, ApprovalDecisionSignal>,
+): Promise<Record<string, unknown>> {
+  const decided = await condition(
+    () => approvalDecisions.has(nodeExecutionId),
+    Math.max(expiresInMs, 0),
+  );
+  const decision = decided ? approvalDecisions.get(nodeExecutionId) : undefined;
+
+  if (decision === undefined) {
+    await recordApprovalDecision({
+      tenantId: input.tenantId,
+      runId: input.runId,
+      nodeExecutionId,
+      nodeKey,
+      decision: "rejected",
+      outputJson: JSON.stringify({ approved: false, note: null, expired: true }),
+    });
+    throw ApplicationFailure.nonRetryable(
+      `HumanApproval node "${nodeKey}" expired awaiting a decision`,
+      HUMAN_APPROVAL_EXPIRED_ERROR_TYPE,
+    );
+  }
+
+  await recordApprovalDecision({
+    tenantId: input.tenantId,
+    runId: input.runId,
+    nodeExecutionId,
+    nodeKey,
+    decision: decision.approved ? "approved" : "rejected",
+    outputJson: JSON.stringify({
+      approved: decision.approved,
+      note: decision.note ?? null,
+      expired: false,
+    }),
+  });
+
+  if (!decision.approved) {
+    throw ApplicationFailure.nonRetryable(
+      `HumanApproval node "${nodeKey}" was rejected`,
+      HUMAN_APPROVAL_REJECTED_ERROR_TYPE,
+    );
+  }
+
+  return { approved: true, note: decision.note ?? null };
 }

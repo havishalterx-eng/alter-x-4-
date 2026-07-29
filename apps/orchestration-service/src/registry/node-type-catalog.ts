@@ -7,14 +7,11 @@ import type { NodeType, RegistryNodeTypeDescriptor } from "@alterx/contracts";
  *
  * handler_implemented is false for types whose real logic depends on
  * infrastructure not wired in yet:
- * - HumanApproval: an explicit non-pending stub exists, while the full
- *   approval flow remains HEAL-7 work. It stays marked unimplemented so the
- *   catalog cannot advertise the stub as a usable approval workflow.
  * - Synthesis: stub until the Output phase (doc explicitly says so).
  * - MemoryWrite: stub until the Knowledge phase (doc explicitly says so).
  * Gate, Merge, PubSub, GroupChat, YAMLImport (EXEC-1), LLMTask (EXEC-2),
- * ToolCall (EXEC-3), and SandboxExec (EXEC-4) have real, tested handlers in
- * ./handlers.
+ * ToolCall (EXEC-3), SandboxExec (EXEC-4), and HumanApproval (HEAL-7) have
+ * real, tested handlers in ./handlers.
  */
 
 interface CatalogEntry {
@@ -107,9 +104,19 @@ const CATALOG_ENTRIES: readonly CatalogEntry[] = [
     category: "human-in-the-loop",
     configSchema: {
       type: "object",
-      properties: { approver_role: { type: "string" } },
+      properties: {
+        approver_role: { type: "string" },
+        requested_action: {
+          type: "object",
+          description: "What the engine wants to do, surfaced to the approver.",
+        },
+        expiry_seconds: {
+          type: "number",
+          description: "Approval window; defaults to 86400 (24h) if omitted.",
+        },
+      },
     },
-    handlerImplemented: false,
+    handlerImplemented: true,
   },
   {
     type: "Merge",

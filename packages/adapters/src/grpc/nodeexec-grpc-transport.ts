@@ -10,6 +10,8 @@ import {
 import type {
   NodeexecExecuteNodeRequest,
   NodeexecExecuteNodeResponse,
+  NodeexecFinalizeApprovalNodeRequest,
+  NodeexecFinalizeApprovalNodeResponse,
   NodeexecFinalizeRunRequest,
   NodeexecFinalizeRunResponse,
 } from "@alterx/contracts";
@@ -23,6 +25,9 @@ export interface NodeexecHandler {
   finalizeRun(
     request: NodeexecFinalizeRunRequest,
   ): Promise<NodeexecFinalizeRunResponse>;
+  finalizeApprovalNode(
+    request: NodeexecFinalizeApprovalNodeRequest,
+  ): Promise<NodeexecFinalizeApprovalNodeResponse>;
 }
 
 export interface NodeexecGrpcTransportConfig {
@@ -56,6 +61,17 @@ export class NodeexecGrpcController {
       return await this.handler.finalizeRun(request);
     } catch (error: unknown) {
       throw mapNodeexecError(error, "Run could not be finalized");
+    }
+  }
+
+  @GrpcMethod("NodeExecutionService", "FinalizeApprovalNode")
+  async finalizeApprovalNode(
+    request: NodeexecFinalizeApprovalNodeRequest,
+  ): Promise<NodeexecFinalizeApprovalNodeResponse> {
+    try {
+      return await this.handler.finalizeApprovalNode(request);
+    } catch (error: unknown) {
+      throw mapNodeexecError(error, "Approval node could not be finalized");
     }
   }
 }

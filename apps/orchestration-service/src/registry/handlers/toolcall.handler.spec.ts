@@ -9,7 +9,6 @@ import {
 } from "@alterx/adapters";
 import { describe, expect, it, vi } from "vitest";
 
-import { HumanApprovalHandler } from "./human-approval.handler";
 import { ToolCallHandler } from "./toolcall.handler";
 
 const TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
@@ -164,25 +163,6 @@ describe("ToolCallHandler", () => {
     expect(result.output).toMatchObject({
       status: 502,
       error_code: "TOOL_GATEWAY_INVALID_RESPONSE",
-    });
-  });
-});
-
-describe("HumanApprovalHandler", () => {
-  it("returns an explicit stub that cannot be confused with pending approval", async () => {
-    const result = await new HumanApprovalHandler().execute({
-      config: {},
-      inputs: {},
-    });
-
-    expect(result).toEqual({
-      output: {
-        stub: true,
-        pending: false,
-        code: "approval_not_implemented",
-        implementation_ticket: "HEAL-7",
-      },
-      metadata: { execution_status: "not_implemented" },
     });
   });
 });

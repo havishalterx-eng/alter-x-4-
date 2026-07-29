@@ -15,6 +15,10 @@ export interface ExecuteNodeActivityInput {
 export interface ExecuteNodeActivityResult {
   readonly outputJson: string;
   readonly metadataJson: string;
+  /** True when the node is a HumanApproval request still awaiting a decision (HEAL-7). */
+  readonly pending?: boolean;
+  /** Milliseconds from now until the approval expires; only set when pending. */
+  readonly expiresInMs?: number;
 }
 
 export interface FinalizeRunActivityInput {
@@ -24,10 +28,26 @@ export interface FinalizeRunActivityInput {
   readonly errorJson: string; // empty string when status = "completed"
 }
 
+export interface RecordApprovalDecisionActivityInput {
+  readonly tenantId: string; // ten_ prefixed UUIDv7
+  readonly runId: string; // run_ prefixed UUIDv7
+  readonly nodeExecutionId: string; // node_ prefixed UUIDv7
+  readonly nodeKey: string;
+  readonly decision: "approved" | "rejected";
+  readonly outputJson: string; // {"approved": bool, "note": string|null, "expired": bool}
+}
+
 export interface ExecutorActivities {
   executeNode(input: ExecuteNodeActivityInput): Promise<ExecuteNodeActivityResult>;
   /** Called once from the workflow's try/finally -- see executor-workflow.ts. */
   finalizeRun(input: FinalizeRunActivityInput): Promise<void>;
+  /**
+   * Called once a durably-awaited HumanApproval decision (or expiry)
+   * arrives -- resolves the node_execution's ledger row and publishes the
+   * real decision to the Blackboard, overwriting the pending placeholder.
+   * HEAL-7.
+   */
+  recordApprovalDecision(input: RecordApprovalDecisionActivityInput): Promise<void>;
 }
 
 /**
@@ -87,10 +107,42 @@ export function createExecutorActivities(
         value_json: response.output_json,
       });
 
+      const pending = isPendingApproval(response.metadata_json);
+      if (!pending) {
+        return {
+          outputJson: response.output_json,
+          metadataJson: response.metadata_json,
+        };
+      }
+
+      const expiryAt = readExpiryAt(response.output_json);
+      const expiresInMs =
+        expiryAt === undefined ? 0 : Math.max(new Date(expiryAt).getTime() - Date.now(), 0);
       return {
         outputJson: response.output_json,
         metadataJson: response.metadata_json,
+        pending: true,
+        expiresInMs,
       };
+    },
+
+    async recordApprovalDecision(
+      input: RecordApprovalDecisionActivityInput,
+    ): Promise<void> {
+      await nodeExecutionClient.finalizeApprovalNode({
+        tenant_id: input.tenantId,
+        run_id: input.runId,
+        node_execution_id: input.nodeExecutionId,
+        node_key: input.nodeKey,
+        decision: input.decision,
+        decision_output_json: input.outputJson,
+      });
+      await blackboardClient.writeValue({
+        tenant_id: input.tenantId,
+        run_id: input.runId,
+        key: input.nodeKey,
+        value_json: input.outputJson,
+      });
     },
 
     async finalizeRun(input: FinalizeRunActivityInput): Promise<void> {
@@ -102,4 +154,28 @@ export function createExecutorActivities(
       });
     },
   };
+}
+
+function isPendingApproval(metadataJson: string): boolean {
+  try {
+    const parsed = JSON.parse(metadataJson) as unknown;
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      (parsed as Record<string, unknown>)["execution_status"] === "pending_approval"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function readExpiryAt(outputJson: string): string | undefined {
+  try {
+    const parsed = JSON.parse(outputJson) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return undefined;
+    const expiryAt = (parsed as Record<string, unknown>)["expiry_at"];
+    return typeof expiryAt === "string" ? expiryAt : undefined;
+  } catch {
+    return undefined;
+  }
 }

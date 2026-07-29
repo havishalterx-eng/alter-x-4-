@@ -1,6 +1,8 @@
 import type {
   NodeexecExecuteNodeRequest,
   NodeexecExecuteNodeResponse,
+  NodeexecFinalizeApprovalNodeRequest,
+  NodeexecFinalizeApprovalNodeResponse,
   NodeexecFinalizeRunRequest,
   NodeexecFinalizeRunResponse,
 } from "@alterx/contracts";
@@ -115,6 +117,29 @@ export class NodeexecService {
 
       const outputJson = JSON.stringify(result.output);
       const metadataJson = JSON.stringify(result.metadata ?? {});
+
+      if (result.metadata?.["execution_status"] === "pending_approval") {
+        // HEAL-7: this node_execution is not done -- it stays 'running'
+        // until FinalizeApprovalNode resolves it. Do not call recordSucceeded/
+        // recordFailed, which would prematurely mark it terminal. Reuses
+        // the Foundation-phase "approval.requested" SSE contract.
+        const approvalId = result.output["approval_id"];
+        const expiryAt = result.output["expiry_at"];
+        if (typeof approvalId === "string" && typeof expiryAt === "string") {
+          await this.#appendBestEffort({
+            event: "approval.requested",
+            data: {
+              approval_id: approvalId,
+              node_execution_id: request.node_execution_id,
+              requested_action: config,
+              requested_at: new Date().toISOString(),
+              expiry_at: expiryAt,
+            },
+          }, request);
+        }
+        return { output_json: outputJson, metadata_json: metadataJson };
+      }
+
       const problem = ProblemDetailsSchema.safeParse(result.output);
       if (problem.success && problem.data.status >= 400) {
         await this.ledger.recordFailed(
@@ -217,6 +242,88 @@ export class NodeexecService {
       }
     }
     return { status: result.status, ended_at: result.endedAt };
+  }
+
+  /**
+   * Resolves a HumanApproval node_execution left 'running' by executeNode's
+   * pending-approval branch, once the Executor workflow's durable wait
+   * receives a decision (or expiry). Reuses the same ledger transitions
+   * every other node uses -- an approved node "succeeds", a rejected or
+   * expired one "fails" -- so downstream consumers (node inspector,
+   * run history) see no special-cased state. HEAL-7.
+   */
+  async finalizeApprovalNode(
+    request: NodeexecFinalizeApprovalNodeRequest,
+  ): Promise<NodeexecFinalizeApprovalNodeResponse> {
+    if (request.decision !== "approved" && request.decision !== "rejected") {
+      throw new NodeHandlerValidationError(
+        `finalizeApprovalNode decision must be "approved" or "rejected", got "${request.decision}"`,
+      );
+    }
+
+    if (request.decision === "approved") {
+      await this.ledger.recordSucceeded({
+        tenantId: request.tenant_id,
+        runId: request.run_id,
+        nodeExecutionId: request.node_execution_id,
+        outputRef: request.node_key,
+      });
+      await this.#appendApprovalOutcomeBestEffort(request, "succeeded", null);
+      return { status: "succeeded" };
+    }
+
+    const error = { code: "HUMAN_APPROVAL_REJECTED", detail: "Approval was rejected or expired" };
+    await this.ledger.recordFailed(
+      {
+        tenantId: request.tenant_id,
+        runId: request.run_id,
+        nodeExecutionId: request.node_execution_id,
+      },
+      error,
+    );
+    await this.#appendApprovalOutcomeBestEffort(request, "failed", error);
+    return { status: "failed" };
+  }
+
+  async #appendApprovalOutcomeBestEffort(
+    request: NodeexecFinalizeApprovalNodeRequest,
+    status: "succeeded" | "failed",
+    error: Record<string, unknown> | null,
+  ): Promise<void> {
+    try {
+      if (status === "succeeded") {
+        await this.streamEvents?.append(request.tenant_id, request.run_id, {
+          event: "node.completed",
+          data: {
+            node_execution_id: request.node_execution_id,
+            dag_node_key: request.node_key,
+            node_type: "HumanApproval",
+            attempt: 1,
+            status: "succeeded",
+            ended_at: new Date().toISOString(),
+          },
+        });
+      } else {
+        await this.streamEvents?.append(request.tenant_id, request.run_id, {
+          event: "node.failed",
+          data: {
+            node_execution_id: request.node_execution_id,
+            dag_node_key: request.node_key,
+            node_type: "HumanApproval",
+            attempt: 1,
+            status: "failed",
+            error: {
+              error_code: String(error?.["code"] ?? "HUMAN_APPROVAL_REJECTED"),
+              message: String(error?.["detail"] ?? "Approval was rejected or expired"),
+              retryable: false,
+            },
+            ended_at: new Date().toISOString(),
+          },
+        });
+      }
+    } catch {
+      // SSE journal is convenience transport. Durable node_executions remains source of truth.
+    }
   }
 }
 

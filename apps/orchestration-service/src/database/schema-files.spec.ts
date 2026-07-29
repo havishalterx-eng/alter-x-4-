@@ -15,6 +15,7 @@ import { workflows } from "../../db/schema/workflows";
 import { verificationResults } from "../../db/schema/verification_results";
 import { recoveryActions } from "../../db/schema/recovery_actions";
 import { runOutcomes } from "../../db/schema/run_outcomes";
+import { approvals } from "../../db/schema/approvals";
 
 const schemaRoot = resolve(
   process.cwd(),
@@ -36,10 +37,11 @@ const schemas = [
   ["verification_results.ts", "verification_results"],
   ["recovery_actions.ts", "recovery_actions"],
   ["run_outcomes.ts", "run_outcomes"],
+  ["approvals.ts", "approvals"],
 ] as const;
 
 describe("orchestration Drizzle schemas", () => {
-  it("loads all fourteen executable Drizzle table definitions", () => {
+  it("loads all fifteen executable Drizzle table definitions", () => {
     for (const table of [
       workflows,
       triggers,
@@ -55,6 +57,7 @@ describe("orchestration Drizzle schemas", () => {
       verificationResults,
       recoveryActions,
       runOutcomes,
+      approvals,
     ]) {
       expect(table).toBeDefined();
     }
@@ -102,6 +105,9 @@ describe("orchestration Drizzle schemas", () => {
       'foreignKey({\n      name: "run_outcomes_run_tenant_fk"',
       'unique("run_outcomes_tenant_run_unique")',
       'index("idx_run_outcomes_tenant_mode_eligible_decided")',
+      'foreignKey({\n      name: "approvals_run_tenant_fk"',
+      'foreignKey({\n      name: "approvals_node_execution_tenant_fk"',
+      'index("idx_approvals_tenant_status_requested")',
     ]) {
       expect(allSources).toContain(expected);
     }

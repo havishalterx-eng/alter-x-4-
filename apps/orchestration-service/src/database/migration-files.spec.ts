@@ -30,6 +30,7 @@ describe("orchestration migration files", () => {
       "0013_create_verification_results.sql",
       "0014_create_recovery_actions.sql",
       "0015_create_run_outcomes.sql",
+      "0016_create_approvals.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -52,6 +53,7 @@ describe("orchestration migration files", () => {
       "0013_drop_verification_results.sql",
       "0014_drop_recovery_actions.sql",
       "0015_drop_run_outcomes.sql",
+      "0016_drop_approvals.sql",
     ]);
   });
 
@@ -68,13 +70,13 @@ describe("orchestration migration files", () => {
     },
   );
 
-  it("defines immutability function once and reuses it fourteen times", () => {
+  it("defines immutability function once and reuses it fifteen times", () => {
     const allSql = migrationSql.map(({ sql }) => sql).join("\n");
 
     expect(allSql.match(/CREATE OR REPLACE FUNCTION reject_tenant_id_change/g))
       .toHaveLength(1);
     expect(allSql.match(/EXECUTE FUNCTION reject_tenant_id_change\(\)/g))
-      .toHaveLength(14);
+      .toHaveLength(15);
   });
 
   it("persists a bounded traffic percentage only for canary versions", () => {
@@ -180,6 +182,15 @@ describe("orchestration migration files", () => {
     );
     expect(allSql).toContain(
       `CONSTRAINT "run_outcomes_verdict_check" CHECK ("verdict" IN ('completed_verified', 'rescued', 'escalated', 'failed', 'abandoned', 'degraded'))`,
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "approvals_run_tenant_fk" FOREIGN KEY ("tenant_id", "run_id") REFERENCES "runs"("tenant_id", "id") ON DELETE CASCADE',
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "approvals_node_execution_tenant_fk" FOREIGN KEY ("tenant_id", "node_execution_id") REFERENCES "node_executions"("tenant_id", "id") ON DELETE CASCADE',
+    );
+    expect(allSql).toContain(
+      `CONSTRAINT "approvals_status_check" CHECK ("status" IN ('pending', 'approved', 'rejected', 'expired'))`,
     );
   });
 

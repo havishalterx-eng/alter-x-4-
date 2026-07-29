@@ -1,3 +1,4 @@
+import { WorkflowFailedError } from "@temporalio/client";
 import { TestWorkflowEnvironment } from "@temporalio/testing";
 import type { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -6,6 +7,7 @@ import type { CompiledDag } from "@alterx/contracts";
 
 import { createExecutorWorker } from "../worker";
 import type { ExecutorActivities } from "../activities/executor-activities";
+import { approvalDecidedSignal } from "./executor-workflow";
 
 const WORKFLOW_TYPE = "executorWorkflow";
 
@@ -63,6 +65,71 @@ function parallelWaveDag(): CompiledDag {
   };
 }
 
+function humanApprovalDag(): CompiledDag {
+  return {
+    schema_version: "v1",
+    entry_node_keys: ["node_a"],
+    nodes: [
+      { key: "node_a", type: "HumanApproval", config: {}, metadata: { ui: {} } },
+      { key: "node_b", type: "ToolCall", config: {}, metadata: { ui: {} } },
+    ],
+    edges: [{ key: "node_a-to-node_b", from: "node_a", to: "node_b", kind: "sequential" }],
+    waves: [
+      { key: "wave_0", order: 0, node_keys: ["node_a"], depends_on: [] },
+      { key: "wave_1", order: 1, node_keys: ["node_b"], depends_on: ["wave_0"] },
+    ],
+  };
+}
+
+/**
+ * Simulates NodeexecService's real dispatch behavior for a HumanApproval
+ * node (HEAL-7): returns a pending marker instead of a real output, and
+ * captures the workflow-generated node_execution_id (via nodeExecutionIdCaptured)
+ * so the test can target a signal at exactly this node, since that ID is
+ * generated deterministically INSIDE the workflow (uuid4()) and is not
+ * otherwise knowable to the test ahead of time.
+ */
+function pendingApprovalActivities(expiresInMs: number): {
+  activities: ExecutorActivities;
+  nodeExecutionIdCaptured: Promise<string>;
+  recordCalls: unknown[];
+} {
+  let resolveCaptured!: (id: string) => void;
+  const nodeExecutionIdCaptured = new Promise<string>((resolve) => {
+    resolveCaptured = resolve;
+  });
+  const recordCalls: unknown[] = [];
+  return {
+    activities: {
+      async executeNode(input) {
+        if (input.nodeType === "HumanApproval") {
+          resolveCaptured(input.nodeExecutionId);
+          return {
+            outputJson: JSON.stringify({
+              approval_id: "apr_test",
+              status: "pending",
+              expiry_at: new Date(Date.now() + expiresInMs).toISOString(),
+            }),
+            metadataJson: JSON.stringify({ execution_status: "pending_approval" }),
+            pending: true,
+            expiresInMs,
+          };
+        }
+        return {
+          outputJson: JSON.stringify({ from: input.nodeKey }),
+          metadataJson: "{}",
+        };
+      },
+      async finalizeRun() {},
+      async recordApprovalDecision(input) {
+        recordCalls.push(input);
+      },
+    },
+    nodeExecutionIdCaptured,
+    recordCalls,
+  };
+}
+
 function echoingActivities(
   callOrder: string[],
   predecessorsSeenByNode: Record<string, readonly string[]> = {},
@@ -80,6 +147,7 @@ function echoingActivities(
     async finalizeRun(input) {
       finalizeCalls.push(input);
     },
+    async recordApprovalDecision() {},
   };
 }
 
@@ -117,6 +185,7 @@ function delayedEchoingActivities(
     async finalizeRun(input) {
       finalizeCalls.push(input);
     },
+    async recordApprovalDecision() {},
   };
 }
 
@@ -140,6 +209,7 @@ function concurrencyTrackingActivities(): {
         };
       },
       async finalizeRun() {},
+      async recordApprovalDecision() {},
     },
     maxConcurrent: () => max,
   };
@@ -388,6 +458,146 @@ describe.sequential("executorWorkflow", () => {
       });
 
       await expect(handle.result()).rejects.toThrow();
+    } finally {
+      await stopWorker(running);
+    }
+  });
+
+  it("durably pauses a HumanApproval node, survives a worker restart, and resumes to completion on signal (HEAL-7)", async () => {
+    const taskQueue = "executor-human-approval-durability";
+    const workflowId = "executor-human-approval-durability-workflow";
+    const { activities, nodeExecutionIdCaptured, recordCalls } = pendingApprovalActivities(
+      5 * 60_000,
+    );
+
+    const workerOne = startWorker(
+      await createExecutorWorker(config(taskQueue), environment.nativeConnection, activities),
+    );
+
+    const handle = await environment.client.workflow.start(WORKFLOW_TYPE, {
+      taskQueue,
+      workflowId,
+      args: [
+        {
+          tenantId: "ten_test",
+          runId: "run_test",
+          compiledDagJson: JSON.stringify(humanApprovalDag()),
+        },
+      ],
+    });
+
+    const nodeExecutionId = await nodeExecutionIdCaptured;
+
+    // Give the workflow a moment to actually enter its condition() wait
+    // before killing the worker underneath it.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await stopWorker(workerOne);
+
+    // No worker is polling this task queue right now: the workflow is
+    // durably parked in its condition() wait, persisted in Temporal
+    // history -- not held in any process's memory. A fresh worker (never
+    // having seen this workflow run before) picks up exactly where it
+    // left off once signaled.
+    const workerTwo = startWorker(
+      await createExecutorWorker(config(taskQueue), environment.nativeConnection, activities),
+    );
+
+    try {
+      await environment.client.workflow
+        .getHandle(workflowId)
+        .signal(approvalDecidedSignal, {
+          nodeExecutionId,
+          approved: true,
+          note: "approved for test",
+        });
+
+      const result = await handle.result();
+
+      expect(result.outputs["node_a"]).toEqual({ approved: true, note: "approved for test" });
+      expect(result.outputs["node_b"]).toEqual({ from: "node_b" });
+      expect(recordCalls).toEqual([
+        expect.objectContaining({
+          nodeExecutionId,
+          nodeKey: "node_a",
+          decision: "approved",
+        }),
+      ]);
+    } finally {
+      await stopWorker(workerTwo);
+    }
+  });
+
+  it("fails the workflow when a HumanApproval node is rejected", async () => {
+    const taskQueue = "executor-human-approval-rejected";
+    const workflowId = "executor-human-approval-rejected-workflow";
+    const { activities, nodeExecutionIdCaptured, recordCalls } = pendingApprovalActivities(
+      5 * 60_000,
+    );
+
+    const running = startWorker(
+      await createExecutorWorker(config(taskQueue), environment.nativeConnection, activities),
+    );
+
+    try {
+      const handle = await environment.client.workflow.start(WORKFLOW_TYPE, {
+        taskQueue,
+        workflowId,
+        args: [
+          {
+            tenantId: "ten_test",
+            runId: "run_test",
+            compiledDagJson: JSON.stringify(humanApprovalDag()),
+          },
+        ],
+      });
+
+      const nodeExecutionId = await nodeExecutionIdCaptured;
+      await environment.client.workflow
+        .getHandle(workflowId)
+        .signal(approvalDecidedSignal, { nodeExecutionId, approved: false, note: "denied" });
+
+      const error = await handle.result().catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(WorkflowFailedError);
+      expect((error as WorkflowFailedError).cause?.message).toMatch(/was rejected/);
+      expect(recordCalls).toEqual([
+        expect.objectContaining({ nodeExecutionId, decision: "rejected" }),
+      ]);
+    } finally {
+      await stopWorker(running);
+    }
+  });
+
+  it("fails the workflow when a HumanApproval node's expiry passes with no decision", async () => {
+    const taskQueue = "executor-human-approval-expired";
+    const workflowId = "executor-human-approval-expired-workflow";
+    // A short expiry -- the test never sends a decision signal, proving
+    // the condition() timeout path resolves the node as expired/rejected
+    // on its own, without an external decision ever arriving.
+    const { activities, recordCalls } = pendingApprovalActivities(200);
+
+    const running = startWorker(
+      await createExecutorWorker(config(taskQueue), environment.nativeConnection, activities),
+    );
+
+    try {
+      const handle = await environment.client.workflow.start(WORKFLOW_TYPE, {
+        taskQueue,
+        workflowId,
+        args: [
+          {
+            tenantId: "ten_test",
+            runId: "run_test",
+            compiledDagJson: JSON.stringify(humanApprovalDag()),
+          },
+        ],
+      });
+
+      const error = await handle.result().catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(WorkflowFailedError);
+      expect((error as WorkflowFailedError).cause?.message).toMatch(/expired/);
+      expect(recordCalls).toEqual([
+        expect.objectContaining({ decision: "rejected" }),
+      ]);
     } finally {
       await stopWorker(running);
     }

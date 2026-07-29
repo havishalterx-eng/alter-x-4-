@@ -4,6 +4,8 @@ import { loadSync } from "@grpc/proto-loader";
 import type {
   NodeexecExecuteNodeRequest,
   NodeexecExecuteNodeResponse,
+  NodeexecFinalizeApprovalNodeRequest,
+  NodeexecFinalizeApprovalNodeResponse,
   NodeexecFinalizeRunRequest,
   NodeexecFinalizeRunResponse,
 } from "@alterx/contracts";
@@ -21,6 +23,9 @@ export interface NodeExecutionHandler {
   finalizeRun(
     request: NodeexecFinalizeRunRequest,
   ): Promise<NodeexecFinalizeRunResponse>;
+  finalizeApprovalNode(
+    request: NodeexecFinalizeApprovalNodeRequest,
+  ): Promise<NodeexecFinalizeApprovalNodeResponse>;
 }
 
 interface NodeexecGrpcClient extends Client {
@@ -33,6 +38,11 @@ interface NodeexecGrpcClient extends Client {
     request: NodeexecFinalizeRunRequest,
     options: { readonly deadline: Date },
     callback: (error: Error | null, response?: NodeexecFinalizeRunResponse) => void,
+  ): void;
+  finalizeApprovalNode(
+    request: NodeexecFinalizeApprovalNodeRequest,
+    options: { readonly deadline: Date },
+    callback: (error: Error | null, response?: NodeexecFinalizeApprovalNodeResponse) => void,
   ): void;
 }
 
@@ -98,6 +108,25 @@ export class NodeExecutionClient implements NodeExecutionHandler {
     return new Promise<NodeexecFinalizeRunResponse>((resolve, reject) => {
       const deadline = new Date(Date.now() + this.#timeoutMs);
       this.#client.finalizeRun(request, { deadline }, (error, response) => {
+        if (error !== null) {
+          reject(error);
+          return;
+        }
+        if (response === undefined) {
+          reject(new Error("Node Execution Service returned an empty response"));
+          return;
+        }
+        resolve(response);
+      });
+    });
+  }
+
+  async finalizeApprovalNode(
+    request: NodeexecFinalizeApprovalNodeRequest,
+  ): Promise<NodeexecFinalizeApprovalNodeResponse> {
+    return new Promise<NodeexecFinalizeApprovalNodeResponse>((resolve, reject) => {
+      const deadline = new Date(Date.now() + this.#timeoutMs);
+      this.#client.finalizeApprovalNode(request, { deadline }, (error, response) => {
         if (error !== null) {
           reject(error);
           return;

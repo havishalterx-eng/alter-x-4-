@@ -15,6 +15,7 @@ export {
   type ProblemDetails,
 } from "./problem-details";
 export {
+  ApprovalIdSchema,
   AuditIdSchema,
   NodeExecutionIdSchema,
   NonEmptyStringSchema,
@@ -83,6 +84,8 @@ export type {
   ExecuteNodeResponse as NodeexecExecuteNodeResponse,
   FinalizeRunRequest as NodeexecFinalizeRunRequest,
   FinalizeRunResponse as NodeexecFinalizeRunResponse,
+  FinalizeApprovalNodeRequest as NodeexecFinalizeApprovalNodeRequest,
+  FinalizeApprovalNodeResponse as NodeexecFinalizeApprovalNodeResponse,
 } from "./generated/alter/nodeexec/v1/nodeexec";
 export type {
   ReadValueRequest as BlackboardReadValueRequest,

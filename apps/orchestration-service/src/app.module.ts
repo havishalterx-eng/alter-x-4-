@@ -42,6 +42,8 @@ import { RunStreamController } from "./runs/run-stream.controller";
 import { RunLauncherService } from "./runs/run-launcher.service";
 import { RunsController } from "./runs/runs.controller";
 import { loadRunLauncherEnvironment } from "./config/run-launcher-environment";
+import { ApprovalsController } from "./approvals/approvals.controller";
+import { ApprovalsService } from "./approvals/approvals.service";
 import { createRuntimeNodeHandlerRegistry } from "./registry/node-handler-registry";
 import { BlackboardGrpcService } from "./blackboard/blackboard-grpc.service";
 import { BlackboardService } from "./blackboard/blackboard.service";
@@ -72,6 +74,7 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
     NodeExecutionsController,
     RunStreamController,
     RunsController,
+    ApprovalsController,
     TriggerRegistryController,
     WhatsappWebhookController,
   ],
@@ -233,11 +236,34 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
         // No real QueueProvider adapter exists yet -- PubSubHandler uses
         // the shared-clients mock here, same disclosed gap as EXEC-1.
         const queueProvider = createMockQueueProvider();
+        // HumanApprovalHandler needs only createPending's capability, under
+        // its own narrower method name -- a thin adapter over a full
+        // ApprovalsService instance built the same way every other factory
+        // here builds its own store/provider, never reaching into another
+        // factory's closure.
+        const runLauncherConfig = loadRunLauncherEnvironment(process.env);
+        const approvalsService = new ApprovalsService(
+          store,
+          new TemporalDurableExecutionProvider({
+            address: runLauncherConfig.temporalAddress,
+            namespace: runLauncherConfig.temporalNamespace,
+            taskQueue: runLauncherConfig.taskQueue,
+            ...(runLauncherConfig.temporalApiKey === undefined
+              ? {}
+              : { apiKey: runLauncherConfig.temporalApiKey }),
+          }),
+        );
         const registry = createRuntimeNodeHandlerRegistry({
           modelGateway,
           toolGateway,
           sandboxService,
           queueProvider,
+          approvalRequester: {
+            requestApproval: async (request) => {
+              const created = await approvalsService.createPending(request);
+              return { approvalId: created.id, expiryAt: created.expiryAt };
+            },
+          },
         });
         const ledger = new NodeExecutionLedgerService(store);
         return new NodeexecService(registry, ledger, new RunStreamEventService(store));
@@ -296,6 +322,34 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
             : { apiKey: runLauncherConfig.temporalApiKey }),
         });
         return new RunLauncherService(store, durable);
+      },
+    },
+    {
+      provide: ApprovalsService,
+      useFactory: () => {
+        // Same reasoning as CONVERSATION_HANDLER/TriggerRegistryService
+        // above: constructs its own PostgresOrchestrationStoreProvider
+        // rather than reaching into the guard's private instance.
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        const runLauncherConfig = loadRunLauncherEnvironment(process.env);
+        const durable = new TemporalDurableExecutionProvider({
+          address: runLauncherConfig.temporalAddress,
+          namespace: runLauncherConfig.temporalNamespace,
+          taskQueue: runLauncherConfig.taskQueue,
+          ...(runLauncherConfig.temporalApiKey === undefined
+            ? {}
+            : { apiKey: runLauncherConfig.temporalApiKey }),
+        });
+        return new ApprovalsService(store, durable);
       },
     },
     {

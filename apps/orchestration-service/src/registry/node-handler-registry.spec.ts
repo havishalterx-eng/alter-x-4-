@@ -37,6 +37,12 @@ function runtimeRegistry(toolInvoke = vi.fn(async () => ({
       }),
     },
     queueProvider: createMockQueueProvider(),
+    approvalRequester: {
+      requestApproval: async () => ({
+        approvalId: "apr_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+        expiryAt: "2026-07-30T00:00:00.000Z",
+      }),
+    },
   });
 }
 
@@ -90,15 +96,21 @@ describe("NodeHandlerRegistry", () => {
     expect(result.output).toEqual({ results: [{ title: "AlterX" }] });
   });
 
-  it("runtime composition registers the explicit HumanApproval stub", async () => {
+  it("runtime composition registers the real HumanApproval handler", async () => {
     await expect(
-      runtimeRegistry().execute("HumanApproval", { config: {}, inputs: {} }),
+      runtimeRegistry().execute("HumanApproval", {
+        config: {},
+        inputs: {},
+        tenant_id: TENANT_ID,
+        run_id: RUN_ID,
+        node_execution_id: NODE_EXECUTION_ID,
+      }),
     ).resolves.toMatchObject({
       output: {
-        stub: true,
-        pending: false,
-        code: "approval_not_implemented",
+        approval_id: "apr_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+        status: "pending",
       },
+      metadata: { execution_status: "pending_approval" },
     });
   });
 });

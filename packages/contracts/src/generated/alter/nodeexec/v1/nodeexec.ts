@@ -43,3 +43,22 @@ export interface FinalizeRunResponse {
   status: string;
   ended_at: string;
 }
+
+export interface FinalizeApprovalNodeRequest {
+  /** ten_ prefixed UUIDv7 */
+  tenant_id: string;
+  /** run_ prefixed UUIDv7 */
+  run_id: string;
+  /** node_ prefixed UUIDv7 */
+  node_execution_id: string;
+  node_key: string;
+  /** "approved" or "rejected" (rejected covers expiry too) */
+  decision: string;
+  /** {"approved": bool, "note": string|null, "expired": bool} */
+  decision_output_json: string;
+}
+
+export interface FinalizeApprovalNodeResponse {
+  /** node_executions.status after this write */
+  status: string;
+}

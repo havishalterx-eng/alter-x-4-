@@ -9,7 +9,7 @@ import type { QueueProvider } from "@alterx/shared-clients";
 import type { NodeExecutionContext, NodeExecutionResult, NodeHandler } from "./handler";
 import { GateHandler } from "./handlers/gate.handler";
 import { GroupChatHandler } from "./handlers/groupchat.handler";
-import { HumanApprovalHandler } from "./handlers/human-approval.handler";
+import { HumanApprovalHandler, type ApprovalRequester } from "./handlers/human-approval.handler";
 import { LlmTaskHandler } from "./handlers/llmtask.handler";
 import { MergeHandler } from "./handlers/merge.handler";
 import { MemoryWriteHandler } from "./handlers/memory-write.handler";
@@ -86,6 +86,7 @@ export interface RuntimeNodeHandlerProviders {
   readonly toolGateway: ToolGatewayInvokeHandler;
   readonly sandboxService: SandboxExecuteHandler;
   readonly queueProvider: QueueProvider;
+  readonly approvalRequester: ApprovalRequester;
 }
 
 /** Single runtime composition list; catalog-implemented handlers live here. */
@@ -100,7 +101,7 @@ export function createRuntimeNodeHandlerRegistry(
     new YamlImportHandler(),
     new LlmTaskHandler(providers.modelGateway),
     new ToolCallHandler(providers.toolGateway),
-    new HumanApprovalHandler(),
+    new HumanApprovalHandler(providers.approvalRequester),
     new SandboxExecHandler(providers.sandboxService),
     new SynthesisHandler(),
     new MemoryWriteHandler(),

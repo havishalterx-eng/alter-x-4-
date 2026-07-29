@@ -24,6 +24,7 @@ function fakeNodeExecutionClient(
       metadata_json: metadataJson,
     })),
     finalizeRun: vi.fn(async () => ({ status: "completed", ended_at: "" })),
+    finalizeApprovalNode: vi.fn(async () => ({ status: "succeeded" })),
   };
 }
 
@@ -146,6 +147,7 @@ describe("createExecutorActivities.executeNode", () => {
     const nodeExecutionClient: NodeExecutionHandler = {
       executeNode: vi.fn().mockRejectedValue(new Error("boom")),
       finalizeRun: vi.fn(async () => ({ status: "completed", ended_at: "" })),
+    finalizeApprovalNode: vi.fn(async () => ({ status: "succeeded" })),
     };
     const blackboardClient = fakeBlackboardClient();
     const activities = createExecutorActivities(nodeExecutionClient, blackboardClient);
