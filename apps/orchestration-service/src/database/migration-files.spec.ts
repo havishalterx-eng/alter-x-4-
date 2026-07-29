@@ -31,6 +31,7 @@ describe("orchestration migration files", () => {
       "0014_create_recovery_actions.sql",
       "0015_create_run_outcomes.sql",
       "0016_create_approvals.sql",
+      "0017_allow_pending_recovery_policy.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -54,6 +55,7 @@ describe("orchestration migration files", () => {
       "0014_drop_recovery_actions.sql",
       "0015_drop_run_outcomes.sql",
       "0016_drop_approvals.sql",
+      "0017_require_recovery_policy.sql",
     ]);
   });
 
@@ -172,7 +174,10 @@ describe("orchestration migration files", () => {
       'CONSTRAINT "recovery_actions_run_tenant_fk" FOREIGN KEY ("tenant_id", "run_id") REFERENCES "runs"("tenant_id", "id") ON DELETE CASCADE',
     );
     expect(allSql).toContain(
-      `CONSTRAINT "recovery_actions_strategy_check" CHECK ("strategy" IN ('repair', 'retry', 'backoff', 'swap_agent', 'escalate_model', 'recompile', 'replan', 'degrade', 'ask_user', 'terminate'))`,
+      `CONSTRAINT "recovery_actions_strategy_check" CHECK ("strategy" IS NULL OR "strategy" IN ('repair', 'retry', 'backoff', 'swap_agent', 'escalate_model', 'recompile', 'replan', 'degrade', 'ask_user', 'terminate'))`,
+    );
+    expect(allSql).toContain(
+      'CREATE UNIQUE INDEX "idx_recovery_actions_pending_node"',
     );
     expect(allSql).toContain(
       'CONSTRAINT "run_outcomes_run_tenant_fk" FOREIGN KEY ("tenant_id", "run_id") REFERENCES "runs"("tenant_id", "id") ON DELETE CASCADE',

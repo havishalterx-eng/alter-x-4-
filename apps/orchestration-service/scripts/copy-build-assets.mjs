@@ -55,3 +55,8 @@ await cp(
   resolve(output, "proto/toolgw.proto"),
   { force: true },
 );
+await cp(
+  resolve(root, "packages/contracts/proto/alter/recovery/v1/recovery.proto"),
+  resolve(output, "proto/recovery.proto"),
+  { force: true },
+);

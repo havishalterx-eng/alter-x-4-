@@ -6,6 +6,7 @@ import {
   CONVERSATION_HANDLER,
   DEPLOYCTL_HANDLER,
   NODEEXEC_HANDLER,
+  RECOVERY_HANDLER,
   REGISTRY_HANDLER,
   BlackboardGrpcController,
   CompilerGrpcController,
@@ -17,6 +18,7 @@ import {
   NodeexecGrpcController,
   PostgresOrchestrationStoreProvider,
   RedisCacheProvider,
+  RecoveryGrpcController,
   RegistryGrpcController,
   TemporalDurableExecutionProvider,
   ToolGatewayClient,
@@ -55,6 +57,7 @@ import { loadNodeexecEnvironment } from "./config/nodeexec-environment";
 import { SANDBOX_CLIENT_PROTO_PATH } from "./registry/sandbox-client.constants";
 import { ORCHESTRATION_MIGRATIONS_PATH } from "./database/migrations-path";
 import { HealthController } from "./health/health.controller";
+import { RecoveryPolicyService } from "./recovery/recovery-policy.service";
 import { TriggerRegistryController } from "./trigger-registry/trigger-registry.controller";
 import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
 import { TOOLGW_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
@@ -71,6 +74,7 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
     RegistryGrpcController,
     NodeexecGrpcController,
     BlackboardGrpcController,
+    RecoveryGrpcController,
     NodeExecutionsController,
     RunStreamController,
     RunsController,
@@ -267,6 +271,27 @@ import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
         });
         const ledger = new NodeExecutionLedgerService(store);
         return new NodeexecService(registry, ledger, new RunStreamEventService(store));
+      },
+    },
+    {
+      provide: RECOVERY_HANDLER,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        const modelConfig = loadConversationManagerEnvironment(process.env);
+        const modelGateway = new ModelGatewayClient({
+          address: modelConfig.modelGatewayAddress,
+          protoPath: MODELGW_CLIENT_PROTO_PATH,
+        });
+        return new RecoveryPolicyService(store, modelGateway);
       },
     },
     {

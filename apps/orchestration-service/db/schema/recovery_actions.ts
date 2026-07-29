@@ -27,8 +27,10 @@ export const recoveryActions = pgTable(
     nodeExecutionId: text("node_execution_id"),
     failureClass: text("failure_class").notNull(),
     rootCauseEstimate: jsonb("root_cause_estimate"),
-    strategy: text("strategy").notNull(),
-    policyVersion: text("policy_version").notNull(),
+    // HEAL-5 creates classification-only rows. HEAL-6 fills both fields
+    // atomically after applying its deterministic policy table.
+    strategy: text("strategy"),
+    policyVersion: text("policy_version"),
     outcome: text("outcome"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -38,7 +40,7 @@ export const recoveryActions = pgTable(
   (table) => [
     check(
       "recovery_actions_strategy_check",
-      sql`${table.strategy} IN ('repair', 'retry', 'backoff', 'swap_agent', 'escalate_model', 'recompile', 'replan', 'degrade', 'ask_user', 'terminate')`,
+      sql`${table.strategy} IS NULL OR ${table.strategy} IN ('repair', 'retry', 'backoff', 'swap_agent', 'escalate_model', 'recompile', 'replan', 'degrade', 'ask_user', 'terminate')`,
     ),
     check(
       "recovery_actions_outcome_check",

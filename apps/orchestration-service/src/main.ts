@@ -7,6 +7,7 @@ import {
   connectDeployctlGrpcTransport,
   connectNodeexecGrpcTransport,
   connectRegistryGrpcTransport,
+  connectRecoveryGrpcTransport,
   startConversationGrpcTransport,
 } from "@alterx/adapters";
 import { AppModule } from "./app.module";
@@ -16,12 +17,14 @@ import { loadConversationManagerEnvironment } from "./config/environment";
 import { loadDeploymentControllerEnvironment } from "./config/deployment-controller-environment";
 import { loadNodeexecEnvironment } from "./config/nodeexec-environment";
 import { loadRegistryEnvironment } from "./config/registry-environment";
+import { loadRecoveryEnvironment } from "./config/recovery-environment";
 import { BLACKBOARD_PROTO_PATH } from "./blackboard/grpc.constants";
 import { COMPILER_PROTO_PATH } from "./compiler/grpc.constants";
 import { CONVERSATION_PROTO_PATH } from "./conversation/grpc.constants";
 import { DEPLOYCTL_PROTO_PATH } from "./deployment-controller/grpc.constants";
 import { NODEEXEC_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
 import { REGISTRY_PROTO_PATH } from "./registry/grpc.constants";
+import { RECOVERY_PROTO_PATH } from "./recovery/grpc.constants";
 
 async function bootstrap(): Promise<void> {
   const conversationConfig = loadConversationManagerEnvironment(process.env);
@@ -29,6 +32,7 @@ async function bootstrap(): Promise<void> {
   const deploymentConfig = loadDeploymentControllerEnvironment(process.env);
   const registryConfig = loadRegistryEnvironment(process.env);
   const nodeexecConfig = loadNodeexecEnvironment(process.env);
+  const recoveryConfig = loadRecoveryEnvironment(process.env);
   const blackboardConfig = loadBlackboardEnvironment(process.env);
 
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -65,6 +69,10 @@ async function bootstrap(): Promise<void> {
   connectBlackboardGrpcTransport(app, {
     bindAddress: blackboardConfig.grpcBindAddress,
     protoPath: BLACKBOARD_PROTO_PATH,
+  });
+  connectRecoveryGrpcTransport(app, {
+    bindAddress: recoveryConfig.grpcBindAddress,
+    protoPath: RECOVERY_PROTO_PATH,
   });
   await startConversationGrpcTransport(app, {
     bindAddress: conversationConfig.grpcBindAddress,

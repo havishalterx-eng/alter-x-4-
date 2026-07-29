@@ -19,6 +19,7 @@ export {
   AuditIdSchema,
   NodeExecutionIdSchema,
   NonEmptyStringSchema,
+  RecoveryActionIdSchema,
   RunIdSchema,
   TenantIdSchema,
   WorkflowIdSchema,
@@ -164,6 +165,23 @@ export {
   type RunListResponse,
   type RunRecord,
 } from "./runs";
+export {
+  FailureClassSchema,
+  FailureObservationSchema,
+  RootCauseEstimateSchema,
+  SafetySeveritySchema,
+  type FailureClass,
+  type FailureObservation,
+  type RootCauseEstimate,
+} from "./recovery-classification";
+export type {
+  ClassifyFailureRequest as RecoveryClassifyFailureRequest,
+  ClassifyFailureResponse as RecoveryClassifyFailureResponse,
+  RecordOutcomeRequest as RecoveryRecordOutcomeRequest,
+  RecordOutcomeResponse as RecoveryRecordOutcomeResponse,
+  SelectStrategyRequest as RecoverySelectStrategyRequest,
+  SelectStrategyResponse as RecoverySelectStrategyResponse,
+} from "./generated/alter/recovery/v1/recovery";
 export {
   CompiledDagSchema,
   NodeRequirementsSchema,

@@ -147,6 +147,13 @@ export {
   type SandboxGrpcTransportConfig,
 } from "./grpc/sandbox-grpc-transport";
 export {
+  RECOVERY_HANDLER,
+  RecoveryGrpcController,
+  connectRecoveryGrpcTransport,
+  type RecoveryGrpcTransportConfig,
+  type RecoveryHandler,
+} from "./grpc/recovery-grpc-transport";
+export {
   BEDROCK_CAPABILITIES,
   AwsBedrockModelProvider,
   type AwsBedrockModelProviderConfig,

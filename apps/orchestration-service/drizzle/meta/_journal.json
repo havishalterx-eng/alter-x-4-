@@ -120,6 +120,13 @@
       "when": 1784861016000,
       "tag": "0016_create_approvals",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784861017000,
+      "tag": "0017_allow_pending_recovery_policy",
+      "breakpoints": true
     }
   ]
 }
