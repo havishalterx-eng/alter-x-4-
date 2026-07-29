@@ -8,8 +8,15 @@ class Settings(BaseSettings):
     policy_db_url_sync: str = (
         "postgresql+psycopg2://memory_service:memory_local@localhost:5433/policy_db"
     )
+    policy_db_system_url_sync: str = (
+        "postgresql+psycopg2://policy_system_writer@localhost:5433/policy_db"
+    )
     orchestration_service_base_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:3000")
     orchestration_service_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    intelligence_service_base_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8000")
+    intelligence_service_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    drift_failure_threshold: float = Field(default=0.2, ge=0, le=1)
+    drift_window_size: int = Field(default=20, ge=2, le=100)
 
     model_config = SettingsConfigDict(
         env_file=".env.local",

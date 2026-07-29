@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import cast
+
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session, sessionmaker
+
+from src.db.models import MemoryRecord, Policy, PolicyPromotion
+from src.memory_learning.ids import new_prefixed_uuid7
+
+from .anonymization import anonymize_global_content, anonymized_global_provenance
+from .models import PolicyPatch, PolicyStatus, StoredMemoryPromotion, StoredPolicyUpdate
+
+_SET_TENANT = text("SELECT set_config('app.current_tenant_id', :tenant_id, true)")
+
+
+class PolicyNotFoundError(LookupError):
+    pass
+
+
+class MemoryNotFoundError(LookupError):
+    pass
+
+
+class PolicyVersionConflictError(RuntimeError):
+    pass
+
+
+class PolicyTransitionError(RuntimeError):
+    pass
+
+
+class MemoryPromotionConflictError(RuntimeError):
+    pass
+
+
+_VALID_TRANSITIONS: dict[PolicyStatus, frozenset[PolicyStatus]] = {
+    "draft": frozenset({"draft", "canary"}),
+    "canary": frozenset({"canary", "active"}),
+    "active": frozenset({"rolled_back"}),
+    "rolled_back": frozenset(),
+    "retired": frozenset(),
+}
+
+
+class SqlAlchemyPolicyStoreRepository:
+    def __init__(
+        self,
+        tenant_sessions: sessionmaker[Session],
+        system_sessions: sessionmaker[Session],
+    ) -> None:
+        self._tenant_sessions = tenant_sessions
+        self._system_sessions = system_sessions
+
+    def update_policy(
+        self,
+        *,
+        tenant_uuid: str,
+        policy_id: str,
+        current_version: int,
+        patch: PolicyPatch,
+        actor: str,
+    ) -> StoredPolicyUpdate:
+        scope = self._visible_policy_scope(tenant_uuid, policy_id)
+        sessions = self._system_sessions if scope == "global" else self._tenant_sessions
+        with sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            policy = session.scalar(
+                select(Policy).where(Policy.id == policy_id).with_for_update()
+            )
+            if policy is None:
+                raise PolicyNotFoundError("Policy does not exist for requesting tenant")
+            if policy.version != current_version:
+                raise PolicyVersionConflictError(
+                    f"Policy version conflict: expected {current_version}, found {policy.version}"
+                )
+            from_status = cast(PolicyStatus, policy.status)
+            target_status = patch.status or from_status
+            if target_status not in _VALID_TRANSITIONS[from_status]:
+                raise PolicyTransitionError(
+                    f"Illegal policy transition {from_status} -> {target_status}"
+                )
+            if from_status == "active" and patch.body is not None:
+                raise PolicyTransitionError("Active policy body cannot be edited in place")
+
+            old_version = policy.version
+            policy.version += 1
+            if patch.body is not None:
+                policy.body = {**policy.body, **patch.body}
+            policy.status = target_status
+            if target_status != from_status:
+                action = "rollback" if target_status == "rolled_back" else "promote"
+                session.add(
+                    PolicyPromotion(
+                        id=new_prefixed_uuid7("prom"),
+                        policy_id=policy.id,
+                        from_version=old_version,
+                        to_version=policy.version,
+                        action=action,
+                        reason=patch.reason or f"{from_status} -> {target_status}",
+                        actor=actor,
+                    )
+                )
+            session.flush()
+            return StoredPolicyUpdate(
+                policy_id=policy.id,
+                new_version=policy.version,
+                status=target_status,
+            )
+
+    def promote_memory(
+        self,
+        *,
+        tenant_uuid: str,
+        memory_id: str,
+        evaluation_run_id: str,
+    ) -> StoredMemoryPromotion:
+        scope = self._visible_memory_scope(tenant_uuid, memory_id)
+        sessions = self._system_sessions if scope == "global" else self._tenant_sessions
+        with sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            record = session.scalar(
+                select(MemoryRecord).where(MemoryRecord.id == memory_id).with_for_update()
+            )
+            if record is None:
+                raise MemoryNotFoundError("Memory record does not exist for requesting tenant")
+            if record.status == "promoted" and record.promoted_at is not None:
+                return StoredMemoryPromotion(
+                    memory_id=record.id,
+                    promoted_at=record.promoted_at,
+                )
+            if record.status != "candidate":
+                raise MemoryPromotionConflictError(
+                    f"Memory status {record.status!r} cannot be promoted"
+                )
+
+            promoted_at = datetime.now(UTC)
+            if record.scope == "global":
+                record.content = anonymize_global_content(record.content)
+                record.provenance = anonymized_global_provenance(evaluation_run_id)
+                record.tenant_id = None
+                record.destination = "policy_store"
+            else:
+                record.provenance = {
+                    **record.provenance,
+                    "promotion": {"evaluation_run_id": evaluation_run_id},
+                }
+                record.destination = (
+                    "ads_memory_namespace" if record.scope == "project" else "policy_store"
+                )
+            record.status = "promoted"
+            record.promoted_at = promoted_at
+            session.flush()
+            return StoredMemoryPromotion(
+                memory_id=record.id,
+                promoted_at=promoted_at,
+            )
+
+    def _visible_policy_scope(self, tenant_uuid: str, policy_id: str) -> str:
+        with self._tenant_sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            scope = session.scalar(select(Policy.scope).where(Policy.id == policy_id))
+        if scope is None:
+            raise PolicyNotFoundError("Policy does not exist for requesting tenant")
+        return scope
+
+    def _visible_memory_scope(self, tenant_uuid: str, memory_id: str) -> str:
+        with self._tenant_sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            scope = session.scalar(
+                select(MemoryRecord.scope).where(MemoryRecord.id == memory_id)
+            )
+        if scope is None:
+            raise MemoryNotFoundError("Memory record does not exist for requesting tenant")
+        return scope
+
+    @staticmethod
+    def _set_tenant(session: Session, tenant_uuid: str) -> None:
+        session.execute(_SET_TENANT, {"tenant_id": tenant_uuid})
