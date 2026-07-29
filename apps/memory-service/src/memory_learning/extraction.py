@@ -84,6 +84,12 @@ class MemoryLearningKernel:
 
 
 def _scope_for(summary: RunLearningSummary) -> MemoryScope:
+    if any(
+        action.failure_class == "safety_violation"
+        for action in summary.recovery_actions
+    ):
+        return "safety_pattern"
+    # Global scope is deliberately reserved for KNOW-15's anonymized promotion path.
     if summary.verdict in {"completed_verified", "rescued"}:
         return "project"
     return "failure"

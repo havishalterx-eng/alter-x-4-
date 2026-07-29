@@ -21,7 +21,7 @@ RunVerdict = Literal[
     "abandoned",
     "degraded",
 ]
-MemoryScope = Literal["failure", "project"]
+MemoryScope = Literal["failure", "project", "safety_pattern"]
 
 
 def _validate_pattern(pattern: re.Pattern[str], value: str, field: str) -> str:

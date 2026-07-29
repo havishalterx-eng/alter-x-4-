@@ -48,13 +48,13 @@ class SeededRunClient:
                         "attempt": 3,
                         "input_ref": "research",
                         "output_ref": None,
-                        "error_code": "TOOL_PERMISSION_DENIED",
+                        "error_code": "SAFETY_VIOLATION",
                     }
                 ],
                 "recovery_actions": [
                     {
                         "node_execution_id": "node_seeded",
-                        "failure_class": "tool_permission_denial",
+                        "failure_class": "safety_violation",
                         "strategy": "ask_user",
                         "outcome": "escalated",
                     }
@@ -63,7 +63,7 @@ class SeededRunClient:
         )
 
 
-def test_real_candidate_write_is_durable_and_idempotent() -> None:
+def test_real_safety_candidate_write_is_durable_and_idempotent() -> None:
     with PostgresContainer(image="postgres:16-alpine", dbname="policy_db") as postgres:
         url = postgres.get_connection_url()
         cfg = AlembicConfig(str(SERVICE_ROOT / "alembic.ini"))
@@ -95,7 +95,7 @@ def test_real_candidate_write_is_durable_and_idempotent() -> None:
         assert second.memory_id == first.memory_id
         assert json.loads(first.candidate_json)["failed_nodes"][0] == {
             "attempt": 3,
-            "error_code": "TOOL_PERMISSION_DENIED",
+            "error_code": "SAFETY_VIOLATION",
             "node_execution_id": "node_seeded",
             "node_key": "publish",
             "node_type": "ToolCall",
@@ -109,9 +109,13 @@ def test_real_candidate_write_is_durable_and_idempotent() -> None:
                 )
             ).mappings().one()
         assert row["tenant_id"] == TENANT
-        assert row["scope"] == "failure"
+        assert row["scope"] == "safety_pattern"
         assert row["content"]["final_verdict"] == "failed"
         assert row["content"]["recovery_count"] == 2
+        assert (
+            row["content"]["recovery_actions"][0]["failure_class"]
+            == "safety_violation"
+        )
         assert row["content"]["recovery_actions"][0]["strategy"] == "ask_user"
         assert row["status"] == "candidate"
         assert row["destination"] is None

@@ -38,6 +38,8 @@ def summary(
     verdict: str = "failed",
     workspace_id: str = WORKSPACE_ID,
     tenant_id: str = TENANT_ID,
+    failure_class: str | None = "tool_permission_denial",
+    failed_node_status: str = "failed",
 ) -> RunLearningSummary:
     return RunLearningSummary.model_validate(
         {
@@ -47,7 +49,7 @@ def summary(
             "verdict": verdict,
             "gates_passed": 2,
             "gates_failed": 1,
-            "recovery_count": 2,
+            "recovery_count": 2 if failure_class is not None else 0,
             "nodes": [
                 {
                     "node_execution_id": "node_a",
@@ -63,21 +65,25 @@ def summary(
                     "node_execution_id": "node_b",
                     "node_key": "publish",
                     "node_type": "ToolCall",
-                    "status": "failed",
+                    "status": failed_node_status,
                     "attempt": 3,
                     "input_ref": "research",
                     "output_ref": None,
                     "error_code": "TOOL_PERMISSION_DENIED",
                 },
             ],
-            "recovery_actions": [
-                {
-                    "node_execution_id": "node_b",
-                    "failure_class": "tool_permission_denial",
-                    "strategy": "ask_user",
-                    "outcome": "escalated",
-                }
-            ],
+            "recovery_actions": (
+                [
+                    {
+                        "node_execution_id": "node_b",
+                        "failure_class": failure_class,
+                        "strategy": "ask_user",
+                        "outcome": "escalated",
+                    }
+                ]
+                if failure_class is not None
+                else []
+            ),
         }
     )
 
@@ -162,15 +168,50 @@ def test_extracts_real_failure_data_and_writes_candidate() -> None:
 
 
 @pytest.mark.parametrize("verdict", ["completed_verified", "rescued"])
-def test_successful_outcomes_use_project_scope(verdict: str) -> None:
+def test_successful_outcomes_without_safety_signal_use_project_scope(
+    verdict: str,
+) -> None:
     repository = FakeRepository()
     asyncio.run(
         MemoryLearningKernel(
-            FakeOrchestrationClient(summary(verdict=verdict)), repository
+            FakeOrchestrationClient(summary(verdict=verdict, failure_class=None)),
+            repository,
         ).propose_writeback(request(), "Bearer token")
     )
     assert repository.call is not None
     assert repository.call["scope"] == "project"
+
+
+def test_safety_violation_takes_precedence_over_rescued_verdict() -> None:
+    repository = FakeRepository()
+    asyncio.run(
+        MemoryLearningKernel(
+            FakeOrchestrationClient(
+                summary(verdict="rescued", failure_class="safety_violation")
+            ),
+            repository,
+        ).propose_writeback(request(), "Bearer token")
+    )
+    assert repository.call is not None
+    assert repository.call["scope"] == "safety_pattern"
+
+
+def test_blocked_node_without_safety_violation_remains_failure() -> None:
+    repository = FakeRepository()
+    asyncio.run(
+        MemoryLearningKernel(
+            FakeOrchestrationClient(
+                summary(
+                    verdict="failed",
+                    failure_class=None,
+                    failed_node_status="blocked_pending_recovery",
+                )
+            ),
+            repository,
+        ).propose_writeback(request(), "Bearer token")
+    )
+    assert repository.call is not None
+    assert repository.call["scope"] == "failure"
 
 
 def test_rejects_cross_workspace_summary_before_write() -> None:
