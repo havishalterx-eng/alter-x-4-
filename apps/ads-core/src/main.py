@@ -1,6 +1,10 @@
 from fastapi import FastAPI
 
-app = FastAPI()
+from .ingestion.router import ingestion_lifespan
+from .ingestion.router import router as ingestion_router
+
+app = FastAPI(lifespan=ingestion_lifespan)
+app.include_router(ingestion_router)
 
 
 @app.get("/health")
