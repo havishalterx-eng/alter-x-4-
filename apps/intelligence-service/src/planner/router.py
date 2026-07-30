@@ -27,7 +27,7 @@ from .models import (
 )
 
 # ---------------------------------------------------------------------------
-# Default kernel (wired with stubs; swap at integration time)
+# Default kernel
 # ---------------------------------------------------------------------------
 
 _default_kernel: PlannerKernel | None = None
@@ -38,14 +38,23 @@ async def planner_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise the default kernel on startup."""
     global _default_kernel
 
-    from ..ads_client.client import StubAdsClient
+    from ..ads_client.client import GrpcAdsClient
+    from ..config import get_settings
 
+    settings = get_settings()
+    ads_client = GrpcAdsClient(
+        settings.adsq_grpc_target,
+        timeout_seconds=settings.adsq_grpc_timeout_seconds,
+    )
     _default_kernel = PlannerKernel(
-        ads_client=StubAdsClient(),
+        ads_client=ads_client,
         llm_client=StubLlmClient(),
     )
-    yield
-    _default_kernel = None
+    try:
+        yield
+    finally:
+        await ads_client.close()
+        _default_kernel = None
 
 
 def get_kernel() -> PlannerKernel:

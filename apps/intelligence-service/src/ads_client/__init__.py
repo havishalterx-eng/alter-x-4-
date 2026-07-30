@@ -1,4 +1,4 @@
-from src.ads_client.client import AdsClient, StubAdsClient
+from src.ads_client.client import AdsClient, GrpcAdsClient, StubAdsClient
 from src.ads_client.models import (
     GetProvenanceRequest,
     GetProvenanceResponse,
@@ -11,6 +11,7 @@ from src.ads_client.models import (
 
 __all__ = [
     "AdsClient",
+    "GrpcAdsClient",
     "StubAdsClient",
     "GetProvenanceRequest",
     "GetProvenanceResponse",

@@ -4,7 +4,6 @@ import asyncio
 import os
 import socket
 import subprocess
-import sys
 import time
 from collections.abc import Generator, Sequence
 from datetime import UTC, datetime, timedelta
@@ -168,8 +167,9 @@ def drift_stack() -> Generator[dict[str, str], None, None]:
         environment["INTELLIGENCE_DB_URL_SYNC"] = intelligence_url
         process = subprocess.Popen(
             [
-                sys.executable,
-                "-m",
+                "uv",
+                "run",
+                "--frozen",
                 "uvicorn",
                 "src.main:app",
                 "--host",
