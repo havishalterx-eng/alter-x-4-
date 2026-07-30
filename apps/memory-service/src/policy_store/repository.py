@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import select, text
+from sqlalchemy import case, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.models import MemoryRecord, Policy, PolicyPromotion
@@ -155,6 +155,27 @@ class SqlAlchemyPolicyStoreRepository:
             return StoredMemoryPromotion(
                 memory_id=record.id,
                 promoted_at=promoted_at,
+            )
+
+    def get_active_policy(self, *, tenant_uuid: str, kind: str) -> Policy | None:
+        """Real read for real-time policy consumption (e.g. HEAL-6's
+        recovery-strategy-table). Prefers a more specific scope over
+        'global' when both happen to have an active row for the same
+        kind (tenant-scoped override wins), then the highest version --
+        not just "highest version wins" regardless of scope, which could
+        otherwise pick the wrong row. Only 'global' rows are seeded
+        today; the scope-preference ordering is real and correct, not
+        exercised by real tenant-scoped overrides yet (disclosed)."""
+        with self._tenant_sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            return session.scalar(
+                select(Policy)
+                .where(Policy.kind == kind, Policy.status == "active")
+                .order_by(
+                    case((Policy.scope == "global", 0), else_=1).desc(),
+                    Policy.version.desc(),
+                )
+                .limit(1)
             )
 
     def _visible_policy_scope(self, tenant_uuid: str, policy_id: str) -> str:

@@ -8,6 +8,8 @@ from pydantic import ValidationError
 from src.memory_learning.ids import raw_uuid7
 
 from .models import (
+    GetActivePolicyRequest,
+    GetActivePolicyResponse,
     PolicyPatch,
     PromoteMemoryRequest,
     PromoteMemoryResponse,
@@ -75,6 +77,27 @@ class PolicyStoreService:
             evaluation_run_id=request.evaluation_run_id,
         )
         return PromoteMemoryResponse(promoted=True, promoted_at=result.promoted_at)
+
+    async def get_active_policy(
+        self,
+        request: GetActivePolicyRequest,
+        authorization: str,
+    ) -> GetActivePolicyResponse:
+        self._validate_authorization(authorization)
+        tenant_uuid = self._raw_id(request.tenant_id, "ten")
+        policy = await asyncio.to_thread(
+            self._repository.get_active_policy,
+            tenant_uuid=tenant_uuid,
+            kind=request.kind,
+        )
+        if policy is None:
+            return GetActivePolicyResponse(found=False)
+        return GetActivePolicyResponse(
+            found=True,
+            policy_id=policy.id,
+            version=policy.version,
+            body_json=json.dumps(policy.body, sort_keys=True, separators=(",", ":")),
+        )
 
     @staticmethod
     def _raw_id(value: str, prefix: str) -> str:

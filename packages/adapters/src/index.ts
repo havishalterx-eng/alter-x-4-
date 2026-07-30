@@ -208,6 +208,16 @@ export {
   type SelectStrategyResponse,
 } from "./http/planner-client";
 export {
+  PolicyStoreClient,
+  PolicyStoreResponseValidationError,
+  createFetchPolicyStoreHttpClient,
+  type GetActivePolicyRequest,
+  type GetActivePolicyResponse,
+  type PolicyStoreClientConfig,
+  type PolicyStoreHandler,
+  type PolicyStoreHttpClient,
+} from "./http/policy-store-client";
+export {
   SsrfBlockedError,
   assertHostnameNotLiteralBlockedIp,
   assertResolvedAddressesNotBlocked,

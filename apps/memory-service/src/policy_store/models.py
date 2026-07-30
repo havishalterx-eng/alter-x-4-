@@ -58,3 +58,30 @@ class StoredPolicyUpdate(StrictModel):
 class StoredMemoryPromotion(StrictModel):
     memory_id: str
     promoted_at: datetime
+
+
+PolicyKind = Literal[
+    "routing_weights",
+    "quality_thresholds",
+    "recovery_preferences",
+    "provider_policy",
+    "model_alias_map",
+    "trigger_limits",
+]
+
+
+class GetActivePolicyRequest(StrictModel):
+    tenant_id: str
+    kind: PolicyKind
+
+
+class GetActivePolicyResponse(StrictModel):
+    """`found=False` (not a 404) is the real, expected response when no
+    policy has been promoted for this kind yet -- callers (e.g. HEAL-6's
+    recovery-strategy-table) fall back to their own deterministic default
+    in that case, so this is not an error."""
+
+    found: bool
+    policy_id: str | None = None
+    version: int | None = None
+    body_json: str | None = None

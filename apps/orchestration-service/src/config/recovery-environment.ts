@@ -7,6 +7,15 @@ export interface RecoveryEnvironment {
    * intelligence-service's local `uv run uvicorn` dev port.
    */
   readonly plannerBaseUrl: string;
+  /**
+   * Real Policy Store read target (memory-service's
+   * POST /memory/active-policy) -- closes the Self-Healing exit-check
+   * gap where promoting a new recovery_preferences policy version had no
+   * real consumer. Same "no prior convention, disclosed new env var"
+   * situation as plannerBaseUrl above; default matches memory-service's
+   * local `uv run uvicorn` dev port.
+   */
+  readonly memoryServiceBaseUrl: string;
 }
 
 export class RecoveryConfigurationError extends Error {
@@ -39,5 +48,12 @@ export function loadRecoveryEnvironment(
   } catch {
     throw new RecoveryConfigurationError("PLANNER_BASE_URL must be a valid URL");
   }
-  return { grpcBindAddress, plannerBaseUrl };
+  const memoryServiceBaseUrl =
+    environment.MEMORY_SERVICE_BASE_URL?.trim() ?? "http://localhost:8002";
+  try {
+    new URL(memoryServiceBaseUrl);
+  } catch {
+    throw new RecoveryConfigurationError("MEMORY_SERVICE_BASE_URL must be a valid URL");
+  }
+  return { grpcBindAddress, plannerBaseUrl, memoryServiceBaseUrl };
 }

@@ -5,7 +5,9 @@ import type { FailureClass } from "@alterx/contracts";
 import {
   POLICY_ID,
   POLICY_VERSION,
+  parsePolicyRules,
   selectRecoveryStrategy,
+  type ActivePolicy,
   type RecoveryStrategy,
 } from "./recovery-strategy-table";
 
@@ -82,5 +84,84 @@ describe("selectRecoveryStrategy", () => {
         );
       }
     }
+  });
+
+  describe("with a real active policy override", () => {
+    const policy: ActivePolicy = {
+      policyId: "pol_promoted",
+      policyVersion: "3",
+      rules: { timeout: "backoff" },
+    };
+
+    it("promoting a new policy version measurably changes the returned strategy", () => {
+      expect(selectRecoveryStrategy("timeout", 1).strategy).toBe("retry");
+      expect(selectRecoveryStrategy("timeout", 1, policy).strategy).toBe("backoff");
+    });
+
+    it("returns the real promoted policy's id and version, not the fallback constants", () => {
+      const decision = selectRecoveryStrategy("timeout", 1, policy);
+      expect(decision.policyId).toBe("pol_promoted");
+      expect(decision.policyVersion).toBe("3");
+    });
+
+    it("falls through to the deterministic default for a failure_class the policy has no rule for", () => {
+      const decision = selectRecoveryStrategy("rate_limit", 1, policy);
+      expect(decision.strategy).toBe("backoff");
+      expect(decision.policyId).toBe(POLICY_ID);
+      expect(decision.policyVersion).toBe(POLICY_VERSION);
+    });
+
+    it("supports a real [firstAttempt, laterAttempt] rule pair, not just a single strategy", () => {
+      const pairPolicy: ActivePolicy = {
+        policyId: "pol_pair",
+        policyVersion: "1",
+        rules: { sandbox_crash: ["ask_user", "terminate"] },
+      };
+      expect(selectRecoveryStrategy("sandbox_crash", 1, pairPolicy).strategy).toBe(
+        "ask_user",
+      );
+      expect(selectRecoveryStrategy("sandbox_crash", 5, pairPolicy).strategy).toBe(
+        "terminate",
+      );
+    });
+  });
+
+  describe("parsePolicyRules", () => {
+    it("parses the real HEAL-6 seed body verbatim", () => {
+      const rules = parsePolicyRules(
+        JSON.stringify({
+          policy_version: "heal6-deterministic-v1",
+          rules: {
+            safety_violation: "ask_user",
+            rate_limit: "backoff",
+            timeout: ["retry", "swap_agent"],
+          },
+        }),
+      );
+      expect(rules.safety_violation).toBe("ask_user");
+      expect(rules.rate_limit).toBe("backoff");
+      expect(rules.timeout).toEqual(["retry", "swap_agent"]);
+    });
+
+    it("skips one malformed rule entry without discarding the rest of the policy", () => {
+      const rules = parsePolicyRules(
+        JSON.stringify({
+          rules: {
+            timeout: "not_a_real_strategy",
+            rate_limit: "backoff",
+          },
+        }),
+      );
+      expect(rules.timeout).toBeUndefined();
+      expect(rules.rate_limit).toBe("backoff");
+    });
+
+    it("returns an empty rule set for unparseable JSON instead of throwing", () => {
+      expect(parsePolicyRules("not json")).toEqual({});
+    });
+
+    it("returns an empty rule set when the body has no 'rules' key", () => {
+      expect(parsePolicyRules(JSON.stringify({ policy_version: "x" }))).toEqual({});
+    });
   });
 });

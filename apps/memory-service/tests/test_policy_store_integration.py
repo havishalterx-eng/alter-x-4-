@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Generator
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
 from src.policy_store.models import (
+    GetActivePolicyRequest,
     PromoteMemoryRequest,
     UpdatePolicyRequest,
 )
@@ -235,6 +237,103 @@ def test_heal6_recovery_policy_seed_is_real(policy_database: dict[str, str]) -> 
     assert row["version"] == 1
     assert row["body"]["policy_version"] == "heal6-deterministic-v1"
     assert row["status"] == "active"
+
+
+def test_get_active_policy_returns_the_real_seeded_heal6_row(
+    policy_database: dict[str, str],
+    policy_service: PolicyStoreService,
+) -> None:
+    response = asyncio.run(
+        policy_service.get_active_policy(
+            GetActivePolicyRequest(tenant_id=TENANT_ID, kind="recovery_preferences"),
+            "Bearer integration-token",
+        )
+    )
+    assert response.found is True
+    assert response.policy_id == "pol_00000000-0000-7000-8000-000000000001"
+    assert response.version == 1
+    assert response.body_json is not None
+    body = json.loads(response.body_json)
+    assert body["rules"]["timeout"] == ["retry", "swap_agent"]
+    assert body["rules"]["rate_limit"] == "backoff"
+
+
+def test_get_active_policy_reports_not_found_honestly_for_an_unpromoted_kind(
+    policy_database: dict[str, str],
+    policy_service: PolicyStoreService,
+) -> None:
+    response = asyncio.run(
+        policy_service.get_active_policy(
+            GetActivePolicyRequest(tenant_id=TENANT_ID, kind="model_alias_map"),
+            "Bearer integration-token",
+        )
+    )
+    assert response.found is False
+    assert response.policy_id is None
+    assert response.body_json is None
+
+
+def test_get_active_policy_prefers_new_active_version_after_promotion(
+    policy_database: dict[str, str],
+    policy_service: PolicyStoreService,
+) -> None:
+    # A dedicated draft row -- the seed row (pol_00000000-...) starts already
+    # 'active', and this state machine's only legal transition out of
+    # 'active' is 'rolled_back' (terminal), so it can never be walked
+    # through draft->canary->active again to prove this. Real promotion
+    # of a genuinely new active version needs its own fresh policy row.
+    fresh_policy_id = "pol_018f4d6e-2b4a-7a3e-8c1a-11111111a001"
+    engine = sa.create_engine(policy_database["admin"])
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                """
+INSERT INTO policies(id,scope,scope_id,kind,version,body,status,source)
+VALUES (:id,'global',NULL,'quality_thresholds',1,'{"rules":{}}','draft','human')
+ON CONFLICT (id) DO NOTHING
+"""
+            ),
+            {"id": fresh_policy_id},
+        )
+    engine.dispose()
+
+    asyncio.run(
+        policy_service.update_policy(
+            UpdatePolicyRequest(
+                tenant_id=TENANT_ID,
+                policy_id=fresh_policy_id,
+                current_version="1",
+                patch_json='{"status":"canary","reason":"trial"}',
+            ),
+            "Bearer integration-token",
+        )
+    )
+    asyncio.run(
+        policy_service.update_policy(
+            UpdatePolicyRequest(
+                tenant_id=TENANT_ID,
+                policy_id=fresh_policy_id,
+                current_version="2",
+                patch_json=(
+                    '{"status":"active","reason":"promote",'
+                    ' "body":{"rules":{"min_confidence":0.9}}}'
+                ),
+            ),
+            "Bearer integration-token",
+        )
+    )
+
+    response = asyncio.run(
+        policy_service.get_active_policy(
+            GetActivePolicyRequest(tenant_id=TENANT_ID, kind="quality_thresholds"),
+            "Bearer integration-token",
+        )
+    )
+    assert response.found is True
+    assert response.policy_id == fresh_policy_id
+    assert response.version == 3
+    body = json.loads(response.body_json or "{}")
+    assert body["rules"]["min_confidence"] == 0.9
 
 
 def test_global_and_non_global_memory_promotion_follow_distinct_paths(

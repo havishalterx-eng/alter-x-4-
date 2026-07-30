@@ -15,7 +15,7 @@ import {
   type RecoverySelectStrategyResponse,
   type RootCauseEstimate,
 } from "@alterx/contracts";
-import type { ModelGatewayHandler } from "@alterx/adapters";
+import type { ModelGatewayHandler, PolicyStoreHandler } from "@alterx/adapters";
 
 import {
   classifyNodeFailure,
@@ -25,9 +25,17 @@ import { createRecoveryActionId } from "./recovery-action-id";
 import type { RecoveryDispatchService } from "./recovery-dispatch.service";
 import {
   POLICY_ID,
+  parsePolicyRules,
   selectRecoveryStrategy,
+  type ActivePolicy,
   type RecoveryStrategy,
 } from "./recovery-strategy-table";
+
+/** The one real (kind, scope) this table has ever consulted -- matches
+ * migration 0002's seed exactly. A tenant/workspace-scoped override for
+ * this same kind is possible per the schema, but no ticket has built one
+ * yet; `tenant_id` is passed through so a future one is already wired. */
+const RECOVERY_POLICY_KIND = "recovery_preferences";
 
 interface RecoveryTransaction {
   query<TRow extends Record<string, unknown> = Record<string, unknown>>(
@@ -112,6 +120,7 @@ export class RecoveryPolicyService {
     private readonly modelGateway: ModelGatewayHandler,
     private readonly dispatch: RecoveryDispatchService,
     mintRecoveryActionId: () => string = createRecoveryActionId,
+    private readonly policyStoreClient?: PolicyStoreHandler,
   ) {
     this.#mintRecoveryActionId = mintRecoveryActionId;
   }
@@ -209,7 +218,12 @@ export class RecoveryPolicyService {
       strategy = existing.response.strategy as RecoveryStrategy;
       policyVersion = existing.response.policy_version;
     } else {
-      const decision = selectRecoveryStrategy(failureClass, estimate.node_attempt);
+      const activePolicy = await this.#loadActivePolicyBestEffort(bareTenantId);
+      const decision = selectRecoveryStrategy(
+        failureClass,
+        estimate.node_attempt,
+        activePolicy,
+      );
       recoveryActionId = await this.#persistStrategy(bareTenantId, request, decision);
       strategy = decision.strategy;
       policyVersion = decision.policyVersion;
@@ -268,6 +282,39 @@ export class RecoveryPolicyService {
     });
     if (!recorded) throw new RecoveryActionNotFoundError(recoveryActionId);
     return { recorded: true };
+  }
+
+  /**
+   * Real Policy Store read, best-effort: memory-service being unreachable,
+   * slow, or simply having no active `recovery_preferences` policy yet
+   * must never block a recovery decision -- `selectRecoveryStrategy`
+   * already falls back to its deterministic table when `undefined` comes
+   * back, exactly as if this client didn't exist. No `policyStoreClient`
+   * configured at all (constructor default) also returns `undefined`
+   * immediately, no network call attempted.
+   */
+  async #loadActivePolicyBestEffort(tenantId: string): Promise<ActivePolicy | undefined> {
+    if (this.policyStoreClient === undefined) {
+      return undefined;
+    }
+    try {
+      const response = await this.policyStoreClient.getActivePolicy({
+        tenant_id: `ten_${tenantId}`,
+        kind: RECOVERY_POLICY_KIND,
+      });
+      if (!response.found || response.policy_id === null || response.body_json === null) {
+        return undefined;
+      }
+      return {
+        policyId: response.policy_id,
+        policyVersion: String(response.version ?? ""),
+        rules: parsePolicyRules(response.body_json),
+      };
+    } catch {
+      // Best-effort: fall back to the deterministic table, same contract
+      // as the rest of this codebase's #xBestEffort methods.
+      return undefined;
+    }
   }
 
   async #loadDecided(

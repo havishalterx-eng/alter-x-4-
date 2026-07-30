@@ -20,4 +20,21 @@ describe("Recovery Service environment", () => {
       ).toThrow("Invalid Recovery Service environment");
     },
   );
+
+  it("uses a default memoryServiceBaseUrl and accepts override", () => {
+    expect(loadRecoveryEnvironment({}).memoryServiceBaseUrl).toBe(
+      "http://localhost:8002",
+    );
+    expect(
+      loadRecoveryEnvironment({
+        MEMORY_SERVICE_BASE_URL: "http://memory-service.internal:9000",
+      }).memoryServiceBaseUrl,
+    ).toBe("http://memory-service.internal:9000");
+  });
+
+  it("rejects an invalid MEMORY_SERVICE_BASE_URL", () => {
+    expect(() =>
+      loadRecoveryEnvironment({ MEMORY_SERVICE_BASE_URL: "not a url" }),
+    ).toThrow("MEMORY_SERVICE_BASE_URL must be a valid URL");
+  });
 });

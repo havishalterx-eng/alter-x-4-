@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.config import get_settings
 
 from .models import (
+    GetActivePolicyRequest,
+    GetActivePolicyResponse,
     PromoteMemoryRequest,
     PromoteMemoryResponse,
     UpdatePolicyRequest,
@@ -91,3 +93,15 @@ async def promote_memory(
         raise HTTPException(status_code=404, detail=str(error)) from error
     except MemoryPromotionConflictError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post("/active-policy", response_model=GetActivePolicyResponse)
+async def get_active_policy(
+    request: GetActivePolicyRequest,
+    service: ServiceDep,
+    authorization: AuthorizationHeader,
+) -> GetActivePolicyResponse:
+    try:
+        return await service.get_active_policy(request, authorization)
+    except PolicyStoreValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error

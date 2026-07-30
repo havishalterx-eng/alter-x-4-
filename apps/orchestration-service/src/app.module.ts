@@ -15,6 +15,7 @@ import {
   DeployctlGrpcController,
   ModelGatewayClient,
   PlannerClient,
+  PolicyStoreClient,
   SandboxServiceClient,
   NodeexecGrpcController,
   PostgresOrchestrationStoreProvider,
@@ -557,6 +558,9 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
   const recoveryConfig = loadRecoveryEnvironment(process.env);
   const compiler = new GraphCompilerService(store);
   const planner = new PlannerClient({ baseUrl: recoveryConfig.plannerBaseUrl });
+  const policyStoreClient = new PolicyStoreClient({
+    baseUrl: recoveryConfig.memoryServiceBaseUrl,
+  });
   const runLauncherConfig = loadRunLauncherEnvironment(process.env);
   const durable = new TemporalDurableExecutionProvider({
     address: runLauncherConfig.temporalAddress,
@@ -576,7 +580,13 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
     runReader,
     durable,
   );
-  return new RecoveryPolicyService(store, modelGateway, dispatch);
+  return new RecoveryPolicyService(
+    store,
+    modelGateway,
+    dispatch,
+    undefined,
+    policyStoreClient,
+  );
 }
 
 function requireSha256Fingerprint(value: string | undefined, field: string): string {
