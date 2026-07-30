@@ -9,6 +9,7 @@ from .deletion.router import deletion_lifespan
 from .deletion.router import router as deletion_router
 from .ingestion.router import ingestion_lifespan
 from .ingestion.router import router as ingestion_router
+from .query.router import router as query_router
 
 
 @asynccontextmanager
@@ -22,6 +23,7 @@ app = FastAPI(lifespan=lifespan)
 app.add_exception_handler(DeletionHttpError, deletion_exception_handler)  # type: ignore[arg-type]
 app.include_router(ingestion_router)
 app.include_router(connectors_router)
+app.include_router(query_router)
 app.include_router(deletion_router)
 
 

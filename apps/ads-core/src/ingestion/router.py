@@ -20,6 +20,9 @@ from src.connectors.providers import (
 from src.connectors.repository import SqlAlchemyConnectorSourceRepository
 from src.connectors.router import configure_connector_service
 from src.db.ids import validate_prefixed_id
+from src.query.repository import SqlAlchemyRetrievalRepository
+from src.query.router import configure_retrieval_service
+from src.query.service import RetrievalService
 from src.storage.object_storage import (
     InMemoryObjectStorageProvider,
     ObjectNotFoundError,
@@ -112,6 +115,12 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
     )
     _default_storage = _build_object_storage(settings)
+    configure_retrieval_service(
+        RetrievalService(
+            repository=SqlAlchemyRetrievalRepository(sessions),
+            embeddings=_default_embedding_client,
+        )
+    )
     try:
         yield
     finally:
@@ -123,6 +132,7 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
             _default_embedding_client.close()
         _default_embedding_client = None
         configure_connector_service(None)
+        configure_retrieval_service(None)
         engine.dispose()
 
 

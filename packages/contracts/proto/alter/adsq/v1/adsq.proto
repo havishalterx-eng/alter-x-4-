@@ -25,6 +25,8 @@ message RetrieveRequest {
   string query = 3;
   repeated string scope_ids = 4; // Alter-prefixed UUIDv7 values
   uint32 top_k = 5;
+  string metadata_filter_json = 6; // JSON object; applied to chunk metadata
+  string requester = 7; // authenticated Engine service/actor identifier
 }
 
 message RetrieveResponse {

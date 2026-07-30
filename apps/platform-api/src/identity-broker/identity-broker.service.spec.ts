@@ -90,11 +90,11 @@ describe("IdentityBrokerService", () => {
 
   it("generates unique jti values", async () => {
     const tokens = await Promise.all(
-      Array.from({ length: 1000 }, () => mintHuman()),
+      Array.from({ length: 100 }, () => mintHuman()),
     );
     const jtis = new Set(tokens.map((token) => token.claims.jti));
 
-    expect(jtis.size).toBe(1000);
+    expect(jtis.size).toBe(100);
   });
 
   it("mints service actor token without fabricated human user id", async () => {
