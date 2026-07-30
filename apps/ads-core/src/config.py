@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     ads_uploads_s3_region: str = "ap-south-1"
     ads_uploads_presign_expiry_seconds: int = 900
     ads_connectors_secrets_region: str | None = None
+    ads_q_max_concurrency: int = Field(default=16, ge=1, le=128)
 
     model_config = SettingsConfigDict(
         env_file=".env.local",

@@ -44,12 +44,21 @@ ORDER BY hybrid_score DESC, document_id ASC, chunk_id ASC
 LIMIT :limit
 """
 )
+_VALID_SCOPES = text(
+    """SELECT id FROM scopes WHERE tenant_id = CAST(:tenant_id AS uuid)
+       AND workspace_id = CAST(:workspace_id AS uuid)
+       AND id = ANY(CAST(:scope_ids AS text[]))"""
+)
 _AUDIT = text(
     """
 INSERT INTO retrieval_audit
-  (id, tenant_id, scope_id, requester, query_hash, result_doc_ids, confidence)
+  (id, tenant_id, scope_id, requester, query_hash, scope_inputs, filters,
+   candidate_ids, result_doc_ids, confidence, ranking_summary, outcome,
+   failure_reason, completed_at)
 VALUES (:id, CAST(:tenant_id AS uuid), :scope_id, :requester, :query_hash,
-        CAST(:result_doc_ids AS jsonb), :confidence)
+        CAST(:scope_inputs AS jsonb), CAST(:filters AS jsonb),
+        CAST(:candidate_ids AS jsonb), CAST(:result_doc_ids AS jsonb), :confidence,
+        CAST(:ranking_summary AS jsonb), :outcome, :failure_reason, now())
 RETURNING created_at
 """
 )
@@ -67,18 +76,43 @@ _PROVENANCE = text(
 @dataclass(frozen=True)
 class QueryResult:
     hits: tuple[RetrievalHit, ...]
-    audited_at: datetime | None
 
 
 class SqlAlchemyRetrievalRepository:
     def __init__(self, sessions: sessionmaker[Session]) -> None:
         self._sessions = sessions
 
-    def retrieve(self, request: RetrievalRequest, embedding: tuple[float, ...]) -> QueryResult:
+    def validate_scopes(self, request: RetrievalRequest) -> None:
         validate_prefixed_id("ten", request.tenant_id)
         validate_prefixed_id("ws", request.workspace_id)
+        if not request.scope_ids:
+            raise ScopeViolationError("ADS Q requires at least one explicit scope")
         for scope_id in request.scope_ids:
             validate_prefixed_id(scope_id.split("_", 1)[0], scope_id)
+        for prefix, value in (("prj", request.project_id), ("wf", request.workflow_id)):
+            if value is not None:
+                validate_prefixed_id(prefix, value)
+                if value not in request.scope_ids:
+                    raise ScopeViolationError("Requested scope is unavailable")
+
+        tenant_uuid = request.tenant_id.removeprefix("ten_")
+        workspace_uuid = request.workspace_id.removeprefix("ws_")
+        with self._sessions.begin() as session:
+            session.execute(_SET_TENANT, {"tenant_id": tenant_uuid})
+            visible = set(
+                session.scalars(
+                    _VALID_SCOPES,
+                    {
+                        "tenant_id": tenant_uuid,
+                        "workspace_id": workspace_uuid,
+                        "scope_ids": list(request.scope_ids),
+                    },
+                )
+            )
+        if visible != set(request.scope_ids):
+            raise ScopeViolationError("Requested scope is unavailable")
+
+    def retrieve(self, request: RetrievalRequest, embedding: tuple[float, ...]) -> QueryResult:
         if len(embedding) != 1024:
             raise ValueError("ADS Q requires a 1024-dimension query embedding")
 
@@ -99,30 +133,52 @@ class SqlAlchemyRetrievalRepository:
                 },
             ).mappings()
             hits = tuple(self._hit(row) for row in rows)
-            audit_scope = (
-                request.scope_ids[0]
-                if request.scope_ids
-                else session.scalar(
-                    _AUDIT_SCOPE, {"tenant_id": tenant_uuid, "workspace_id": workspace_uuid}
-                )
+            return QueryResult(hits=hits)
+
+    def audit(
+        self,
+        request: RetrievalRequest,
+        *,
+        candidates: tuple[RetrievalHit, ...] = (),
+        results: tuple[RetrievalHit, ...] = (),
+        outcome: str,
+        failure_reason: str | None = None,
+    ) -> datetime | None:
+        validate_prefixed_id("ten", request.tenant_id)
+        tenant_uuid = request.tenant_id.removeprefix("ten_")
+        workspace_uuid = request.workspace_id.removeprefix("ws_")
+        with self._sessions.begin() as session:
+            session.execute(_SET_TENANT, {"tenant_id": tenant_uuid})
+            scope_id = session.scalar(
+                _AUDIT_SCOPE, {"tenant_id": tenant_uuid, "workspace_id": workspace_uuid}
             )
-            if audit_scope is None:
-                return QueryResult(hits=hits, audited_at=None)
-            audited_at = session.scalar(
-                _AUDIT,
-                {
-                    "id": new_prefixed_id("rta"),
-                    "tenant_id": tenant_uuid,
-                    "scope_id": audit_scope,
-                    "requester": request.requester,
-                    "query_hash": hashlib.sha256(request.query.encode("utf-8")).hexdigest(),
-                    "result_doc_ids": json.dumps(
-                        {"document_ids": [hit.document_id for hit in hits]}
-                    ),
-                    "confidence": max((hit.confidence for hit in hits), default=0.0),
-                },
+            return cast(
+                datetime | None,
+                session.scalar(
+                    _AUDIT,
+                    {
+                        "id": new_prefixed_id("rta"),
+                        "tenant_id": tenant_uuid,
+                        "scope_id": scope_id,
+                        "requester": request.requester,
+                        "query_hash": hashlib.sha256(
+                            request.query.strip().lower().encode("utf-8")
+                        ).hexdigest(),
+                        "scope_inputs": json.dumps(_scope_inputs(request)),
+                        "filters": json.dumps(request.metadata_filter, separators=(",", ":")),
+                        "candidate_ids": json.dumps(
+                            {"chunk_ids": [hit.chunk_id for hit in candidates]}
+                        ),
+                        "result_doc_ids": json.dumps(
+                            {"document_ids": [hit.document_id for hit in results]}
+                        ),
+                        "confidence": max((hit.confidence for hit in results), default=0.0),
+                        "ranking_summary": json.dumps(_ranking_summary(results)),
+                        "outcome": outcome,
+                        "failure_reason": failure_reason,
+                    },
+                ),
             )
-            return QueryResult(hits=hits, audited_at=cast(datetime, audited_at))
 
     def provenance(self, *, tenant_id: str, document_id: str) -> dict[str, object] | None:
         validate_prefixed_id("ten", tenant_id)
@@ -177,3 +233,20 @@ def _vector_literal(values: tuple[float, ...]) -> str:
 
 def _timestamp(value: object) -> str | None:
     return value.isoformat() if isinstance(value, datetime) else None
+
+
+class ScopeViolationError(ValueError):
+    """The caller requested a scope not visible inside its trusted workspace."""
+
+
+def _scope_inputs(request: RetrievalRequest) -> dict[str, object]:
+    return {
+        "workspace_id": request.workspace_id,
+        "scope_ids": request.scope_ids,
+        "project_id": request.project_id,
+        "workflow_id": request.workflow_id,
+    }
+
+
+def _ranking_summary(results: tuple[RetrievalHit, ...]) -> dict[str, object]:
+    return {"result_count": len(results), "scores": [hit.score for hit in results]}

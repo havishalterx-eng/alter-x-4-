@@ -49,7 +49,10 @@ class TestMigrationFileStructure:
 
     def test_single_migration_in_versions(self) -> None:
         py_files = sorted(f.name for f in VERSIONS_DIR.glob("*.py") if f.name != "__init__.py")
-        assert py_files == ["0001_create_ads_core_tables.py"]
+        assert py_files == [
+            "0001_create_ads_core_tables.py",
+            "0002_retrieval_safety_audit.py",
+        ]
 
     def test_all_tables_defined(self) -> None:
         sql = MIGRATION_FILE.read_text()

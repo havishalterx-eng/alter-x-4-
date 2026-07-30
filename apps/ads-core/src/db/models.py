@@ -160,6 +160,13 @@ class MemoryNamespace(Base):
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     statement: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[float | None] = mapped_column(Numeric)
+    scope_inputs: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    filters: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    candidate_ids: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    ranking_summary: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    outcome: Mapped[str] = mapped_column(Text, nullable=False)
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     provenance: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     status: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
@@ -194,7 +201,7 @@ class RetrievalAudit(Base):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     tenant_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    scope_id: Mapped[str] = mapped_column(Text, nullable=False)
+    scope_id: Mapped[str | None] = mapped_column(Text)
     requester: Mapped[str] = mapped_column(Text, nullable=False)
     query_hash: Mapped[str | None] = mapped_column(Text)
     result_doc_ids: Mapped[dict[str, object] | None] = mapped_column(JSONB)

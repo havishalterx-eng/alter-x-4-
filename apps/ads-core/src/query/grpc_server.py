@@ -25,6 +25,7 @@ def serve() -> None:
             sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
         ),
         embeddings=embeddings,
+        max_concurrency=settings.ads_q_max_concurrency,
     )
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=16))
     adsq_pb2_grpc.add_AdsqServiceServicer_to_server(  # type: ignore[no-untyped-call]

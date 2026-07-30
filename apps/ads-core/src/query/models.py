@@ -16,6 +16,8 @@ class RetrievalRequest(_QueryModel):
     query: str = Field(min_length=1, max_length=8_000)
     top_k: int = Field(default=10, ge=1, le=50)
     scope_ids: tuple[str, ...] = ()
+    project_id: str | None = None
+    workflow_id: str | None = None
     metadata_filter: dict[str, object] = Field(default_factory=dict)
 
 

@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
 from .models import RetrievalRequest, RetrievalResponse
-from .service import RetrievalService
+from .repository import ScopeViolationError
+from .service import RetrievalBackpressureError, RetrievalService
 
 router = APIRouter(prefix="/ads", tags=["ads-query"])
 
@@ -47,6 +48,13 @@ async def query_ads(
         )
     try:
         return await run_in_threadpool(service.retrieve, body)
+    except ScopeViolationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Requested scope is unavailable",
+        ) from exc
+    except RetrievalBackpressureError as exc:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)

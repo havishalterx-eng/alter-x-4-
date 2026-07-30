@@ -119,6 +119,7 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
         RetrievalService(
             repository=SqlAlchemyRetrievalRepository(sessions),
             embeddings=_default_embedding_client,
+            max_concurrency=settings.ads_q_max_concurrency,
         )
     )
     try:

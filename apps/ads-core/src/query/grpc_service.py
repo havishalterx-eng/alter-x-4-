@@ -8,7 +8,8 @@ import grpc
 from alter.adsq.v1 import adsq_pb2
 
 from .models import RetrievalRequest
-from .service import RetrievalService
+from .repository import ScopeViolationError
+from .service import RetrievalBackpressureError, RetrievalService
 
 
 class AdsqGrpcService:
@@ -35,6 +36,12 @@ class AdsqGrpcService:
                     metadata_filter=metadata_filter,
                 )
             )
+        except ScopeViolationError as exc:
+            context.abort(grpc.StatusCode.PERMISSION_DENIED, "Requested scope is unavailable")
+            raise AssertionError("context.abort must raise") from exc
+        except RetrievalBackpressureError as exc:
+            context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, str(exc))
+            raise AssertionError("context.abort must raise") from exc
         except ValueError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
             raise AssertionError("context.abort must raise")

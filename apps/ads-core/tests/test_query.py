@@ -14,8 +14,8 @@ from alembic import command
 from src.db.ids import new_prefixed_id
 from src.ingestion.embedding_client import EmbeddingDimensions, EmbeddingResult
 from src.query.models import RetrievalRequest
-from src.query.repository import SqlAlchemyRetrievalRepository
-from src.query.service import RetrievalService
+from src.query.repository import ScopeViolationError, SqlAlchemyRetrievalRepository
+from src.query.service import RetrievalBackpressureError, RetrievalService
 
 SERVICE_ROOT = Path(__file__).parent.parent
 PGVECTOR_IMAGE = "pgvector/pgvector:pg16"
@@ -61,6 +61,7 @@ def retrieval_service() -> Generator[tuple[RetrievalService, sa.Engine], None, N
         service = RetrievalService(
             repository=SqlAlchemyRetrievalRepository(sessionmaker(bind=runtime, class_=Session)),
             embeddings=FakeEmbeddings(),
+            max_concurrency=1,
         )
         yield service, admin
         runtime.dispose()
@@ -160,15 +161,62 @@ def test_hybrid_query_filters_metadata_scopes_and_audits(
     assert source_provenance["id"] == response.hits[0].source_id
     assert adsq_provenance["ranking_version"] == "know9-v1"
     assert response.audited_at is not None
-    hidden = service.retrieve(
-        RetrievalRequest(
-            tenant_id=tenant,
-            workspace_id=other_workspace,
-            requester="svc_engine",
-            query="refund",
-            metadata_filter={"department": "support"},
+    with admin.connect() as connection:
+        audit = connection.execute(
+            sa.text(
+                "SELECT scope_inputs, filters, candidate_ids, result_doc_ids, "
+                "ranking_summary, outcome FROM retrieval_audit"
+            )
+        ).mappings().one()
+    assert audit["scope_inputs"]["scope_ids"] == [scope]
+    assert audit["filters"] == {"department": "support"}
+    assert audit["candidate_ids"]["chunk_ids"] == [response.hits[0].chunk_id]
+    assert audit["result_doc_ids"]["document_ids"] == [document]
+    assert audit["ranking_summary"]["result_count"] == 1
+    assert audit["outcome"] == "succeeded"
+    with pytest.raises(ScopeViolationError):
+        service.retrieve(
+            RetrievalRequest(
+                tenant_id=tenant,
+                workspace_id=other_workspace,
+                requester="svc_engine",
+                query="refund",
+                scope_ids=(scope,),
+            )
         )
-    )
-    assert hidden.hits == ()
     with admin.connect() as connection:
         assert connection.scalar(sa.text("SELECT count(*) FROM retrieval_audit")) == 2
+        assert (
+            connection.scalar(
+                sa.text("SELECT outcome FROM retrieval_audit ORDER BY created_at DESC LIMIT 1")
+            )
+            == "rejected"
+        )
+
+
+def test_retrieval_backpressure_is_audited(
+    retrieval_service: tuple[RetrievalService, sa.Engine],
+) -> None:
+    service, admin = retrieval_service
+    tenant, workspace, scope, _, _ = _seed(admin)
+    service._slots.acquire()  # Exercise a full gate without timing-sensitive worker threads.
+    try:
+        with pytest.raises(RetrievalBackpressureError):
+            service.retrieve(
+                RetrievalRequest(
+                    tenant_id=tenant,
+                    workspace_id=workspace,
+                    requester="svc_engine",
+                    query="refund",
+                    scope_ids=(scope,),
+                )
+            )
+    finally:
+        service._slots.release()
+    with admin.connect() as connection:
+        assert (
+            connection.scalar(
+                sa.text("SELECT outcome FROM retrieval_audit ORDER BY created_at DESC LIMIT 1")
+            )
+            == "backpressured"
+        )
