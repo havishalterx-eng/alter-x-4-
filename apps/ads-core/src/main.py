@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from .connectors.router import router as connectors_router
 from .deletion.errors import DeletionHttpError, deletion_exception_handler
 from .deletion.router import deletion_lifespan
 from .deletion.router import router as deletion_router
@@ -20,6 +21,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(lifespan=lifespan)
 app.add_exception_handler(DeletionHttpError, deletion_exception_handler)  # type: ignore[arg-type]
 app.include_router(ingestion_router)
+app.include_router(connectors_router)
 app.include_router(deletion_router)
 
 

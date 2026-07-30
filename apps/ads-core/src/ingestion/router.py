@@ -11,6 +11,14 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from src.config import Settings, get_settings
+from src.connectors.dispatcher import ConnectorSyncService
+from src.connectors.providers import (
+    AwsSecretsManagerCredentialResolver,
+    FirstPartyConnectorClient,
+    UrlLibHttpClient,
+)
+from src.connectors.repository import SqlAlchemyConnectorSourceRepository
+from src.connectors.router import configure_connector_service
 from src.db.ids import validate_prefixed_id
 from src.storage.object_storage import (
     InMemoryObjectStorageProvider,
@@ -91,6 +99,18 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
         chunk_splitter=ParagraphAwareChunkSplitter(),
         embedding_client=_default_embedding_client,
     )
+    configure_connector_service(
+        ConnectorSyncService(
+            pipeline=_default_pipeline,
+            sources=SqlAlchemyConnectorSourceRepository(sessions),
+            providers=FirstPartyConnectorClient(
+                credentials=AwsSecretsManagerCredentialResolver(
+                    region_name=settings.ads_connectors_secrets_region
+                ),
+                http=UrlLibHttpClient(),
+            ),
+        )
+    )
     _default_storage = _build_object_storage(settings)
     try:
         yield
@@ -101,7 +121,8 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
         _default_repository = None
         if _default_embedding_client is not None:
             _default_embedding_client.close()
-            _default_embedding_client = None
+        _default_embedding_client = None
+        configure_connector_service(None)
         engine.dispose()
 
 
