@@ -25,10 +25,14 @@ class RetrievalHit(_QueryModel):
     source_id: str
     scope_id: str
     context: str
+    reconstructed_context: str
     score: float
     confidence: float
     provenance: dict[str, object]
     metadata: dict[str, object]
+    freshness_at: datetime | None
+    semantic_score: float
+    keyword_score: float
 
 
 class RetrievalResponse(_QueryModel):

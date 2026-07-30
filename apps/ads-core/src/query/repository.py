@@ -17,9 +17,10 @@ _SET_TENANT = text("SELECT set_config('app.current_tenant_id', :tenant_id, true)
 _QUERY = text(
     """
 WITH candidates AS (
-  SELECT c.id AS chunk_id, c.document_id, d.source_id, c.scope_id,
+  SELECT c.id AS chunk_id, c.document_id, c.document_version, d.source_id, c.scope_id,
          c.text_content, COALESCE(c.metadata, '{}'::jsonb) AS metadata,
-         dv.provenance,
+         dv.provenance, dv.freshness_at, d.title, d.kind AS document_kind,
+         s.id AS source_scope_id, src.kind AS source_kind, src.provider AS source_provider,
          1 - (c.embedding <=> CAST(:embedding AS vector)) AS semantic_score,
          ts_rank_cd(c.text_search, websearch_to_tsquery('english', :query)) AS keyword_score
   FROM chunks c
@@ -27,6 +28,7 @@ WITH candidates AS (
   JOIN document_versions dv ON dv.document_id = c.document_id
        AND dv.version = c.document_version
   JOIN scopes s ON s.id = c.scope_id AND s.tenant_id = c.tenant_id
+  JOIN sources src ON src.id = d.source_id AND src.tenant_id = d.tenant_id
   WHERE c.tenant_id = CAST(:tenant_id AS uuid)
     AND s.workspace_id = CAST(:workspace_id AS uuid)
     AND d.status = 'active'
@@ -143,12 +145,35 @@ class SqlAlchemyRetrievalRepository:
             source_id=str(mapped["source_id"]),
             scope_id=str(mapped["scope_id"]),
             context=str(mapped["text_content"]),
+            reconstructed_context=str(mapped["text_content"]),
             score=score,
             confidence=max(0.0, min(1.0, score)),
-            provenance=dict(cast(dict[str, object], mapped["provenance"])),
+            provenance={
+                "ingestion": dict(cast(dict[str, object], mapped["provenance"])),
+                "document": {
+                    "id": str(mapped["document_id"]),
+                    "kind": str(mapped["document_kind"]),
+                    "title": mapped["title"],
+                    "version": int(cast(int, mapped["document_version"])),
+                    "freshness_at": _timestamp(mapped["freshness_at"]),
+                },
+                "source": {
+                    "id": str(mapped["source_id"]),
+                    "kind": str(mapped["source_kind"]),
+                    "provider": mapped["source_provider"],
+                    "scope_id": str(mapped["source_scope_id"]),
+                },
+            },
             metadata=dict(cast(dict[str, object], mapped["metadata"])),
+            freshness_at=cast(datetime | None, mapped["freshness_at"]),
+            semantic_score=float(cast(float, mapped["semantic_score"])),
+            keyword_score=float(cast(float, mapped["keyword_score"])),
         )
 
 
 def _vector_literal(values: tuple[float, ...]) -> str:
     return "[" + ",".join(str(value) for value in values) + "]"
+
+
+def _timestamp(value: object) -> str | None:
+    return value.isoformat() if isinstance(value, datetime) else None

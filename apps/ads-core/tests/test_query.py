@@ -148,7 +148,17 @@ def test_hybrid_query_filters_metadata_scopes_and_audits(
         )
     )
     assert [hit.document_id for hit in response.hits] == [document]
-    assert response.hits[0].provenance == {"origin": "test"}
+    provenance = response.hits[0].provenance
+    assert provenance["ingestion"] == {"origin": "test"}
+    document_provenance = provenance["document"]
+    source_provenance = provenance["source"]
+    adsq_provenance = provenance["adsq"]
+    assert isinstance(document_provenance, dict)
+    assert isinstance(source_provenance, dict)
+    assert isinstance(adsq_provenance, dict)
+    assert document_provenance["id"] == document
+    assert source_provenance["id"] == response.hits[0].source_id
+    assert adsq_provenance["ranking_version"] == "know9-v1"
     assert response.audited_at is not None
     hidden = service.retrieve(
         RetrievalRequest(
