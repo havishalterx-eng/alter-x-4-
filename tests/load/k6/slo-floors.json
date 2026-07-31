@@ -1,0 +1,15 @@
+{
+  "api_read_control": {
+    "p95_ms": 300,
+    "p99_ms": 1000,
+    "availability": 0.999
+  },
+  "run_start": {
+    "p95_ms": 2000
+  },
+  "event_ingestion": {
+    "sustained_events_per_second": 100,
+    "burst_events_per_second": 500,
+    "burst_duration": "5m"
+  }
+}
