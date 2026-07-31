@@ -8,6 +8,8 @@ import {
 } from "@nestjs/microservices";
 
 import type {
+  RunsGetNodeExecutionRecoveryInfoRequest,
+  RunsGetNodeExecutionRecoveryInfoResponse,
   RunsGetRunWorkspaceRequest,
   RunsGetRunWorkspaceResponse,
 } from "@alterx/contracts";
@@ -18,6 +20,9 @@ export interface RunsHandler {
   getRunWorkspace(
     request: RunsGetRunWorkspaceRequest,
   ): Promise<RunsGetRunWorkspaceResponse>;
+  getNodeExecutionRecoveryInfo(
+    request: RunsGetNodeExecutionRecoveryInfoRequest,
+  ): Promise<RunsGetNodeExecutionRecoveryInfoResponse>;
 }
 
 export interface RunsGrpcTransportConfig {
@@ -35,6 +40,17 @@ export class RunsGrpcController {
   ): Promise<RunsGetRunWorkspaceResponse> {
     try {
       return await this.handler.getRunWorkspace(request);
+    } catch (error: unknown) {
+      throw mapRunsError(error);
+    }
+  }
+
+  @GrpcMethod("RunLookupService", "GetNodeExecutionRecoveryInfo")
+  async getNodeExecutionRecoveryInfo(
+    request: RunsGetNodeExecutionRecoveryInfoRequest,
+  ): Promise<RunsGetNodeExecutionRecoveryInfoResponse> {
+    try {
+      return await this.handler.getNodeExecutionRecoveryInfo(request);
     } catch (error: unknown) {
       throw mapRunsError(error);
     }
@@ -64,7 +80,7 @@ function mapRunsError(error: unknown): RpcException {
       message: error.message,
     });
   }
-  if (isNamedError(error, "RunNotFoundError")) {
+  if (isNamedError(error, "RunNotFoundError") || isNamedError(error, "NodeExecutionNotFoundError")) {
     return new RpcException({
       code: status.NOT_FOUND,
       message: error.message,

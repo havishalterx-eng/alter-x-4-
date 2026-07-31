@@ -2,6 +2,8 @@ import { credentials, loadPackageDefinition, type Client } from "@grpc/grpc-js";
 import { loadSync } from "@grpc/proto-loader";
 
 import type {
+  RunsGetNodeExecutionRecoveryInfoRequest,
+  RunsGetNodeExecutionRecoveryInfoResponse,
   RunsGetRunWorkspaceRequest,
   RunsGetRunWorkspaceResponse,
 } from "@alterx/contracts";
@@ -16,6 +18,9 @@ export interface RunsHandlerClient {
   getRunWorkspace(
     request: RunsGetRunWorkspaceRequest,
   ): Promise<RunsGetRunWorkspaceResponse>;
+  getNodeExecutionRecoveryInfo(
+    request: RunsGetNodeExecutionRecoveryInfoRequest,
+  ): Promise<RunsGetNodeExecutionRecoveryInfoResponse>;
 }
 
 interface RunsGrpcClient extends Client {
@@ -23,6 +28,14 @@ interface RunsGrpcClient extends Client {
     request: RunsGetRunWorkspaceRequest,
     options: { readonly deadline: Date },
     callback: (error: Error | null, response?: RunsGetRunWorkspaceResponse) => void,
+  ): void;
+  getNodeExecutionRecoveryInfo(
+    request: RunsGetNodeExecutionRecoveryInfoRequest,
+    options: { readonly deadline: Date },
+    callback: (
+      error: Error | null,
+      response?: RunsGetNodeExecutionRecoveryInfoResponse,
+    ) => void,
   ): void;
 }
 
@@ -69,6 +82,25 @@ export class RunsClient implements RunsHandlerClient {
     return new Promise<RunsGetRunWorkspaceResponse>((resolve, reject) => {
       const deadline = new Date(Date.now() + this.#timeoutMs);
       this.#client.getRunWorkspace(request, { deadline }, (error, response) => {
+        if (error !== null) {
+          reject(error);
+          return;
+        }
+        if (response === undefined) {
+          reject(new Error("Run Lookup Service returned an empty response"));
+          return;
+        }
+        resolve(response);
+      });
+    });
+  }
+
+  async getNodeExecutionRecoveryInfo(
+    request: RunsGetNodeExecutionRecoveryInfoRequest,
+  ): Promise<RunsGetNodeExecutionRecoveryInfoResponse> {
+    return new Promise<RunsGetNodeExecutionRecoveryInfoResponse>((resolve, reject) => {
+      const deadline = new Date(Date.now() + this.#timeoutMs);
+      this.#client.getNodeExecutionRecoveryInfo(request, { deadline }, (error, response) => {
         if (error !== null) {
           reject(error);
           return;

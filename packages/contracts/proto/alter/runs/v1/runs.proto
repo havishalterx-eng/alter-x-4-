@@ -8,6 +8,11 @@ package alter.runs.v1;
 // service per database, no cross-database joins).
 service RunLookupService {
   rpc GetRunWorkspace(GetRunWorkspaceRequest) returns (GetRunWorkspaceResponse);
+  // OUT-5: lets Cost Ledger derive real is_retry/is_recovery at ingest
+  // time instead of always writing false -- without joining across
+  // orchestration_db's boundary (doc 04 SS1).
+  rpc GetNodeExecutionRecoveryInfo(GetNodeExecutionRecoveryInfoRequest)
+      returns (GetNodeExecutionRecoveryInfoResponse);
 }
 
 message GetRunWorkspaceRequest {
@@ -21,4 +26,21 @@ message GetRunWorkspaceResponse {
   reserved 100 to 199;
 
   string workspace_id = 1; // ws_ prefixed UUIDv7
+}
+
+message GetNodeExecutionRecoveryInfoRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+}
+
+message GetNodeExecutionRecoveryInfoResponse {
+  reserved 100 to 199;
+
+  // attempt > 1 on node_executions.attempt -- a real re-attempt of this node.
+  bool is_retry = 1;
+  // true iff a recovery_actions row exists for this node_execution_id.
+  bool is_recovery = 2;
 }

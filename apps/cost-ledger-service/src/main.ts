@@ -23,6 +23,7 @@ async function bootstrap(): Promise<void> {
   let store: PostgresCostStoreProvider | undefined;
 
   try {
+    secretsProvider = new AwsSecretsManagerProvider({ region: "ap-south-1" });
     if (environment.databaseAuthentication === "iam") {
       store = new PostgresCostStoreProvider({
         authentication: "iam",
@@ -34,7 +35,6 @@ async function bootstrap(): Promise<void> {
         migrationsFolder: COST_MIGRATIONS_PATH,
       });
     } else {
-      secretsProvider = new AwsSecretsManagerProvider({ region: "ap-south-1" });
       const connectionString = await resolveDatabaseConnectionString(
         secretsProvider,
         environment.databaseSecretReference,
@@ -51,9 +51,10 @@ async function bootstrap(): Promise<void> {
       address: environment.runsServiceAddress,
       protoPath: RUNS_CLIENT_PROTO_PATH,
     });
+    const pseudonymKey = await secretsProvider.getSecret(environment.pseudonymKeyReference);
 
     const app = await NestFactory.create<NestFastifyApplication>(
-      AppModule.register(store, runsClient),
+      AppModule.register(store, runsClient, environment.costMarginRate, pseudonymKey),
       new FastifyAdapter(),
     );
     await startCostGrpcTransport(app, {

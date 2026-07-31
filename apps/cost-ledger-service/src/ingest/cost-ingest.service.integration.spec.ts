@@ -31,7 +31,10 @@ interface StoredCostEvent extends Record<string, unknown> {
 }
 
 function fakeRunsClient() {
-  return { getRunWorkspace: async () => ({ workspace_id: WORKSPACE }) };
+  return {
+    getRunWorkspace: async () => ({ workspace_id: WORKSPACE }),
+    getNodeExecutionRecoveryInfo: async () => ({ is_retry: false, is_recovery: false }),
+  };
 }
 
 describe.sequential("CostIngestService against a real Postgres cost_db", () => {

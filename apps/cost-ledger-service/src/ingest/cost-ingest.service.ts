@@ -7,7 +7,7 @@ import {
   type CostIngestCostEventRequest,
   type CostIngestCostEventResponse,
 } from "@alterx/contracts";
-import type { CostHandler, RunsHandlerClient } from "@alterx/adapters";
+import type { RunsHandlerClient } from "@alterx/adapters";
 
 const KNOWN_SOURCES = new Set(["model_gateway", "sandbox", "browser"]);
 
@@ -65,7 +65,7 @@ export interface CostEventStore {
  * required fields from the event's usage_json/amount_json, and inserts an
  * idempotent cost_events row.
  */
-export class CostIngestService implements CostHandler {
+export class CostIngestService {
   constructor(
     private readonly store: CostEventStore,
     private readonly runsClient: RunsHandlerClient,
@@ -93,6 +93,15 @@ export class CostIngestService implements CostHandler {
       tenant_id: tenantId,
       run_id: runId,
     });
+    // OUT-5: real is_retry/is_recovery, derived from the node execution's
+    // real attempt counter + whether a recovery_actions row exists for it
+    // -- previously always hardcoded false (no signal existed at all).
+    const { is_retry: isRetry, is_recovery: isRecovery } =
+      await this.runsClient.getNodeExecutionRecoveryInfo({
+        tenant_id: tenantId,
+        run_id: runId,
+        node_execution_id: nodeExecutionId,
+      });
 
     await this.store.withTenant(bareTenantUuid(tenantId), async (tx) => {
       await tx.query(
@@ -102,7 +111,7 @@ export class CostIngestService implements CostHandler {
            is_retry, is_recovery, occurred_at
          )
          SELECT $1, $2, $3, 'workflow', NULL, $4, $5, $6, $7, $8, $9, $10, $11, 'USD',
-                false, false, $12
+                $13, $14, $12
          WHERE NOT EXISTS (SELECT 1 FROM cost_events WHERE id = $1)`,
         [
           bareCostEventUuid(costEventId),
@@ -117,6 +126,8 @@ export class CostIngestService implements CostHandler {
           usage.unit,
           internalCostMinor,
           occurredAt,
+          isRetry,
+          isRecovery,
         ],
       );
     });

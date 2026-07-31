@@ -19,3 +19,19 @@ export interface GetRunWorkspaceResponse {
   /** ws_ prefixed UUIDv7 */
   workspace_id: string;
 }
+
+export interface GetNodeExecutionRecoveryInfoRequest {
+  /** ten_ prefixed UUIDv7 */
+  tenant_id: string;
+  /** run_ prefixed UUIDv7 */
+  run_id: string;
+  /** node_ prefixed UUIDv7 */
+  node_execution_id: string;
+}
+
+export interface GetNodeExecutionRecoveryInfoResponse {
+  /** attempt > 1 on node_executions.attempt -- a real re-attempt of this node. */
+  is_retry: boolean;
+  /** true iff a recovery_actions row exists for this node_execution_id. */
+  is_recovery: boolean;
+}

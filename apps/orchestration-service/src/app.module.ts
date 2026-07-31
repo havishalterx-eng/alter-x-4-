@@ -356,6 +356,18 @@ import { OrchestrationDeletionService } from "./deletion/deletion.service";
           getRunWorkspace: async (request: { tenant_id: string; run_id: string }) => ({
             workspace_id: await lookup.getWorkspaceId(request.tenant_id, request.run_id),
           }),
+          getNodeExecutionRecoveryInfo: async (request: {
+            tenant_id: string;
+            run_id: string;
+            node_execution_id: string;
+          }) => {
+            const info = await lookup.getRecoveryInfo(
+              request.tenant_id,
+              request.run_id,
+              request.node_execution_id,
+            );
+            return { is_retry: info.isRetry, is_recovery: info.isRecovery };
+          },
         };
       },
     },

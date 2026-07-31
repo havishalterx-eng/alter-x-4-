@@ -69,4 +69,36 @@ describe("RunsClient", () => {
       "Run Lookup Service returned an empty response",
     );
   });
+
+  it("calls the real GetNodeExecutionRecoveryInfo RPC (OUT-5)", async () => {
+    const request = {
+      tenant_id: REQUEST.tenant_id,
+      run_id: REQUEST.run_id,
+      node_execution_id: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
+    };
+    const grpcClient = {
+      getNodeExecutionRecoveryInfo: vi.fn(
+        (
+          _request: unknown,
+          _options: unknown,
+          callback: (error: Error | null, response?: unknown) => void,
+        ) => {
+          callback(null, { is_retry: true, is_recovery: false });
+        },
+      ),
+    };
+    const client = new RunsClient(
+      { address: "localhost:1234", protoPath: "unused" },
+      grpcClient as never,
+    );
+
+    const response = await client.getNodeExecutionRecoveryInfo(request);
+
+    expect(response).toEqual({ is_retry: true, is_recovery: false });
+    expect(grpcClient.getNodeExecutionRecoveryInfo).toHaveBeenCalledWith(
+      request,
+      expect.objectContaining({ deadline: expect.any(Date) }),
+      expect.any(Function),
+    );
+  });
 });

@@ -10,21 +10,17 @@ import {
 import type {
   CostIngestCostEventRequest,
   CostIngestCostEventResponse,
+  CostQueryRollupsRequest,
+  CostQueryRollupsResponse,
 } from "@alterx/contracts";
 
 export const COST_HANDLER = Symbol("COST_HANDLER");
 
-/**
- * QueryRollups is declared in cost.proto but has no handler here -- that's
- * OUT-5's scope (Cost Ledger economics/rollups), not OUT-4's ingestion.
- * grpc-js returns UNIMPLEMENTED automatically for a proto-declared method
- * with no registered @GrpcMethod handler; same pattern as this codebase's
- * other stub-until-a-later-phase RPCs.
- */
 export interface CostHandler {
   ingestCostEvent(
     request: CostIngestCostEventRequest,
   ): Promise<CostIngestCostEventResponse>;
+  queryRollups(request: CostQueryRollupsRequest): Promise<CostQueryRollupsResponse>;
 }
 
 export interface CostGrpcTransportConfig {
@@ -42,6 +38,17 @@ export class CostGrpcController {
   ): Promise<CostIngestCostEventResponse> {
     try {
       return await this.handler.ingestCostEvent(request);
+    } catch (error: unknown) {
+      throw mapCostError(error);
+    }
+  }
+
+  @GrpcMethod("CostService", "QueryRollups")
+  async queryRollups(
+    request: CostQueryRollupsRequest,
+  ): Promise<CostQueryRollupsResponse> {
+    try {
+      return await this.handler.queryRollups(request);
     } catch (error: unknown) {
       throw mapCostError(error);
     }
@@ -68,7 +75,10 @@ export async function startCostGrpcTransport(
 }
 
 function mapCostError(error: unknown): RpcException {
-  if (isNamedError(error, "CostValidationError")) {
+  if (
+    isNamedError(error, "CostValidationError") ||
+    isNamedError(error, "RollupValidationError")
+  ) {
     return new RpcException({
       code: status.INVALID_ARGUMENT,
       message: error.message,
@@ -82,7 +92,7 @@ function mapCostError(error: unknown): RpcException {
   }
   return new RpcException({
     code: status.INTERNAL,
-    message: "Cost event ingestion could not be completed",
+    message: "Cost Ledger request could not be completed",
   });
 }
 

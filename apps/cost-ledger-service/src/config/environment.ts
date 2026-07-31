@@ -9,6 +9,16 @@ interface CostLedgerEnvironmentBase {
   // (see RunLookupService, orchestration-service). Default matches
   // orchestration-service's own RUNS_GRPC_BIND_ADDRESS default port.
   readonly runsServiceAddress: string;
+  // OUT-5: internal->billable margin. Config-driven (doc 13's "no fixed
+  // credit/margin values invented" rule), not a real negotiated business
+  // rate -- disclosed placeholder pending real pricing input, changeable
+  // without a redeploy via env/AppConfig.
+  readonly costMarginRate: number;
+  // OUT-5: secret reference (never a value) for billing_rollups.tenant_pseudonym
+  // -- same real HMAC-SHA256 scheme audit-service's deletion-orchestrator
+  // already establishes (doc 04 SS1: "pseudonymized survivors only in
+  // cost_db and audit_db").
+  readonly pseudonymKeyReference: string;
 }
 
 export interface CostLedgerIamEnvironment extends CostLedgerEnvironmentBase {
@@ -77,6 +87,20 @@ function parseGrpcAddress(value: string | undefined): string {
   return address;
 }
 
+function parseMarginRate(value: string | undefined): number {
+  if (value === undefined) {
+    return 0.3;
+  }
+  const rate = Number(value);
+  if (!Number.isFinite(rate) || rate < 0 || rate >= 1) {
+    throw new CostLedgerConfigurationError(
+      "COST_MARGIN_RATE",
+      "must be a number from 0 (inclusive) to 1 (exclusive)",
+    );
+  }
+  return rate;
+}
+
 export function loadCostLedgerEnvironment(
   environment: NodeJS.ProcessEnv,
 ): CostLedgerEnvironment {
@@ -106,6 +130,8 @@ export function loadCostLedgerEnvironment(
     httpPort: parsePort(environment.PORT),
     grpcBindAddress: parseGrpcAddress(environment.COST_GRPC_BIND_ADDRESS),
     runsServiceAddress: environment.RUNS_SERVICE_ADDRESS?.trim() ?? "localhost:50059",
+    costMarginRate: parseMarginRate(environment.COST_MARGIN_RATE),
+    pseudonymKeyReference: requireValue(environment, "COST_PSEUDONYM_KEY_REF"),
   };
 
   if (alterEnvironment === "local") {

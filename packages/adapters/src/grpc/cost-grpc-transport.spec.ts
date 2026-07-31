@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { CostIngestCostEventRequest } from "@alterx/contracts";
+import type { CostIngestCostEventRequest, CostQueryRollupsRequest } from "@alterx/contracts";
 import { CostGrpcController, type CostHandler } from "./cost-grpc-transport";
 
 const REQUEST: CostIngestCostEventRequest = {
@@ -15,6 +15,14 @@ const REQUEST: CostIngestCostEventRequest = {
   occurred_at: "2026-07-31T00:00:00.000Z",
 };
 
+const ROLLUP_REQUEST: CostQueryRollupsRequest = {
+  tenant_id: "ten_018f47a5-7b2c-7d10-8f11-123456789abc",
+  workspace_id: "ws_018f47a5-7b2c-7d10-8f11-123456789abc",
+  start_at: "2026-07-01T00:00:00.000Z",
+  end_at: "2026-07-31T00:00:00.000Z",
+  dimensions: ["mode"],
+};
+
 class NamedCostError extends Error {
   constructor(name: string) {
     super("safe ingestion error");
@@ -25,6 +33,7 @@ class NamedCostError extends Error {
 function handler(): CostHandler {
   return {
     ingestCostEvent: vi.fn(async () => ({ accepted: true })),
+    queryRollups: vi.fn(async () => ({ rollups_json: "{}" })),
   };
 }
 
@@ -61,8 +70,29 @@ describe("CostGrpcController", () => {
     await expect(controller.ingestCostEvent(REQUEST)).rejects.toMatchObject({
       error: {
         code: 13,
-        message: "Cost event ingestion could not be completed",
+        message: "Cost Ledger request could not be completed",
       },
+    });
+  });
+
+  it("delegates the real QueryRollups request/response shape (OUT-5)", async () => {
+    const costHandler = handler();
+    costHandler.queryRollups = vi.fn(async () => ({ rollups_json: '{"totals":{}}' }));
+    const controller = new CostGrpcController(costHandler);
+    await expect(controller.queryRollups(ROLLUP_REQUEST)).resolves.toEqual({
+      rollups_json: '{"totals":{}}',
+    });
+    expect(costHandler.queryRollups).toHaveBeenCalledWith(ROLLUP_REQUEST);
+  });
+
+  it("maps RollupValidationError to gRPC INVALID_ARGUMENT", async () => {
+    const failing = handler();
+    failing.queryRollups = vi.fn(async () => {
+      throw new NamedCostError("RollupValidationError");
+    });
+    const controller = new CostGrpcController(failing);
+    await expect(controller.queryRollups(ROLLUP_REQUEST)).rejects.toMatchObject({
+      error: { code: 3 },
     });
   });
 });

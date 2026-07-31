@@ -203,6 +203,8 @@ export type {
 export type {
   GetRunWorkspaceRequest as RunsGetRunWorkspaceRequest,
   GetRunWorkspaceResponse as RunsGetRunWorkspaceResponse,
+  GetNodeExecutionRecoveryInfoRequest as RunsGetNodeExecutionRecoveryInfoRequest,
+  GetNodeExecutionRecoveryInfoResponse as RunsGetNodeExecutionRecoveryInfoResponse,
 } from "./generated/alter/runs/v1/runs";
 export {
   CompiledDagSchema,

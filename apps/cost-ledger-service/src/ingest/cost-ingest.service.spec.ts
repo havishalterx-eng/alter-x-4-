@@ -46,7 +46,13 @@ function fakeStore(): { store: CostEventStore; query: ReturnType<typeof vi.fn> }
 }
 
 function fakeRunsClient() {
-  return { getRunWorkspace: vi.fn(async () => ({ workspace_id: WORKSPACE })) };
+  return {
+    getRunWorkspace: vi.fn(async () => ({ workspace_id: WORKSPACE })),
+    getNodeExecutionRecoveryInfo: vi.fn(async () => ({
+      is_retry: false,
+      is_recovery: false,
+    })),
+  };
 }
 
 describe("CostIngestService.ingestCostEvent", () => {
@@ -78,7 +84,32 @@ describe("CostIngestService.ingestCostEvent", () => {
       "tokens",
       "0", // round(0.0015 * 100) = 0.15 -> 0
       "2026-07-31T00:00:00.000Z",
+      false,
+      false,
     ]);
+  });
+
+  it("writes real is_retry/is_recovery from the Runs client, not hardcoded false", async () => {
+    const { store, query } = fakeStore();
+    const runsClient = {
+      getRunWorkspace: vi.fn(async () => ({ workspace_id: WORKSPACE })),
+      getNodeExecutionRecoveryInfo: vi.fn(async () => ({
+        is_retry: true,
+        is_recovery: true,
+      })),
+    };
+    const service = new CostIngestService(store, runsClient);
+
+    await service.ingestCostEvent(baseRequest());
+
+    expect(runsClient.getNodeExecutionRecoveryInfo).toHaveBeenCalledWith({
+      tenant_id: TENANT,
+      run_id: RUN,
+      node_execution_id: NODE,
+    });
+    const [, values] = query.mock.calls[0] as [string, unknown[]];
+    expect(values.at(-2)).toBe(true); // is_retry
+    expect(values.at(-1)).toBe(true); // is_recovery
   });
 
   it("derives sandbox usage_json into resource/quantity/unit correctly", async () => {

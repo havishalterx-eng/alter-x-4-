@@ -1,4 +1,4 @@
-import { RunIdSchema, TenantIdSchema } from "@alterx/contracts";
+import { NodeExecutionIdSchema, RunIdSchema, TenantIdSchema } from "@alterx/contracts";
 
 import {
   RunNotFoundError,
@@ -6,13 +6,26 @@ import {
   type OrchestrationTenantStore,
 } from "./run-launcher.service";
 
+export interface NodeExecutionRecoveryInfo {
+  readonly isRetry: boolean;
+  readonly isRecovery: boolean;
+}
+
+export class NodeExecutionNotFoundError extends Error {
+  constructor(nodeExecutionId: string) {
+    super(`Node execution ${nodeExecutionId} was not found`);
+    this.name = "NodeExecutionNotFoundError";
+  }
+}
+
 /**
- * Minimal, dedicated lookup for OUT-4's Cost Ledger ingestion: resolves a
- * run's workspace_id without joining across cost_db's boundary (doc 04
- * SS1). Deliberately its own query rather than reusing RunLauncherService's
- * RUN_SELECT_COLUMNS -- that select list is shared by createRun/listRuns/
- * getRun and doesn't carry workspace_id; adding it there would widen an
- * unrelated response shape for every caller.
+ * Minimal, dedicated lookup for the Cost Ledger's ingestion (OUT-4's
+ * getWorkspaceId; getRecoveryInfo added for OUT-5): resolves data it needs
+ * without joining across cost_db's boundary (doc 04 SS1). Deliberately its
+ * own queries rather than reusing RunLauncherService's RUN_SELECT_COLUMNS --
+ * that select list is shared by createRun/listRuns/getRun and doesn't carry
+ * this data; adding it there would widen an unrelated response shape for
+ * every caller.
  */
 export class RunWorkspaceLookupService {
   constructor(private readonly store: OrchestrationTenantStore) {}
@@ -30,6 +43,52 @@ export class RunWorkspaceLookupService {
       return row.workspace_id;
     });
   }
+
+  /**
+   * OUT-5: real is_retry/is_recovery signal for a cost event's node
+   * execution -- is_retry from the node's real `attempt` counter
+   * (node_executions.attempt > 1, EXEC-14), is_recovery from whether a
+   * recovery_actions row exists for it (HEAL-5/6). Both real DB facts,
+   * queried once each within the same tenant-scoped transaction.
+   */
+  async getRecoveryInfo(
+    tenantIdInput: string,
+    runIdInput: string,
+    nodeExecutionIdInput: string,
+  ): Promise<NodeExecutionRecoveryInfo> {
+    const tenantId = bareTenantUuid(tenantIdInput);
+    const runId = validatedRunId(runIdInput);
+    const nodeExecutionId = validatedNodeExecutionId(nodeExecutionIdInput);
+    return this.store.withTenant(tenantId, async (tx) => {
+      const nodeResult = await tx.query<{ readonly attempt: number }>(
+        "SELECT attempt FROM node_executions WHERE tenant_id = $1 AND run_id = $2 AND id = $3",
+        [tenantId, runId, nodeExecutionId],
+      );
+      const nodeRow = nodeResult.rows[0];
+      if (nodeRow === undefined) throw new NodeExecutionNotFoundError(nodeExecutionId);
+
+      const recoveryResult = await tx.query<{ readonly exists: boolean }>(
+        `SELECT EXISTS(
+           SELECT 1 FROM recovery_actions
+           WHERE tenant_id = $1 AND run_id = $2 AND node_execution_id = $3
+         ) AS exists`,
+        [tenantId, runId, nodeExecutionId],
+      );
+
+      return {
+        isRetry: nodeRow.attempt > 1,
+        isRecovery: recoveryResult.rows[0]?.exists === true,
+      };
+    });
+  }
+}
+
+function validatedNodeExecutionId(nodeExecutionId: string): string {
+  const parsed = NodeExecutionIdSchema.safeParse(nodeExecutionId);
+  if (!parsed.success) {
+    throw new RunValidationError(`Invalid node_execution_id: ${nodeExecutionId}`);
+  }
+  return parsed.data;
 }
 
 function bareTenantUuid(tenantId: string): string {
