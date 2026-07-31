@@ -29,6 +29,15 @@
         "command": "node dist/apps/audit-service/main.js"
       }
     },
+    "backup-restore-drill": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build"
+      ],
+      "options": {
+        "command": "node dist/apps/audit-service/backup-restore-drill.js"
+      }
+    },
     "lint": {
       "executor": "@nx/eslint:lint",
       "options": {
