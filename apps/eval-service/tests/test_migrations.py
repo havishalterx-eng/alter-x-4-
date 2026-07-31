@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from src.db.chaos_scenarios import CHAOS_GOLDEN_SET
 from src.db.launch_golden_sets import LAUNCH_GOLDEN_SETS, case_id
 from src.db.redteam_suites import REDTEAM_GOLDEN_SETS
 from src.db.remaining_golden_sets import REMAINING_GOLDEN_SETS
@@ -292,6 +293,29 @@ def test_live_redteam_suites_are_seeded_and_readable_by_eval_service(pg_url: str
         assert ssrf_case["input"]["attack"] == "ssrf"
         assert ssrf_case["expected"]["outcome"] == "blocked"
         assert "redteam" in ssrf_case["tags"]
+
+
+def test_live_chaos_scenarios_are_seeded_and_readable_by_eval_service(pg_url: str) -> None:
+    engine = sa.create_engine(pg_url)
+    with engine.connect() as conn:
+        _service_context(conn)
+        rows = conn.execute(
+            sa.text(
+                "SELECT eval_cases.input, eval_cases.expected, eval_cases.tags "
+                "FROM eval_cases JOIN golden_sets ON golden_sets.id = eval_cases.golden_set_id "
+                "WHERE golden_sets.name = 'chaos' ORDER BY eval_cases.id"
+            )
+        ).mappings().all()
+        assert len(rows) == len(CHAOS_GOLDEN_SET.cases) == 15
+        assert {row["input"]["boundary"] for row in rows} >= {
+            "orchestration",
+            "model-gateway",
+            "sandbox",
+            "verification",
+            "external-provider",
+        }
+        assert all(row["input"]["operation"] == "chaos_inject" for row in rows)
+        assert all("chaos" in row["tags"] for row in rows)
 
 
 def test_live_release_gate_is_derived_from_completed_eval_run(pg_url: str) -> None:
