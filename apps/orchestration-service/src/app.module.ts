@@ -572,6 +572,14 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
   });
   const approvals = new ApprovalsService(store, durable);
   const runReader = new PostgresRecoveryRunReader(store);
+  // OUT-3: real "degrade" target needs the Blackboard (in-process here,
+  // same as BLACKBOARD_HANDLER's own factory above -- no gRPC hop needed,
+  // this service and BlackboardService share a process) and the same
+  // VerificationGateReader gate.handler.ts/synthesis.handler.ts already
+  // use to classify each upstream input's real verification verdict.
+  const blackboardCache = new RedisCacheProvider(parseRedisHostPort(dbConfig.redisUrl));
+  const blackboard = new BlackboardService(store, blackboardCache);
+  const verificationReader = new PostgresVerificationGateReader(store);
   const dispatch = new RecoveryDispatchService(
     modelGateway,
     compiler,
@@ -579,6 +587,8 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
     approvals,
     runReader,
     durable,
+    blackboard,
+    verificationReader,
   );
   return new RecoveryPolicyService(
     store,

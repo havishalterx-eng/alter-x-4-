@@ -1,10 +1,17 @@
 import type { ModelGatewayHandler } from "@alterx/adapters";
 import type {
+  CompiledDag,
   CompilerCompileWorkflowRequest,
   RootCauseEstimate,
 } from "@alterx/contracts";
+import { CompiledDagSchema } from "@alterx/contracts";
+
+import type { JsonValue } from "@alterx/shared-clients";
 
 import type { ApprovalsService } from "../approvals/approvals.service";
+import type { BlackboardService } from "../blackboard/blackboard.service";
+import { SynthesisHandler } from "../registry/handlers/synthesis.handler";
+import type { VerificationGateReader } from "../registry/verification-gate-reader";
 import type { RecoveryStrategy } from "./recovery-strategy-table";
 
 /** Matches recovery_actions.outcome CHECK constraint exactly. */
@@ -14,6 +21,7 @@ export interface DispatchContext {
   readonly tenantId: string; // bare UUID, already stripped of ten_
   readonly runId: string;
   readonly nodeExecutionId: string;
+  readonly nodeKey: string; // real dag_node_id of the failed node
   readonly failureClass: string;
   readonly estimate: RootCauseEstimate;
 }
@@ -63,6 +71,15 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled recovery strategy in dispatch: ${String(value)}`);
 }
 
+/** Same shape as executor-workflow.ts's own `directPredecessorKeys` --
+ * small pure function, re-derived here rather than shared to keep this
+ * ticket's blast radius to the recovery module alone (same disclosed
+ * duplication pattern gate.handler.ts/synthesis.handler.ts already use
+ * for classifyVerification). */
+function directPredecessorKeys(dag: CompiledDag, nodeKey: string): string[] {
+  return dag.edges.filter((edge) => edge.to === nodeKey).map((edge) => edge.from);
+}
+
 /**
  * Executes (or honestly declines to execute) the strategy HEAL-6's policy
  * table already selected. 5 of 10 strategies have a real target system
@@ -79,6 +96,8 @@ export class RecoveryDispatchService {
     private readonly approvals: ApprovalsService,
     private readonly runs: RecoveryRunReader,
     private readonly nodeRetrySignaler: NodeRetrySignaler,
+    private readonly blackboard: BlackboardService,
+    private readonly verificationReader: VerificationGateReader,
     private readonly backoffDelayMs: number = DEFAULT_BACKOFF_DELAY_MS,
   ) {}
 
@@ -98,11 +117,7 @@ export class RecoveryDispatchService {
         // one real mechanism today, never faked as two independent paths.
         return this.#replan(context);
       case "degrade":
-        return {
-          outcome: "resolved",
-          detail:
-            "degraded output flagged via Synthesis stub (Output phase); presented as an explicit partial, never as complete",
-        };
+        return this.#degrade(context);
       case "ask_user":
         return this.#askUser(context);
       case "terminate":
@@ -124,6 +139,100 @@ export class RecoveryDispatchService {
         };
       default:
         return assertNever(strategy);
+    }
+  }
+
+  /**
+   * OUT-3: real target for "degrade" -- previously a hardcoded stub that
+   * always claimed "resolved" without ever calling Synthesis (see git
+   * history / HEAL-6 PR A's disclosed known-gap).
+   *
+   * Reads the failed node's real direct predecessors from the compiled
+   * DAG (same `directPredecessorKeys` logic executor-workflow.ts already
+   * uses), fetches their real outputs from the Blackboard (same source
+   * every other node reads from -- EXEC-5/EXEC-7), and asks
+   * `SynthesisHandler` (OUT-2) to assemble an honest partial from
+   * whichever of them verified. The result -- deliverable + gaps,
+   * `degraded: true` -- is written to the Blackboard under the *failed*
+   * node's own key, so anything downstream that depends on it reads a
+   * flagged partial instead of nothing. `recovery_actions` has no column
+   * for a rich result (checked: only strategy/policy_version/outcome),
+   * so the Blackboard is the real, correct home for it -- matches how
+   * every other node's output already gets there.
+   *
+   * If Synthesis itself reports nothing verified
+   * (`execution_status: "blocked_pending_recovery"`), there is nothing
+   * honest to degrade into -- this returns "escalated", never a fake
+   * "resolved", so HEAL-8's run_outcomes mapping doesn't record a
+   * degraded verdict for a run that produced no real partial at all.
+   */
+  async #degrade(context: DispatchContext): Promise<DispatchResult> {
+    try {
+      const { compiledDagJson } = await this.runs.loadCompiledDagJson(
+        context.tenantId,
+        context.runId,
+      );
+      const parsed = CompiledDagSchema.safeParse(JSON.parse(compiledDagJson));
+      if (!parsed.success) {
+        return { outcome: "failed", detail: "degrade failed: compiled DAG is invalid" };
+      }
+      const predecessorKeys = directPredecessorKeys(parsed.data, context.nodeKey);
+
+      const inputs: Record<string, Record<string, unknown>> = {};
+      await Promise.all(
+        predecessorKeys.map(async (predecessorKey) => {
+          const value = await this.blackboard.readValue({
+            tenantId: `ten_${context.tenantId}`,
+            runId: context.runId,
+            key: predecessorKey,
+          });
+          if (value !== undefined && typeof value === "object" && !Array.isArray(value)) {
+            inputs[predecessorKey] = value as Record<string, unknown>;
+          }
+        }),
+      );
+
+      if (Object.keys(inputs).length === 0) {
+        return {
+          outcome: "escalated",
+          detail: "degrade found no predecessor outputs on the Blackboard to synthesize from",
+        };
+      }
+
+      const synthesis = new SynthesisHandler(this.modelGateway, this.verificationReader);
+      const result = await synthesis.execute({
+        tenant_id: `ten_${context.tenantId}`,
+        run_id: context.runId,
+        node_execution_id: context.nodeExecutionId,
+        config: {},
+        inputs,
+      });
+
+      if (result.metadata?.["execution_status"] === "blocked_pending_recovery") {
+        return {
+          outcome: "escalated",
+          detail: "degrade: no upstream input passed verification, nothing honest to synthesize",
+        };
+      }
+
+      await this.blackboard.writeValue({
+        tenantId: `ten_${context.tenantId}`,
+        runId: context.runId,
+        key: context.nodeKey,
+        // Real, JSON-safe at runtime (SynthesisHandler's output is either
+        // a parsed Model Gateway JSON response or the plain gaps/no-input
+        // literal shape) -- BlackboardWriteRequest's recursive JsonValue
+        // type can't structurally match Record<string, unknown> though.
+        value: result.output as unknown as JsonValue,
+      });
+
+      const gapCount = Array.isArray(result.output["gaps"]) ? result.output["gaps"].length : 0;
+      return {
+        outcome: "resolved",
+        detail: `degraded output synthesized and flagged (${gapCount} gap${gapCount === 1 ? "" : "s"}), written to node_key=${context.nodeKey}`,
+      };
+    } catch (error: unknown) {
+      return { outcome: "failed", detail: `degrade failed: ${(error as Error).message}` };
     }
   }
 

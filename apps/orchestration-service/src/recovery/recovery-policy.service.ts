@@ -229,10 +229,19 @@ export class RecoveryPolicyService {
       policyVersion = decision.policyVersion;
     }
 
+    // Only "degrade" needs the failed node's real DAG key (to find its
+    // predecessors) -- skip the extra query for the other 7 dispatchable
+    // strategies, which never read it.
+    const nodeKey =
+      strategy === "degrade"
+        ? await this.#loadNodeKey(bareTenantId, request.run_id, request.node_execution_id)
+        : "";
+
     const dispatchResult = await this.dispatch.dispatch(strategy, {
       tenantId: bareTenantId,
       runId: request.run_id,
       nodeExecutionId: request.node_execution_id,
+      nodeKey,
       failureClass,
       estimate,
     });
@@ -402,6 +411,24 @@ export class RecoveryPolicyService {
         [outcome, tenantId, recoveryActionId, runId, strategy],
       );
     });
+  }
+
+  async #loadNodeKey(
+    tenantId: string,
+    runId: string,
+    nodeExecutionId: string,
+  ): Promise<string> {
+    const row = await this.store.withTenant(tenantId, async (tx) => {
+      const result = await tx.query<{ readonly dag_node_id: string }>(
+        "SELECT dag_node_id FROM node_executions WHERE tenant_id = $1 AND run_id = $2 AND id = $3",
+        [tenantId, runId, nodeExecutionId],
+      );
+      return result.rows[0];
+    });
+    if (row === undefined) {
+      throw new RecoveryNodeNotFoundError(nodeExecutionId);
+    }
+    return row.dag_node_id;
   }
 
   async #loadFailedNode(

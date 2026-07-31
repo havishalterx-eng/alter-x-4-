@@ -39,6 +39,7 @@ const CONTEXT = {
   tenantId: "018f47a5-7b2c-7d10-8f11-123456789abc",
   runId: "run_018f47a5-7b2c-7d10-8f11-123456789abc",
   nodeExecutionId: "node_018f47a5-7b2c-7d10-8f11-123456789abc",
+  nodeKey: "failed_node",
   failureClass: "logic_output_failure",
   estimate: ESTIMATE,
 };
@@ -51,6 +52,9 @@ function buildService(overrides: {
   loadCompiledDagJson?: RecoveryRunReader["loadCompiledDagJson"];
   writeTerminalFailed?: RecoveryRunReader["writeTerminalFailed"];
   signalWorkflow?: NodeRetrySignaler["signalWorkflow"];
+  readValue?: (request: unknown) => Promise<unknown>;
+  writeValue?: (request: unknown) => Promise<void>;
+  findForSourceNode?: (request: unknown) => Promise<unknown[]>;
 } = {}): RecoveryDispatchService {
   const modelGateway = {
     invoke:
@@ -92,6 +96,13 @@ function buildService(overrides: {
   const nodeRetrySignaler: NodeRetrySignaler = {
     signalWorkflow: overrides.signalWorkflow ?? vi.fn().mockResolvedValue(undefined),
   };
+  const blackboard = {
+    readValue: overrides.readValue ?? vi.fn().mockResolvedValue(undefined),
+    writeValue: overrides.writeValue ?? vi.fn().mockResolvedValue(undefined),
+  };
+  const verificationReader = {
+    findForSourceNode: overrides.findForSourceNode ?? vi.fn().mockResolvedValue([]),
+  };
   return new RecoveryDispatchService(
     modelGateway as never,
     compiler,
@@ -99,6 +110,8 @@ function buildService(overrides: {
     approvals as never,
     runs,
     nodeRetrySignaler,
+    blackboard as never,
+    verificationReader as never,
     // Real delay, kept tiny here so no test pays the real 5s default --
     // the dedicated backoff test below asserts the delay actually happens.
     5,
@@ -234,6 +247,8 @@ describe("RecoveryDispatchService", () => {
         writeTerminalFailed: vi.fn(),
       } as never,
       { signalWorkflow },
+      { readValue: vi.fn(), writeValue: vi.fn() } as never,
+      { findForSourceNode: vi.fn() } as never,
       25, // real delay, injected small so the test doesn't burn 5 real seconds
     );
 
@@ -250,11 +265,113 @@ describe("RecoveryDispatchService", () => {
     });
   });
 
-  it("degrade always resolves via the honest Synthesis stub, never claims real synthesis", async () => {
-    const service = buildService();
-    const result = await service.dispatch("degrade", CONTEXT);
-    expect(result.outcome).toBe("resolved");
-    expect(result.detail).toContain("Synthesis stub");
+  describe("degrade", () => {
+    const DAG_JSON = JSON.stringify({
+      schema_version: "dag-v1",
+      entry_node_keys: ["node_a", "node_b"],
+      nodes: [
+        { key: "node_a", type: "LLMTask", config: {}, metadata: { ui: {} } },
+        { key: "node_b", type: "LLMTask", config: {}, metadata: { ui: {} } },
+        { key: CONTEXT.nodeKey, type: "Synthesis", config: {}, metadata: { ui: {} } },
+      ],
+      edges: [
+        { key: "e1", from: "node_a", to: CONTEXT.nodeKey, kind: "sequential" },
+        { key: "e2", from: "node_b", to: CONTEXT.nodeKey, kind: "sequential" },
+      ],
+      waves: [
+        { key: "w0", order: 0, node_keys: ["node_a", "node_b"], depends_on: [] },
+        { key: "w1", order: 1, node_keys: [CONTEXT.nodeKey], depends_on: ["w0"] },
+      ],
+    });
+    const PASS = { gateType: "quality", verdict: "pass", score: 0.9, threshold: 0.7, details: {} };
+    const SAFE = {
+      gateType: "safety",
+      verdict: "pass",
+      score: null,
+      threshold: null,
+      details: { severity: "low" },
+    };
+
+    it("synthesizes a real honest partial from verified predecessor outputs and writes it to the failed node's own Blackboard key", async () => {
+      const readValue = vi.fn().mockImplementation((request: { key: string }) => {
+        if (request.key === "node_a") return Promise.resolve({ text: "a" });
+        return Promise.resolve(undefined);
+      });
+      const writeValue = vi.fn().mockResolvedValue(undefined);
+      const invoke = vi.fn().mockResolvedValue({
+        output_json: JSON.stringify({ summary: "partial" }),
+        usage_json: "{}",
+        resolved_capability: "ADVANCED:test",
+      });
+      const service = buildService({
+        loadCompiledDagJson: vi.fn().mockResolvedValue({
+          compiledDagJson: DAG_JSON,
+          dagSchemaVersion: "dag-v1",
+          workflowId: "wf_test",
+        }),
+        readValue,
+        writeValue,
+        invoke,
+        findForSourceNode: vi.fn().mockResolvedValue([PASS, SAFE]),
+      });
+
+      const result = await service.dispatch("degrade", CONTEXT);
+
+      expect(result.outcome).toBe("resolved");
+      expect(writeValue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          key: CONTEXT.nodeKey,
+          value: expect.objectContaining({ deliverable: { summary: "partial" } }),
+        }),
+      );
+    });
+
+    it("escalates (never fakes resolved) when no predecessor has a Blackboard value", async () => {
+      const service = buildService({
+        loadCompiledDagJson: vi.fn().mockResolvedValue({
+          compiledDagJson: DAG_JSON,
+          dagSchemaVersion: "dag-v1",
+          workflowId: "wf_test",
+        }),
+        readValue: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const result = await service.dispatch("degrade", CONTEXT);
+
+      expect(result.outcome).toBe("escalated");
+    });
+
+    it("escalates when Synthesis itself finds nothing verified, never claims resolved", async () => {
+      const readValue = vi.fn().mockResolvedValue({ text: "a" });
+      const service = buildService({
+        loadCompiledDagJson: vi.fn().mockResolvedValue({
+          compiledDagJson: DAG_JSON,
+          dagSchemaVersion: "dag-v1",
+          workflowId: "wf_test",
+        }),
+        readValue,
+        // Every predecessor's input fails verification -- nothing honest to synthesize.
+        findForSourceNode: vi.fn().mockResolvedValue([]),
+      });
+
+      const result = await service.dispatch("degrade", CONTEXT);
+
+      expect(result.outcome).toBe("escalated");
+    });
+
+    it("fails (not resolved, not a crash) when the compiled DAG is invalid", async () => {
+      const service = buildService({
+        loadCompiledDagJson: vi.fn().mockResolvedValue({
+          compiledDagJson: "not valid json",
+          dagSchemaVersion: "dag-v1",
+          workflowId: "wf_test",
+        }),
+      });
+
+      const result = await service.dispatch("degrade", CONTEXT);
+
+      expect(result.outcome).toBe("failed");
+    });
   });
 
   it("ask_user creates a real pending approval and escalates", async () => {
