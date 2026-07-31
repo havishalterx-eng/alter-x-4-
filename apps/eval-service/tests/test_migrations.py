@@ -6,11 +6,13 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 from alembic.config import Config as AlembicConfig
+from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
 from src.db.launch_golden_sets import LAUNCH_GOLDEN_SETS, case_id
 from src.db.remaining_golden_sets import REMAINING_GOLDEN_SETS
+from src.hardening import MockHarness, RegressionCapturePipeline, SqlAlchemyRegressionCaseStore
 
 SERVICE_ROOT = Path(__file__).parent.parent
 MIGRATION = SERVICE_ROOT / "alembic" / "versions" / "0001_create_eval_tables.py"
@@ -227,3 +229,32 @@ def test_live_launch_floor_sets_are_seeded_and_readable_by_eval_service(pg_url: 
         assert recovery_case["input"]["failure_class"] == "safety_violation"
         assert recovery_case["expected"]["strategy"] == "ask_user"
         assert "recovery" in recovery_case["tags"]
+
+
+def test_live_failing_case_is_persisted_once_as_a_regression_case(pg_url: str) -> None:
+    engine = sa.create_engine(pg_url)
+    with engine.connect() as conn:
+        _service_context(conn)
+        store = SqlAlchemyRegressionCaseStore(sessionmaker(bind=conn, class_=Session))
+        pipeline = RegressionCapturePipeline(store)
+        source_case = LAUNCH_GOLDEN_SETS[0].cases[0]
+        source_case_id = case_id(LAUNCH_GOLDEN_SETS[0], 1)
+        failed = MockHarness().evaluate(source_case, {"strategy": "manager_worker"})
+
+        first = pipeline.capture(source_case_id, failed)
+        second = pipeline.capture(source_case_id, failed)
+
+        assert first is not None and first.created is True
+        assert second is not None and second.created is False
+        stored = (
+            conn.execute(
+                sa.text("SELECT scoring, tags FROM eval_cases WHERE id = :case_id"),
+                {"case_id": first.regression_case_id},
+            )
+            .mappings()
+            .one()
+        )
+        regression = stored["scoring"]["regression"]
+        assert isinstance(regression, dict)
+        assert regression["source_case_id"] == str(source_case_id)
+        assert "regression" in stored["tags"]
