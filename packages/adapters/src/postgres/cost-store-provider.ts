@@ -17,38 +17,18 @@ import type {
   RelationalDatabaseProvider,
 } from "@alterx/shared-clients";
 
-export { sql } from "drizzle-orm";
-export {
-  bigint,
-  boolean,
-  check,
-  date,
-  foreignKey,
-  index,
-  integer,
-  jsonb,
-  numeric,
-  pgTable,
-  primaryKey,
-  text,
-  timestamp,
-  unique,
-  uniqueIndex,
-  uuid,
-} from "drizzle-orm/pg-core";
-
-interface PostgresOrchestrationStoreBaseConfig {
+interface PostgresCostStoreBaseConfig {
   readonly migrationsFolder: string;
 }
 
-export interface PostgresOrchestrationStoreStaticConfig
-  extends PostgresOrchestrationStoreBaseConfig {
+export interface PostgresCostStoreStaticConfig
+  extends PostgresCostStoreBaseConfig {
   readonly authentication: "static";
   readonly connectionString: string;
 }
 
-export interface PostgresOrchestrationStoreIamConfig
-  extends PostgresOrchestrationStoreBaseConfig {
+export interface PostgresCostStoreIamConfig
+  extends PostgresCostStoreBaseConfig {
   readonly authentication: "iam";
   readonly host: string;
   readonly port: number;
@@ -57,35 +37,33 @@ export interface PostgresOrchestrationStoreIamConfig
   readonly region: string;
 }
 
-export type PostgresOrchestrationStoreConfig =
-  | PostgresOrchestrationStoreStaticConfig
-  | PostgresOrchestrationStoreIamConfig;
+export type PostgresCostStoreConfig =
+  | PostgresCostStoreStaticConfig
+  | PostgresCostStoreIamConfig;
 
-export interface OrchestrationQueryResult<
-  TRow extends QueryResultRow = QueryResultRow,
-> {
+export interface CostQueryResult<TRow extends QueryResultRow = QueryResultRow> {
   readonly rowCount: number;
   readonly rows: readonly TRow[];
 }
 
-export interface OrchestrationTransaction {
+export interface CostTransaction {
   query<TRow extends QueryResultRow = QueryResultRow>(
     statement: string,
     values?: readonly unknown[],
-  ): Promise<OrchestrationQueryResult<TRow>>;
+  ): Promise<CostQueryResult<TRow>>;
 }
 
 interface IamAuthTokenProvider {
   getAuthToken(): Promise<string>;
 }
 
-interface PostgresOrchestrationStoreDependencies {
+interface PostgresCostStoreDependencies {
   readonly pool?: Pool;
   readonly iamAuthTokenProvider?: IamAuthTokenProvider;
   readonly poolFactory?: (config: PoolConfig) => Pool;
 }
 
-const POSTGRES_ORCHESTRATION_CAPABILITIES: ProviderCapabilities = {
+const POSTGRES_COST_CAPABILITIES: ProviderCapabilities = {
   streaming: false,
   tool_calling: false,
   vision: false,
@@ -99,59 +77,56 @@ const POSTGRES_ORCHESTRATION_CAPABILITIES: ProviderCapabilities = {
   cost_model: { rates: [] },
 };
 
-export interface PostgresOrchestrationFeatureDecision {
-  readonly ticket: "INGR-1";
-  readonly component: "Engine component 31 - Event & Trigger Gateway";
+export interface PostgresCostFeatureDecision {
+  readonly ticket: "OUT-1";
+  readonly component: "Engine Output Phase - Cost Ledger";
   readonly status: "approved_ungated_foundation_schema";
   readonly featureId: null;
   readonly featureFlag: null;
-  readonly reason: "schema/contracts/migrations foundation only; no user-facing rollout behavior";
+  readonly reason: "schema/migrations/adapter foundation only; no ingest or query service logic yet";
   readonly owner: "CEO";
-  readonly decisionDate: "2026-07-25";
-  readonly rollout: "merge allowed after CI/audit green; no runtime feature gate required";
+  readonly decisionDate: "2026-07-31";
+  readonly rollout: "merge allowed after CI/self-audit green; no runtime feature gate required";
 }
 
-export const POSTGRES_ORCHESTRATION_FEATURE_DECISION = {
-  ticket: "INGR-1",
-  component: "Engine component 31 - Event & Trigger Gateway",
+export const POSTGRES_COST_FEATURE_DECISION = {
+  ticket: "OUT-1",
+  component: "Engine Output Phase - Cost Ledger",
   status: "approved_ungated_foundation_schema",
   featureId: null,
   featureFlag: null,
   reason:
-    "schema/contracts/migrations foundation only; no user-facing rollout behavior",
+    "schema/migrations/adapter foundation only; no ingest or query service logic yet",
   owner: "CEO",
-  decisionDate: "2026-07-25",
+  decisionDate: "2026-07-31",
   rollout:
-    "merge allowed after CI/audit green; no runtime feature gate required",
-} as const satisfies PostgresOrchestrationFeatureDecision;
+    "merge allowed after CI/self-audit green; no runtime feature gate required",
+} as const satisfies PostgresCostFeatureDecision;
 
-const POSTGRES_ORCHESTRATION_METADATA: ProviderMetadata<"RelationalDatabaseProvider"> =
-  {
-    providerId: "postgres-orchestration-store",
-    interfaceName: "RelationalDatabaseProvider",
-    displayName: "PostgreSQL Orchestration Store",
-    version: "ingress-v1",
-    telemetryNamespace: "alterx.adapters.postgres.orchestration-store",
-    supportsTenantOverrides: false,
-    migration: {
-      strategyVersion: "ingress-core-v1",
-      rollbackSupported: true,
-    },
-  };
+const POSTGRES_COST_METADATA: ProviderMetadata<"RelationalDatabaseProvider"> = {
+  providerId: "postgres-cost-store",
+  interfaceName: "RelationalDatabaseProvider",
+  displayName: "PostgreSQL Cost Store",
+  version: "output-v1",
+  telemetryNamespace: "alterx.adapters.postgres.cost-store",
+  supportsTenantOverrides: false,
+  migration: {
+    strategyVersion: "cost-ledger-core-v1",
+    rollbackSupported: true,
+  },
+};
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-7][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function requireConfig(field: string, value: string): void {
   if (value.trim().length === 0) {
-    throw new Error(
-      `Postgres orchestration store config field ${field} is required`,
-    );
+    throw new Error(`Postgres cost store config field ${field} is required`);
   }
 }
 
 function createPoolConfig(
-  config: PostgresOrchestrationStoreConfig,
+  config: PostgresCostStoreConfig,
   iamAuthTokenProvider?: IamAuthTokenProvider,
 ): PoolConfig {
   if (config.authentication === "static") {
@@ -165,7 +140,7 @@ function createPoolConfig(
   requireConfig("region", config.region);
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65_535) {
     throw new Error(
-      "Postgres orchestration store config field port must be an integer from 1 to 65535",
+      "Postgres cost store config field port must be an integer from 1 to 65535",
     );
   }
 
@@ -188,18 +163,16 @@ function createPoolConfig(
   };
 }
 
-export class PostgresOrchestrationStoreProvider
-  implements RelationalDatabaseProvider
-{
-  readonly metadata = POSTGRES_ORCHESTRATION_METADATA;
-  readonly capabilities = POSTGRES_ORCHESTRATION_CAPABILITIES;
+export class PostgresCostStoreProvider implements RelationalDatabaseProvider {
+  readonly metadata = POSTGRES_COST_METADATA;
+  readonly capabilities = POSTGRES_COST_CAPABILITIES;
 
   readonly #pool: Pool;
   readonly #migrationsFolder: string;
 
   constructor(
-    config: PostgresOrchestrationStoreConfig,
-    dependencies: PostgresOrchestrationStoreDependencies = {},
+    config: PostgresCostStoreConfig,
+    dependencies: PostgresCostStoreDependencies = {},
   ) {
     requireConfig("migrationsFolder", config.migrationsFolder);
     this.#pool =
@@ -241,7 +214,7 @@ export class PostgresOrchestrationStoreProvider
 
   async withTenant<T>(
     tenantId: string,
-    operation: (transaction: OrchestrationTransaction) => Promise<T>,
+    operation: (transaction: CostTransaction) => Promise<T>,
   ): Promise<T> {
     if (!UUID_PATTERN.test(tenantId)) {
       throw new Error("tenantId must be a UUID");
@@ -254,7 +227,47 @@ export class PostgresOrchestrationStoreProvider
         "SELECT set_config('app.current_tenant_id', $1, true)",
         [tenantId],
       );
-      const transaction: OrchestrationTransaction = {
+      const transaction: CostTransaction = {
+        query: async <TRow extends QueryResultRow>(
+          statement: string,
+          values?: readonly unknown[],
+        ) => {
+          const result = await client.query<TRow>(
+            statement,
+            values as unknown[] | undefined,
+          );
+          return {
+            rowCount: result.rowCount ?? 0,
+            rows: result.rows,
+          };
+        },
+      };
+      const result = await operation(transaction);
+      await client.query("COMMIT");
+      return result;
+    } catch (error: unknown) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Runs a callback as the BYPASSRLS `cost_ledger_provisioner` role -- required
+   * for right-to-delete's tenant_id nulling on billing_rollups (doc 04 SS1/SS6:
+   * "Pseudonymized survivors only in cost_db and audit_db") and for the raw
+   * cost_events 24-month retention purge, both of which must operate across
+   * tenant boundaries by design.
+   */
+  async withProvisioner<T>(
+    operation: (transaction: CostTransaction) => Promise<T>,
+  ): Promise<T> {
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL ROLE cost_ledger_provisioner");
+      const transaction: CostTransaction = {
         query: async <TRow extends QueryResultRow>(
           statement: string,
           values?: readonly unknown[],

@@ -27,6 +27,10 @@ export const PolicyIdSchema = prefixedUuidV7("pol");
 export const PolicyPromotionIdSchema = prefixedUuidV7("prom");
 export const DriftScoreIdSchema = prefixedUuidV7("drift");
 export const CostIdSchema = prefixedUuidV7("cst");
+// OUT-1: doc 04 SS6 cost_db.billing_rollups.id has no prefix comment in the
+// spec table; "bru" chosen to follow the existing per-entity prefix
+// convention (additive contract change, doc 04 line 5 permits this).
+export const BillingRollupIdSchema = prefixedUuidV7("bru");
 export const AuditIdSchema = prefixedUuidV7("aud");
 export const DocumentIdSchema = prefixedUuidV7("doc");
 export const ArtifactIdSchema = prefixedUuidV7("art");

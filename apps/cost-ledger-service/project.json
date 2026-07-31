@@ -1,0 +1,40 @@
+{
+  "name": "cost-ledger-service",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/cost-ledger-service/src",
+  "targets": {
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "eslintConfig": "apps/cost-ledger-service/eslint.config.mjs",
+        "lintFilePatterns": [
+          "apps/cost-ledger-service/src/**/*.ts",
+          "apps/cost-ledger-service/db/schema/**/*.ts"
+        ]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "tsc --noEmit -p apps/cost-ledger-service/tsconfig.json",
+          "tsc --noEmit -p apps/cost-ledger-service/db/tsconfig.json"
+        ],
+        "parallel": false
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build"
+      ],
+      "options": {
+        "command": "vitest run apps/cost-ledger-service/src/*.spec.ts apps/cost-ledger-service/src/**/*.spec.ts"
+      }
+    }
+  },
+  "tags": [
+    "type:service"
+  ]
+}

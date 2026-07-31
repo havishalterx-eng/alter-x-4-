@@ -118,6 +118,22 @@ importers:
         specifier: 7.8.2
         version: 7.8.2
 
+  apps/cost-ledger-service:
+    dependencies:
+      '@alterx/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
+      '@alterx/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@alterx/shared-clients':
+        specifier: workspace:*
+        version: link:../../packages/shared-clients
+    devDependencies:
+      '@testcontainers/postgresql':
+        specifier: 12.0.4
+        version: 12.0.4
+
   apps/model-gateway:
     dependencies:
       '@alterx/adapters':

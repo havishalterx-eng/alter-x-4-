@@ -14,6 +14,7 @@ checked_apps=(
   "apps/memory-service"
   "apps/eval-service"
   "apps/background-workers"
+  "apps/cost-ledger-service"
 )
 
 existing_apps=()

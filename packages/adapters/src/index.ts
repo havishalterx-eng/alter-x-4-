@@ -76,8 +76,10 @@ export {
 export {
   PostgresOrchestrationStoreProvider,
   POSTGRES_ORCHESTRATION_FEATURE_DECISION,
+  bigint,
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -97,6 +99,15 @@ export {
   type PostgresOrchestrationStoreIamConfig,
   type PostgresOrchestrationStoreStaticConfig,
 } from "./postgres/orchestration-store-provider";
+export {
+  PostgresCostStoreProvider,
+  POSTGRES_COST_FEATURE_DECISION,
+  type CostQueryResult,
+  type CostTransaction,
+  type PostgresCostStoreConfig,
+  type PostgresCostStoreIamConfig,
+  type PostgresCostStoreStaticConfig,
+} from "./postgres/cost-store-provider";
 export {
   AuditGrpcController,
   startAuditGrpcTransport,
