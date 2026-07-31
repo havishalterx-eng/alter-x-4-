@@ -10,6 +10,7 @@ from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
 from src.db.launch_golden_sets import LAUNCH_GOLDEN_SETS, case_id
+from src.db.remaining_golden_sets import REMAINING_GOLDEN_SETS
 
 SERVICE_ROOT = Path(__file__).parent.parent
 MIGRATION = SERVICE_ROOT / "alembic" / "versions" / "0001_create_eval_tables.py"
@@ -27,7 +28,14 @@ LAUNCH_FLOOR_COUNTS = {
     "intent": 30,
     "retrieval": 20,
     "verification": 20,
+    "recovery": 15,
+    "injection": 25,
+    "tenant-isolation": 20,
+    "workflow E2E": 5,
+    "project E2E": 3,
 }
+
+ALL_LAUNCH_GOLDEN_SETS = (*LAUNCH_GOLDEN_SETS, *REMAINING_GOLDEN_SETS)
 
 
 def test_migration_declares_all_eval_tables_and_forced_rls() -> None:
@@ -41,18 +49,18 @@ def test_migration_declares_all_eval_tables_and_forced_rls() -> None:
 
 
 def test_launch_floor_catalog_has_exact_counts_and_repeatable_ids() -> None:
-    assert {golden_set.name: len(golden_set.cases) for golden_set in LAUNCH_GOLDEN_SETS} == (
+    assert {golden_set.name: len(golden_set.cases) for golden_set in ALL_LAUNCH_GOLDEN_SETS} == (
         LAUNCH_FLOOR_COUNTS
     )
-    assert sum(len(golden_set.cases) for golden_set in LAUNCH_GOLDEN_SETS) == 90
+    assert sum(len(golden_set.cases) for golden_set in ALL_LAUNCH_GOLDEN_SETS) == 158
 
     ids = {
         case_id(golden_set, position)
-        for golden_set in LAUNCH_GOLDEN_SETS
+        for golden_set in ALL_LAUNCH_GOLDEN_SETS
         for position, _case in enumerate(golden_set.cases, start=1)
     }
-    assert len(ids) == 90
-    for golden_set in LAUNCH_GOLDEN_SETS:
+    assert len(ids) == 158
+    for golden_set in ALL_LAUNCH_GOLDEN_SETS:
         assert golden_set.version == 1
         for case in golden_set.cases:
             assert case.input_json
@@ -179,21 +187,43 @@ def test_live_launch_floor_sets_are_seeded_and_readable_by_eval_service(pg_url: 
                 "SELECT golden_sets.name, count(eval_cases.id) "
                 "FROM golden_sets LEFT JOIN eval_cases "
                 "ON eval_cases.golden_set_id = golden_sets.id "
-                "WHERE golden_sets.name IN ('planner', 'intent', 'retrieval', 'verification') "
+                "WHERE golden_sets.name IN ("
+                "'planner', 'intent', 'retrieval', 'verification', 'recovery', 'injection', "
+                "'tenant-isolation', 'workflow E2E', 'project E2E') "
                 "GROUP BY golden_sets.name"
             )
         ).all()
         assert {str(name): int(count) for name, count in rows} == LAUNCH_FLOOR_COUNTS
 
-        seed_case = conn.execute(
-            sa.text(
-                "SELECT input, expected, scoring, tags FROM eval_cases "
-                "JOIN golden_sets ON golden_sets.id = eval_cases.golden_set_id "
-                "WHERE golden_sets.name = 'planner' AND eval_cases.id = :case_id"
-            ),
-            {"case_id": case_id(LAUNCH_GOLDEN_SETS[0], 1)},
-        ).mappings().one()
+        seed_case = (
+            conn.execute(
+                sa.text(
+                    "SELECT input, expected, scoring, tags FROM eval_cases "
+                    "JOIN golden_sets ON golden_sets.id = eval_cases.golden_set_id "
+                    "WHERE golden_sets.name = 'planner' AND eval_cases.id = :case_id"
+                ),
+                {"case_id": case_id(LAUNCH_GOLDEN_SETS[0], 1)},
+            )
+            .mappings()
+            .one()
+        )
         assert seed_case["input"]["operation"] == "select_strategy"
         assert seed_case["expected"]["strategy"] == "direct"
         assert seed_case["scoring"]["matcher"] == "exact_json"
         assert "launch-floor" in seed_case["tags"]
+
+        recovery_case = (
+            conn.execute(
+                sa.text(
+                    "SELECT input, expected, tags FROM eval_cases "
+                    "JOIN golden_sets ON golden_sets.id = eval_cases.golden_set_id "
+                    "WHERE golden_sets.name = 'recovery' AND eval_cases.id = :case_id"
+                ),
+                {"case_id": case_id(REMAINING_GOLDEN_SETS[0], 1)},
+            )
+            .mappings()
+            .one()
+        )
+        assert recovery_case["input"]["failure_class"] == "safety_violation"
+        assert recovery_case["expected"]["strategy"] == "ask_user"
+        assert "recovery" in recovery_case["tags"]
