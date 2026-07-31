@@ -5,6 +5,7 @@ set -eu
 : "${ORCHESTRATION_DB_PASSWORD:=$AUDIT_DB_PASSWORD}"
 : "${INTELLIGENCE_DB_PASSWORD:=$AUDIT_DB_PASSWORD}"
 : "${COST_DB_PASSWORD:=$AUDIT_DB_PASSWORD}"
+: "${EVAL_DB_PASSWORD:=$AUDIT_DB_PASSWORD}"
 
 psql \
   --set=ON_ERROR_STOP=1 \
@@ -13,7 +14,8 @@ psql \
   --set=audit_db_password="$AUDIT_DB_PASSWORD" \
   --set=orchestration_db_password="$ORCHESTRATION_DB_PASSWORD" \
   --set=intelligence_db_password="$INTELLIGENCE_DB_PASSWORD" \
-  --set=cost_db_password="$COST_DB_PASSWORD" <<'SQL'
+  --set=cost_db_password="$COST_DB_PASSWORD" \
+  --set=eval_db_password="$EVAL_DB_PASSWORD" <<'SQL'
 SELECT format(
   'CREATE ROLE audit_service LOGIN PASSWORD %L',
   :'audit_db_password'
@@ -89,4 +91,23 @@ WHERE NOT EXISTS (
 ALTER DATABASE cost_db OWNER TO cost_ledger_service;
 REVOKE CONNECT, TEMPORARY ON DATABASE cost_db FROM PUBLIC;
 GRANT CONNECT, TEMPORARY ON DATABASE cost_db TO cost_ledger_service;
+
+SELECT format(
+  'CREATE ROLE eval_service LOGIN PASSWORD %L',
+  :'eval_db_password'
+)
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_roles WHERE rolname = 'eval_service'
+) \gexec
+
+ALTER ROLE eval_service WITH LOGIN PASSWORD :'eval_db_password';
+
+SELECT 'CREATE DATABASE eval_db OWNER eval_service'
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_database WHERE datname = 'eval_db'
+) \gexec
+
+ALTER DATABASE eval_db OWNER TO eval_service;
+REVOKE CONNECT, TEMPORARY ON DATABASE eval_db FROM PUBLIC;
+GRANT CONNECT, TEMPORARY ON DATABASE eval_db TO eval_service;
 SQL
