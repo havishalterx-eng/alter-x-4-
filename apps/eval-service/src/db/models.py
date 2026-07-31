@@ -100,6 +100,9 @@ class ReleaseGate(Base):
     eval_run_id: Mapped[UUID | None] = mapped_column(ForeignKey("eval_runs.id"))
     decision: Mapped[str] = mapped_column(Text, nullable=False)
     decided_by: Mapped[str | None] = mapped_column(Text)
+    candidate: Mapped[str | None] = mapped_column(Text)
+    environment: Mapped[str | None] = mapped_column(Text)
+    evidence: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

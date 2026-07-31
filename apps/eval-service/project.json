@@ -52,6 +52,13 @@
         "command": "uv run alembic downgrade -1",
         "cwd": "apps/eval-service"
       }
+    },
+    "promotion-gate": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "uv run python -m src.promotion_gate $PROMOTION_EVIDENCE_PATH",
+        "cwd": "apps/eval-service"
+      }
     }
   },
   "tags": []

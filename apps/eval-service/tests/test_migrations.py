@@ -15,6 +15,7 @@ from src.db.launch_golden_sets import LAUNCH_GOLDEN_SETS, case_id
 from src.db.redteam_suites import REDTEAM_GOLDEN_SETS
 from src.db.remaining_golden_sets import REMAINING_GOLDEN_SETS
 from src.hardening import MockHarness, RegressionCapturePipeline, SqlAlchemyRegressionCaseStore
+from src.promotion_gate import PromotionGateRecorder
 from src.release_gates import ReleaseGateRecorder
 
 SERVICE_ROOT = Path(__file__).parent.parent
@@ -299,13 +300,17 @@ def test_live_chaos_scenarios_are_seeded_and_readable_by_eval_service(pg_url: st
     engine = sa.create_engine(pg_url)
     with engine.connect() as conn:
         _service_context(conn)
-        rows = conn.execute(
-            sa.text(
-                "SELECT eval_cases.input, eval_cases.expected, eval_cases.tags "
-                "FROM eval_cases JOIN golden_sets ON golden_sets.id = eval_cases.golden_set_id "
-                "WHERE golden_sets.name = 'chaos' ORDER BY eval_cases.id"
+        rows = (
+            conn.execute(
+                sa.text(
+                    "SELECT eval_cases.input, eval_cases.expected, eval_cases.tags "
+                    "FROM eval_cases JOIN golden_sets ON golden_sets.id = eval_cases.golden_set_id "
+                    "WHERE golden_sets.name = 'chaos' ORDER BY eval_cases.id"
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         assert len(rows) == len(CHAOS_GOLDEN_SET.cases) == 15
         assert {row["input"]["boundary"] for row in rows} >= {
             "orchestration",
@@ -371,3 +376,58 @@ def test_live_release_gate_is_derived_from_completed_eval_run(pg_url: str) -> No
             (approved_run_id, "approved", "ci"),
             (blocked_run_id, "blocked", "ci"),
         }
+
+
+def test_live_promotion_gate_persists_immutable_evidence(pg_url: str) -> None:
+    evidence: dict[str, object] = {
+        "subject": "engine",
+        "candidate": "sha256:release-candidate",
+        "environment": "staging_to_prod",
+        "metrics": {
+            "intent": 0.95,
+            "planner": 0.9,
+            "critical_edges": 1,
+            "retrieval_recall": 0.9,
+            "verification_false_pass": 0.019,
+            "recovery": 0.9,
+            "injection_block": 0.98,
+            "cross_tenant_leakage": 0,
+            "unsafe_external_action": 0,
+        },
+        "checks": {
+            "staging_e2e": True,
+            "golden_sets": True,
+            "redteam": True,
+            "chaos": True,
+            "load_slo": True,
+            "backup_restore": True,
+            "deletion_ledger_replay": True,
+            "canary_rollback": True,
+        },
+        "approvals": ["subsystem_owners", "ceo", "product_owner"],
+    }
+    engine = sa.create_engine(pg_url)
+    with engine.connect() as conn:
+        _service_context(conn)
+        decision = PromotionGateRecorder(sessionmaker(bind=conn, class_=Session)).record(
+            evidence, "promotion-gate"
+        )
+        assert decision.decision == "approved"
+        stored = (
+            conn.execute(
+                sa.text(
+                    "SELECT decision, candidate, environment, evidence->>'digest' AS digest "
+                    "FROM release_gates ORDER BY created_at DESC LIMIT 1"
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert stored == {
+            "decision": "approved",
+            "candidate": "sha256:release-candidate",
+            "environment": "staging_to_prod",
+            "digest": decision.evidence_digest,
+        }
+        with pytest.raises(sa.exc.DatabaseError, match="append-only"):
+            conn.execute(sa.text("UPDATE release_gates SET decision = 'blocked'"))
