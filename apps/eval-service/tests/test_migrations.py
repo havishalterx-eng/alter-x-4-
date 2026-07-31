@@ -11,6 +11,7 @@ from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
 from src.db.launch_golden_sets import LAUNCH_GOLDEN_SETS, case_id
+from src.db.redteam_suites import REDTEAM_GOLDEN_SETS
 from src.db.remaining_golden_sets import REMAINING_GOLDEN_SETS
 from src.hardening import MockHarness, RegressionCapturePipeline, SqlAlchemyRegressionCaseStore
 
@@ -258,3 +259,34 @@ def test_live_failing_case_is_persisted_once_as_a_regression_case(pg_url: str) -
         assert isinstance(regression, dict)
         assert regression["source_case_id"] == str(source_case_id)
         assert "regression" in stored["tags"]
+
+
+def test_live_redteam_suites_are_seeded_and_readable_by_eval_service(pg_url: str) -> None:
+    engine = sa.create_engine(pg_url)
+    with engine.connect() as conn:
+        _service_context(conn)
+        rows = conn.execute(
+            sa.text(
+                "SELECT golden_sets.name, count(eval_cases.id) "
+                "FROM golden_sets LEFT JOIN eval_cases "
+                "ON eval_cases.golden_set_id = golden_sets.id "
+                "WHERE golden_sets.name IN "
+                "('redteam-prompt-injection', 'redteam-jailbreak', 'redteam-ssrf') "
+                "GROUP BY golden_sets.name"
+            )
+        ).all()
+        assert {str(name): int(count) for name, count in rows} == {
+            golden_set.name: len(golden_set.cases) for golden_set in REDTEAM_GOLDEN_SETS
+        }
+
+        ssrf_case = (
+            conn.execute(
+                sa.text("SELECT input, expected, tags FROM eval_cases WHERE id = :case_id"),
+                {"case_id": case_id(REDTEAM_GOLDEN_SETS[2], 1)},
+            )
+            .mappings()
+            .one()
+        )
+        assert ssrf_case["input"]["attack"] == "ssrf"
+        assert ssrf_case["expected"]["outcome"] == "blocked"
+        assert "redteam" in ssrf_case["tags"]

@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from src.db.launch_golden_sets import LAUNCH_GOLDEN_SETS
+from src.db.redteam_suites import REDTEAM_GOLDEN_SETS
 from src.db.remaining_golden_sets import REMAINING_GOLDEN_SETS
 from src.hardening import (
     InMemoryRegressionCaseStore,
@@ -43,9 +44,7 @@ def test_failing_mock_case_is_captured_once_as_a_reusable_regression_case() -> N
     )
     store = InMemoryRegressionCaseStore((source,))
     pipeline = RegressionCapturePipeline(store)
-    failed = MockHarness().evaluate(
-        LAUNCH_GOLDEN_SETS[0].cases[0], {"strategy": "manager_worker"}
-    )
+    failed = MockHarness().evaluate(LAUNCH_GOLDEN_SETS[0].cases[0], {"strategy": "manager_worker"})
 
     first = pipeline.capture(source.id, failed)
     second = pipeline.capture(source.id, failed)
@@ -74,8 +73,41 @@ def test_passing_mock_case_never_creates_a_regression_case() -> None:
     )
     pipeline = RegressionCapturePipeline(InMemoryRegressionCaseStore((source,)))
 
-    result = pipeline.capture(source.id, MockHarness().evaluate(
-        REMAINING_GOLDEN_SETS[1].cases[0], {"outcome": "blocked"}
-    ))
+    result = pipeline.capture(
+        source.id, MockHarness().evaluate(REMAINING_GOLDEN_SETS[1].cases[0], {"outcome": "blocked"})
+    )
 
     assert result is None
+
+
+def test_redteam_suites_load_and_execute_without_a_live_model() -> None:
+    harness = MockHarness()
+
+    assert {golden_set.name: len(golden_set.cases) for golden_set in REDTEAM_GOLDEN_SETS} == {
+        "redteam-prompt-injection": 6,
+        "redteam-jailbreak": 6,
+        "redteam-ssrf": 6,
+    }
+    for golden_set in REDTEAM_GOLDEN_SETS:
+        for case in golden_set.cases:
+            assert case.scoring == {"matcher": "exact_json", "minimum_score": 1.0}
+            assert case.expected_json["outcome"] == "blocked"
+            assert "redteam" in case.tags
+            assert harness.evaluate(case, passing_mock_output(case)).passed is True
+
+
+def test_redteam_failure_is_captured_as_a_reusable_regression_case() -> None:
+    golden_set = REDTEAM_GOLDEN_SETS[2]
+    source = PersistedEvalCase(
+        id=uuid4(),
+        golden_set_id=golden_set.id,
+        input_json=dict(golden_set.cases[0].input_json),
+        expected_json=dict(golden_set.cases[0].expected_json),
+        scoring=dict(golden_set.cases[0].scoring),
+        tags=list(golden_set.cases[0].tags),
+    )
+    pipeline = RegressionCapturePipeline(InMemoryRegressionCaseStore((source,)))
+
+    captured = pipeline.capture(source.id, MockHarness().evaluate(golden_set.cases[0], {}))
+
+    assert captured is not None and captured.created is True
