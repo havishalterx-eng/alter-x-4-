@@ -105,7 +105,7 @@ export function createRuntimeNodeHandlerRegistry(
     new ToolCallHandler(providers.toolGateway),
     new HumanApprovalHandler(providers.approvalRequester),
     new SandboxExecHandler(providers.sandboxService),
-    new SynthesisHandler(),
+    new SynthesisHandler(providers.modelGateway, providers.verificationGateReader),
     new MemoryWriteHandler(),
   ]);
 }

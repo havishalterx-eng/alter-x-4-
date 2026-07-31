@@ -7,11 +7,10 @@ import type { NodeType, RegistryNodeTypeDescriptor } from "@alterx/contracts";
  *
  * handler_implemented is false for types whose real logic depends on
  * infrastructure not wired in yet:
- * - Synthesis: stub until the Output phase (doc explicitly says so).
  * - MemoryWrite: stub until the Knowledge phase (doc explicitly says so).
  * Gate, Merge, PubSub, GroupChat, YAMLImport (EXEC-1), LLMTask (EXEC-2),
- * ToolCall (EXEC-3), SandboxExec (EXEC-4), and HumanApproval (HEAL-7) have
- * real, tested handlers in ./handlers.
+ * ToolCall (EXEC-3), SandboxExec (EXEC-4), HumanApproval (HEAL-7), and
+ * Synthesis (OUT-2) have real, tested handlers in ./handlers.
  */
 
 interface CatalogEntry {
@@ -132,7 +131,7 @@ const CATALOG_ENTRIES: readonly CatalogEntry[] = [
     description: "Synthesizes a final answer from multiple upstream results.",
     category: "output",
     configSchema: { type: "object", properties: {} },
-    handlerImplemented: false,
+    handlerImplemented: true,
   },
   {
     type: "MemoryWrite",

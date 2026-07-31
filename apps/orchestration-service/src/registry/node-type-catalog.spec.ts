@@ -26,6 +26,7 @@ const IMPLEMENTED_TYPES = [
   "ToolCall",
   "SandboxExec",
   "HumanApproval",
+  "Synthesis",
 ];
 
 describe("listNodeTypeDescriptors", () => {
@@ -35,7 +36,7 @@ describe("listNodeTypeDescriptors", () => {
     expect(descriptors.map((d) => d.type).sort()).toEqual([...ALL_11_TYPES].sort());
   });
 
-  it("marks real handlers implemented (Synthesis/MemoryWrite remain explicit stubs)", () => {
+  it("marks real handlers implemented (MemoryWrite remains an explicit stub)", () => {
     const descriptors = listNodeTypeDescriptors();
 
     const implemented = descriptors.filter((d) => d.handler_implemented).map((d) => d.type);

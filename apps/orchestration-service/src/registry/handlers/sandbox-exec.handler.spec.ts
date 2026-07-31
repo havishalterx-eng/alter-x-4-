@@ -8,7 +8,6 @@ import { describe, expect, it, vi } from "vitest";
 import { NodeHandlerValidationError } from "../handler";
 import { SandboxExecHandler } from "./sandbox-exec.handler";
 import { MemoryWriteHandler } from "./memory-write.handler";
-import { SynthesisHandler } from "./synthesis.handler";
 
 const context = {
   config: {
@@ -63,7 +62,6 @@ describe("SandboxExecHandler", () => {
 
 describe("unimplemented execution handlers", () => {
   it.each([
-    [new SynthesisHandler(), "synthesis_not_implemented", "Output"],
     [new MemoryWriteHandler(), "memory_write_not_implemented", "Knowledge"],
   ] as const)("returns honest non-success state for %s", async (handler, code, phase) => {
     await expect(handler.execute({ config: {}, inputs: {} })).resolves.toEqual({

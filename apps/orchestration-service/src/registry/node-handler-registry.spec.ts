@@ -97,6 +97,54 @@ describe("NodeHandlerRegistry", () => {
     expect(result.output).toEqual({ results: [{ title: "AlterX" }] });
   });
 
+  it("runtime composition dispatches Synthesis through Model Gateway and the verification reader", async () => {
+    const invoke = vi.fn(async () => ({
+      output_json: JSON.stringify({ summary: "merged" }),
+      usage_json: "{}",
+      resolved_capability: "test",
+    }));
+    const registry = createRuntimeNodeHandlerRegistry({
+      modelGateway: { invoke },
+      toolGateway: { invoke: vi.fn() },
+      sandboxService: {
+        execute: async () => ({
+          exit_code: 0,
+          stdout_artifact_id: "",
+          stderr_artifact_id: "",
+          stdout: "",
+          stderr: "",
+        }),
+      },
+      queueProvider: createMockQueueProvider(),
+      approvalRequester: {
+        requestApproval: async () => ({
+          approvalId: "apr_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+          expiryAt: "2026-07-30T00:00:00.000Z",
+        }),
+      },
+      verificationGateReader: {
+        findForSourceNode: async () => [
+          { gateType: "quality", verdict: "pass", score: 0.9, threshold: 0.7, details: {} },
+        ],
+      },
+    });
+
+    const result = await registry.execute("Synthesis", {
+      config: {},
+      inputs: { node_a: { x: 1 } },
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      node_execution_id: NODE_EXECUTION_ID,
+    });
+
+    expect(invoke).toHaveBeenCalledOnce();
+    expect(result.output).toEqual({
+      deliverable: { summary: "merged" },
+      degraded: false,
+      gaps: [],
+    });
+  });
+
   it("runtime composition registers the real HumanApproval handler", async () => {
     await expect(
       runtimeRegistry().execute("HumanApproval", {
