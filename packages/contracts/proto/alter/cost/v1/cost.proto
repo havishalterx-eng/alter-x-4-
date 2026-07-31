@@ -17,6 +17,8 @@ message IngestCostEventRequest {
   string provider_reference = 5; // opaque external reference
   string usage_json = 6;
   string amount_json = 7;
+  string source = 8; // one of: model_gateway | tool_gateway | sandbox | storage | browser
+  string occurred_at = 9; // ISO 8601 timestamp, set by the emitting service
 }
 
 message IngestCostEventResponse {

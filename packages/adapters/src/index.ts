@@ -165,6 +165,22 @@ export {
   type RecoveryHandler,
 } from "./grpc/recovery-grpc-transport";
 export {
+  RUNS_HANDLER,
+  RunsGrpcController,
+  connectRunsGrpcTransport,
+  type RunsGrpcTransportConfig,
+  type RunsHandler,
+} from "./grpc/runs-grpc-transport";
+export { RunsClient, type RunsClientConfig, type RunsHandlerClient } from "./grpc/runs-client";
+export {
+  COST_HANDLER,
+  CostGrpcController,
+  startCostGrpcTransport,
+  type CostGrpcTransportConfig,
+  type CostHandler,
+} from "./grpc/cost-grpc-transport";
+export { CostClient, type CostClientConfig, type CostHandlerClient } from "./grpc/cost-client";
+export {
   BEDROCK_CAPABILITIES,
   AwsBedrockModelProvider,
   type AwsBedrockModelProviderConfig,

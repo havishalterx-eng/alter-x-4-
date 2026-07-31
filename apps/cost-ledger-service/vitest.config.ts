@@ -14,6 +14,7 @@ export default defineConfig({
         "apps/cost-ledger-service/src/database/**/*.ts",
         "apps/cost-ledger-service/src/estimation/**/*.ts",
         "apps/cost-ledger-service/src/health/**/*.ts",
+        "apps/cost-ledger-service/src/ingest/**/*.ts",
       ],
       exclude: ["apps/cost-ledger-service/src/**/*.spec.ts"],
     },

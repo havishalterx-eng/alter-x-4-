@@ -1,21 +1,29 @@
 import { Module, type DynamicModule } from "@nestjs/common";
 
+import { COST_HANDLER, CostGrpcController, type RunsHandlerClient } from "@alterx/adapters";
+
 import { COST_STORE_PROVIDER, type CostStoreProvider } from "./database/cost-store.token";
 import { CostStoreLifecycle } from "./database/store.lifecycle";
+import { CostIngestService, type CostEventStore } from "./ingest/cost-ingest.service";
 import { EstimationController } from "./estimation/estimation.controller";
 import { EstimationService } from "./estimation/estimation.service";
 import { HealthController } from "./health/health.controller";
 
 @Module({})
 export class AppModule {
-  static register(store: CostStoreProvider): DynamicModule {
+  static register(store: CostStoreProvider, runsClient: RunsHandlerClient): DynamicModule {
     return {
       module: AppModule,
-      controllers: [HealthController, EstimationController],
+      controllers: [CostGrpcController, HealthController, EstimationController],
       providers: [
         { provide: COST_STORE_PROVIDER, useValue: store },
         EstimationService,
         CostStoreLifecycle,
+        {
+          provide: COST_HANDLER,
+          useFactory: (): CostIngestService =>
+            new CostIngestService(store as unknown as CostEventStore, runsClient),
+        },
       ],
     };
   }

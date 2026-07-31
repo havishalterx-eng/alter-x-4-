@@ -484,6 +484,11 @@ export class SandboxService {
         trace_id: context.traceId,
       }),
       amount_json: JSON.stringify({ usd: 0, estimated: true }),
+      // "sandbox.browser.*" resource types are browser automation, a
+      // distinct cost_events source from the rest of the Sandbox's tools
+      // (cost_events.source CHECK constraint, OUT-1).
+      source: usage.resourceType.startsWith("sandbox.browser.") ? "browser" : "sandbox",
+      occurred_at: new Date().toISOString(),
     } satisfies Readonly<Record<string, JsonValue>>;
     try {
       await tools.costQueue.publish(tools.costEventsQueueName, event);

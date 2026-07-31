@@ -17,6 +17,8 @@ export {
 export {
   ApprovalIdSchema,
   AuditIdSchema,
+  CostIdSchema,
+  IsoTimestampSchema,
   NodeExecutionIdSchema,
   NonEmptyStringSchema,
   RecoveryActionIdSchema,
@@ -192,6 +194,16 @@ export type {
   SelectStrategyRequest as RecoverySelectStrategyRequest,
   SelectStrategyResponse as RecoverySelectStrategyResponse,
 } from "./generated/alter/recovery/v1/recovery";
+export type {
+  IngestCostEventRequest as CostIngestCostEventRequest,
+  IngestCostEventResponse as CostIngestCostEventResponse,
+  QueryRollupsRequest as CostQueryRollupsRequest,
+  QueryRollupsResponse as CostQueryRollupsResponse,
+} from "./generated/alter/cost/v1/cost";
+export type {
+  GetRunWorkspaceRequest as RunsGetRunWorkspaceRequest,
+  GetRunWorkspaceResponse as RunsGetRunWorkspaceResponse,
+} from "./generated/alter/runs/v1/runs";
 export {
   CompiledDagSchema,
   NodeRequirementsSchema,

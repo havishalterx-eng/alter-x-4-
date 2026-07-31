@@ -8,6 +8,7 @@ import {
   NODEEXEC_HANDLER,
   RECOVERY_HANDLER,
   REGISTRY_HANDLER,
+  RUNS_HANDLER,
   BlackboardGrpcController,
   CompilerGrpcController,
   ConversationDispatchClient,
@@ -22,6 +23,7 @@ import {
   RedisCacheProvider,
   RecoveryGrpcController,
   RegistryGrpcController,
+  RunsGrpcController,
   TemporalDurableExecutionProvider,
   ToolGatewayClient,
 } from "@alterx/adapters";
@@ -46,6 +48,7 @@ import { RunStreamController } from "./runs/run-stream.controller";
 import { RunLauncherService } from "./runs/run-launcher.service";
 import { RunsController } from "./runs/runs.controller";
 import { RunOutcomeService } from "./runs/run-outcome.service";
+import { RunWorkspaceLookupService } from "./runs/run-workspace-lookup.service";
 import { RunLearningController } from "./runs/run-learning.controller";
 import { loadRunLauncherEnvironment } from "./config/run-launcher-environment";
 import { ApprovalsController } from "./approvals/approvals.controller";
@@ -89,6 +92,7 @@ import { OrchestrationDeletionService } from "./deletion/deletion.service";
     NodeexecGrpcController,
     BlackboardGrpcController,
     RecoveryGrpcController,
+    RunsGrpcController,
     NodeExecutionsController,
     RunStreamController,
     RunsController,
@@ -330,6 +334,30 @@ import { OrchestrationDeletionService } from "./deletion/deletion.service";
     {
       provide: RECOVERY_HANDLER,
       useFactory: () => buildRecoveryPolicyService(),
+    },
+    {
+      provide: RUNS_HANDLER,
+      useFactory: () => {
+        // Own store instance, same reasoning as every other factory here
+        // (see the ApprovalsService comment above): not maximally
+        // efficient, but correct and isolated.
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        const lookup = new RunWorkspaceLookupService(store);
+        return {
+          getRunWorkspace: async (request: { tenant_id: string; run_id: string }) => ({
+            workspace_id: await lookup.getWorkspaceId(request.tenant_id, request.run_id),
+          }),
+        };
+      },
     },
     {
       provide: NodeExecutionLedgerService,

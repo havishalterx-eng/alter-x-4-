@@ -484,11 +484,13 @@ describe("ModelGatewayService", () => {
       node_execution_id: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
       provider_reference: "aws-bedrock",
       usage_json: JSON.stringify({ input_tokens: 100, output_tokens: 50 }),
+      source: "model_gateway",
     });
     expect(messageRecord.cost_event_id).toMatch(/^cst_/);
     expect(JSON.parse(messageRecord.amount_json ?? "")).toMatchObject({
       estimated: true,
     });
+    expect(new Date(messageRecord.occurred_at ?? "").toString()).not.toBe("Invalid Date");
   });
 
   it("returns a successful response even when cost-event publish fails -- best-effort, never blocks", async () => {

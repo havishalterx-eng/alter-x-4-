@@ -3,12 +3,19 @@ import "reflect-metadata";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { NestFactory } from "@nestjs/core";
 
-import { AwsSecretsManagerProvider, PostgresCostStoreProvider } from "@alterx/adapters";
+import {
+  AwsSecretsManagerProvider,
+  PostgresCostStoreProvider,
+  RunsClient,
+  startCostGrpcTransport,
+} from "@alterx/adapters";
 
 import { AppModule } from "./app.module";
 import { loadCostLedgerEnvironment } from "./config/environment";
 import { COST_MIGRATIONS_PATH } from "./database/migrations-path";
 import { resolveDatabaseConnectionString } from "./database/resolve-database-secret";
+import { COST_PROTO_PATH } from "./ingest/grpc.constants";
+import { RUNS_CLIENT_PROTO_PATH } from "./ingest/runs-client.constants";
 
 async function bootstrap(): Promise<void> {
   const environment = loadCostLedgerEnvironment(process.env);
@@ -40,10 +47,19 @@ async function bootstrap(): Promise<void> {
     }
     await store.migrate();
 
+    const runsClient = new RunsClient({
+      address: environment.runsServiceAddress,
+      protoPath: RUNS_CLIENT_PROTO_PATH,
+    });
+
     const app = await NestFactory.create<NestFastifyApplication>(
-      AppModule.register(store),
+      AppModule.register(store, runsClient),
       new FastifyAdapter(),
     );
+    await startCostGrpcTransport(app, {
+      bindAddress: environment.grpcBindAddress,
+      protoPath: COST_PROTO_PATH,
+    });
     app.enableShutdownHooks();
     await app.listen(environment.httpPort, "0.0.0.0");
   } catch (error: unknown) {

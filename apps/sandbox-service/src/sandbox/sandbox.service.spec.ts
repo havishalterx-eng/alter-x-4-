@@ -318,8 +318,10 @@ describe("SandboxService EXEC-13 tools", () => {
       "amount_json",
       "cost_event_id",
       "node_execution_id",
+      "occurred_at",
       "provider_reference",
       "run_id",
+      "source",
       "tenant_id",
       "usage_json",
     ]);
@@ -329,7 +331,9 @@ describe("SandboxService EXEC-13 tools", () => {
       run_id: CONTEXT.runId,
       node_execution_id: CONTEXT.nodeExecutionId,
       provider_reference: "sandbox-calculator",
+      source: "sandbox",
     });
+    expect(new Date(event.occurred_at ?? "").toString()).not.toBe("Invalid Date");
     expect(JSON.parse(event.usage_json ?? "{}")).toEqual({
       resource_type: "sandbox.calculator.compute",
       provider: "sandbox-calculator",

@@ -354,6 +354,8 @@ export class ModelGatewayService implements ModelgwHandler {
           usd: estimatedCostUsd,
           estimated: true,
         }),
+        source: "model_gateway",
+        occurred_at: new Date().toISOString(),
       });
     } catch {
       // Cost-event emission is best-effort: an unreachable or throttled

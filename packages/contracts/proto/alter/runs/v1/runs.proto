@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package alter.runs.v1;
+
+// Internal lookup used by services outside the request path (e.g. the Cost
+// Ledger's async ingestion consumer, OUT-4) that need a run's workspace_id
+// but must not join across orchestration_db's boundary (doc 04 SS1: one
+// service per database, no cross-database joins).
+service RunLookupService {
+  rpc GetRunWorkspace(GetRunWorkspaceRequest) returns (GetRunWorkspaceResponse);
+}
+
+message GetRunWorkspaceRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+}
+
+message GetRunWorkspaceResponse {
+  reserved 100 to 199;
+
+  string workspace_id = 1; // ws_ prefixed UUIDv7
+}

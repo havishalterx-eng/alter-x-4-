@@ -4,6 +4,11 @@ interface CostLedgerEnvironmentBase {
   readonly alterEnvironment: (typeof ALTER_ENVIRONMENTS)[number];
   readonly serviceName: "cost-ledger-service";
   readonly httpPort: number;
+  readonly grpcBindAddress: string;
+  // Real cross-service dependency for OUT-4's workspace_id resolution
+  // (see RunLookupService, orchestration-service). Default matches
+  // orchestration-service's own RUNS_GRPC_BIND_ADDRESS default port.
+  readonly runsServiceAddress: string;
 }
 
 export interface CostLedgerIamEnvironment extends CostLedgerEnvironmentBase {
@@ -61,6 +66,17 @@ function parseDatabasePort(value: string): number {
   return port;
 }
 
+function parseGrpcAddress(value: string | undefined): string {
+  const address = value?.trim() ?? "0.0.0.0:50060";
+  if (!/^(?:\d{1,3}\.){3}\d{1,3}:\d{1,5}$/.test(address)) {
+    throw new CostLedgerConfigurationError(
+      "COST_GRPC_BIND_ADDRESS",
+      "must be an IPv4 address and port",
+    );
+  }
+  return address;
+}
+
 export function loadCostLedgerEnvironment(
   environment: NodeJS.ProcessEnv,
 ): CostLedgerEnvironment {
@@ -88,6 +104,8 @@ export function loadCostLedgerEnvironment(
     alterEnvironment: alterEnvironment as CostLedgerEnvironment["alterEnvironment"],
     serviceName,
     httpPort: parsePort(environment.PORT),
+    grpcBindAddress: parseGrpcAddress(environment.COST_GRPC_BIND_ADDRESS),
+    runsServiceAddress: environment.RUNS_SERVICE_ADDRESS?.trim() ?? "localhost:50059",
   };
 
   if (alterEnvironment === "local") {
