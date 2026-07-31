@@ -1,4 +1,4 @@
-"""Seed the three version-1 HARD-5 red-team suites."""
+"""Seed the two version-1 HARD-6 red-team suites."""
 
 import json
 from collections.abc import Sequence
@@ -10,14 +10,12 @@ from alembic import op
 from src.db.launch_golden_sets import case_id
 from src.db.redteam_suites import REDTEAM_GOLDEN_SETS
 
-revision: str = "0004"
-down_revision: str | None = "0003"
+revision: str = "0005"
+down_revision: str | None = "0004"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# Migrations are immutable snapshots: HARD-5 owns only the original three
-# suites even though the versioned catalog has since grown in later tokens.
-_HARD5_REDTEAM_SETS = REDTEAM_GOLDEN_SETS[:3]
+_HARD6_REDTEAM_SETS = REDTEAM_GOLDEN_SETS[-2:]
 
 
 def _sql_literal(value: object) -> str:
@@ -30,7 +28,7 @@ def _ddl(statement: str) -> Any:
 
 def upgrade() -> None:
     op.execute(sa.text("SELECT set_config('app.eval_internal', 'on', true)"))
-    for golden_set in _HARD5_REDTEAM_SETS:
+    for golden_set in _HARD6_REDTEAM_SETS:
         op.execute(
             _ddl(
                 "INSERT INTO golden_sets(id, name, domain, version, status) VALUES "
@@ -54,10 +52,10 @@ def upgrade() -> None:
 def downgrade() -> None:
     case_ids = [
         case_id(golden_set, position)
-        for golden_set in _HARD5_REDTEAM_SETS
+        for golden_set in _HARD6_REDTEAM_SETS
         for position, _case in enumerate(golden_set.cases, start=1)
     ]
-    golden_set_ids = [golden_set.id for golden_set in _HARD5_REDTEAM_SETS]
+    golden_set_ids = [golden_set.id for golden_set in _HARD6_REDTEAM_SETS]
     case_id_sql = ",".join(repr(str(value)) for value in case_ids)
     golden_set_id_sql = ",".join(repr(str(value)) for value in golden_set_ids)
     op.execute(_ddl(f"DELETE FROM eval_cases WHERE id IN ({case_id_sql})"))

@@ -14,6 +14,7 @@ from src.db.launch_golden_sets import LAUNCH_GOLDEN_SETS, case_id
 from src.db.redteam_suites import REDTEAM_GOLDEN_SETS
 from src.db.remaining_golden_sets import REMAINING_GOLDEN_SETS
 from src.hardening import MockHarness, RegressionCapturePipeline, SqlAlchemyRegressionCaseStore
+from src.release_gates import ReleaseGateRecorder
 
 SERVICE_ROOT = Path(__file__).parent.parent
 MIGRATION = SERVICE_ROOT / "alembic" / "versions" / "0001_create_eval_tables.py"
@@ -271,7 +272,8 @@ def test_live_redteam_suites_are_seeded_and_readable_by_eval_service(pg_url: str
                 "FROM golden_sets LEFT JOIN eval_cases "
                 "ON eval_cases.golden_set_id = golden_sets.id "
                 "WHERE golden_sets.name IN "
-                "('redteam-prompt-injection', 'redteam-jailbreak', 'redteam-ssrf') "
+                "('redteam-prompt-injection', 'redteam-jailbreak', 'redteam-ssrf', "
+                "'redteam-malicious-upload', 'redteam-cross-tenant-leakage') "
                 "GROUP BY golden_sets.name"
             )
         ).all()
@@ -290,3 +292,58 @@ def test_live_redteam_suites_are_seeded_and_readable_by_eval_service(pg_url: str
         assert ssrf_case["input"]["attack"] == "ssrf"
         assert ssrf_case["expected"]["outcome"] == "blocked"
         assert "redteam" in ssrf_case["tags"]
+
+
+def test_live_release_gate_is_derived_from_completed_eval_run(pg_url: str) -> None:
+    engine = sa.create_engine(pg_url)
+    with engine.connect() as conn:
+        _service_context(conn)
+        golden_set_id = conn.execute(
+            sa.text(
+                "INSERT INTO golden_sets(name, domain, version) VALUES "
+                "('release-gate-test', 'hardening', 1) RETURNING id"
+            )
+        ).scalar_one()
+        approved_run_id = conn.execute(
+            sa.text(
+                "INSERT INTO eval_runs(golden_set_id, golden_set_version, subject, trigger, "
+                "status, pass_rate, started_at, completed_at) VALUES "
+                "(:set_id, 1, 'engine@candidate', 'pre_merge', 'completed', 1, now(), now()) "
+                "RETURNING id"
+            ),
+            {"set_id": golden_set_id},
+        ).scalar_one()
+        blocked_run_id = conn.execute(
+            sa.text(
+                "INSERT INTO eval_runs(golden_set_id, golden_set_version, subject, trigger, "
+                "status, pass_rate, started_at, completed_at) VALUES "
+                "(:set_id, 1, 'engine@candidate', 'pre_merge', 'completed', 0.8, now(), now()) "
+                "RETURNING id"
+            ),
+            {"set_id": golden_set_id},
+        ).scalar_one()
+
+        recorder = ReleaseGateRecorder(sessionmaker(bind=conn, class_=Session))
+        approved = recorder.record(
+            subject="engine@candidate", eval_run_id=approved_run_id, decided_by="ci"
+        )
+        blocked = recorder.record(
+            subject="engine@candidate", eval_run_id=blocked_run_id, decided_by="ci"
+        )
+
+        assert approved.decision == "approved"
+        assert blocked.decision == "blocked"
+        records = (
+            conn.execute(
+                sa.text(
+                    "SELECT eval_run_id, decision, decided_by FROM release_gates "
+                    "ORDER BY created_at"
+                )
+            )
+            .mappings()
+            .all()
+        )
+        assert {(row["eval_run_id"], row["decision"], row["decided_by"]) for row in records} >= {
+            (approved_run_id, "approved", "ci"),
+            (blocked_run_id, "blocked", "ci"),
+        }

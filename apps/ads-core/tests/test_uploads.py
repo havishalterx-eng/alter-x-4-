@@ -125,9 +125,7 @@ def client(database: DatabaseHarness) -> Generator[TestClient, None, None]:
         repository=repository,
         validator=PayloadValidator(
             max_content_bytes=settings.ads_ingestion_max_content_bytes,
-            allowed_content_types=frozenset(
-                {"application/json", "text/plain", "application/pdf"}
-            ),
+            allowed_content_types=frozenset({"application/json", "text/plain", "application/pdf"}),
         ),
         scanner=DisclosedStubScanner((b"EICAR-STANDARD-ANTIVIRUS-TEST-FILE",)),
         normalizer=TextAwareNormalizer(),
@@ -255,6 +253,45 @@ def test_complete_upload_rejects_oversized_object(client: TestClient) -> None:
         headers={"X-Alter-Tenant-Id": tenant_id},
     )
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("content", "content_type", "error_code"),
+    (
+        (b"MZ executable", "application/x-msdownload", "content_type_not_allowed"),
+        (b"not-json", "application/json", "malformed_content"),
+        (
+            b"EICAR-STANDARD-ANTIVIRUS-TEST-FILE",
+            "text/plain",
+            "known_bad_signature",
+        ),
+        (b"\xff\xfe", "text/plain", "malformed_content"),
+    ),
+)
+def test_redteam_malicious_uploads_fail_in_the_real_ingestion_router(
+    client: TestClient,
+    database: DatabaseHarness,
+    content: bytes,
+    content_type: str,
+    error_code: str,
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+
+    response = client.post(
+        "/ads/ingestion/uploads",
+        content=content,
+        headers={
+            "Content-Type": content_type,
+            "X-Alter-Tenant-Id": tenant_id,
+            "X-Alter-Source-Id": source_id,
+        },
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["stage"] == "failed"
+    assert body["error"]["code"] == error_code
 
 
 def test_get_ingestion_job_returns_real_status(

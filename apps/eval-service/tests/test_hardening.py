@@ -87,6 +87,8 @@ def test_redteam_suites_load_and_execute_without_a_live_model() -> None:
         "redteam-prompt-injection": 6,
         "redteam-jailbreak": 6,
         "redteam-ssrf": 6,
+        "redteam-malicious-upload": 5,
+        "redteam-cross-tenant-leakage": 5,
     }
     for golden_set in REDTEAM_GOLDEN_SETS:
         for case in golden_set.cases:

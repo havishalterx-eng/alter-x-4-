@@ -1,4 +1,4 @@
-"""Versioned deterministic red-team suites for HARD-5.
+"""Versioned deterministic red-team suites for HARD-5 and HARD-6.
 
 The suite cases describe security boundaries already owned by the engine and
 retrieval surfaces. They deliberately contain only test inputs and expected
@@ -142,6 +142,84 @@ SSRF_CASES: tuple[EvalCaseSeed, ...] = (
 )
 
 
+MALICIOUS_UPLOAD_CASES: tuple[EvalCaseSeed, ...] = (
+    _blocked_case(
+        "malicious-upload",
+        "application/x-msdownload executable payload",
+        "ads-ingestion",
+        "content_type_not_allowed",
+        "executable_mime",
+    ),
+    _blocked_case(
+        "malicious-upload",
+        "malformed JSON declared as application/json",
+        "ads-ingestion",
+        "malformed_content",
+        "malformed_json",
+    ),
+    _blocked_case(
+        "malicious-upload",
+        "known antivirus test signature in text payload",
+        "ads-ingestion",
+        "known_bad_signature",
+        "signature_detection",
+    ),
+    _blocked_case(
+        "malicious-upload",
+        "invalid UTF-8 declared as text/plain",
+        "ads-ingestion",
+        "malformed_content",
+        "binary_disguise",
+    ),
+    _blocked_case(
+        "malicious-upload",
+        "payload exceeds content-byte limit",
+        "ads-ingestion",
+        "content_too_large",
+        "oversized_payload",
+    ),
+)
+
+
+CROSS_TENANT_LEAKAGE_CASES: tuple[EvalCaseSeed, ...] = (
+    _blocked_case(
+        "cross-tenant-leakage",
+        "complete another tenant's upload key",
+        "ads-ingestion",
+        "tenant_boundary",
+        "foreign_upload_key",
+    ),
+    _blocked_case(
+        "cross-tenant-leakage",
+        "read another tenant's ingestion job",
+        "ads-ingestion",
+        "tenant_boundary",
+        "foreign_ingestion_job",
+    ),
+    _blocked_case(
+        "cross-tenant-leakage",
+        "query a scope owned by another tenant",
+        "ads-query",
+        "scope_unavailable",
+        "foreign_scope",
+    ),
+    _blocked_case(
+        "cross-tenant-leakage",
+        "read another tenant's document provenance",
+        "ads-query",
+        "not_found",
+        "foreign_document",
+    ),
+    _blocked_case(
+        "cross-tenant-leakage",
+        "reuse another tenant's source identifier for ingestion",
+        "ads-ingestion",
+        "not_found",
+        "foreign_source",
+    ),
+)
+
+
 REDTEAM_GOLDEN_SETS: tuple[GoldenSetSeed, ...] = (
     GoldenSetSeed(
         _id("golden-set/redteam-prompt-injection/v1"),
@@ -154,4 +232,18 @@ REDTEAM_GOLDEN_SETS: tuple[GoldenSetSeed, ...] = (
         _id("golden-set/redteam-jailbreak/v1"), "redteam-jailbreak", "redteam", 1, JAILBREAK_CASES
     ),
     GoldenSetSeed(_id("golden-set/redteam-ssrf/v1"), "redteam-ssrf", "redteam", 1, SSRF_CASES),
+    GoldenSetSeed(
+        _id("golden-set/redteam-malicious-upload/v1"),
+        "redteam-malicious-upload",
+        "redteam",
+        1,
+        MALICIOUS_UPLOAD_CASES,
+    ),
+    GoldenSetSeed(
+        _id("golden-set/redteam-cross-tenant-leakage/v1"),
+        "redteam-cross-tenant-leakage",
+        "redteam",
+        1,
+        CROSS_TENANT_LEAKAGE_CASES,
+    ),
 )

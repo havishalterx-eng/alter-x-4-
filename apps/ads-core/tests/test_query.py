@@ -133,6 +133,24 @@ def _seed(admin: sa.Engine) -> tuple[str, str, str, str, str]:
     return f"ten_{tenant}", f"ws_{workspace}", scope, document, f"ws_{other_workspace}"
 
 
+def _seed_empty_tenant(admin: sa.Engine) -> tuple[str, str, str]:
+    tenant = str(uuid.uuid4())
+    workspace = str(uuid.uuid4())
+    scope = new_prefixed_id("scp")
+    with admin.begin() as connection:
+        connection.execute(
+            sa.text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
+            {"tenant": tenant},
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO scopes(id,tenant_id,workspace_id) VALUES (:id,:tenant,:workspace)"
+            ),
+            {"id": scope, "tenant": tenant, "workspace": workspace},
+        )
+    return f"ten_{tenant}", f"ws_{workspace}", scope
+
+
 def test_hybrid_query_filters_metadata_scopes_and_audits(
     retrieval_service: tuple[RetrievalService, sa.Engine],
 ) -> None:
@@ -162,12 +180,16 @@ def test_hybrid_query_filters_metadata_scopes_and_audits(
     assert adsq_provenance["ranking_version"] == "know9-v1"
     assert response.audited_at is not None
     with admin.connect() as connection:
-        audit = connection.execute(
-            sa.text(
-                "SELECT scope_inputs, filters, candidate_ids, result_doc_ids, "
-                "ranking_summary, outcome FROM retrieval_audit"
+        audit = (
+            connection.execute(
+                sa.text(
+                    "SELECT scope_inputs, filters, candidate_ids, result_doc_ids, "
+                    "ranking_summary, outcome FROM retrieval_audit"
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
     assert audit["scope_inputs"]["scope_ids"] == [scope]
     assert audit["filters"] == {"department": "support"}
     assert audit["candidate_ids"]["chunk_ids"] == [response.hits[0].chunk_id]
@@ -220,3 +242,38 @@ def test_retrieval_backpressure_is_audited(
             )
             == "backpressured"
         )
+
+
+def test_redteam_cross_tenant_scope_is_rejected_without_leaking_hits(
+    retrieval_service: tuple[RetrievalService, sa.Engine],
+) -> None:
+    service, admin = retrieval_service
+    _, _, foreign_scope, foreign_document, _ = _seed(admin)
+    tenant, workspace, own_scope = _seed_empty_tenant(admin)
+
+    with pytest.raises(ScopeViolationError):
+        service.retrieve(
+            RetrievalRequest(
+                tenant_id=tenant,
+                workspace_id=workspace,
+                requester="svc_engine",
+                query="refund policy",
+                scope_ids=(foreign_scope,),
+            )
+        )
+
+    assert service.provenance(tenant_id=tenant, document_id=foreign_document) is None
+    with admin.connect() as connection:
+        audit = (
+            connection.execute(
+                sa.text(
+                    "SELECT outcome, result_doc_ids FROM retrieval_audit "
+                    "ORDER BY created_at DESC LIMIT 1"
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert audit["outcome"] == "rejected"
+    assert audit["result_doc_ids"] == {"document_ids": []}
+    assert own_scope.startswith("scp_")
