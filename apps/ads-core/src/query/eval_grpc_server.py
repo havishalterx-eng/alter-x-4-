@@ -20,6 +20,15 @@ approximation. Documents are inserted with their literal doc_* string as
 random doc_ ids) -- same deliberate shortcut the golden-set test already
 takes, for the same reason: the golden set's expected_document_key values
 need stable, named ids to assert against.
+
+HARD-7g also seeds a second, distinct tenant's ("tenant-b") own scope and
+one uniquely-worded document, gated behind optional EVAL_ADS_TENANT_B_*
+env vars -- for the tenant-isolation golden set's ads_retrieve case: a
+real query for tenant-b's exact wording, issued under tenant-a's own
+valid scope, must return zero hits. That's real Postgres RLS
+(`app.current_tenant_id`), not an application-level filter -- tenant-b's
+chunks are invisible to a tenant-a-scoped session regardless of query
+content.
 """
 
 from __future__ import annotations
@@ -181,6 +190,72 @@ def _seed_corpus(
             )
 
 
+_TENANT_B_UNIQUE_DOCUMENT = (
+    "doc_tenant_b_isolation_probe",
+    "zynqvortal proprietary rollout schedule for tenant b only",
+)
+
+
+def _seed_tenant_b_probe(
+    engine: sa.Engine, *, tenant_id: str, workspace_id: str, scope_id: str, source_id: str
+) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
+            {"tenant": tenant_id},
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO scopes(id,tenant_id,workspace_id) VALUES (:id,:tenant,:workspace) "
+                "ON CONFLICT (id) DO NOTHING"
+            ),
+            {"id": scope_id, "tenant": tenant_id, "workspace": workspace_id},
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO sources(id,tenant_id,scope_id,kind) "
+                "VALUES (:id,:tenant,:scope,'upload') ON CONFLICT (id) DO NOTHING"
+            ),
+            {"id": source_id, "tenant": tenant_id, "scope": scope_id},
+        )
+        document_id, text_value = _TENANT_B_UNIQUE_DOCUMENT
+        connection.execute(
+            sa.text(
+                "INSERT INTO documents"
+                "(id,tenant_id,scope_id,source_id,kind,current_version,status) "
+                "VALUES (:id,:tenant,:scope,:source,'file',1,'active') "
+                "ON CONFLICT (id) DO NOTHING"
+            ),
+            {"id": document_id, "tenant": tenant_id, "scope": scope_id, "source": source_id},
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO document_versions(document_id,version,content_ref,provenance) "
+                "VALUES (:id,1,'ref','{}'::jsonb) ON CONFLICT DO NOTHING"
+            ),
+            {"id": document_id},
+        )
+        embedding = FeatureHashingEmbeddings().embed(
+            tenant_id=tenant_id, text=text_value, dimensions=1024
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO chunks(id,tenant_id,scope_id,document_id,document_version,seq,"
+                "text_content,embedding,embedding_provider,embedding_model,embedding_version) "
+                "VALUES (:id,:tenant,:scope,:document,1,0,:text,CAST(:embedding AS vector),"
+                "'test','feature-hashing-test-v1','v1') ON CONFLICT DO NOTHING"
+            ),
+            {
+                "id": new_prefixed_id("chk"),
+                "tenant": tenant_id,
+                "scope": scope_id,
+                "document": document_id,
+                "text": text_value,
+                "embedding": "[" + ",".join(str(v) for v in embedding.vector) + "]",
+            },
+        )
+
+
 def serve() -> None:
     db_url = os.environ["EVAL_ADS_DB_URL"]
     service_root = os.environ[SERVICE_ROOT_ENV]
@@ -201,6 +276,16 @@ def serve() -> None:
         scope_id=scope_id,
         source_id=new_prefixed_id("src"),
     )
+
+    tenant_b_id = os.environ.get("EVAL_ADS_TENANT_B_ID")
+    if tenant_b_id:
+        _seed_tenant_b_probe(
+            engine,
+            tenant_id=tenant_b_id,
+            workspace_id=os.environ["EVAL_ADS_TENANT_B_WORKSPACE_ID"],
+            scope_id=os.environ["EVAL_ADS_TENANT_B_SCOPE_ID"],
+            source_id=new_prefixed_id("src"),
+        )
 
     service = RetrievalService(
         repository=SqlAlchemyRetrievalRepository(

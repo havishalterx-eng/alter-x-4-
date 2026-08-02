@@ -27,9 +27,21 @@ eval_security_http_server.ts's PromptInjectionClassifier wiring);
 'ssrf' -> pure, deterministic IP-blocklist logic, no LLM needed; 'upload'
 -> ads-core's real, existing production presign route, not eval-only
 scaffolding.
+HARD-7g adds 'tenant-isolation' for 2 of its real 20 cases (this domain
+is far more fragmented than the others -- 20 cases, ~12 different real
+services, each its own isolation mechanism; most are disclosed follow-up,
+not built here): 'ads_retrieve' (real Postgres RLS -- a query for
+tenant-b's uniquely-worded probe document, issued under tenant-a's own
+valid scope, must never return that document; ads-core's real Retrieve
+RPC always returns top_k candidates rather than a literally empty list,
+so "empty_result" here means "the tenant-b probe never appears", the
+real security property under test, not a literal array-length check) and
+'tool_resolve_credential' (real, pure ownership check in tool-gateway's
+production ResolveCredential -- no eval-only entrypoint needed, the
+cross-tenant case throws before ever touching a real secrets provider).
 planner's decompose/replan operations still need real ADS+LLM wiring,
 deliberately left real-failing (never silently skipped) -- same
-disclosed-gap pattern as the remaining domains (recovery,
+disclosed-gap pattern as the remaining domains (recovery, most of
 tenant-isolation, workflow/project E2E), each its own follow-up. See
 EvalRunOrchestrator.run()'s domain check and _score_case's operation
 dispatch.
@@ -51,6 +63,7 @@ from .intent_client import IntentClient
 from .planner_client import PlannerClient
 from .retrieval_client import RetrievalClient
 from .security_client import SecurityEvalClient, UploadEvalClient
+from .toolgw_client import ToolgwClient
 from .verification_client import VerificationClient
 
 # Real, fixed synthetic identity for every case this orchestrator scores --
@@ -72,7 +85,13 @@ _EVAL_ADS_TENANT_ID = "ten_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 _EVAL_ADS_WORKSPACE_ID = "ws_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 _EVAL_ADS_SCOPE_ID = "scp_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 
-SUPPORTED_DOMAINS = frozenset({"verification", "planner", "retrieval", "intent", "injection"})
+# Tenant-b probe document key -- must match
+# apps/ads-core/src/query/eval_grpc_server.py's own _TENANT_B_UNIQUE_DOCUMENT.
+_TENANT_B_PROBE_DOCUMENT_ID = "doc_tenant_b_isolation_probe"
+
+SUPPORTED_DOMAINS = frozenset(
+    {"verification", "planner", "retrieval", "intent", "injection", "tenant-isolation"}
+)
 
 _SUBJECT_BY_DOMAIN = {
     "verification": "verification-service",
@@ -80,6 +99,7 @@ _SUBJECT_BY_DOMAIN = {
     "retrieval": "ads-core",
     "intent": "orchestration-service",
     "injection": "orchestration-service",
+    "tenant-isolation": "multi-service",
 }
 
 
@@ -111,6 +131,8 @@ class EvalRunOrchestrator:
         intent_client: IntentClient,
         security_client: SecurityEvalClient,
         upload_client: UploadEvalClient,
+        tenant_isolation_retrieval_client: RetrievalClient,
+        toolgw_client: ToolgwClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -119,6 +141,8 @@ class EvalRunOrchestrator:
         self._intent_client = intent_client
         self._security_client = security_client
         self._upload_client = upload_client
+        self._tenant_isolation_retrieval_client = tenant_isolation_retrieval_client
+        self._toolgw_client = toolgw_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -203,6 +227,8 @@ class EvalRunOrchestrator:
             return self._score_intent_case(case)
         if domain == "injection":
             return self._score_injection_case(case)
+        if domain == "tenant-isolation":
+            return self._score_tenant_isolation_case(case)
         return self._score_verification_case(case)
 
     def _score_verification_case(self, case: EvalCase) -> _CaseVerdict:
@@ -356,6 +382,62 @@ class EvalRunOrchestrator:
             verdict=real_verdict,
             score=result.confidence,
             details={"observed": observed, "expected": expected, "confidence": result.confidence},
+        )
+
+    def _score_tenant_isolation_case(self, case: EvalCase) -> _CaseVerdict:
+        operation = str(case.input_json["operation"])
+        expected = case.expected_json
+
+        try:
+            if operation == "ads_retrieve":
+                result = self._tenant_isolation_retrieval_client.retrieve(
+                    tenant_id=_EVAL_ADS_TENANT_ID,
+                    workspace_id=_EVAL_ADS_WORKSPACE_ID,
+                    query="zynqvortal proprietary rollout schedule",
+                    scope_ids=(_EVAL_ADS_SCOPE_ID,),
+                    top_k=10,
+                    requester="eval-service",
+                )
+                probe_leaked = _TENANT_B_PROBE_DOCUMENT_ID in result.document_ids
+                observed_outcome = "empty_result" if not probe_leaked else "leaked"
+                extra: dict[str, object] = {"document_ids": list(result.document_ids)}
+            elif operation == "tool_resolve_credential":
+                credential_ref = (
+                    "/alter/prod/tenant/ten_018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb/"
+                    "integration/itg_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee/secret"
+                )
+                outcome = self._toolgw_client.resolve_credential(
+                    tenant_id=_EVAL_TENANT_ID,
+                    integration_id="itg_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee",
+                    credential_ref=credential_ref,
+                )
+                observed_outcome = "denied" if outcome.denied else "allowed"
+                extra = {"error_message": outcome.error_message}
+            else:
+                return _CaseVerdict(
+                    verdict="fail",
+                    score=0.0,
+                    details={
+                        "error": f"unsupported operation {operation!r} for domain=tenant-isolation "
+                        "(only ads_retrieve and tool_resolve_credential are real as of HARD-7g; "
+                        "the other 18 of 20 real tenant-isolation cases are disclosed follow-up "
+                        "scope, see orchestrator.py's own module doc)"
+                    },
+                )
+        except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={"error": f"tenant-isolation call failed for {operation!r}: {error}"},
+            )
+
+        observed = {"outcome": observed_outcome}
+        real_verdict = "pass" if observed == expected else "fail"
+
+        return _CaseVerdict(
+            verdict=real_verdict,
+            score=1.0 if real_verdict == "pass" else 0.0,
+            details={"observed": observed, "expected": expected, "operation": operation, **extra},
         )
 
     def _score_injection_case(self, case: EvalCase) -> _CaseVerdict:

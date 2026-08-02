@@ -36,6 +36,7 @@ from src.execution.orchestrator import (
 from src.execution.planner_client import PlannerClient
 from src.execution.retrieval_client import RetrievalClient
 from src.execution.security_client import SecurityEvalClient, UploadEvalClient
+from src.execution.toolgw_client import ToolgwClient
 from src.execution.verification_client import VerificationClient
 
 SERVICE_ROOT = Path(__file__).parent.parent
@@ -50,6 +51,7 @@ _UNUSED_RETRIEVAL_TARGET = "127.0.0.1:1"
 _UNUSED_INTENT_TARGET = "127.0.0.1:1"
 _UNUSED_SECURITY_TARGET = "http://127.0.0.1:1"
 _UNUSED_UPLOAD_TARGET = "http://127.0.0.1:1"
+_UNUSED_TOOLGW_TARGET = "127.0.0.1:1"
 
 # Must match apps/ads-core/src/query/eval_grpc_server.py's own literal
 # values -- see orchestrator.py's _EVAL_ADS_* constants for why these must
@@ -338,6 +340,8 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
+    tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -346,6 +350,8 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         intent_client,
         security_client,
         upload_client,
+        tenant_isolation_retrieval_client,
+        toolgw_client,
     )
 
     try:
@@ -357,6 +363,8 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         intent_client.close()
         security_client.close()
         upload_client.close()
+        tenant_isolation_retrieval_client.close()
+        toolgw_client.close()
 
     assert summary.total_cases == 20
     assert summary.passed == 20
@@ -388,6 +396,8 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
+    tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -396,6 +406,8 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         intent_client,
         security_client,
         upload_client,
+        tenant_isolation_retrieval_client,
+        toolgw_client,
     )
     try:
         first = orchestrator.run("verification")
@@ -407,6 +419,8 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         intent_client.close()
         security_client.close()
         upload_client.close()
+        tenant_isolation_retrieval_client.close()
+        toolgw_client.close()
 
     assert first.eval_run_id != second.eval_run_id
     assert first.pass_rate == second.pass_rate == 1.0
@@ -422,6 +436,8 @@ def test_unsupported_domain_is_rejected_not_silently_skipped(
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
+    tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -430,6 +446,8 @@ def test_unsupported_domain_is_rejected_not_silently_skipped(
         intent_client,
         security_client,
         upload_client,
+        tenant_isolation_retrieval_client,
+        toolgw_client,
     )
     try:
         with pytest.raises(UnsupportedDomainError):
@@ -441,6 +459,8 @@ def test_unsupported_domain_is_rejected_not_silently_skipped(
         intent_client.close()
         security_client.close()
         upload_client.close()
+        tenant_isolation_retrieval_client.close()
+        toolgw_client.close()
 
 
 def test_unknown_golden_set_raises(
@@ -453,6 +473,8 @@ def test_unknown_golden_set_raises(
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
+    tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -461,6 +483,8 @@ def test_unknown_golden_set_raises(
         intent_client,
         security_client,
         upload_client,
+        tenant_isolation_retrieval_client,
+        toolgw_client,
     )
     try:
         with pytest.raises(GoldenSetNotFoundError):
@@ -472,6 +496,8 @@ def test_unknown_golden_set_raises(
         intent_client.close()
         security_client.close()
         upload_client.close()
+        tenant_isolation_retrieval_client.close()
+        toolgw_client.close()
 
 
 def test_planner_select_strategy_cases_execute_for_real(
@@ -484,6 +510,8 @@ def test_planner_select_strategy_cases_execute_for_real(
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
+    tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -492,6 +520,8 @@ def test_planner_select_strategy_cases_execute_for_real(
         intent_client,
         security_client,
         upload_client,
+        tenant_isolation_retrieval_client,
+        toolgw_client,
     )
 
     try:
@@ -503,6 +533,8 @@ def test_planner_select_strategy_cases_execute_for_real(
         intent_client.close()
         security_client.close()
         upload_client.close()
+        tenant_isolation_retrieval_client.close()
+        toolgw_client.close()
 
     # 16 of the 20 seeded planner cases are select_strategy (real as of
     # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
@@ -568,6 +600,8 @@ def test_retrieval_golden_set_executes_for_real(
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
+    tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -576,6 +610,8 @@ def test_retrieval_golden_set_executes_for_real(
         intent_client,
         security_client,
         upload_client,
+        tenant_isolation_retrieval_client,
+        toolgw_client,
     )
 
     try:
@@ -587,6 +623,8 @@ def test_retrieval_golden_set_executes_for_real(
         intent_client.close()
         security_client.close()
         upload_client.close()
+        tenant_isolation_retrieval_client.close()
+        toolgw_client.close()
 
     # All 20 retrieval cases are real "retrieve" operations against a real
     # hybrid-retrieval gRPC server. Asserting the real, observed pass rate
@@ -627,6 +665,8 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
     intent_client = IntentClient(orchestration_intent_server_target)
     security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
+    tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -635,6 +675,8 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         intent_client,
         security_client,
         upload_client,
+        tenant_isolation_retrieval_client,
+        toolgw_client,
     )
 
     try:
@@ -646,6 +688,8 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         intent_client.close()
         security_client.close()
         upload_client.close()
+        tenant_isolation_retrieval_client.close()
+        toolgw_client.close()
 
     # All 30 intent cases are real classify_intent calls against a real,
     # live LLM (whichever of Anthropic/OpenAI the environment running this
@@ -816,6 +860,8 @@ def test_injection_golden_set_executes_for_real(
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     security_client = SecurityEvalClient(security_eval_server_target)
     upload_client = UploadEvalClient(ads_core_upload_server_target)
+    tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -824,6 +870,8 @@ def test_injection_golden_set_executes_for_real(
         intent_client,
         security_client,
         upload_client,
+        tenant_isolation_retrieval_client,
+        toolgw_client,
     )
 
     try:
@@ -835,6 +883,8 @@ def test_injection_golden_set_executes_for_real(
         intent_client.close()
         security_client.close()
         upload_client.close()
+        tenant_isolation_retrieval_client.close()
+        toolgw_client.close()
 
     assert summary.total_cases == _EVAL_INJECTION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_INJECTION_CASE_COUNT
@@ -861,3 +911,156 @@ def test_injection_golden_set_executes_for_real(
         ).one()
         assert row.status == "completed"
         assert float(row.pass_rate) == summary.pass_rate
+
+
+@pytest.fixture(scope="module")
+def ads_isolation_server_target() -> Generator[str, None, None]:
+    """Real, live ads-core eval gRPC server (HARD-7c's eval_grpc_server.py),
+    also seeded with tenant-b's own uniquely-worded probe document (HARD-7g)
+    -- real Postgres RLS is what's actually under test here, not an
+    application-level filter.
+    """
+    ads_core_python = REPO_ROOT / "apps" / "ads-core" / ".venv" / "bin" / "python"
+    if not ads_core_python.exists():
+        pytest.skip(
+            "apps/ads-core/.venv not present -- run `uv sync` there first "
+            "(same real dependency this test always needed, just not eval-service's own venv)"
+        )
+    with PostgresContainer(
+        image="pgvector/pgvector:pg16", dbname="ads_db", username="ads_core", password="testpass"
+    ) as postgres:
+        db_url = postgres.get_connection_url()
+        port = _free_port()
+        process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+            [str(ads_core_python), "-m", "src.query.eval_grpc_server"],
+            cwd=str(REPO_ROOT / "apps" / "ads-core"),
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "EVAL_ADS_DB_URL": db_url,
+                "ADS_CORE_SERVICE_ROOT": str(REPO_ROOT / "apps" / "ads-core"),
+                "EVAL_ADS_TENANT_ID": _EVAL_ADS_TENANT_UUID,
+                "EVAL_ADS_WORKSPACE_ID": _EVAL_ADS_WORKSPACE_UUID,
+                "EVAL_ADS_SCOPE_ID": _EVAL_ADS_SCOPE_ID,
+                "EVAL_ADS_TENANT_B_ID": "018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+                "EVAL_ADS_TENANT_B_WORKSPACE_ID": "018f4d6e-cccc-7ccc-8ccc-cccccccccccc",
+                "EVAL_ADS_TENANT_B_SCOPE_ID": "scp_018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+                "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+            },
+        )
+        try:
+            _wait_for_port(port)
+            yield f"127.0.0.1:{port}"
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
+@pytest.fixture(scope="module")
+def tool_gateway_server_target() -> Generator[str, None, None]:
+    """Real, live tool-gateway production gRPC server (main.js, unmodified)
+    -- ResolveCredential's cross-tenant ownership check is real and pure,
+    throws before ever touching a real secrets provider, so the sanctioned
+    ALTER_CONFIG_SOURCE=mock local/dev mode is sufficient.
+    """
+    tool_gateway_root = REPO_ROOT / "apps" / "tool-gateway"
+    tool_gateway_dist = REPO_ROOT / "dist" / "apps" / "tool-gateway" / "main.js"
+    if not tool_gateway_dist.exists():
+        pytest.skip(
+            "tool-gateway eval build not present -- run "
+            "`pnpm exec nx run tool-gateway:build` first."
+        )
+    port = _free_port()
+    http_port = _free_port()
+    process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+        ["node", str(tool_gateway_dist)],
+        cwd=str(REPO_ROOT),
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "NODE_PATH": f"{tool_gateway_root / 'node_modules'}:{REPO_ROOT / 'node_modules'}",
+            "ALTER_ENV": "local",
+            "ALTER_SERVICE_NAME": "tool-gateway",
+            "ALTER_REGION": "ap-south-1",
+            "ALTER_CONFIG_SOURCE": "mock",
+            "PORT": str(http_port),
+            "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+        },
+    )
+    try:
+        _wait_for_port(port)
+        yield f"127.0.0.1:{port}"
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
+_EVAL_TENANT_ISOLATION_CASE_COUNT = 20
+
+
+def test_tenant_isolation_golden_set_executes_for_real_where_wired(
+    sessions: sessionmaker[Session],
+    ads_isolation_server_target: str,
+    tool_gateway_server_target: str,
+) -> None:
+    verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
+    planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
+    retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    intent_client = IntentClient(_UNUSED_INTENT_TARGET)
+    security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
+    upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
+    tenant_isolation_retrieval_client = RetrievalClient(ads_isolation_server_target)
+    toolgw_client = ToolgwClient(tool_gateway_server_target)
+    orchestrator = EvalRunOrchestrator(
+        sessions,
+        verification_client,
+        planner_client,
+        retrieval_client,
+        intent_client,
+        security_client,
+        upload_client,
+        tenant_isolation_retrieval_client,
+        toolgw_client,
+    )
+
+    try:
+        summary = orchestrator.run("tenant-isolation", trigger="manual")
+    finally:
+        verification_client.close()
+        planner_client.close()
+        retrieval_client.close()
+        intent_client.close()
+        security_client.close()
+        upload_client.close()
+        tenant_isolation_retrieval_client.close()
+        toolgw_client.close()
+
+    assert summary.total_cases == _EVAL_TENANT_ISOLATION_CASE_COUNT
+    assert summary.passed + summary.failed == _EVAL_TENANT_ISOLATION_CASE_COUNT
+
+    with sessions() as session:
+        results = session.execute(
+            sa.text("SELECT verdict, details FROM eval_results WHERE eval_run_id = :id"),
+            {"id": str(summary.eval_run_id)},
+        ).all()
+        assert len(results) == _EVAL_TENANT_ISOLATION_CASE_COUNT
+
+        real_operations = ("ads_retrieve", "tool_resolve_credential")
+        real_results = [row for row in results if row.details.get("operation") in real_operations]
+        # ads_retrieve and tool_resolve_credential are real and must always
+        # pass -- the other 18 of 20 cases are disclosed follow-up scope,
+        # real-failing with an "unsupported operation" message, never
+        # silently skipped.
+        assert len(real_results) == 2
+        assert all(row.verdict == "pass" for row in real_results)
+
+        unsupported_results = [row for row in results if row not in real_results]
+        assert len(unsupported_results) == 18
+        assert all(row.verdict == "fail" for row in unsupported_results)
+        assert all(
+            "unsupported operation" in row.details.get("error", "") for row in unsupported_results
+        )
