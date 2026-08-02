@@ -35,7 +35,7 @@ files = ["src", "tests"]
 exclude = ["^alter/"]
 
 [[tool.mypy.overrides]]
-module = ["alembic.*", "testcontainers.*", "grpc.*", "google.protobuf.*"]
+module = ["alembic.*", "testcontainers.*", "grpc.*", "google.protobuf.*", "psycopg2.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

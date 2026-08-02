@@ -52,12 +52,23 @@ this specific real path.
 planner's decompose/replan operations for the 'planner' domain's
 non-project strategies still need real ADS+LLM wiring, deliberately left
 real-failing (never silently skipped) -- same disclosed-gap pattern as
-the remaining domains (recovery, most of tenant-isolation, workflow-E2E
--- investigated but not built: none of its 5 operation names map to a
-real RPC/method name 1:1, and register_trigger alone needs a real
-pre-existing workflow_version FK row, cascading into the same DB-seeding
-weight class as recovery), each its own follow-up. See
-EvalRunOrchestrator.run()'s domain check and _score_case's operation
+the remaining domains (most of tenant-isolation, workflow-E2E --
+investigated but not built: none of its 5 operation names map to a real
+RPC/method name 1:1, and register_trigger alone needs a real
+pre-existing workflow_version FK row), each its own follow-up.
+HARD-7i adds 'recovery' for 5 of its 12 real cases: the ones whose real
+dispatch (RecoveryDispatchService.dispatch()) never touches Temporal, a
+live LLM, or Planner -- "ask_user" (real DB-backed approvals row) and
+"swap_agent" (a real, disclosed "no target system wired yet" deferred
+outcome). See apps/orchestration-service/src/eval_recovery_grpc_server.ts
+and recovery_client.py's own module docs: the real recovery_actions row
+SelectStrategy needs is seeded directly via SQL (bypassing
+ClassifyFailure's real, live ADVANCED-tier Model Gateway call), same
+shortcut shape as ads-core's document seeding. The other 7 cases
+(retry/backoff need a real Temporal signal, escalate_model needs a real
+live LLM, replan/recompile need a real Planner call) are disclosed
+follow-up, not built here.
+See EvalRunOrchestrator.run()'s domain check and _score_case's operation
 dispatch.
 """
 
@@ -75,6 +86,7 @@ from src.db.models import EvalCase, EvalResult, EvalRun, GoldenSet
 
 from .intent_client import IntentClient
 from .planner_client import PlannerClient
+from .recovery_client import RecoveryClient
 from .retrieval_client import RetrievalClient
 from .security_client import SecurityEvalClient, UploadEvalClient
 from .toolgw_client import ToolgwClient
@@ -103,6 +115,15 @@ _EVAL_ADS_SCOPE_ID = "scp_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 # apps/ads-core/src/query/eval_grpc_server.py's own _TENANT_B_UNIQUE_DOCUMENT.
 _TENANT_B_PROBE_DOCUMENT_ID = "doc_tenant_b_isolation_probe"
 
+# Real, fixed synthetic tenant for the recovery domain -- bare UUID (no
+# ten_ prefix), matching recovery_actions.tenant_id's real uuid column type.
+_EVAL_RECOVERY_TENANT_UUID = "018f4d6e-dddd-7ddd-8ddd-dddddddddddd"
+
+# Real dispatch strategies (RecoveryDispatchService.dispatch()) whose
+# real path never touches Temporal, a live LLM, or Planner -- see
+# eval_recovery_grpc_server.ts's own module doc.
+_RECOVERY_DISPATCH_LIGHT_STRATEGIES = frozenset({"ask_user", "swap_agent"})
+
 SUPPORTED_DOMAINS = frozenset(
     {
         "verification",
@@ -112,6 +133,7 @@ SUPPORTED_DOMAINS = frozenset(
         "injection",
         "tenant-isolation",
         "project",
+        "recovery",
     }
 )
 
@@ -123,6 +145,7 @@ _SUBJECT_BY_DOMAIN = {
     "injection": "orchestration-service",
     "tenant-isolation": "multi-service",
     "project": "intelligence-service",
+    "recovery": "orchestration-service",
 }
 
 
@@ -156,6 +179,7 @@ class EvalRunOrchestrator:
         upload_client: UploadEvalClient,
         tenant_isolation_retrieval_client: RetrievalClient,
         toolgw_client: ToolgwClient,
+        recovery_client: RecoveryClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -166,6 +190,7 @@ class EvalRunOrchestrator:
         self._upload_client = upload_client
         self._tenant_isolation_retrieval_client = tenant_isolation_retrieval_client
         self._toolgw_client = toolgw_client
+        self._recovery_client = recovery_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -254,6 +279,8 @@ class EvalRunOrchestrator:
             return self._score_tenant_isolation_case(case)
         if domain == "project":
             return self._score_project_case(case)
+        if domain == "recovery":
+            return self._score_recovery_case(case)
         return self._score_verification_case(case)
 
     def _score_verification_case(self, case: EvalCase) -> _CaseVerdict:
@@ -530,6 +557,68 @@ class EvalRunOrchestrator:
             details={"observed": observed, "expected": expected, "suite": suite, **extra},
         )
 
+    def _score_recovery_case(self, case: EvalCase) -> _CaseVerdict:
+        operation = case.input_json.get("operation")
+        if operation != "select_recovery_strategy":
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={
+                    "error": f"unsupported operation {operation!r} for domain=recovery "
+                    "(only select_recovery_strategy is real as of HARD-7i)"
+                },
+            )
+
+        expected = case.expected_json
+        expected_strategy = str(expected.get("strategy", ""))
+        if expected_strategy not in _RECOVERY_DISPATCH_LIGHT_STRATEGIES:
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={
+                    "error": f"unsupported dispatch strategy {expected_strategy!r} for "
+                    "domain=recovery (only ask_user/swap_agent are real as of HARD-7i -- "
+                    "retry/backoff need a real Temporal signal, escalate_model needs a "
+                    "real live LLM, replan/recompile need a real Planner call)"
+                },
+            )
+
+        failure_class = str(case.input_json["failure_class"])
+        node_attempt_raw = case.input_json.get("node_attempt", 1)
+        node_attempt = int(node_attempt_raw) if isinstance(node_attempt_raw, int | float) else 1
+
+        run_id = _recovery_run_id(case.id)
+        node_execution_id = _recovery_node_execution_id(case.id)
+
+        try:
+            result = self._recovery_client.select_strategy(
+                tenant_id=f"ten_{_EVAL_RECOVERY_TENANT_UUID}",
+                tenant_uuid=_EVAL_RECOVERY_TENANT_UUID,
+                run_id=run_id,
+                node_execution_id=node_execution_id,
+                failure_class=failure_class,
+                node_attempt=node_attempt,
+            )
+        except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={"error": f"SelectStrategy call failed: {error}"},
+            )
+
+        observed = {"strategy": result.strategy}
+        real_verdict = "pass" if observed == expected else "fail"
+
+        return _CaseVerdict(
+            verdict=real_verdict,
+            score=1.0 if real_verdict == "pass" else 0.0,
+            details={
+                "observed": observed,
+                "expected": expected,
+                "recovery_action_id": result.recovery_action_id,
+            },
+        )
+
     def _score_project_case(self, case: EvalCase) -> _CaseVerdict:
         operation = case.input_json.get("operation")
         if operation != "build_project_skeleton":
@@ -638,16 +727,29 @@ def _upload_source_id(eval_case_id: UUID) -> str:
     return f"src_{source_uuid}"
 
 
-def _node_execution_id(eval_case_id: UUID) -> str:
-    # ScoreNodeRequest requires a UUIDv7-shaped id (version nibble '7',
-    # variant nibble one of '89ab') -- uuid5 produces a version-5 UUID,
-    # which the kernel's pydantic validator rejects outright. Deterministic
-    # from eval_case_id, but with the version/variant nibbles forced to a
-    # valid v7 shape so the synthetic id passes the same shape check every
-    # real node_execution_id must satisfy.
-    raw = uuid5(NAMESPACE_URL, f"https://alterx.dev/eval/node-execution/{eval_case_id}").hex
+def _v7_shaped_uuid(namespace_path: str) -> UUID:
+    # A prefixed-id schema (RunIdSchema/NodeExecutionIdSchema/...) requires
+    # a UUIDv7-shaped id (version nibble '7', variant nibble one of
+    # '89ab') -- uuid5 produces a version-5 UUID, which real pydantic/zod
+    # validators reject outright. Deterministic from the given path, but
+    # with the version/variant nibbles forced to a valid v7 shape.
+    raw = uuid5(NAMESPACE_URL, namespace_path).hex
     shaped = f"{raw[0:12]}7{raw[13:16]}8{raw[17:32]}"
-    node_uuid = UUID(shaped)
+    return UUID(shaped)
+
+
+def _node_execution_id(eval_case_id: UUID) -> str:
+    node_uuid = _v7_shaped_uuid(f"https://alterx.dev/eval/node-execution/{eval_case_id}")
+    return f"node_{node_uuid}"
+
+
+def _recovery_run_id(eval_case_id: UUID) -> str:
+    run_uuid = _v7_shaped_uuid(f"https://alterx.dev/eval/recovery-run/{eval_case_id}")
+    return f"run_{run_uuid}"
+
+
+def _recovery_node_execution_id(eval_case_id: UUID) -> str:
+    node_uuid = _v7_shaped_uuid(f"https://alterx.dev/eval/recovery-node-execution/{eval_case_id}")
     return f"node_{node_uuid}"
 
 

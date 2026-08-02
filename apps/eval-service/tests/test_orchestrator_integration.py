@@ -34,6 +34,7 @@ from src.execution.orchestrator import (
     UnsupportedDomainError,
 )
 from src.execution.planner_client import PlannerClient
+from src.execution.recovery_client import RecoveryClient
 from src.execution.retrieval_client import RetrievalClient
 from src.execution.security_client import SecurityEvalClient, UploadEvalClient
 from src.execution.toolgw_client import ToolgwClient
@@ -52,6 +53,8 @@ _UNUSED_INTENT_TARGET = "127.0.0.1:1"
 _UNUSED_SECURITY_TARGET = "http://127.0.0.1:1"
 _UNUSED_UPLOAD_TARGET = "http://127.0.0.1:1"
 _UNUSED_TOOLGW_TARGET = "127.0.0.1:1"
+_UNUSED_RECOVERY_GRPC_TARGET = "127.0.0.1:1"
+_UNUSED_RECOVERY_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
 
 # Must match apps/ads-core/src/query/eval_grpc_server.py's own literal
 # values -- see orchestrator.py's _EVAL_ADS_* constants for why these must
@@ -342,6 +345,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -352,6 +356,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         upload_client,
         tenant_isolation_retrieval_client,
         toolgw_client,
+        recovery_client,
     )
 
     try:
@@ -365,6 +370,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         upload_client.close()
         tenant_isolation_retrieval_client.close()
         toolgw_client.close()
+        recovery_client.close()
 
     assert summary.total_cases == 20
     assert summary.passed == 20
@@ -398,6 +404,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -408,6 +415,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         upload_client,
         tenant_isolation_retrieval_client,
         toolgw_client,
+        recovery_client,
     )
     try:
         first = orchestrator.run("verification")
@@ -421,6 +429,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         upload_client.close()
         tenant_isolation_retrieval_client.close()
         toolgw_client.close()
+        recovery_client.close()
 
     assert first.eval_run_id != second.eval_run_id
     assert first.pass_rate == second.pass_rate == 1.0
@@ -438,6 +447,7 @@ def test_unsupported_domain_is_rejected_not_silently_skipped(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -448,10 +458,11 @@ def test_unsupported_domain_is_rejected_not_silently_skipped(
         upload_client,
         tenant_isolation_retrieval_client,
         toolgw_client,
+        recovery_client,
     )
     try:
         with pytest.raises(UnsupportedDomainError):
-            orchestrator.run("recovery")
+            orchestrator.run("workflow E2E")
     finally:
         verification_client.close()
         planner_client.close()
@@ -461,6 +472,7 @@ def test_unsupported_domain_is_rejected_not_silently_skipped(
         upload_client.close()
         tenant_isolation_retrieval_client.close()
         toolgw_client.close()
+        recovery_client.close()
 
 
 def test_unknown_golden_set_raises(
@@ -475,6 +487,7 @@ def test_unknown_golden_set_raises(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -485,6 +498,7 @@ def test_unknown_golden_set_raises(
         upload_client,
         tenant_isolation_retrieval_client,
         toolgw_client,
+        recovery_client,
     )
     try:
         with pytest.raises(GoldenSetNotFoundError):
@@ -498,6 +512,7 @@ def test_unknown_golden_set_raises(
         upload_client.close()
         tenant_isolation_retrieval_client.close()
         toolgw_client.close()
+        recovery_client.close()
 
 
 def test_planner_select_strategy_cases_execute_for_real(
@@ -512,6 +527,7 @@ def test_planner_select_strategy_cases_execute_for_real(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -522,6 +538,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         upload_client,
         tenant_isolation_retrieval_client,
         toolgw_client,
+        recovery_client,
     )
 
     try:
@@ -535,6 +552,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         upload_client.close()
         tenant_isolation_retrieval_client.close()
         toolgw_client.close()
+        recovery_client.close()
 
     # 16 of the 20 seeded planner cases are select_strategy (real as of
     # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
@@ -602,6 +620,7 @@ def test_retrieval_golden_set_executes_for_real(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -612,6 +631,7 @@ def test_retrieval_golden_set_executes_for_real(
         upload_client,
         tenant_isolation_retrieval_client,
         toolgw_client,
+        recovery_client,
     )
 
     try:
@@ -625,6 +645,7 @@ def test_retrieval_golden_set_executes_for_real(
         upload_client.close()
         tenant_isolation_retrieval_client.close()
         toolgw_client.close()
+        recovery_client.close()
 
     # All 20 retrieval cases are real "retrieve" operations against a real
     # hybrid-retrieval gRPC server. Asserting the real, observed pass rate
@@ -667,6 +688,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -677,6 +699,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         upload_client,
         tenant_isolation_retrieval_client,
         toolgw_client,
+        recovery_client,
     )
 
     try:
@@ -690,6 +713,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         upload_client.close()
         tenant_isolation_retrieval_client.close()
         toolgw_client.close()
+        recovery_client.close()
 
     # All 30 intent cases are real classify_intent calls against a real,
     # live LLM (whichever of Anthropic/OpenAI the environment running this
@@ -862,6 +886,7 @@ def test_injection_golden_set_executes_for_real(
     upload_client = UploadEvalClient(ads_core_upload_server_target)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -872,6 +897,7 @@ def test_injection_golden_set_executes_for_real(
         upload_client,
         tenant_isolation_retrieval_client,
         toolgw_client,
+        recovery_client,
     )
 
     try:
@@ -885,6 +911,7 @@ def test_injection_golden_set_executes_for_real(
         upload_client.close()
         tenant_isolation_retrieval_client.close()
         toolgw_client.close()
+        recovery_client.close()
 
     assert summary.total_cases == _EVAL_INJECTION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_INJECTION_CASE_COUNT
@@ -1015,6 +1042,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(ads_isolation_server_target)
     toolgw_client = ToolgwClient(tool_gateway_server_target)
+    recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -1025,6 +1053,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         upload_client,
         tenant_isolation_retrieval_client,
         toolgw_client,
+        recovery_client,
     )
 
     try:
@@ -1038,6 +1067,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         upload_client.close()
         tenant_isolation_retrieval_client.close()
         toolgw_client.close()
+        recovery_client.close()
 
     assert summary.total_cases == _EVAL_TENANT_ISOLATION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_TENANT_ISOLATION_CASE_COUNT
@@ -1078,6 +1108,7 @@ def test_project_golden_set_executes_for_real(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -1088,6 +1119,7 @@ def test_project_golden_set_executes_for_real(
         upload_client,
         tenant_isolation_retrieval_client,
         toolgw_client,
+        recovery_client,
     )
 
     try:
@@ -1101,8 +1133,129 @@ def test_project_golden_set_executes_for_real(
         upload_client.close()
         tenant_isolation_retrieval_client.close()
         toolgw_client.close()
+        recovery_client.close()
 
     # build_project_skeleton is pure and deterministic -- real 3/3 pass.
     assert summary.total_cases == 3
     assert summary.passed == 3
     assert summary.failed == 0
+
+
+@pytest.fixture(scope="module")
+def recovery_server_target() -> Generator[tuple[str, str], None, None]:
+    """Real, live orchestration-service RecoveryService.SelectStrategy gRPC
+    server (HARD-7i's eval_recovery_grpc_server.ts) -- constructs
+    RecoveryPolicyService directly, not the full app.module.ts monolith.
+    Real Postgres (own Testcontainers instance, distinct from eval_db's
+    own), real drizzle migrations run inside the server's own bootstrap.
+
+    Yields (grpc_target, db_url) -- RecoveryClient needs both: the gRPC
+    target for the real SelectStrategy call, and the DB url to seed each
+    case's own pending recovery_actions row directly (see
+    recovery_client.py's own module doc for why).
+    """
+    orchestration_root = REPO_ROOT / "apps" / "orchestration-service"
+    orchestration_dist = (
+        REPO_ROOT / "dist" / "apps" / "orchestration-service" / "eval_recovery_grpc_server.js"
+    )
+    if not orchestration_dist.exists():
+        pytest.skip(
+            "orchestration-service eval build not present -- run "
+            "`pnpm exec nx run orchestration-service:build` first."
+        )
+    with PostgresContainer(
+        image="postgres:16-alpine", dbname="orchestration_db", username="orchestration_exit_check"
+    ) as postgres:
+        db_url = postgres.get_connection_url().replace("postgresql+psycopg2://", "postgresql://")
+        port = _free_port()
+        process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+            ["node", str(orchestration_dist)],
+            cwd=str(REPO_ROOT),
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "NODE_PATH": f"{orchestration_root / 'node_modules'}:{REPO_ROOT / 'node_modules'}",
+                "EVAL_RECOVERY_DB_URL": db_url,
+                "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+            },
+        )
+        try:
+            _wait_for_port(port, timeout_seconds=40.0)
+            yield f"127.0.0.1:{port}", db_url
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
+_EVAL_RECOVERY_CASE_COUNT = 15
+
+
+def test_recovery_golden_set_executes_for_real_where_wired(
+    sessions: sessionmaker[Session],
+    recovery_server_target: tuple[str, str],
+) -> None:
+    grpc_target, db_url = recovery_server_target
+    verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
+    planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
+    retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    intent_client = IntentClient(_UNUSED_INTENT_TARGET)
+    security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
+    upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
+    tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    recovery_client = RecoveryClient(grpc_target, db_url)
+    orchestrator = EvalRunOrchestrator(
+        sessions,
+        verification_client,
+        planner_client,
+        retrieval_client,
+        intent_client,
+        security_client,
+        upload_client,
+        tenant_isolation_retrieval_client,
+        toolgw_client,
+        recovery_client,
+    )
+
+    try:
+        summary = orchestrator.run("recovery", trigger="manual")
+    finally:
+        verification_client.close()
+        planner_client.close()
+        retrieval_client.close()
+        intent_client.close()
+        security_client.close()
+        upload_client.close()
+        tenant_isolation_retrieval_client.close()
+        toolgw_client.close()
+        recovery_client.close()
+
+    assert summary.total_cases == _EVAL_RECOVERY_CASE_COUNT
+    assert summary.passed + summary.failed == _EVAL_RECOVERY_CASE_COUNT
+
+    with sessions() as session:
+        results = session.execute(
+            sa.text("SELECT verdict, details FROM eval_results WHERE eval_run_id = :id"),
+            {"id": str(summary.eval_run_id)},
+        ).all()
+        assert len(results) == _EVAL_RECOVERY_CASE_COUNT
+
+        real_results = [row for row in results if "recovery_action_id" in row.details]
+        # ask_user (3 cases) and swap_agent (2 cases) are real and must
+        # always pass -- decide()'s pure, deterministic logic already
+        # matches all 12 golden-set default-policy cases exactly, confirmed
+        # by hand. The other 10 (7 non-light default-policy strategies +
+        # 3 policy-override cases expecting repair/degrade/terminate, none
+        # of which are dispatch-light either) are disclosed follow-up.
+        assert len(real_results) == 5
+        assert all(row.verdict == "pass" for row in real_results)
+
+        unsupported_results = [row for row in results if row not in real_results]
+        assert len(unsupported_results) == 10
+        assert all(row.verdict == "fail" for row in unsupported_results)
+        assert all(
+            "unsupported dispatch strategy" in row.details.get("error", "")
+            for row in unsupported_results
+        )

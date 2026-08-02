@@ -4,7 +4,8 @@ Mirrors apps/verification-service/scripts/generate_protos.py exactly --
 same tool, same check-mode contract. verify.proto is HARD-7a's real
 ScoreNodeInline client; adsq.proto is HARD-7c's real retrieval client;
 conversation.proto is HARD-7e's real ClassifyIntent client;
-toolgw.proto is HARD-7g's real ResolveCredential client. No modelgw.proto
+toolgw.proto is HARD-7g's real ResolveCredential client;
+recovery.proto is HARD-7i's real SelectStrategy client. No modelgw.proto
 -- eval-service has no direct Model Gateway dependency.
 """
 
@@ -25,6 +26,7 @@ PROTO_FILES = (
     "alter/adsq/v1/adsq.proto",
     "alter/conversation/v1/conversation.proto",
     "alter/toolgw/v1/toolgw.proto",
+    "alter/recovery/v1/recovery.proto",
 )
 
 
