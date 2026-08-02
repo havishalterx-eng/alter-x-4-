@@ -19,10 +19,17 @@ orchestration-service's ConversationService.ClassifyIntent (see
 apps/orchestration-service/src/eval_intent_grpc_server.ts) -- this one
 depends on a real, live model-gateway (HARD-7d's eval_bootstrap.ts) with a
 real ANTHROPIC_API_KEY/OPENAI_API_KEY; without one, this domain's calls
-fail for a real reason (no live credentials), not a harness bug.
+fail for a real reason (no live credentials), not a harness bug. HARD-7f
+adds 'injection', which spans three genuinely different real mechanisms
+per suite (see security_client.py's own module doc): 'injection'/
+'jailbreak' -> the same real, live LLM path as intent (via
+eval_security_http_server.ts's PromptInjectionClassifier wiring);
+'ssrf' -> pure, deterministic IP-blocklist logic, no LLM needed; 'upload'
+-> ads-core's real, existing production presign route, not eval-only
+scaffolding.
 planner's decompose/replan operations still need real ADS+LLM wiring,
 deliberately left real-failing (never silently skipped) -- same
-disclosed-gap pattern as the remaining domains (recovery, injection,
+disclosed-gap pattern as the remaining domains (recovery,
 tenant-isolation, workflow/project E2E), each its own follow-up. See
 EvalRunOrchestrator.run()'s domain check and _score_case's operation
 dispatch.
@@ -43,6 +50,7 @@ from src.db.models import EvalCase, EvalResult, EvalRun, GoldenSet
 from .intent_client import IntentClient
 from .planner_client import PlannerClient
 from .retrieval_client import RetrievalClient
+from .security_client import SecurityEvalClient, UploadEvalClient
 from .verification_client import VerificationClient
 
 # Real, fixed synthetic identity for every case this orchestrator scores --
@@ -64,13 +72,14 @@ _EVAL_ADS_TENANT_ID = "ten_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 _EVAL_ADS_WORKSPACE_ID = "ws_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 _EVAL_ADS_SCOPE_ID = "scp_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 
-SUPPORTED_DOMAINS = frozenset({"verification", "planner", "retrieval", "intent"})
+SUPPORTED_DOMAINS = frozenset({"verification", "planner", "retrieval", "intent", "injection"})
 
 _SUBJECT_BY_DOMAIN = {
     "verification": "verification-service",
     "planner": "intelligence-service",
     "retrieval": "ads-core",
     "intent": "orchestration-service",
+    "injection": "orchestration-service",
 }
 
 
@@ -100,12 +109,16 @@ class EvalRunOrchestrator:
         planner_client: PlannerClient,
         retrieval_client: RetrievalClient,
         intent_client: IntentClient,
+        security_client: SecurityEvalClient,
+        upload_client: UploadEvalClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
         self._planner_client = planner_client
         self._retrieval_client = retrieval_client
         self._intent_client = intent_client
+        self._security_client = security_client
+        self._upload_client = upload_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -188,6 +201,8 @@ class EvalRunOrchestrator:
             return self._score_retrieval_case(case)
         if domain == "intent":
             return self._score_intent_case(case)
+        if domain == "injection":
+            return self._score_injection_case(case)
         return self._score_verification_case(case)
 
     def _score_verification_case(self, case: EvalCase) -> _CaseVerdict:
@@ -343,6 +358,71 @@ class EvalRunOrchestrator:
             details={"observed": observed, "expected": expected, "confidence": result.confidence},
         )
 
+    def _score_injection_case(self, case: EvalCase) -> _CaseVerdict:
+        operation = case.input_json.get("operation")
+        if operation != "security_classify":
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={
+                    "error": f"unsupported operation {operation!r} for domain=injection "
+                    "(only security_classify is real as of HARD-7f)"
+                },
+            )
+
+        suite = str(case.input_json["suite"])
+        text = str(case.input_json["text"])
+        expected = case.expected_json
+
+        try:
+            if suite in ("injection", "jailbreak"):
+                result = self._security_client.classify_injection(
+                    tenant_id=_EVAL_TENANT_ID,
+                    run_id=_EVAL_RUN_ID,
+                    node_execution_id=_node_execution_id(case.id),
+                    text=text,
+                )
+                observed_outcome = "blocked" if result.blocked else "allowed"
+                extra: dict[str, object] = {
+                    "confidence": result.confidence,
+                    "reason": result.reason,
+                }
+            elif suite == "ssrf":
+                url = text.removeprefix("fetch ").strip()
+                ssrf_result = self._security_client.check_ssrf(url=url)
+                observed_outcome = "blocked" if ssrf_result.blocked else "allowed"
+                extra = {"reason": ssrf_result.reason}
+            elif suite == "upload":
+                content_type = text.split()[-1]
+                upload_result = self._upload_client.check_upload(
+                    tenant_id=_EVAL_TENANT_ID,
+                    source_id=_upload_source_id(case.id),
+                    content_type=content_type,
+                )
+                observed_outcome = "blocked" if upload_result.blocked else "allowed"
+                extra = {"detail": upload_result.detail}
+            else:
+                return _CaseVerdict(
+                    verdict="fail",
+                    score=0.0,
+                    details={"error": f"unsupported suite {suite!r} for domain=injection"},
+                )
+        except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={"error": f"security_classify call failed for suite {suite!r}: {error}"},
+            )
+
+        observed = {"outcome": observed_outcome}
+        real_verdict = "pass" if observed == expected else "fail"
+
+        return _CaseVerdict(
+            verdict=real_verdict,
+            score=1.0 if real_verdict == "pass" else 0.0,
+            details={"observed": observed, "expected": expected, "suite": suite, **extra},
+        )
+
     def _score_planner_case(self, case: EvalCase) -> _CaseVerdict:
         operation = case.input_json.get("operation")
         if operation != "select_strategy":
@@ -397,6 +477,11 @@ def _result_id(eval_run_id: UUID, eval_case_id: UUID) -> UUID:
 def _intent_conversation_id(eval_case_id: UUID) -> str:
     conversation_uuid = uuid5(NAMESPACE_URL, f"https://alterx.dev/eval/conversation/{eval_case_id}")
     return f"cnv_{conversation_uuid}"
+
+
+def _upload_source_id(eval_case_id: UUID) -> str:
+    source_uuid = uuid5(NAMESPACE_URL, f"https://alterx.dev/eval/upload-source/{eval_case_id}")
+    return f"src_{source_uuid}"
 
 
 def _node_execution_id(eval_case_id: UUID) -> str:

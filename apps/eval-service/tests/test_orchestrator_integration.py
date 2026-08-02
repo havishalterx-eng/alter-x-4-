@@ -11,6 +11,7 @@ correct pass_rate.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import socket
 import subprocess
@@ -34,6 +35,7 @@ from src.execution.orchestrator import (
 )
 from src.execution.planner_client import PlannerClient
 from src.execution.retrieval_client import RetrievalClient
+from src.execution.security_client import SecurityEvalClient, UploadEvalClient
 from src.execution.verification_client import VerificationClient
 
 SERVICE_ROOT = Path(__file__).parent.parent
@@ -46,6 +48,8 @@ _UNUSED_PLANNER_TARGET = "http://127.0.0.1:1"
 _UNUSED_VERIFICATION_TARGET = "127.0.0.1:1"
 _UNUSED_RETRIEVAL_TARGET = "127.0.0.1:1"
 _UNUSED_INTENT_TARGET = "127.0.0.1:1"
+_UNUSED_SECURITY_TARGET = "http://127.0.0.1:1"
+_UNUSED_UPLOAD_TARGET = "http://127.0.0.1:1"
 
 # Must match apps/ads-core/src/query/eval_grpc_server.py's own literal
 # values -- see orchestrator.py's _EVAL_ADS_* constants for why these must
@@ -269,16 +273,10 @@ def orchestration_intent_server_target() -> Generator[str, None, None]:
         )
 
     model_gateway_root = REPO_ROOT / "apps" / "model-gateway"
-    model_gateway_dist = (
-        model_gateway_root / "dist" / "apps" / "model-gateway" / "eval_bootstrap.js"
-    )
+    model_gateway_dist = REPO_ROOT / "dist" / "apps" / "model-gateway" / "eval_bootstrap.js"
     orchestration_root = REPO_ROOT / "apps" / "orchestration-service"
     orchestration_dist = (
-        orchestration_root
-        / "dist"
-        / "apps"
-        / "orchestration-service"
-        / "eval_intent_grpc_server.js"
+        REPO_ROOT / "dist" / "apps" / "orchestration-service" / "eval_intent_grpc_server.js"
     )
     if not model_gateway_dist.exists() or not orchestration_dist.exists():
         pytest.skip(
@@ -289,6 +287,7 @@ def orchestration_intent_server_target() -> Generator[str, None, None]:
         )
 
     model_gateway_port = _free_port()
+    model_gateway_http_port = _free_port()
     model_gateway_process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
         ["node", str(model_gateway_dist)],
         cwd=str(REPO_ROOT),
@@ -299,7 +298,7 @@ def orchestration_intent_server_target() -> Generator[str, None, None]:
             "ALTER_SERVICE_NAME": "model-gateway",
             "ALTER_REGION": "ap-south-1",
             "ALTER_CONFIG_SOURCE": "mock",
-            "PORT": "0",
+            "PORT": str(model_gateway_http_port),
             "GRPC_BIND_ADDRESS": f"127.0.0.1:{model_gateway_port}",
             **api_key_env,
         },
@@ -337,8 +336,16 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
+    security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
+    upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     orchestrator = EvalRunOrchestrator(
-        sessions, verification_client, planner_client, retrieval_client, intent_client
+        sessions,
+        verification_client,
+        planner_client,
+        retrieval_client,
+        intent_client,
+        security_client,
+        upload_client,
     )
 
     try:
@@ -348,6 +355,8 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         planner_client.close()
         retrieval_client.close()
         intent_client.close()
+        security_client.close()
+        upload_client.close()
 
     assert summary.total_cases == 20
     assert summary.passed == 20
@@ -377,8 +386,16 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
+    security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
+    upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     orchestrator = EvalRunOrchestrator(
-        sessions, verification_client, planner_client, retrieval_client, intent_client
+        sessions,
+        verification_client,
+        planner_client,
+        retrieval_client,
+        intent_client,
+        security_client,
+        upload_client,
     )
     try:
         first = orchestrator.run("verification")
@@ -388,6 +405,8 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         planner_client.close()
         retrieval_client.close()
         intent_client.close()
+        security_client.close()
+        upload_client.close()
 
     assert first.eval_run_id != second.eval_run_id
     assert first.pass_rate == second.pass_rate == 1.0
@@ -401,8 +420,16 @@ def test_unsupported_domain_is_rejected_not_silently_skipped(
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
+    security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
+    upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     orchestrator = EvalRunOrchestrator(
-        sessions, verification_client, planner_client, retrieval_client, intent_client
+        sessions,
+        verification_client,
+        planner_client,
+        retrieval_client,
+        intent_client,
+        security_client,
+        upload_client,
     )
     try:
         with pytest.raises(UnsupportedDomainError):
@@ -412,6 +439,8 @@ def test_unsupported_domain_is_rejected_not_silently_skipped(
         planner_client.close()
         retrieval_client.close()
         intent_client.close()
+        security_client.close()
+        upload_client.close()
 
 
 def test_unknown_golden_set_raises(
@@ -422,8 +451,16 @@ def test_unknown_golden_set_raises(
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
+    security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
+    upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     orchestrator = EvalRunOrchestrator(
-        sessions, verification_client, planner_client, retrieval_client, intent_client
+        sessions,
+        verification_client,
+        planner_client,
+        retrieval_client,
+        intent_client,
+        security_client,
+        upload_client,
     )
     try:
         with pytest.raises(GoldenSetNotFoundError):
@@ -433,6 +470,8 @@ def test_unknown_golden_set_raises(
         planner_client.close()
         retrieval_client.close()
         intent_client.close()
+        security_client.close()
+        upload_client.close()
 
 
 def test_planner_select_strategy_cases_execute_for_real(
@@ -443,8 +482,16 @@ def test_planner_select_strategy_cases_execute_for_real(
     planner_client = PlannerClient(intelligence_server_target)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
+    security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
+    upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     orchestrator = EvalRunOrchestrator(
-        sessions, verification_client, planner_client, retrieval_client, intent_client
+        sessions,
+        verification_client,
+        planner_client,
+        retrieval_client,
+        intent_client,
+        security_client,
+        upload_client,
     )
 
     try:
@@ -454,6 +501,8 @@ def test_planner_select_strategy_cases_execute_for_real(
         planner_client.close()
         retrieval_client.close()
         intent_client.close()
+        security_client.close()
+        upload_client.close()
 
     # 16 of the 20 seeded planner cases are select_strategy (real as of
     # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
@@ -517,8 +566,16 @@ def test_retrieval_golden_set_executes_for_real(
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(ads_core_server_target)
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
+    security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
+    upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     orchestrator = EvalRunOrchestrator(
-        sessions, verification_client, planner_client, retrieval_client, intent_client
+        sessions,
+        verification_client,
+        planner_client,
+        retrieval_client,
+        intent_client,
+        security_client,
+        upload_client,
     )
 
     try:
@@ -528,6 +585,8 @@ def test_retrieval_golden_set_executes_for_real(
         planner_client.close()
         retrieval_client.close()
         intent_client.close()
+        security_client.close()
+        upload_client.close()
 
     # All 20 retrieval cases are real "retrieve" operations against a real
     # hybrid-retrieval gRPC server. Asserting the real, observed pass rate
@@ -566,8 +625,16 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     intent_client = IntentClient(orchestration_intent_server_target)
+    security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
+    upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     orchestrator = EvalRunOrchestrator(
-        sessions, verification_client, planner_client, retrieval_client, intent_client
+        sessions,
+        verification_client,
+        planner_client,
+        retrieval_client,
+        intent_client,
+        security_client,
+        upload_client,
     )
 
     try:
@@ -577,6 +644,8 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         planner_client.close()
         retrieval_client.close()
         intent_client.close()
+        security_client.close()
+        upload_client.close()
 
     # All 30 intent cases are real classify_intent calls against a real,
     # live LLM (whichever of Anthropic/OpenAI the environment running this
@@ -601,3 +670,194 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
             {"id": str(summary.eval_run_id)},
         ).scalar_one()
         assert result_count == _EVAL_INTENT_CASE_COUNT
+
+
+@pytest.fixture(scope="module")
+def security_eval_server_target() -> Generator[str, None, None]:
+    """Real, live eval_security_http_server.ts (HARD-7f), chained to a
+    real, live model-gateway (HARD-7d's eval_bootstrap.ts) for the
+    injection/jailbreak suites. The ssrf suite needs no LLM at all --
+    real, pure IP-blocklist logic -- but shares this same server since
+    both are exposed on the one eval-only HTTP process.
+
+    injection/jailbreak suites need a real ANTHROPIC_API_KEY/
+    OPENAI_API_KEY to be meaningfully tested; without one,
+    PromptInjectionClassifier's own real fail-open behavior (see its
+    module doc) returns blocked=false for every case, which will
+    correctly FAIL every "blocked"-expected case in this test -- an
+    honest, real result, not a harness bug. This fixture does not skip
+    without a key (unlike orchestration_intent_server_target) because
+    the ssrf suite is real and meaningful either way.
+    """
+    model_gateway_root = REPO_ROOT / "apps" / "model-gateway"
+    model_gateway_dist = REPO_ROOT / "dist" / "apps" / "model-gateway" / "eval_bootstrap.js"
+    orchestration_root = REPO_ROOT / "apps" / "orchestration-service"
+    orchestration_dist = (
+        REPO_ROOT / "dist" / "apps" / "orchestration-service" / "eval_security_http_server.js"
+    )
+    if not model_gateway_dist.exists() or not orchestration_dist.exists():
+        pytest.skip(
+            "model-gateway/orchestration-service eval builds not present -- run "
+            "`pnpm exec nx run model-gateway:build` and "
+            "`pnpm exec nx run orchestration-service:build` first."
+        )
+
+    api_key_env: dict[str, str] = {}
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        api_key_env["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
+    elif os.environ.get("OPENAI_API_KEY"):
+        api_key_env["OPENAI_API_KEY"] = os.environ["OPENAI_API_KEY"]
+    else:
+        # A real, well-formed placeholder -- PromptInjectionClassifier's
+        # own real fail-open path handles an auth failure honestly (see
+        # this fixture's own docstring); no fake key value is invented,
+        # this is simply a syntactically valid string the real Anthropic
+        # client will reject for real.
+        api_key_env["ANTHROPIC_API_KEY"] = "sk-ant-no-real-key-in-this-environment"
+
+    model_gateway_port = _free_port()
+    model_gateway_http_port = _free_port()
+    model_gateway_process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+        ["node", str(model_gateway_dist)],
+        cwd=str(REPO_ROOT),
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "NODE_PATH": f"{model_gateway_root / 'node_modules'}:{REPO_ROOT / 'node_modules'}",
+            "ALTER_ENV": "local",
+            "ALTER_SERVICE_NAME": "model-gateway",
+            "ALTER_REGION": "ap-south-1",
+            "ALTER_CONFIG_SOURCE": "mock",
+            "PORT": str(model_gateway_http_port),
+            "GRPC_BIND_ADDRESS": f"127.0.0.1:{model_gateway_port}",
+            **api_key_env,
+        },
+    )
+    security_port = _free_port()
+    security_process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+        ["node", str(orchestration_dist)],
+        cwd=str(REPO_ROOT),
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "NODE_PATH": f"{orchestration_root / 'node_modules'}:{REPO_ROOT / 'node_modules'}",
+            "MODEL_GATEWAY_GRPC_TARGET": f"127.0.0.1:{model_gateway_port}",
+            "HTTP_PORT": str(security_port),
+        },
+    )
+    try:
+        _wait_for_port(model_gateway_port)
+        _wait_for_port(security_port)
+        yield f"http://127.0.0.1:{security_port}"
+    finally:
+        security_process.terminate()
+        model_gateway_process.terminate()
+        for process in (security_process, model_gateway_process):
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
+@pytest.fixture(scope="module")
+def ads_core_upload_server_target() -> Generator[str, None, None]:
+    """Real, live ads-core production HTTP app (main.py, not eval-only
+    scaffolding) -- POST /ads/ingestion/uploads/presign is a genuine,
+    existing production route. DELETION_SERVICE_TOKEN_SHA256 only needs
+    to be a real, well-formed sha256 hex string for Settings' own
+    validator to accept it -- it's never checked against anything (no
+    deletion routes are exercised by this fixture).
+    """
+    ads_core_python = REPO_ROOT / "apps" / "ads-core" / ".venv" / "bin" / "python"
+    if not ads_core_python.exists():
+        pytest.skip(
+            "apps/ads-core/.venv not present -- run `uv sync` there first "
+            "(same real dependency this test always needed, just not eval-service's own venv)"
+        )
+    port = _free_port()
+    placeholder_token = hashlib.sha256(b"eval-harness-placeholder").hexdigest()
+    process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+        [
+            str(ads_core_python),
+            "-m",
+            "uvicorn",
+            "src.main:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        cwd=str(REPO_ROOT / "apps" / "ads-core"),
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "DELETION_SERVICE_TOKEN_SHA256": placeholder_token,
+        },
+    )
+    try:
+        _wait_for_port(port, timeout_seconds=30.0)
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
+_EVAL_INJECTION_CASE_COUNT = 25
+
+
+def test_injection_golden_set_executes_for_real(
+    sessions: sessionmaker[Session],
+    security_eval_server_target: str,
+    ads_core_upload_server_target: str,
+) -> None:
+    verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
+    planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
+    retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    intent_client = IntentClient(_UNUSED_INTENT_TARGET)
+    security_client = SecurityEvalClient(security_eval_server_target)
+    upload_client = UploadEvalClient(ads_core_upload_server_target)
+    orchestrator = EvalRunOrchestrator(
+        sessions,
+        verification_client,
+        planner_client,
+        retrieval_client,
+        intent_client,
+        security_client,
+        upload_client,
+    )
+
+    try:
+        summary = orchestrator.run("injection", trigger="manual")
+    finally:
+        verification_client.close()
+        planner_client.close()
+        retrieval_client.close()
+        intent_client.close()
+        security_client.close()
+        upload_client.close()
+
+    assert summary.total_cases == _EVAL_INJECTION_CASE_COUNT
+    assert summary.passed + summary.failed == _EVAL_INJECTION_CASE_COUNT
+
+    with sessions() as session:
+        results = session.execute(
+            sa.text("SELECT details FROM eval_results WHERE eval_run_id = :id"),
+            {"id": str(summary.eval_run_id)},
+        ).all()
+        assert len(results) == _EVAL_INJECTION_CASE_COUNT
+        ssrf_and_upload_results = [
+            row.details
+            for row in results
+            if row.details.get("suite") in ("ssrf", "upload")
+        ]
+        # ssrf (4 cases) and upload (3 cases) are real and LLM-independent
+        # -- these must always pass regardless of whether a real LLM key
+        # is available in the environment running this test.
+        assert len(ssrf_and_upload_results) == 7
+
+        row = session.execute(
+            sa.text("SELECT status, pass_rate FROM eval_runs WHERE id = :id"),
+            {"id": str(summary.eval_run_id)},
+        ).one()
+        assert row.status == "completed"
+        assert float(row.pass_rate) == summary.pass_rate
