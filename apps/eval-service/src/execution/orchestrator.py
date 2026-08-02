@@ -39,10 +39,24 @@ real security property under test, not a literal array-length check) and
 'tool_resolve_credential' (real, pure ownership check in tool-gateway's
 production ResolveCredential -- no eval-only entrypoint needed, the
 cross-tenant case throws before ever touching a real secrets provider).
-planner's decompose/replan operations still need real ADS+LLM wiring,
-deliberately left real-failing (never silently skipped) -- same
-disclosed-gap pattern as the remaining domains (recovery, most of
-tenant-isolation, workflow/project E2E), each its own follow-up. See
+HARD-7h adds 'project' (project-E2E, 3/3 real cases): a real call to
+intelligence-service's PlannerService.Decompose with
+strategy=plan_then_execute, reusing HARD-7b's exact same real HTTP
+server unchanged. build_project_skeleton() is pure and deterministic
+(fixed 14-stage pipeline, see project_strategy.py's own module doc) --
+the real GrpcAdsClient.retrieve() call decompose() always makes first
+degrades to empty hits either way here (empty scope_ids always trips
+ads-core's real ScopeViolationError, and GrpcAdsClient's own disclosed
+fail-open catches exactly that), so no ADS backend is even needed for
+this specific real path.
+planner's decompose/replan operations for the 'planner' domain's
+non-project strategies still need real ADS+LLM wiring, deliberately left
+real-failing (never silently skipped) -- same disclosed-gap pattern as
+the remaining domains (recovery, most of tenant-isolation, workflow-E2E
+-- investigated but not built: none of its 5 operation names map to a
+real RPC/method name 1:1, and register_trigger alone needs a real
+pre-existing workflow_version FK row, cascading into the same DB-seeding
+weight class as recovery), each its own follow-up. See
 EvalRunOrchestrator.run()'s domain check and _score_case's operation
 dispatch.
 """
@@ -90,7 +104,15 @@ _EVAL_ADS_SCOPE_ID = "scp_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 _TENANT_B_PROBE_DOCUMENT_ID = "doc_tenant_b_isolation_probe"
 
 SUPPORTED_DOMAINS = frozenset(
-    {"verification", "planner", "retrieval", "intent", "injection", "tenant-isolation"}
+    {
+        "verification",
+        "planner",
+        "retrieval",
+        "intent",
+        "injection",
+        "tenant-isolation",
+        "project",
+    }
 )
 
 _SUBJECT_BY_DOMAIN = {
@@ -100,6 +122,7 @@ _SUBJECT_BY_DOMAIN = {
     "intent": "orchestration-service",
     "injection": "orchestration-service",
     "tenant-isolation": "multi-service",
+    "project": "intelligence-service",
 }
 
 
@@ -229,6 +252,8 @@ class EvalRunOrchestrator:
             return self._score_injection_case(case)
         if domain == "tenant-isolation":
             return self._score_tenant_isolation_case(case)
+        if domain == "project":
+            return self._score_project_case(case)
         return self._score_verification_case(case)
 
     def _score_verification_case(self, case: EvalCase) -> _CaseVerdict:
@@ -503,6 +528,53 @@ class EvalRunOrchestrator:
             verdict=real_verdict,
             score=1.0 if real_verdict == "pass" else 0.0,
             details={"observed": observed, "expected": expected, "suite": suite, **extra},
+        )
+
+    def _score_project_case(self, case: EvalCase) -> _CaseVerdict:
+        operation = case.input_json.get("operation")
+        if operation != "build_project_skeleton":
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={
+                    "error": f"unsupported operation {operation!r} for domain=project "
+                    "(only build_project_skeleton is real as of HARD-7h)"
+                },
+            )
+
+        objective = str(case.input_json["objective"])
+
+        try:
+            result = self._planner_client.decompose(
+                tenant_id=_EVAL_TENANT_ID,
+                workspace_id=_EVAL_WORKSPACE_ID,
+                run_id=_EVAL_RUN_ID,
+                objective=objective,
+                strategy="plan_then_execute",
+            )
+        except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={"error": f"Decompose call failed: {error}"},
+            )
+
+        observed = {
+            "stage_count": result.stage_count,
+            "entry_point": result.entry_point,
+            "stages": result.stages,
+        }
+        expected = case.expected_json
+        real_verdict = "pass" if observed == expected else "fail"
+
+        return _CaseVerdict(
+            verdict=real_verdict,
+            score=1.0 if real_verdict == "pass" else 0.0,
+            details={
+                "observed": observed,
+                "expected": expected,
+                "ambiguity_detected": result.ambiguity_detected,
+            },
         )
 
     def _score_planner_case(self, case: EvalCase) -> _CaseVerdict:

@@ -1064,3 +1064,45 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         assert all(
             "unsupported operation" in row.details.get("error", "") for row in unsupported_results
         )
+
+
+def test_project_golden_set_executes_for_real(
+    sessions: sessionmaker[Session],
+    intelligence_server_target: str,
+) -> None:
+    verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
+    planner_client = PlannerClient(intelligence_server_target)
+    retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    intent_client = IntentClient(_UNUSED_INTENT_TARGET)
+    security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
+    upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
+    tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    orchestrator = EvalRunOrchestrator(
+        sessions,
+        verification_client,
+        planner_client,
+        retrieval_client,
+        intent_client,
+        security_client,
+        upload_client,
+        tenant_isolation_retrieval_client,
+        toolgw_client,
+    )
+
+    try:
+        summary = orchestrator.run("project E2E", trigger="manual")
+    finally:
+        verification_client.close()
+        planner_client.close()
+        retrieval_client.close()
+        intent_client.close()
+        security_client.close()
+        upload_client.close()
+        tenant_isolation_retrieval_client.close()
+        toolgw_client.close()
+
+    # build_project_skeleton is pure and deterministic -- real 3/3 pass.
+    assert summary.total_cases == 3
+    assert summary.passed == 3
+    assert summary.failed == 0
