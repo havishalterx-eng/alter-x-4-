@@ -52,11 +52,8 @@ this specific real path.
 planner's decompose/replan operations for the 'planner' domain's
 non-project strategies still need real ADS+LLM wiring, deliberately left
 real-failing (never silently skipped) -- same disclosed-gap pattern as
-the remaining domains (most of tenant-isolation, workflow-E2E --
-investigated but not built: none of its 5 operation names map to a real
-RPC/method name 1:1, and register_trigger alone needs a real
-pre-existing workflow_version FK row), each its own follow-up.
-HARD-7i adds 'recovery' for 5 of its 12 real cases: the ones whose real
+the remaining domains (most of tenant-isolation), each its own follow-up.
+HARD-7i adds 'recovery' for 5 of its 15 real cases: the ones whose real
 dispatch (RecoveryDispatchService.dispatch()) never touches Temporal, a
 live LLM, or Planner -- "ask_user" (real DB-backed approvals row) and
 "swap_agent" (a real, disclosed "no target system wired yet" deferred
@@ -64,10 +61,29 @@ outcome). See apps/orchestration-service/src/eval_recovery_grpc_server.ts
 and recovery_client.py's own module docs: the real recovery_actions row
 SelectStrategy needs is seeded directly via SQL (bypassing
 ClassifyFailure's real, live ADVANCED-tier Model Gateway call), same
-shortcut shape as ads-core's document seeding. The other 7 cases
+shortcut shape as ads-core's document seeding. The other 10 cases
 (retry/backoff need a real Temporal signal, escalate_model needs a real
-live LLM, replan/recompile need a real Planner call) are disclosed
+live LLM, replan/recompile need a real Planner call, 3 policy-override
+cases need none of those but aren't dispatch-light either) are disclosed
 follow-up, not built here.
+HARD-7j adds 'workflow' (workflow-E2E) for 1 of its 5 real cases:
+'register_trigger', via the real, unmodified TriggerRegistryController +
+TriggerRegistryService (see eval_trigger_registry_http_server.ts's own
+module doc -- production's real SessionGatewayGuard needs live JWT
+signing keys not reachable here, so a synthetic ActorContext is injected
+in its place; the real registerTrigger business logic itself is
+untouched). workflowVersionId has no real FK to any workflow_versions
+row (a real, disclosed gap in trigger-registry.service.ts itself, not
+introduced here) -- only a real `workflows` row is needed.
+'create_save_workflow'/'simulate_workflow' are a real, structural dead
+end, not a "needs more infra" gap: platform-api's WorkflowService calls
+POST /api/v1/workflows and .../actions/simulate on orchestration-service,
+but orchestration-service serves neither route anywhere -- a genuine
+missing production feature, flagged as its own separate follow-up
+ticket, not an eval-wiring problem. 'clarify_then_replan'/'run_gate' were
+deliberately not investigated further (real classes exist for both, but
+chasing every remaining operation's exact real backend has hit
+diminishing returns after 7f/7g/7i's fragmentation).
 See EvalRunOrchestrator.run()'s domain check and _score_case's operation
 dispatch.
 """
@@ -90,6 +106,7 @@ from .recovery_client import RecoveryClient
 from .retrieval_client import RetrievalClient
 from .security_client import SecurityEvalClient, UploadEvalClient
 from .toolgw_client import ToolgwClient
+from .trigger_client import TriggerRegistryClient
 from .verification_client import VerificationClient
 
 # Real, fixed synthetic identity for every case this orchestrator scores --
@@ -124,6 +141,10 @@ _EVAL_RECOVERY_TENANT_UUID = "018f4d6e-dddd-7ddd-8ddd-dddddddddddd"
 # eval_recovery_grpc_server.ts's own module doc.
 _RECOVERY_DISPATCH_LIGHT_STRATEGIES = frozenset({"ask_user", "swap_agent"})
 
+# Real, fixed synthetic tenant for the workflow domain -- bare UUID (no
+# ten_ prefix), matching workflows.tenant_id's real uuid column type.
+_EVAL_WORKFLOW_TENANT_UUID = "018f4d6e-ffff-7fff-8fff-ffffffffffff"
+
 SUPPORTED_DOMAINS = frozenset(
     {
         "verification",
@@ -134,6 +155,7 @@ SUPPORTED_DOMAINS = frozenset(
         "tenant-isolation",
         "project",
         "recovery",
+        "workflow",
     }
 )
 
@@ -146,6 +168,7 @@ _SUBJECT_BY_DOMAIN = {
     "tenant-isolation": "multi-service",
     "project": "intelligence-service",
     "recovery": "orchestration-service",
+    "workflow": "orchestration-service",
 }
 
 
@@ -180,6 +203,7 @@ class EvalRunOrchestrator:
         tenant_isolation_retrieval_client: RetrievalClient,
         toolgw_client: ToolgwClient,
         recovery_client: RecoveryClient,
+        trigger_registry_client: TriggerRegistryClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -191,6 +215,7 @@ class EvalRunOrchestrator:
         self._tenant_isolation_retrieval_client = tenant_isolation_retrieval_client
         self._toolgw_client = toolgw_client
         self._recovery_client = recovery_client
+        self._trigger_registry_client = trigger_registry_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -281,6 +306,8 @@ class EvalRunOrchestrator:
             return self._score_project_case(case)
         if domain == "recovery":
             return self._score_recovery_case(case)
+        if domain == "workflow":
+            return self._score_workflow_case(case)
         return self._score_verification_case(case)
 
     def _score_verification_case(self, case: EvalCase) -> _CaseVerdict:
@@ -555,6 +582,44 @@ class EvalRunOrchestrator:
             verdict=real_verdict,
             score=1.0 if real_verdict == "pass" else 0.0,
             details={"observed": observed, "expected": expected, "suite": suite, **extra},
+        )
+
+    def _score_workflow_case(self, case: EvalCase) -> _CaseVerdict:
+        operation = case.input_json.get("operation")
+        if operation != "register_trigger":
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={
+                    "error": f"unsupported operation {operation!r} for domain=workflow "
+                    "(only register_trigger is real as of HARD-7j -- create_save_workflow/"
+                    "simulate_workflow have no real serving backend on either side yet, "
+                    "clarify_then_replan/run_gate deliberately not investigated further, "
+                    "see orchestrator.py's own module doc)"
+                },
+            )
+
+        try:
+            result = self._trigger_registry_client.register_trigger(
+                tenant_uuid=_EVAL_WORKFLOW_TENANT_UUID,
+                workflow_id=f"wf_eval_{case.id}",
+                name="eval harness trigger",
+            )
+        except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={"error": f"RegisterTrigger call failed: {error}"},
+            )
+
+        observed = {"bound_to_version": result.bound_to_version}
+        expected = case.expected_json
+        real_verdict = "pass" if observed == expected else "fail"
+
+        return _CaseVerdict(
+            verdict=real_verdict,
+            score=1.0 if real_verdict == "pass" else 0.0,
+            details={"observed": observed, "expected": expected},
         )
 
     def _score_recovery_case(self, case: EvalCase) -> _CaseVerdict:
