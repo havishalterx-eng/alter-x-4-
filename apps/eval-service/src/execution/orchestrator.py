@@ -10,12 +10,18 @@ HARD-7a wired 'verification' for real, via a real gRPC call to
 verification-service's ScoreNodeInline. HARD-7b adds 'planner' for its
 select_strategy operation only, via a real HTTP call to intelligence-
 service's PlannerService.SelectStrategy route (that kernel is pure --
-no ADS/LLM I/O). planner's decompose/replan operations still need real
-ADS+LLM wiring and are deliberately left real-failing (never silently
-skipped) -- same disclosed-gap pattern as the remaining domains (intent,
-retrieval, recovery, injection, tenant-isolation, workflow/project E2E),
-each its own follow-up. See EvalRunOrchestrator.run()'s domain check and
-_score_case's operation dispatch.
+no ADS/LLM I/O). HARD-7c adds 'retrieval', via a real gRPC call to
+ads-core's AdsqService.Retrieve, against a real seeded corpus (see
+apps/ads-core/src/query/eval_grpc_server.py) -- real hybrid retrieval, a
+disclosed non-production embedding technique (no live embedding provider
+reachable here). planner's decompose/replan operations still need real
+ADS+LLM wiring, and 'intent' needs a real live Model Gateway/LLM call
+(no stub/deterministic path exists for it, unlike verification/planner) --
+both deliberately left real-failing or unsupported (never silently
+skipped) -- same disclosed-gap pattern as the remaining domains (recovery,
+injection, tenant-isolation, workflow/project E2E), each its own
+follow-up. See EvalRunOrchestrator.run()'s domain check and _score_case's
+operation dispatch.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.db.models import EvalCase, EvalResult, EvalRun, GoldenSet
 
 from .planner_client import PlannerClient
+from .retrieval_client import RetrievalClient
 from .verification_client import VerificationClient
 
 # Real, fixed synthetic identity for every case this orchestrator scores --
@@ -41,11 +48,22 @@ from .verification_client import VerificationClient
 _EVAL_TENANT_ID = "ten_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 _EVAL_RUN_ID = "run_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 
-SUPPORTED_DOMAINS = frozenset({"verification", "planner"})
+# Real, fixed synthetic identity for the retrieval domain -- must match the
+# tenant/workspace/scope apps/ads-core/src/query/eval_grpc_server.py seeds
+# its corpus under (see its EVAL_ADS_TENANT_ID/WORKSPACE_ID/SCOPE_ID env
+# vars). ScopeViolationError is real and enforced (validate_scopes queries
+# a real scopes row), so this must be an exact, agreed-upon value, not just
+# a well-formed one.
+_EVAL_ADS_TENANT_ID = "ten_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
+_EVAL_ADS_WORKSPACE_ID = "ws_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
+_EVAL_ADS_SCOPE_ID = "scp_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
+
+SUPPORTED_DOMAINS = frozenset({"verification", "planner", "retrieval"})
 
 _SUBJECT_BY_DOMAIN = {
     "verification": "verification-service",
     "planner": "intelligence-service",
+    "retrieval": "ads-core",
 }
 
 
@@ -73,10 +91,12 @@ class EvalRunOrchestrator:
         sessions: sessionmaker[Session],
         verification_client: VerificationClient,
         planner_client: PlannerClient,
+        retrieval_client: RetrievalClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
         self._planner_client = planner_client
+        self._retrieval_client = retrieval_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -155,6 +175,8 @@ class EvalRunOrchestrator:
     def _score_case(self, domain: str, case: EvalCase) -> _CaseVerdict:
         if domain == "planner":
             return self._score_planner_case(case)
+        if domain == "retrieval":
+            return self._score_retrieval_case(case)
         return self._score_verification_case(case)
 
     def _score_verification_case(self, case: EvalCase) -> _CaseVerdict:
@@ -219,6 +241,56 @@ class EvalRunOrchestrator:
                 "expected": expected,
                 "reviewer_model": result.reviewer_model,
                 "kernel_details": _safe_json(result.details_json),
+            },
+        )
+
+    def _score_retrieval_case(self, case: EvalCase) -> _CaseVerdict:
+        operation = case.input_json.get("operation")
+        if operation != "retrieve":
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={
+                    "error": f"unsupported operation {operation!r} for domain=retrieval "
+                    "(only retrieve is real as of HARD-7c)"
+                },
+            )
+
+        query = str(case.input_json["query"])
+        rank_at_most_raw = case.scoring.get("rank_at_most", 10)
+        rank_at_most = int(rank_at_most_raw) if isinstance(rank_at_most_raw, int | float) else 10
+
+        try:
+            result = self._retrieval_client.retrieve(
+                tenant_id=_EVAL_ADS_TENANT_ID,
+                workspace_id=_EVAL_ADS_WORKSPACE_ID,
+                query=query,
+                scope_ids=(_EVAL_ADS_SCOPE_ID,),
+                top_k=rank_at_most,
+                requester="eval-service",
+            )
+        except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={"error": f"Retrieve call failed: {error}"},
+            )
+
+        expected_document_key = str(case.expected_json["expected_document_key"])
+        hit_rank = (
+            result.document_ids.index(expected_document_key)
+            if expected_document_key in result.document_ids
+            else None
+        )
+        real_verdict = "pass" if hit_rank is not None else "fail"
+
+        return _CaseVerdict(
+            verdict=real_verdict,
+            score=1.0 if real_verdict == "pass" else 0.0,
+            details={
+                "expected_document_key": expected_document_key,
+                "hit_rank": hit_rank,
+                "observed_document_ids": list(result.document_ids),
             },
         )
 

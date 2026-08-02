@@ -1,9 +1,9 @@
 """Generate the Python gRPC bindings consumed by eval-service.
 
 Mirrors apps/verification-service/scripts/generate_protos.py exactly --
-same tool, same check-mode contract. Only alter/verify/v1/verify.proto is
-needed here (HARD-7's real ScoreNodeInline client), not modelgw.proto --
-eval-service has no direct Model Gateway dependency.
+same tool, same check-mode contract. verify.proto is HARD-7a's real
+ScoreNodeInline client; adsq.proto is HARD-7c's real retrieval client. No
+modelgw.proto -- eval-service has no direct Model Gateway dependency.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SERVICE_ROOT.parents[1]
 PROTO_ROOT = REPO_ROOT / "packages" / "contracts" / "proto"
-PROTO_FILES = ("alter/verify/v1/verify.proto",)
+PROTO_FILES = ("alter/verify/v1/verify.proto", "alter/adsq/v1/adsq.proto")
 
 
 def generate(output: Path) -> None:

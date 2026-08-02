@@ -3,9 +3,10 @@ Postgres eval_db and real, live downstream services (each run as a genuine
 separate process, its own venv, its own interpreter).
 
 All real dependencies -- nothing here is mocked. Verifies the actual claims
-this ticket makes: the verification golden set (HARD-7a) and the planner
-golden set's select_strategy cases (HARD-7b) execute for real and produce a
-real, correct pass_rate.
+this ticket makes: the verification golden set (HARD-7a), the planner
+golden set's select_strategy cases (HARD-7b), and the retrieval golden
+set's retrieve cases (HARD-7c) execute for real and produce a real,
+correct pass_rate.
 """
 
 from __future__ import annotations
@@ -31,16 +32,25 @@ from src.execution.orchestrator import (
     UnsupportedDomainError,
 )
 from src.execution.planner_client import PlannerClient
+from src.execution.retrieval_client import RetrievalClient
 from src.execution.verification_client import VerificationClient
 
 SERVICE_ROOT = Path(__file__).parent.parent
 REPO_ROOT = SERVICE_ROOT.parents[1]
 
-# Verification-only tests never exercise the planner path (and vice versa)
-# -- an unreachable placeholder is real and honest (never silently mocked),
-# just never actually dialed by the case operations under test.
+# Single-domain tests never exercise the other domains' clients -- an
+# unreachable placeholder is real and honest (never silently mocked), just
+# never actually dialed by the case operations under test.
 _UNUSED_PLANNER_TARGET = "http://127.0.0.1:1"
 _UNUSED_VERIFICATION_TARGET = "127.0.0.1:1"
+_UNUSED_RETRIEVAL_TARGET = "127.0.0.1:1"
+
+# Must match apps/ads-core/src/query/eval_grpc_server.py's own literal
+# values -- see orchestrator.py's _EVAL_ADS_* constants for why these must
+# be exact, agreed-upon values, not just well-formed ones.
+_EVAL_ADS_TENANT_UUID = "018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
+_EVAL_ADS_WORKSPACE_UUID = "018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
+_EVAL_ADS_SCOPE_ID = "scp_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 
 
 @pytest.fixture(scope="module")
@@ -181,19 +191,71 @@ def intelligence_server_target() -> Generator[str, None, None]:
             process.kill()
 
 
+@pytest.fixture(scope="module")
+def ads_core_server_target() -> Generator[str, None, None]:
+    """Real, live ads-core gRPC server (AdsqService), seeded with the real
+    12-document retrieval golden-set corpus and run as a real separate
+    process -- same "src" top-level package-name collision as the other
+    downstream services, same subprocess-with-own-venv fix.
+
+    Own real pgvector Postgres (separate container from eval_db's own --
+    real, separate services, real, separate DBs, adapter law). See
+    apps/ads-core/src/query/eval_grpc_server.py's own module doc for why
+    this uses a disclosed non-production embedding technique instead of
+    ads-core's real Bedrock-backed production entrypoint.
+    """
+    ads_core_python = REPO_ROOT / "apps" / "ads-core" / ".venv" / "bin" / "python"
+    if not ads_core_python.exists():
+        pytest.skip(
+            "apps/ads-core/.venv not present -- run `uv sync` there first "
+            "(same real dependency this test always needed, just not eval-service's own venv)"
+        )
+    with PostgresContainer(
+        image="pgvector/pgvector:pg16", dbname="ads_db", username="ads_core", password="testpass"
+    ) as postgres:
+        db_url = postgres.get_connection_url()
+        port = _free_port()
+        process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+            [str(ads_core_python), "-m", "src.query.eval_grpc_server"],
+            cwd=str(REPO_ROOT / "apps" / "ads-core"),
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "EVAL_ADS_DB_URL": db_url,
+                "ADS_CORE_SERVICE_ROOT": str(REPO_ROOT / "apps" / "ads-core"),
+                "EVAL_ADS_TENANT_ID": _EVAL_ADS_TENANT_UUID,
+                "EVAL_ADS_WORKSPACE_ID": _EVAL_ADS_WORKSPACE_UUID,
+                "EVAL_ADS_SCOPE_ID": _EVAL_ADS_SCOPE_ID,
+                "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+            },
+        )
+        try:
+            _wait_for_port(port, timeout_seconds=40.0)
+            yield f"127.0.0.1:{port}"
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
 def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     sessions: sessionmaker[Session],
     verification_server_target: str,
 ) -> None:
     verification_client = VerificationClient(verification_server_target)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
-    orchestrator = EvalRunOrchestrator(sessions, verification_client, planner_client)
+    retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    orchestrator = EvalRunOrchestrator(
+        sessions, verification_client, planner_client, retrieval_client
+    )
 
     try:
         summary = orchestrator.run("verification", trigger="manual")
     finally:
         verification_client.close()
         planner_client.close()
+        retrieval_client.close()
 
     assert summary.total_cases == 20
     assert summary.passed == 20
@@ -221,13 +283,17 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
 ) -> None:
     verification_client = VerificationClient(verification_server_target)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
-    orchestrator = EvalRunOrchestrator(sessions, verification_client, planner_client)
+    retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    orchestrator = EvalRunOrchestrator(
+        sessions, verification_client, planner_client, retrieval_client
+    )
     try:
         first = orchestrator.run("verification")
         second = orchestrator.run("verification")
     finally:
         verification_client.close()
         planner_client.close()
+        retrieval_client.close()
 
     assert first.eval_run_id != second.eval_run_id
     assert first.pass_rate == second.pass_rate == 1.0
@@ -239,13 +305,17 @@ def test_unsupported_domain_is_rejected_not_silently_skipped(
 ) -> None:
     verification_client = VerificationClient(verification_server_target)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
-    orchestrator = EvalRunOrchestrator(sessions, verification_client, planner_client)
+    retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    orchestrator = EvalRunOrchestrator(
+        sessions, verification_client, planner_client, retrieval_client
+    )
     try:
         with pytest.raises(UnsupportedDomainError):
             orchestrator.run("intent")
     finally:
         verification_client.close()
         planner_client.close()
+        retrieval_client.close()
 
 
 def test_unknown_golden_set_raises(
@@ -254,13 +324,17 @@ def test_unknown_golden_set_raises(
 ) -> None:
     verification_client = VerificationClient(verification_server_target)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
-    orchestrator = EvalRunOrchestrator(sessions, verification_client, planner_client)
+    retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    orchestrator = EvalRunOrchestrator(
+        sessions, verification_client, planner_client, retrieval_client
+    )
     try:
         with pytest.raises(GoldenSetNotFoundError):
             orchestrator.run("does-not-exist")
     finally:
         verification_client.close()
         planner_client.close()
+        retrieval_client.close()
 
 
 def test_planner_select_strategy_cases_execute_for_real(
@@ -269,13 +343,17 @@ def test_planner_select_strategy_cases_execute_for_real(
 ) -> None:
     verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
     planner_client = PlannerClient(intelligence_server_target)
-    orchestrator = EvalRunOrchestrator(sessions, verification_client, planner_client)
+    retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    orchestrator = EvalRunOrchestrator(
+        sessions, verification_client, planner_client, retrieval_client
+    )
 
     try:
         summary = orchestrator.run("planner", trigger="manual")
     finally:
         verification_client.close()
         planner_client.close()
+        retrieval_client.close()
 
     # 16 of the 20 seeded planner cases are select_strategy (real as of
     # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
@@ -329,3 +407,47 @@ def test_planner_select_strategy_cases_execute_for_real(
             "observed" in details and "expected" in details
             for details in mismatched_strategy_results
         )
+
+
+def test_retrieval_golden_set_executes_for_real(
+    sessions: sessionmaker[Session],
+    ads_core_server_target: str,
+) -> None:
+    verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
+    planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
+    retrieval_client = RetrievalClient(ads_core_server_target)
+    orchestrator = EvalRunOrchestrator(
+        sessions, verification_client, planner_client, retrieval_client
+    )
+
+    try:
+        summary = orchestrator.run("retrieval", trigger="manual")
+    finally:
+        verification_client.close()
+        planner_client.close()
+        retrieval_client.close()
+
+    # All 20 retrieval cases are real "retrieve" operations against a real
+    # hybrid-retrieval gRPC server. Asserting the real, observed pass rate
+    # -- not assuming 20/20 -- since real hybrid retrieval over a corpus
+    # with deliberately overlapping distractor vocabulary is not guaranteed
+    # to rank every true answer inside the top 10 (same real, disclosed
+    # 0.8 recall bar apps/ads-core/tests/test_retrieval_golden_set.py's
+    # own Phase 7 exit check uses, not a rigged 1.0).
+    assert summary.total_cases == 20
+    assert summary.passed >= 16  # >= 0.8 recall, same real bar as Phase 7's own exit check
+    assert summary.passed + summary.failed == 20
+
+    with sessions() as session:
+        row = session.execute(
+            sa.text("SELECT status, pass_rate FROM eval_runs WHERE id = :id"),
+            {"id": str(summary.eval_run_id)},
+        ).one()
+        assert row.status == "completed"
+        assert float(row.pass_rate) == summary.pass_rate
+
+        result_count = session.execute(
+            sa.text("SELECT count(*) FROM eval_results WHERE eval_run_id = :id"),
+            {"id": str(summary.eval_run_id)},
+        ).scalar_one()
+        assert result_count == 20
