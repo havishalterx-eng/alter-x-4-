@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from src.execution.intent_client import IntentClient
 from src.execution.orchestrator import (
     EvalRunOrchestrator,
     GoldenSetNotFoundError,
@@ -44,6 +45,7 @@ REPO_ROOT = SERVICE_ROOT.parents[1]
 _UNUSED_PLANNER_TARGET = "http://127.0.0.1:1"
 _UNUSED_VERIFICATION_TARGET = "127.0.0.1:1"
 _UNUSED_RETRIEVAL_TARGET = "127.0.0.1:1"
+_UNUSED_INTENT_TARGET = "127.0.0.1:1"
 
 # Must match apps/ads-core/src/query/eval_grpc_server.py's own literal
 # values -- see orchestrator.py's _EVAL_ADS_* constants for why these must
@@ -239,6 +241,94 @@ def ads_core_server_target() -> Generator[str, None, None]:
                 process.kill()
 
 
+@pytest.fixture(scope="module")
+def orchestration_intent_server_target() -> Generator[str, None, None]:
+    """Real, live orchestration-service ConversationService.ClassifyIntent
+    gRPC server (HARD-7e), chained to a real, live model-gateway
+    (HARD-7d's eval_bootstrap.ts). Both are real Node/TypeScript builds --
+    module resolution for a plain `node dist/...` invocation needs
+    NODE_PATH pointed at each app's own node_modules (this repo's pnpm
+    layout doesn't hoist everything to the workspace root); this is a
+    real, pre-existing quirk of this exact invocation shape, not
+    something introduced here.
+
+    Requires a real ANTHROPIC_API_KEY or OPENAI_API_KEY env var -- without
+    one, `intent` has no real path to test (see orchestrator.py's own
+    module doc), so this fixture skips rather than faking a response.
+    """
+    api_key_env: dict[str, str] = {}
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        api_key_env["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
+    elif os.environ.get("OPENAI_API_KEY"):
+        api_key_env["OPENAI_API_KEY"] = os.environ["OPENAI_API_KEY"]
+    else:
+        pytest.skip(
+            "No ANTHROPIC_API_KEY or OPENAI_API_KEY set -- intent has no real, live LLM "
+            "path to test without one (see HARD-7d/e: this is a real, disclosed, "
+            "structural blocker, not something this harness can fake around)."
+        )
+
+    model_gateway_root = REPO_ROOT / "apps" / "model-gateway"
+    model_gateway_dist = (
+        model_gateway_root / "dist" / "apps" / "model-gateway" / "eval_bootstrap.js"
+    )
+    orchestration_root = REPO_ROOT / "apps" / "orchestration-service"
+    orchestration_dist = (
+        orchestration_root
+        / "dist"
+        / "apps"
+        / "orchestration-service"
+        / "eval_intent_grpc_server.js"
+    )
+    if not model_gateway_dist.exists() or not orchestration_dist.exists():
+        pytest.skip(
+            "model-gateway/orchestration-service eval builds not present -- run "
+            "`pnpm exec nx run model-gateway:build` and "
+            "`pnpm exec nx run orchestration-service:build` first "
+            "(same real dependency this test always needed)."
+        )
+
+    model_gateway_port = _free_port()
+    model_gateway_process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+        ["node", str(model_gateway_dist)],
+        cwd=str(REPO_ROOT),
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "NODE_PATH": f"{model_gateway_root / 'node_modules'}:{REPO_ROOT / 'node_modules'}",
+            "ALTER_ENV": "local",
+            "ALTER_SERVICE_NAME": "model-gateway",
+            "ALTER_REGION": "ap-south-1",
+            "ALTER_CONFIG_SOURCE": "mock",
+            "PORT": "0",
+            "GRPC_BIND_ADDRESS": f"127.0.0.1:{model_gateway_port}",
+            **api_key_env,
+        },
+    )
+    intent_port = _free_port()
+    intent_process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+        ["node", str(orchestration_dist)],
+        cwd=str(REPO_ROOT),
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "NODE_PATH": f"{orchestration_root / 'node_modules'}:{REPO_ROOT / 'node_modules'}",
+            "MODEL_GATEWAY_GRPC_TARGET": f"127.0.0.1:{model_gateway_port}",
+            "GRPC_BIND_ADDRESS": f"127.0.0.1:{intent_port}",
+        },
+    )
+    try:
+        _wait_for_port(model_gateway_port)
+        _wait_for_port(intent_port)
+        yield f"127.0.0.1:{intent_port}"
+    finally:
+        intent_process.terminate()
+        model_gateway_process.terminate()
+        for process in (intent_process, model_gateway_process):
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
 def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     sessions: sessionmaker[Session],
     verification_server_target: str,
@@ -246,8 +336,9 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     verification_client = VerificationClient(verification_server_target)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     orchestrator = EvalRunOrchestrator(
-        sessions, verification_client, planner_client, retrieval_client
+        sessions, verification_client, planner_client, retrieval_client, intent_client
     )
 
     try:
@@ -256,6 +347,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         verification_client.close()
         planner_client.close()
         retrieval_client.close()
+        intent_client.close()
 
     assert summary.total_cases == 20
     assert summary.passed == 20
@@ -284,8 +376,9 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
     verification_client = VerificationClient(verification_server_target)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     orchestrator = EvalRunOrchestrator(
-        sessions, verification_client, planner_client, retrieval_client
+        sessions, verification_client, planner_client, retrieval_client, intent_client
     )
     try:
         first = orchestrator.run("verification")
@@ -294,6 +387,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         verification_client.close()
         planner_client.close()
         retrieval_client.close()
+        intent_client.close()
 
     assert first.eval_run_id != second.eval_run_id
     assert first.pass_rate == second.pass_rate == 1.0
@@ -306,16 +400,18 @@ def test_unsupported_domain_is_rejected_not_silently_skipped(
     verification_client = VerificationClient(verification_server_target)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     orchestrator = EvalRunOrchestrator(
-        sessions, verification_client, planner_client, retrieval_client
+        sessions, verification_client, planner_client, retrieval_client, intent_client
     )
     try:
         with pytest.raises(UnsupportedDomainError):
-            orchestrator.run("intent")
+            orchestrator.run("recovery")
     finally:
         verification_client.close()
         planner_client.close()
         retrieval_client.close()
+        intent_client.close()
 
 
 def test_unknown_golden_set_raises(
@@ -325,8 +421,9 @@ def test_unknown_golden_set_raises(
     verification_client = VerificationClient(verification_server_target)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     orchestrator = EvalRunOrchestrator(
-        sessions, verification_client, planner_client, retrieval_client
+        sessions, verification_client, planner_client, retrieval_client, intent_client
     )
     try:
         with pytest.raises(GoldenSetNotFoundError):
@@ -335,6 +432,7 @@ def test_unknown_golden_set_raises(
         verification_client.close()
         planner_client.close()
         retrieval_client.close()
+        intent_client.close()
 
 
 def test_planner_select_strategy_cases_execute_for_real(
@@ -344,8 +442,9 @@ def test_planner_select_strategy_cases_execute_for_real(
     verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
     planner_client = PlannerClient(intelligence_server_target)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     orchestrator = EvalRunOrchestrator(
-        sessions, verification_client, planner_client, retrieval_client
+        sessions, verification_client, planner_client, retrieval_client, intent_client
     )
 
     try:
@@ -354,6 +453,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         verification_client.close()
         planner_client.close()
         retrieval_client.close()
+        intent_client.close()
 
     # 16 of the 20 seeded planner cases are select_strategy (real as of
     # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
@@ -416,8 +516,9 @@ def test_retrieval_golden_set_executes_for_real(
     verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(ads_core_server_target)
+    intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     orchestrator = EvalRunOrchestrator(
-        sessions, verification_client, planner_client, retrieval_client
+        sessions, verification_client, planner_client, retrieval_client, intent_client
     )
 
     try:
@@ -426,6 +527,7 @@ def test_retrieval_golden_set_executes_for_real(
         verification_client.close()
         planner_client.close()
         retrieval_client.close()
+        intent_client.close()
 
     # All 20 retrieval cases are real "retrieve" operations against a real
     # hybrid-retrieval gRPC server. Asserting the real, observed pass rate
@@ -451,3 +553,51 @@ def test_retrieval_golden_set_executes_for_real(
             {"id": str(summary.eval_run_id)},
         ).scalar_one()
         assert result_count == 20
+
+
+_EVAL_INTENT_CASE_COUNT = 30
+
+
+def test_intent_golden_set_executes_for_real_against_a_live_llm(
+    sessions: sessionmaker[Session],
+    orchestration_intent_server_target: str,
+) -> None:
+    verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
+    planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
+    retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    intent_client = IntentClient(orchestration_intent_server_target)
+    orchestrator = EvalRunOrchestrator(
+        sessions, verification_client, planner_client, retrieval_client, intent_client
+    )
+
+    try:
+        summary = orchestrator.run("intent", trigger="manual")
+    finally:
+        verification_client.close()
+        planner_client.close()
+        retrieval_client.close()
+        intent_client.close()
+
+    # All 30 intent cases are real classify_intent calls against a real,
+    # live LLM (whichever of Anthropic/OpenAI the environment running this
+    # test supplies a key for). No fixed pass-rate assertion -- a real
+    # model's classification accuracy on a golden set it has never seen
+    # before is not something this harness controls or should pretend to
+    # guarantee. What IS asserted is that every case executed for real
+    # (never silently skipped) and produced a real persisted result.
+    assert summary.total_cases == _EVAL_INTENT_CASE_COUNT
+    assert summary.passed + summary.failed == _EVAL_INTENT_CASE_COUNT
+
+    with sessions() as session:
+        row = session.execute(
+            sa.text("SELECT status, pass_rate FROM eval_runs WHERE id = :id"),
+            {"id": str(summary.eval_run_id)},
+        ).one()
+        assert row.status == "completed"
+        assert float(row.pass_rate) == summary.pass_rate
+
+        result_count = session.execute(
+            sa.text("SELECT count(*) FROM eval_results WHERE eval_run_id = :id"),
+            {"id": str(summary.eval_run_id)},
+        ).scalar_one()
+        assert result_count == _EVAL_INTENT_CASE_COUNT

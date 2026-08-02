@@ -14,14 +14,18 @@ no ADS/LLM I/O). HARD-7c adds 'retrieval', via a real gRPC call to
 ads-core's AdsqService.Retrieve, against a real seeded corpus (see
 apps/ads-core/src/query/eval_grpc_server.py) -- real hybrid retrieval, a
 disclosed non-production embedding technique (no live embedding provider
-reachable here). planner's decompose/replan operations still need real
-ADS+LLM wiring, and 'intent' needs a real live Model Gateway/LLM call
-(no stub/deterministic path exists for it, unlike verification/planner) --
-both deliberately left real-failing or unsupported (never silently
-skipped) -- same disclosed-gap pattern as the remaining domains (recovery,
-injection, tenant-isolation, workflow/project E2E), each its own
-follow-up. See EvalRunOrchestrator.run()'s domain check and _score_case's
-operation dispatch.
+reachable here). HARD-7e adds 'intent', via a real gRPC call to
+orchestration-service's ConversationService.ClassifyIntent (see
+apps/orchestration-service/src/eval_intent_grpc_server.ts) -- this one
+depends on a real, live model-gateway (HARD-7d's eval_bootstrap.ts) with a
+real ANTHROPIC_API_KEY/OPENAI_API_KEY; without one, this domain's calls
+fail for a real reason (no live credentials), not a harness bug.
+planner's decompose/replan operations still need real ADS+LLM wiring,
+deliberately left real-failing (never silently skipped) -- same
+disclosed-gap pattern as the remaining domains (recovery, injection,
+tenant-isolation, workflow/project E2E), each its own follow-up. See
+EvalRunOrchestrator.run()'s domain check and _score_case's operation
+dispatch.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.models import EvalCase, EvalResult, EvalRun, GoldenSet
 
+from .intent_client import IntentClient
 from .planner_client import PlannerClient
 from .retrieval_client import RetrievalClient
 from .verification_client import VerificationClient
@@ -47,6 +52,7 @@ from .verification_client import VerificationClient
 # tenant/run/node_execution row, and never claiming to.
 _EVAL_TENANT_ID = "ten_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 _EVAL_RUN_ID = "run_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
+_EVAL_WORKSPACE_ID = "ws_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 
 # Real, fixed synthetic identity for the retrieval domain -- must match the
 # tenant/workspace/scope apps/ads-core/src/query/eval_grpc_server.py seeds
@@ -58,12 +64,13 @@ _EVAL_ADS_TENANT_ID = "ten_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 _EVAL_ADS_WORKSPACE_ID = "ws_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 _EVAL_ADS_SCOPE_ID = "scp_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 
-SUPPORTED_DOMAINS = frozenset({"verification", "planner", "retrieval"})
+SUPPORTED_DOMAINS = frozenset({"verification", "planner", "retrieval", "intent"})
 
 _SUBJECT_BY_DOMAIN = {
     "verification": "verification-service",
     "planner": "intelligence-service",
     "retrieval": "ads-core",
+    "intent": "orchestration-service",
 }
 
 
@@ -92,11 +99,13 @@ class EvalRunOrchestrator:
         verification_client: VerificationClient,
         planner_client: PlannerClient,
         retrieval_client: RetrievalClient,
+        intent_client: IntentClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
         self._planner_client = planner_client
         self._retrieval_client = retrieval_client
+        self._intent_client = intent_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -177,6 +186,8 @@ class EvalRunOrchestrator:
             return self._score_planner_case(case)
         if domain == "retrieval":
             return self._score_retrieval_case(case)
+        if domain == "intent":
+            return self._score_intent_case(case)
         return self._score_verification_case(case)
 
     def _score_verification_case(self, case: EvalCase) -> _CaseVerdict:
@@ -294,6 +305,44 @@ class EvalRunOrchestrator:
             },
         )
 
+    def _score_intent_case(self, case: EvalCase) -> _CaseVerdict:
+        operation = case.input_json.get("operation")
+        if operation != "classify_intent":
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={
+                    "error": f"unsupported operation {operation!r} for domain=intent "
+                    "(only classify_intent is real as of HARD-7e)"
+                },
+            )
+
+        utterance = str(case.input_json["utterance"])
+
+        try:
+            result = self._intent_client.classify_intent(
+                tenant_id=_EVAL_TENANT_ID,
+                workspace_id=_EVAL_WORKSPACE_ID,
+                conversation_id=_intent_conversation_id(case.id),
+                utterance=utterance,
+            )
+        except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={"error": f"ClassifyIntent call failed: {error}"},
+            )
+
+        observed = {"intent": result.intent, "actionable": result.actionable}
+        expected = case.expected_json
+        real_verdict = "pass" if observed == expected else "fail"
+
+        return _CaseVerdict(
+            verdict=real_verdict,
+            score=result.confidence,
+            details={"observed": observed, "expected": expected, "confidence": result.confidence},
+        )
+
     def _score_planner_case(self, case: EvalCase) -> _CaseVerdict:
         operation = case.input_json.get("operation")
         if operation != "select_strategy":
@@ -343,6 +392,11 @@ class _CaseVerdict:
 
 def _result_id(eval_run_id: UUID, eval_case_id: UUID) -> UUID:
     return uuid5(NAMESPACE_URL, f"https://alterx.dev/eval/result/{eval_run_id}/{eval_case_id}")
+
+
+def _intent_conversation_id(eval_case_id: UUID) -> str:
+    conversation_uuid = uuid5(NAMESPACE_URL, f"https://alterx.dev/eval/conversation/{eval_case_id}")
+    return f"cnv_{conversation_uuid}"
 
 
 def _node_execution_id(eval_case_id: UUID) -> str:

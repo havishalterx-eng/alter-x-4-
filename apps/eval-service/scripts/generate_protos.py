@@ -2,7 +2,8 @@
 
 Mirrors apps/verification-service/scripts/generate_protos.py exactly --
 same tool, same check-mode contract. verify.proto is HARD-7a's real
-ScoreNodeInline client; adsq.proto is HARD-7c's real retrieval client. No
+ScoreNodeInline client; adsq.proto is HARD-7c's real retrieval client;
+conversation.proto is HARD-7e's real ClassifyIntent client. No
 modelgw.proto -- eval-service has no direct Model Gateway dependency.
 """
 
@@ -18,7 +19,11 @@ from pathlib import Path
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SERVICE_ROOT.parents[1]
 PROTO_ROOT = REPO_ROOT / "packages" / "contracts" / "proto"
-PROTO_FILES = ("alter/verify/v1/verify.proto", "alter/adsq/v1/adsq.proto")
+PROTO_FILES = (
+    "alter/verify/v1/verify.proto",
+    "alter/adsq/v1/adsq.proto",
+    "alter/conversation/v1/conversation.proto",
+)
 
 
 def generate(output: Path) -> None:
