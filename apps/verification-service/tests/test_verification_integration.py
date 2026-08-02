@@ -23,6 +23,8 @@ from src.verification.engine import HallucinationVerificationEngine
 from src.verification.errors import VerificationError
 from src.verification.grpc_service import VerifyGrpcService
 from src.verification.ids import new_prefixed_uuid7
+from src.verification.kernel import VerificationKernel
+from src.verification.llm_client import StubReviewerLlmClient
 from src.verification.model_gateway_client import GrpcModelGatewayClient
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -347,7 +349,11 @@ async def test_real_verify_grpc_response_uses_locked_severity_enum(
     model_client = GrpcModelGatewayClient(model_target)
     server = grpc.aio.server()
     verify_pb2_grpc.add_VerifyServiceServicer_to_server(  # type: ignore[no-untyped-call]
-        VerifyGrpcService(async_sessionmaker(database, expire_on_commit=False), model_client),
+        VerifyGrpcService(
+            async_sessionmaker(database, expire_on_commit=False),
+            model_client,
+            VerificationKernel(StubReviewerLlmClient()),
+        ),
         server,
     )
     port = server.add_insecure_port("127.0.0.1:0")

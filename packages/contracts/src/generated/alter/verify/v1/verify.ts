@@ -88,3 +88,27 @@ export interface AssessSeverityResponse {
   rationale: string;
   severity_tier: SafetySeverity;
 }
+
+export interface ScoreNodeInlineRequest {
+  /** ten_ prefixed UUIDv7 */
+  tenant_id: string;
+  /** run_ prefixed UUIDv7 */
+  run_id: string;
+  /** node_ prefixed UUIDv7 */
+  node_execution_id: string;
+  node_key: string;
+  /** one of the 11 real NodeType values */
+  node_type: string;
+  config_json: string;
+  output_json: string;
+}
+
+export interface ScoreNodeInlineResponse {
+  /** pass | warn | fail */
+  verdict: string;
+  score: number;
+  threshold: number;
+  /** "deterministic" for structural checks, else the resolved ADVANCED capability */
+  reviewer_model: string;
+  details_json: string;
+}

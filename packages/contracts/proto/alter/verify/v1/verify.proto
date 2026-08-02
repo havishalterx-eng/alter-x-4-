@@ -6,6 +6,13 @@ service VerifyService {
   rpc ScoreGate(ScoreGateRequest) returns (ScoreGateResponse);
   rpc CheckHallucination(CheckHallucinationRequest) returns (CheckHallucinationResponse);
   rpc AssessSeverity(AssessSeverityRequest) returns (AssessSeverityResponse);
+  // HARD-7: real target for eval-service's verification golden set. Unlike
+  // ScoreGate (which reads real node output from the Blackboard via a real
+  // run/node_execution context, still HEAL-2's disclosed follow-up), this
+  // takes the node's output inline -- exactly what a golden-set eval case
+  // already has, no fabricated run/node_execution context needed. Reuses
+  // VerificationKernel.score_node() (HEAL-2, real, tested) as-is.
+  rpc ScoreNodeInline(ScoreNodeInlineRequest) returns (ScoreNodeInlineResponse);
 }
 
 message ScoreGateRequest {
@@ -69,4 +76,26 @@ enum SafetySeverity {
   SAFETY_SEVERITY_MEDIUM = 2;
   SAFETY_SEVERITY_HIGH = 3;
   SAFETY_SEVERITY_CRITICAL = 4;
+}
+
+message ScoreNodeInlineRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string node_execution_id = 3; // node_ prefixed UUIDv7
+  string node_key = 4;
+  string node_type = 5; // one of the 11 real NodeType values
+  string config_json = 6;
+  string output_json = 7;
+}
+
+message ScoreNodeInlineResponse {
+  reserved 100 to 199;
+
+  string verdict = 1; // pass | warn | fail
+  double score = 2;
+  double threshold = 3;
+  string reviewer_model = 4; // "deterministic" for structural checks, else the resolved ADVANCED capability
+  string details_json = 5;
 }

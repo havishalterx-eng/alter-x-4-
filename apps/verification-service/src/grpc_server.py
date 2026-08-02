@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alter.verify.v1 import verify_pb2_grpc
 from src.verification.grpc_service import VerifyGrpcService
+from src.verification.kernel import VerificationKernel
+from src.verification.llm_client import StubReviewerLlmClient
 from src.verification.model_gateway_client import GrpcModelGatewayClient
 
 
@@ -19,9 +21,20 @@ async def serve() -> None:
     engine = create_async_engine(database_url, pool_pre_ping=True)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     model_gateway = GrpcModelGatewayClient(model_gateway_target)
+    # HARD-7: wires ScoreNodeInline for real. StubReviewerLlmClient is a
+    # known, disclosed gap (kernel.py's own doc comment: "wire the stub
+    # during development, swap in the real adapter at integration time") --
+    # never a real client existed here before this ticket either. Every
+    # DETERMINISTIC_NODE_TYPES case (Gate/HumanApproval/Merge/MemoryWrite/
+    # PubSub/GroupChat/YAMLImport) never calls this client at all -- only
+    # the ADVANCED-reviewer node types (LLMTask/ToolCall/SandboxExec/
+    # Synthesis) would get a synthetic, non-real score until a real
+    # ADVANCED Model Gateway reviewer client is built (separate, real,
+    # disclosed follow-up).
+    kernel = VerificationKernel(StubReviewerLlmClient())
     server = grpc.aio.server()
     verify_pb2_grpc.add_VerifyServiceServicer_to_server(  # type: ignore[no-untyped-call]
-        VerifyGrpcService(sessions, model_gateway), server
+        VerifyGrpcService(sessions, model_gateway, kernel), server
     )
     server.add_insecure_port(bind_address)
     await server.start()

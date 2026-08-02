@@ -10,6 +10,8 @@ dependencies = [
   "alembic>=1.13.0,<2.0.0",
   "psycopg2-binary>=2.9.0,<3.0.0",
   "uvicorn[standard]>=0.35.0,<1.0.0",
+  "grpcio>=1.70.0,<2.0.0",
+  "protobuf>=5.29.0,<7.0.0",
 ]
 
 [dependency-groups]
@@ -19,6 +21,7 @@ dev = [
   "pytest>=8.4.0,<10.0.0",
   "ruff>=0.12.0,<1.0.0",
   "testcontainers[postgres]>=4.8.0,<5.0.0",
+  "grpcio-tools>=1.70.0,<2.0.0",
 ]
 
 [tool.pytest.ini_options]
@@ -29,14 +32,20 @@ testpaths = ["tests"]
 python_version = "3.12"
 strict = true
 files = ["src", "tests"]
+exclude = ["^alter/"]
 
 [[tool.mypy.overrides]]
-module = ["alembic.*", "testcontainers.*"]
+module = ["alembic.*", "testcontainers.*", "grpc.*", "google.protobuf.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["alter.*"]
+ignore_errors = true
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["alter"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
