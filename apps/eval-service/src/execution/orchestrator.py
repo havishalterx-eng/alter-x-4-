@@ -6,12 +6,16 @@ against the real system and persisted a real eval_runs/eval_results row --
 confirmed by reading every prior Hardening PR (launch_golden_sets.py's own
 docstring: "data for a future runner, not an evaluation implementation").
 
-This ticket wires exactly one domain for real: 'verification', via a real
-gRPC call to verification-service's ScoreNodeInline (also built in this
-ticket). Other domains (planner, intent, retrieval, recovery, injection,
-tenant-isolation, workflow/project E2E) each need their own real
-cross-service integration -- disclosed, deliberate, separate follow-up
-scope, not built here. See EvalRunOrchestrator.run()'s domain check.
+HARD-7a wired 'verification' for real, via a real gRPC call to
+verification-service's ScoreNodeInline. HARD-7b adds 'planner' for its
+select_strategy operation only, via a real HTTP call to intelligence-
+service's PlannerService.SelectStrategy route (that kernel is pure --
+no ADS/LLM I/O). planner's decompose/replan operations still need real
+ADS+LLM wiring and are deliberately left real-failing (never silently
+skipped) -- same disclosed-gap pattern as the remaining domains (intent,
+retrieval, recovery, injection, tenant-isolation, workflow/project E2E),
+each its own follow-up. See EvalRunOrchestrator.run()'s domain check and
+_score_case's operation dispatch.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.models import EvalCase, EvalResult, EvalRun, GoldenSet
 
+from .planner_client import PlannerClient
 from .verification_client import VerificationClient
 
 # Real, fixed synthetic identity for every case this orchestrator scores --
@@ -36,7 +41,12 @@ from .verification_client import VerificationClient
 _EVAL_TENANT_ID = "ten_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 _EVAL_RUN_ID = "run_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 
-SUPPORTED_DOMAINS = frozenset({"verification"})
+SUPPORTED_DOMAINS = frozenset({"verification", "planner"})
+
+_SUBJECT_BY_DOMAIN = {
+    "verification": "verification-service",
+    "planner": "intelligence-service",
+}
 
 
 class UnsupportedDomainError(ValueError):
@@ -62,9 +72,11 @@ class EvalRunOrchestrator:
         self,
         sessions: sessionmaker[Session],
         verification_client: VerificationClient,
+        planner_client: PlannerClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
+        self._planner_client = planner_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -87,11 +99,12 @@ class EvalRunOrchestrator:
                 session.scalars(select(EvalCase).where(EvalCase.golden_set_id == golden_set.id))
             )
 
+            domain = golden_set.domain
             eval_run = EvalRun(
                 id=uuid4(),
                 golden_set_id=golden_set.id,
                 golden_set_version=golden_set.version,
-                subject="verification-service",
+                subject=_SUBJECT_BY_DOMAIN[domain],
                 trigger=trigger,
                 status="running",
                 started_at=datetime.now(UTC),
@@ -103,7 +116,7 @@ class EvalRunOrchestrator:
         passed = 0
         failed = 0
         for case in cases:
-            verdict = self._score_case(case)
+            verdict = self._score_case(domain, case)
             with self._sessions.begin() as session:
                 session.add(
                     EvalResult(
@@ -139,7 +152,12 @@ class EvalRunOrchestrator:
             pass_rate=pass_rate,
         )
 
-    def _score_case(self, case: EvalCase) -> _CaseVerdict:
+    def _score_case(self, domain: str, case: EvalCase) -> _CaseVerdict:
+        if domain == "planner":
+            return self._score_planner_case(case)
+        return self._score_verification_case(case)
+
+    def _score_verification_case(self, case: EvalCase) -> _CaseVerdict:
         operation = case.input_json.get("operation")
         if operation != "score_node":
             # Real, honest fail-closed: a case this orchestrator doesn't
@@ -202,6 +220,45 @@ class EvalRunOrchestrator:
                 "reviewer_model": result.reviewer_model,
                 "kernel_details": _safe_json(result.details_json),
             },
+        )
+
+    def _score_planner_case(self, case: EvalCase) -> _CaseVerdict:
+        operation = case.input_json.get("operation")
+        if operation != "select_strategy":
+            # decompose/replan need real ADS+LLM wiring -- disclosed
+            # follow-up scope (see module doc), same fail-closed pattern
+            # as an unsupported domain: never silently skipped.
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={
+                    "error": f"unsupported operation {operation!r} for domain=planner "
+                    "(only select_strategy is real as of HARD-7b)"
+                },
+            )
+
+        objective = str(case.input_json["objective"])
+        mode = str(case.input_json["mode"])
+
+        try:
+            result = self._planner_client.select_strategy(
+                tenant_id=_EVAL_TENANT_ID, objective=objective, mode=mode
+            )
+        except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={"error": f"SelectStrategy call failed: {error}"},
+            )
+
+        observed = {"strategy": result.strategy}
+        expected = case.expected_json
+        real_verdict = "pass" if observed == expected else "fail"
+
+        return _CaseVerdict(
+            verdict=real_verdict,
+            score=1.0 if real_verdict == "pass" else 0.0,
+            details={"observed": observed, "expected": expected, "reason": result.reason},
         )
 
 

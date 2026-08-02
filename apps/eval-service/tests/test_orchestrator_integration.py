@@ -1,10 +1,11 @@
 """Real end-to-end test for HARD-7: EvalRunOrchestrator against a real
-Postgres eval_db and a real, live verification-service gRPC server (run as
-a genuine separate process, its own venv, its own interpreter).
+Postgres eval_db and real, live downstream services (each run as a genuine
+separate process, its own venv, its own interpreter).
 
-Both real dependencies -- nothing here is mocked. Verifies the actual
-claim this ticket makes: the verification golden set's 20 real seeded
-cases execute for real and produce a real, correct pass_rate.
+All real dependencies -- nothing here is mocked. Verifies the actual claims
+this ticket makes: the verification golden set (HARD-7a) and the planner
+golden set's select_strategy cases (HARD-7b) execute for real and produce a
+real, correct pass_rate.
 """
 
 from __future__ import annotations
@@ -29,10 +30,17 @@ from src.execution.orchestrator import (
     GoldenSetNotFoundError,
     UnsupportedDomainError,
 )
+from src.execution.planner_client import PlannerClient
 from src.execution.verification_client import VerificationClient
 
 SERVICE_ROOT = Path(__file__).parent.parent
 REPO_ROOT = SERVICE_ROOT.parents[1]
+
+# Verification-only tests never exercise the planner path (and vice versa)
+# -- an unreachable placeholder is real and honest (never silently mocked),
+# just never actually dialed by the case operations under test.
+_UNUSED_PLANNER_TARGET = "http://127.0.0.1:1"
+_UNUSED_VERIFICATION_TARGET = "127.0.0.1:1"
 
 
 @pytest.fixture(scope="module")
@@ -79,7 +87,7 @@ def _wait_for_port(port: int, timeout_seconds: float = 20.0) -> None:
             if sock.connect_ex(("127.0.0.1", port)) == 0:
                 return
         time.sleep(0.1)
-    raise TimeoutError(f"verification-service did not bind port {port} in time")
+    raise TimeoutError(f"downstream service did not bind port {port} in time")
 
 
 @pytest.fixture(scope="module")
@@ -126,17 +134,66 @@ def verification_server_target() -> Generator[str, None, None]:
             process.kill()
 
 
+@pytest.fixture(scope="module")
+def intelligence_server_target() -> Generator[str, None, None]:
+    """Real, live intelligence-service HTTP server (uvicorn), run as a real
+    separate process -- same "src" top-level package-name collision as
+    verification-service, same subprocess-with-own-venv fix.
+
+    select_strategy's kernel path is pure (no ADS/LLM call, see
+    planner/strategies.py's own module doc) -- the ADS target below only
+    needs to be well-formed enough for the app to start (the gRPC channel
+    is lazy), not a real, connectable endpoint.
+    """
+    intelligence_root = REPO_ROOT / "apps" / "intelligence-service"
+    intelligence_python = intelligence_root / ".venv" / "bin" / "python"
+    if not intelligence_python.exists():
+        pytest.skip(
+            "apps/intelligence-service/.venv not present -- run `uv sync` there first "
+            "(same real dependency this test always needed, just not eval-service's own venv)"
+        )
+    port = _free_port()
+    process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+        [
+            str(intelligence_python),
+            "-m",
+            "uvicorn",
+            "src.main:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        cwd=str(intelligence_root),
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "ADSQ_GRPC_TARGET": "127.0.0.1:1",
+        },
+    )
+    try:
+        _wait_for_port(port)
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
 def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     sessions: sessionmaker[Session],
     verification_server_target: str,
 ) -> None:
-    client = VerificationClient(verification_server_target)
-    orchestrator = EvalRunOrchestrator(sessions, client)
+    verification_client = VerificationClient(verification_server_target)
+    planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
+    orchestrator = EvalRunOrchestrator(sessions, verification_client, planner_client)
 
     try:
         summary = orchestrator.run("verification", trigger="manual")
     finally:
-        client.close()
+        verification_client.close()
+        planner_client.close()
 
     assert summary.total_cases == 20
     assert summary.passed == 20
@@ -162,13 +219,15 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
     sessions: sessionmaker[Session],
     verification_server_target: str,
 ) -> None:
-    client = VerificationClient(verification_server_target)
-    orchestrator = EvalRunOrchestrator(sessions, client)
+    verification_client = VerificationClient(verification_server_target)
+    planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
+    orchestrator = EvalRunOrchestrator(sessions, verification_client, planner_client)
     try:
         first = orchestrator.run("verification")
         second = orchestrator.run("verification")
     finally:
-        client.close()
+        verification_client.close()
+        planner_client.close()
 
     assert first.eval_run_id != second.eval_run_id
     assert first.pass_rate == second.pass_rate == 1.0
@@ -178,23 +237,95 @@ def test_unsupported_domain_is_rejected_not_silently_skipped(
     sessions: sessionmaker[Session],
     verification_server_target: str,
 ) -> None:
-    client = VerificationClient(verification_server_target)
-    orchestrator = EvalRunOrchestrator(sessions, client)
+    verification_client = VerificationClient(verification_server_target)
+    planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
+    orchestrator = EvalRunOrchestrator(sessions, verification_client, planner_client)
     try:
         with pytest.raises(UnsupportedDomainError):
-            orchestrator.run("planner")
+            orchestrator.run("intent")
     finally:
-        client.close()
+        verification_client.close()
+        planner_client.close()
 
 
 def test_unknown_golden_set_raises(
     sessions: sessionmaker[Session],
     verification_server_target: str,
 ) -> None:
-    client = VerificationClient(verification_server_target)
-    orchestrator = EvalRunOrchestrator(sessions, client)
+    verification_client = VerificationClient(verification_server_target)
+    planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
+    orchestrator = EvalRunOrchestrator(sessions, verification_client, planner_client)
     try:
         with pytest.raises(GoldenSetNotFoundError):
             orchestrator.run("does-not-exist")
     finally:
-        client.close()
+        verification_client.close()
+        planner_client.close()
+
+
+def test_planner_select_strategy_cases_execute_for_real(
+    sessions: sessionmaker[Session],
+    intelligence_server_target: str,
+) -> None:
+    verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
+    planner_client = PlannerClient(intelligence_server_target)
+    orchestrator = EvalRunOrchestrator(sessions, verification_client, planner_client)
+
+    try:
+        summary = orchestrator.run("planner", trigger="manual")
+    finally:
+        verification_client.close()
+        planner_client.close()
+
+    # 16 of the 20 seeded planner cases are select_strategy (real as of
+    # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
+    # disclosed follow-up scope -- real-failing, never silently skipped.
+    #
+    # Of the 16 real select_strategy calls, only 9 actually match the golden
+    # set's expected strategy. This is a REAL, GENUINE finding surfaced by
+    # actually executing these cases for the first time (HARD-2's own
+    # docstring: the cases were "data for a future runner", never verified
+    # against real execution before now) -- not a bug in this test or the
+    # orchestrator. strategies.py's manager_worker escalation requires
+    # word_list >= 40 AND >= 3 complex-keyword hits; none of the golden
+    # set's 5 seeded "manager_worker" objectives actually reach 40 words,
+    # so all 5 fall through to iterative/direct. Separately, "summarize"
+    # and "report" are in _COMPLEX_KEYWORDS, which reclassifies 2 of the
+    # golden set's "direct" examples ("Summarize this incident report") as
+    # iterative, and "investigate"/"resolve" are NOT in that keyword list,
+    # so 2 "iterative" examples classify as direct instead.
+    #
+    # Deliberately not fixed here -- picking a side (loosen the heuristic
+    # vs. correct the golden set) is a product decision, not an eval-
+    # wiring decision. Asserting the real, observed numbers so this test
+    # stays honest and will fail loudly if this drifts further.
+    assert summary.total_cases == 20
+    assert summary.passed == 9
+    assert summary.failed == 11
+
+    with sessions() as session:
+        results = session.execute(
+            sa.text(
+                "SELECT verdict, details FROM eval_results WHERE eval_run_id = :id"
+            ),
+            {"id": str(summary.eval_run_id)},
+        ).all()
+        assert len(results) == 20
+        unsupported_op_errors = [
+            row.details["error"]
+            for row in results
+            if row.verdict == "fail" and "error" in row.details
+        ]
+        assert len(unsupported_op_errors) == 4
+        assert all("unsupported operation" in error for error in unsupported_op_errors)
+
+        mismatched_strategy_results = [
+            row.details
+            for row in results
+            if row.verdict == "fail" and "error" not in row.details
+        ]
+        assert len(mismatched_strategy_results) == 7
+        assert all(
+            "observed" in details and "expected" in details
+            for details in mismatched_strategy_results
+        )
