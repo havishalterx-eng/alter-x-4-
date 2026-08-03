@@ -220,7 +220,7 @@ TENANT_ISOLATION_CASES: tuple[EvalCaseSeed, ...] = (
     _tenant("ads_get_ingestion_job", "ingestion job", "not_found", "ads-job"),
     _tenant("tool_consume_credential", "opaque credential token", "denied", "credential-token"),
     _tenant("tool_resolve_credential", "credential reference", "denied", "credential-reference"),
-    _tenant("verification_score_node", "node execution", "denied", "verification-node"),
+    _tenant("verification_score_node", "node execution", "not_found", "verification-node"),
     _tenant("recovery_node_lookup", "failed node", "not_found", "recovery-node"),
     _tenant("model_gateway_cache", "identical model request", "cache_miss", "model-cache"),
     _tenant("agent_selection_binding", "tenant-b embedding", "no_match", "agent-binding"),

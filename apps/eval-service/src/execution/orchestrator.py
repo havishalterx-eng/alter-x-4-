@@ -97,6 +97,18 @@ caller-visible API rather than internal state. Needs a real, live
 ANTHROPIC_API_KEY/OPENAI_API_KEY (same disclosed dependency as
 'intent'/'injection') since the real cache is only ever populated by a
 real live model call.
+An eighth follow-up adds 'verification_score_node': verification-
+service's real, unmodified production gRPC server (src.grpc_server) --
+no eval-only entrypoint needed. Unlike ScoreNodeInline (HARD-7a's
+target, a pure stateless kernel with no ownership concept at all),
+AssessSeverity's real HallucinationVerificationEngine.assess_severity()
+calls VerificationRepository.ensure_node(), a real, explicit,
+tenant-scoped `WHERE ne.tenant_id = :tenant_id AND ...` check (see
+verification_severity_client.py's own module doc) -- this raises before
+ever reaching the real ModelGatewayClient call, so no live LLM key is
+needed for this specific cross-tenant check. Golden set's expected_json
+was corrected from "denied" to "not_found" to match the real mechanism
+(same vocabulary fix as recovery_node_lookup/run_stream_subscribe).
 HARD-7h adds 'project' (project-E2E, 3/3 real cases): a real call to
 intelligence-service's PlannerService.Decompose with
 strategy=plan_then_execute, reusing HARD-7b's exact same real HTTP
@@ -172,6 +184,7 @@ from .security_client import SecurityEvalClient, UploadEvalClient
 from .toolgw_client import ToolgwClient
 from .trigger_client import TriggerRegistryClient
 from .verification_client import VerificationClient
+from .verification_severity_client import VerificationSeverityEvalClient
 
 # Real, fixed synthetic identity for every case this orchestrator scores --
 # ScoreNodeInline's kernel is pure (no DB lookup against these IDs, see
@@ -275,6 +288,7 @@ class EvalRunOrchestrator:
         policy_client: PolicyEvalClient,
         run_visibility_client: RunVisibilityEvalClient,
         model_cache_client: ModelGatewayCacheClient,
+        verification_severity_client: VerificationSeverityEvalClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -301,6 +315,7 @@ class EvalRunOrchestrator:
         self._policy_client = policy_client
         self._run_visibility_client = run_visibility_client
         self._model_cache_client = model_cache_client
+        self._verification_severity_client = verification_severity_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -675,6 +690,20 @@ class EvalRunOrchestrator:
                 )
                 observed_outcome = "cache_hit" if cache_result.cache_hit else "cache_miss"
                 extra = {}
+            elif operation == "verification_score_node":
+                other_tenant_uuid = "018f4d6e-cccc-7ccc-8ccc-cccccccccccc"
+                seeded_run_id, seeded_node_id = (
+                    self._verification_severity_client.seed_cross_tenant_node(
+                        other_tenant_uuid=other_tenant_uuid
+                    )
+                )
+                severity_lookup = self._verification_severity_client.check_assess_severity(
+                    tenant_id=_EVAL_ADS_TENANT_ID,
+                    run_id=seeded_run_id,
+                    node_execution_id=seeded_node_id,
+                )
+                observed_outcome = "not_found" if severity_lookup.not_found else "found"
+                extra = {"node_execution_id": seeded_node_id}
             else:
                 return _CaseVerdict(
                     verdict="fail",
@@ -684,9 +713,9 @@ class EvalRunOrchestrator:
                         "(only ads_retrieve, ads_get_ingestion_job, tool_resolve_credential, "
                         "tool_consume_credential, platform_credential_get/delete, "
                         "idempotency_replay, policy_read, recovery_node_lookup, "
-                        "run_stream_subscribe, model_gateway_cache are real; the other 9 of 20 "
-                        "real tenant-isolation cases are disclosed follow-up scope, see "
-                        "orchestrator.py's own module doc)"
+                        "run_stream_subscribe, model_gateway_cache, verification_score_node "
+                        "are real; the other 8 of 20 real tenant-isolation cases are disclosed "
+                        "follow-up scope, see orchestrator.py's own module doc)"
                     },
                 )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
