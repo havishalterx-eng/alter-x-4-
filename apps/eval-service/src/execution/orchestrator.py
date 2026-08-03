@@ -166,6 +166,22 @@ table's own RLS policy plus WorkflowReadService's own explicit
 `WHERE tenant_id = $1 AND id = $2` -- defense in depth, matching
 run_visibility_client.py's shape (see workflow_client.py's own module
 doc).
+A thirteenth follow-up adds 'agent_selection_binding': the first case to
+exercise SelectionBindingEngine.bind()'s real capability-similarity
+ranked-match path, unblocked by the embedding-transport follow-up above
+(GrpcEmbeddingClient). Real cross-tenant isolation comes from
+`_RANKED_AGENT_QUERY`'s own explicit `WHERE a.tenant_id = :tenant_id
+AND ce.tenant_id = :tenant_id` (engine.py) -- a tenant-a caller can
+never see tenant-b's seeded agent/capability_embeddings row regardless
+of capability-text similarity, so the real outcome is always
+NoAgentMatch(reason="no_eligible_agent"). Needs a real, live
+model-gateway for the real embed() call to succeed, but only its
+embedding provider, not its model provider -- production main.ts run
+with ALTER_CONFIG_SOURCE=mock is sufficient (createMockEmbeddingProvider
+is real, deterministic, disclosed non-production, same shape as
+HARD-7c's retrieval golden set), so unlike model_gateway_cache/intent/
+injection this needs no live ANTHROPIC_API_KEY/OPENAI_API_KEY (see
+agent_binding_client.py's own module doc).
 Investigated but confirmed NOT buildable without much larger scope:
 'project_get'/'project_deploy' -- unlike workflows, NO real schema
 exists anywhere for a "project"/"deployment" resource on
@@ -237,6 +253,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.models import EvalCase, EvalResult, EvalRun, GoldenSet
 
+from .agent_binding_client import AgentBindingEvalClient
 from .audit_client import AuditEvalClient
 from .credential_client import CredentialEvalClient
 from .idempotency_client import IdempotencyReplayClient
@@ -362,6 +379,7 @@ class EvalRunOrchestrator:
         audit_client: AuditEvalClient,
         memory_drift_client: MemoryDriftEvalClient,
         workflow_client: WorkflowEvalClient,
+        agent_binding_client: AgentBindingEvalClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -392,6 +410,7 @@ class EvalRunOrchestrator:
         self._audit_client = audit_client
         self._memory_drift_client = memory_drift_client
         self._workflow_client = workflow_client
+        self._agent_binding_client = agent_binding_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -762,6 +781,18 @@ class EvalRunOrchestrator:
                 )
                 observed_outcome = "not_found" if workflow_lookup.not_found else "found"
                 extra = {"workflow_id": workflow_id}
+            elif operation == "agent_selection_binding":
+                other_tenant_uuid = "018f4d6e-cccc-7ccc-8ccc-cccccccccccc"
+                seeded_agent_id = self._agent_binding_client.seed_cross_tenant_agent(
+                    other_tenant_uuid=other_tenant_uuid,
+                    workspace_uuid=other_tenant_uuid,
+                )
+                no_match = self._agent_binding_client.check_bind_no_match(
+                    tenant_id=_EVAL_ADS_TENANT_ID,
+                    workspace_id=_EVAL_WORKSPACE_ID,
+                )
+                observed_outcome = "no_match" if no_match else "found"
+                extra = {"agent_id": seeded_agent_id}
             elif operation == "model_gateway_cache":
                 cache_model_alias = "STANDARD"
                 cache_input_json = json.dumps(
@@ -830,9 +861,9 @@ class EvalRunOrchestrator:
                         "idempotency_replay, policy_read, recovery_node_lookup, "
                         "run_stream_subscribe, model_gateway_cache, verification_score_node, "
                         "audit_event_read, memory_drift_observations, ads_upload_download, "
-                        "workflow_get, workflow_update are real; the other 3 of 20 real "
-                        "tenant-isolation cases are disclosed follow-up scope, see "
-                        "orchestrator.py's own module doc)"
+                        "workflow_get, workflow_update, agent_selection_binding are real; "
+                        "the other 2 of 20 real tenant-isolation cases are disclosed "
+                        "follow-up scope, see orchestrator.py's own module doc)"
                     },
                 )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
