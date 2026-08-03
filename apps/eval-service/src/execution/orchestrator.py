@@ -71,6 +71,12 @@ unmodified production FastAPI app (src.main:app) run directly via uvicorn
 -- no eval-only entrypoint needed (see ingestion_client.py's own module
 doc). The real cross-tenant 404 comes entirely from
 SqlAlchemyIngestionRepository's own real RLS-scoped session.
+A fifth follow-up adds 'policy_read': memory-service's real, unmodified
+production FastAPI app (src.main:app) run directly via uvicorn -- no
+eval-only entrypoint needed (see policy_client.py's own module doc). The
+real cross-tenant "empty_result" (found=False) comes entirely from
+SqlAlchemyPolicyStoreRepository.get_active_policy()'s own real,
+RLS-scoped session.
 HARD-7h adds 'project' (project-E2E, 3/3 real cases): a real call to
 intelligence-service's PlannerService.Decompose with
 strategy=plan_then_execute, reusing HARD-7b's exact same real HTTP
@@ -137,6 +143,7 @@ from .idempotency_client import IdempotencyReplayClient
 from .ingestion_client import IngestionEvalClient
 from .intent_client import IntentClient
 from .planner_client import PlannerClient
+from .policy_client import PolicyEvalClient
 from .recovery_client import RecoveryClient
 from .retrieval_client import RetrievalClient
 from .security_client import SecurityEvalClient, UploadEvalClient
@@ -243,6 +250,7 @@ class EvalRunOrchestrator:
         tool_consume_client: ToolgwClient,
         idempotency_replay_client: IdempotencyReplayClient,
         ingestion_client: IngestionEvalClient,
+        policy_client: PolicyEvalClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -266,6 +274,7 @@ class EvalRunOrchestrator:
         self._tool_consume_client = tool_consume_client
         self._idempotency_replay_client = idempotency_replay_client
         self._ingestion_client = ingestion_client
+        self._policy_client = policy_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -593,6 +602,17 @@ class EvalRunOrchestrator:
                 )
                 observed_outcome = "not_found" if ingestion_lookup.not_found else "found"
                 extra = {"ingestion_job_id": ingestion_job_id}
+            elif operation == "policy_read":
+                policy_kind = "routing_weights"
+                other_tenant_uuid = "018f4d6e-cccc-7ccc-8ccc-cccccccccccc"
+                policy_id = self._policy_client.seed_cross_tenant_policy(
+                    other_tenant_uuid=other_tenant_uuid, kind=policy_kind
+                )
+                policy_lookup = self._policy_client.check_active_policy(
+                    tenant_id=_EVAL_ADS_TENANT_ID, kind=policy_kind
+                )
+                observed_outcome = "empty_result" if not policy_lookup.found else "found"
+                extra = {"policy_id": policy_id}
             else:
                 return _CaseVerdict(
                     verdict="fail",
@@ -601,8 +621,9 @@ class EvalRunOrchestrator:
                         "error": f"unsupported operation {operation!r} for domain=tenant-isolation "
                         "(only ads_retrieve, ads_get_ingestion_job, tool_resolve_credential, "
                         "tool_consume_credential, platform_credential_get/delete, "
-                        "idempotency_replay are real; the other 13 of 20 real tenant-isolation "
-                        "cases are disclosed follow-up scope, see orchestrator.py's own module doc)"
+                        "idempotency_replay, policy_read are real; the other 12 of 20 real "
+                        "tenant-isolation cases are disclosed follow-up scope, see "
+                        "orchestrator.py's own module doc)"
                     },
                 )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
