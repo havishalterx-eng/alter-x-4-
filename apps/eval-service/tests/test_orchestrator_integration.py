@@ -30,6 +30,7 @@ from testcontainers.community.postgres import PostgresContainer
 from alembic import command
 from src.execution.credential_client import CredentialEvalClient
 from src.execution.idempotency_client import IdempotencyReplayClient
+from src.execution.ingestion_client import IngestionEvalClient
 from src.execution.intent_client import IntentClient
 from src.execution.orchestrator import (
     EvalRunOrchestrator,
@@ -65,6 +66,8 @@ _UNUSED_CREDENTIAL_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
 _UNUSED_IDEMPOTENCY_TARGET_A = "http://127.0.0.1:1"
 _UNUSED_IDEMPOTENCY_TARGET_B = "http://127.0.0.1:2"
 _UNUSED_IDEMPOTENCY_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
+_UNUSED_INGESTION_TARGET = "http://127.0.0.1:1"
+_UNUSED_INGESTION_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
 
 # Must match apps/ads-core/src/query/eval_grpc_server.py's own literal
 # values -- see orchestrator.py's _EVAL_ADS_* constants for why these must
@@ -361,6 +364,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         tenant_b_base_url=_UNUSED_IDEMPOTENCY_TARGET_B,
         db_url=_UNUSED_IDEMPOTENCY_DB_URL,
     )
+    ingestion_client = IngestionEvalClient(_UNUSED_INGESTION_TARGET, _UNUSED_INGESTION_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -383,6 +387,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         credential_client,
         tool_consume_client,
         idempotency_replay_client,
+        ingestion_client,
     )
 
     try:
@@ -401,6 +406,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         credential_client.close()
         tool_consume_client.close()
         idempotency_replay_client.close()
+        ingestion_client.close()
 
     assert summary.total_cases == 20
     assert summary.passed == 20
@@ -440,6 +446,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         tenant_b_base_url=_UNUSED_IDEMPOTENCY_TARGET_B,
         db_url=_UNUSED_IDEMPOTENCY_DB_URL,
     )
+    ingestion_client = IngestionEvalClient(_UNUSED_INGESTION_TARGET, _UNUSED_INGESTION_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -462,6 +469,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         credential_client,
         tool_consume_client,
         idempotency_replay_client,
+        ingestion_client,
     )
     try:
         first = orchestrator.run("verification")
@@ -480,6 +488,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         credential_client.close()
         tool_consume_client.close()
         idempotency_replay_client.close()
+        ingestion_client.close()
 
     assert first.eval_run_id != second.eval_run_id
     assert first.pass_rate == second.pass_rate == 1.0
@@ -552,6 +561,7 @@ def test_unknown_golden_set_raises(
         tenant_b_base_url=_UNUSED_IDEMPOTENCY_TARGET_B,
         db_url=_UNUSED_IDEMPOTENCY_DB_URL,
     )
+    ingestion_client = IngestionEvalClient(_UNUSED_INGESTION_TARGET, _UNUSED_INGESTION_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -574,6 +584,7 @@ def test_unknown_golden_set_raises(
         credential_client,
         tool_consume_client,
         idempotency_replay_client,
+        ingestion_client,
     )
     try:
         with pytest.raises(GoldenSetNotFoundError):
@@ -592,6 +603,7 @@ def test_unknown_golden_set_raises(
         credential_client.close()
         tool_consume_client.close()
         idempotency_replay_client.close()
+        ingestion_client.close()
 
 
 def test_planner_select_strategy_cases_execute_for_real(
@@ -612,6 +624,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         tenant_b_base_url=_UNUSED_IDEMPOTENCY_TARGET_B,
         db_url=_UNUSED_IDEMPOTENCY_DB_URL,
     )
+    ingestion_client = IngestionEvalClient(_UNUSED_INGESTION_TARGET, _UNUSED_INGESTION_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -634,6 +647,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         credential_client,
         tool_consume_client,
         idempotency_replay_client,
+        ingestion_client,
     )
 
     try:
@@ -652,6 +666,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         credential_client.close()
         tool_consume_client.close()
         idempotency_replay_client.close()
+        ingestion_client.close()
 
     # 16 of the 20 seeded planner cases are select_strategy (real as of
     # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
@@ -725,6 +740,7 @@ def test_retrieval_golden_set_executes_for_real(
         tenant_b_base_url=_UNUSED_IDEMPOTENCY_TARGET_B,
         db_url=_UNUSED_IDEMPOTENCY_DB_URL,
     )
+    ingestion_client = IngestionEvalClient(_UNUSED_INGESTION_TARGET, _UNUSED_INGESTION_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -747,6 +763,7 @@ def test_retrieval_golden_set_executes_for_real(
         credential_client,
         tool_consume_client,
         idempotency_replay_client,
+        ingestion_client,
     )
 
     try:
@@ -765,6 +782,7 @@ def test_retrieval_golden_set_executes_for_real(
         credential_client.close()
         tool_consume_client.close()
         idempotency_replay_client.close()
+        ingestion_client.close()
 
     # All 20 retrieval cases are real "retrieve" operations against a real
     # hybrid-retrieval gRPC server. Asserting the real, observed pass rate
@@ -813,6 +831,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         tenant_b_base_url=_UNUSED_IDEMPOTENCY_TARGET_B,
         db_url=_UNUSED_IDEMPOTENCY_DB_URL,
     )
+    ingestion_client = IngestionEvalClient(_UNUSED_INGESTION_TARGET, _UNUSED_INGESTION_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -835,6 +854,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         credential_client,
         tool_consume_client,
         idempotency_replay_client,
+        ingestion_client,
     )
 
     try:
@@ -853,6 +873,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         credential_client.close()
         tool_consume_client.close()
         idempotency_replay_client.close()
+        ingestion_client.close()
 
     # All 30 intent cases are real classify_intent calls against a real,
     # live LLM (whichever of Anthropic/OpenAI the environment running this
@@ -1031,6 +1052,7 @@ def test_injection_golden_set_executes_for_real(
         tenant_b_base_url=_UNUSED_IDEMPOTENCY_TARGET_B,
         db_url=_UNUSED_IDEMPOTENCY_DB_URL,
     )
+    ingestion_client = IngestionEvalClient(_UNUSED_INGESTION_TARGET, _UNUSED_INGESTION_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1053,6 +1075,7 @@ def test_injection_golden_set_executes_for_real(
         credential_client,
         tool_consume_client,
         idempotency_replay_client,
+        ingestion_client,
     )
 
     try:
@@ -1071,6 +1094,7 @@ def test_injection_golden_set_executes_for_real(
         credential_client.close()
         tool_consume_client.close()
         idempotency_replay_client.close()
+        ingestion_client.close()
 
     assert summary.total_cases == _EVAL_INJECTION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_INJECTION_CASE_COUNT
@@ -1380,6 +1404,66 @@ def idempotency_replay_server_targets() -> Generator[tuple[str, str, str], None,
                 process_a.kill()
 
 
+@pytest.fixture(scope="module")
+def ingestion_server_target() -> Generator[tuple[str, str], None, None]:
+    """Real, live ads-core production FastAPI app (src.main:app), run
+    directly via uvicorn -- unlike the retrieval domain, no eval-only
+    entrypoint is needed here (see ingestion_client.py's own module doc):
+    GET /ingestion/jobs/{id} only touches Postgres, and ads-core's own
+    Settings defaults fail open to in-memory storage / lazy gRPC clients
+    for everything else this test never exercises.
+    """
+    ads_core_root = REPO_ROOT / "apps" / "ads-core"
+    ads_core_python = ads_core_root / ".venv" / "bin" / "python"
+    if not ads_core_python.exists():
+        pytest.skip(
+            "apps/ads-core/.venv not present -- run `uv sync` there first "
+            "(same real dependency this test always needed, just not eval-service's own venv)"
+        )
+    with PostgresContainer(
+        image="pgvector/pgvector:pg16", dbname="ads_db", username="ads_core", password="testpass"
+    ) as postgres:
+        db_url = postgres.get_connection_url()
+        plain_db_url = db_url.replace("postgresql+psycopg2://", "postgresql://")
+        env = {
+            "PATH": os.environ.get("PATH", ""),
+            "ADS_DB_URL_SYNC": db_url,
+            "ADS_DB_URL": db_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://"),
+            "DELETION_SERVICE_TOKEN_SHA256": "0" * 64,
+            "MODEL_GATEWAY_GRPC_TARGET": "127.0.0.1:1",
+        }
+        subprocess.run(  # noqa: S603 -- fixed argv, no shell, test-only
+            [str(ads_core_python), "-m", "alembic", "upgrade", "head"],
+            cwd=str(ads_core_root),
+            env=env,
+            check=True,
+        )
+        port = _free_port()
+        process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+            [
+                str(ads_core_python),
+                "-m",
+                "uvicorn",
+                "src.main:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+            ],
+            cwd=str(ads_core_root),
+            env=env,
+        )
+        try:
+            _wait_for_port(port, timeout_seconds=40.0)
+            yield f"http://127.0.0.1:{port}", plain_db_url
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
 def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     sessions: sessionmaker[Session],
     ads_isolation_server_target: str,
@@ -1387,11 +1471,13 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     tool_gateway_consume_server_target: str,
     platform_credential_server_target: tuple[str, str],
     idempotency_replay_server_targets: tuple[str, str, str],
+    ingestion_server_target: tuple[str, str],
 ) -> None:
     credential_http_target, credential_db_url = platform_credential_server_target
     idempotency_tenant_a_url, idempotency_tenant_b_url, idempotency_db_url = (
         idempotency_replay_server_targets
     )
+    ingestion_http_target, ingestion_db_url = ingestion_server_target
     verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
@@ -1411,6 +1497,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         tenant_b_base_url=idempotency_tenant_b_url,
         db_url=idempotency_db_url,
     )
+    ingestion_client = IngestionEvalClient(ingestion_http_target, ingestion_db_url)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -1426,6 +1513,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         credential_client,
         tool_consume_client,
         idempotency_replay_client,
+        ingestion_client,
     )
 
     try:
@@ -1444,6 +1532,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         credential_client.close()
         tool_consume_client.close()
         idempotency_replay_client.close()
+        ingestion_client.close()
 
     assert summary.total_cases == _EVAL_TENANT_ISOLATION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_TENANT_ISOLATION_CASE_COUNT
@@ -1457,6 +1546,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
 
         real_operations = (
             "ads_retrieve",
+            "ads_get_ingestion_job",
             "tool_resolve_credential",
             "tool_consume_credential",
             "platform_credential_get",
@@ -1464,16 +1554,17 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
             "idempotency_replay",
         )
         real_results = [row for row in results if row.details.get("operation") in real_operations]
-        # ads_retrieve, tool_resolve_credential, tool_consume_credential,
-        # platform_credential_get, platform_credential_delete,
-        # idempotency_replay are real and must always pass -- the other 14
-        # of 20 cases are disclosed follow-up scope, real-failing with an
-        # "unsupported operation" message, never silently skipped.
-        assert len(real_results) == 6
+        # ads_retrieve, ads_get_ingestion_job, tool_resolve_credential,
+        # tool_consume_credential, platform_credential_get,
+        # platform_credential_delete, idempotency_replay are real and must
+        # always pass -- the other 13 of 20 cases are disclosed follow-up
+        # scope, real-failing with an "unsupported operation" message,
+        # never silently skipped.
+        assert len(real_results) == 7
         assert all(row.verdict == "pass" for row in real_results)
 
         unsupported_results = [row for row in results if row not in real_results]
-        assert len(unsupported_results) == 14
+        assert len(unsupported_results) == 13
         assert all(row.verdict == "fail" for row in unsupported_results)
         assert all(
             "unsupported operation" in row.details.get("error", "") for row in unsupported_results
@@ -1498,6 +1589,7 @@ def test_project_golden_set_executes_for_real(
         tenant_b_base_url=_UNUSED_IDEMPOTENCY_TARGET_B,
         db_url=_UNUSED_IDEMPOTENCY_DB_URL,
     )
+    ingestion_client = IngestionEvalClient(_UNUSED_INGESTION_TARGET, _UNUSED_INGESTION_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1520,6 +1612,7 @@ def test_project_golden_set_executes_for_real(
         credential_client,
         tool_consume_client,
         idempotency_replay_client,
+        ingestion_client,
     )
 
     try:
@@ -1538,6 +1631,7 @@ def test_project_golden_set_executes_for_real(
         credential_client.close()
         tool_consume_client.close()
         idempotency_replay_client.close()
+        ingestion_client.close()
 
     # build_project_skeleton is pure and deterministic -- real 3/3 pass.
     assert summary.total_cases == 3
@@ -1615,6 +1709,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         tenant_b_base_url=_UNUSED_IDEMPOTENCY_TARGET_B,
         db_url=_UNUSED_IDEMPOTENCY_DB_URL,
     )
+    ingestion_client = IngestionEvalClient(_UNUSED_INGESTION_TARGET, _UNUSED_INGESTION_DB_URL)
     recovery_client = RecoveryClient(grpc_target, db_url)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1637,6 +1732,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         credential_client,
         tool_consume_client,
         idempotency_replay_client,
+        ingestion_client,
     )
 
     try:
@@ -1655,6 +1751,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         credential_client.close()
         tool_consume_client.close()
         idempotency_replay_client.close()
+        ingestion_client.close()
 
     assert summary.total_cases == _EVAL_RECOVERY_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_RECOVERY_CASE_COUNT
@@ -1763,6 +1860,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         tenant_b_base_url=_UNUSED_IDEMPOTENCY_TARGET_B,
         db_url=_UNUSED_IDEMPOTENCY_DB_URL,
     )
+    ingestion_client = IngestionEvalClient(_UNUSED_INGESTION_TARGET, _UNUSED_INGESTION_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(http_target, db_url)
     credential_client = CredentialEvalClient(_UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL)
@@ -1781,6 +1879,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         credential_client,
         tool_consume_client,
         idempotency_replay_client,
+        ingestion_client,
     )
 
     try:
@@ -1799,6 +1898,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         credential_client.close()
         tool_consume_client.close()
         idempotency_replay_client.close()
+        ingestion_client.close()
 
     assert summary.total_cases == _EVAL_WORKFLOW_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_WORKFLOW_CASE_COUNT

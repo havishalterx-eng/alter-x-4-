@@ -66,6 +66,11 @@ both hitting the same real, tenant-scoped idempotency_keys table (see
 idempotency_client.py's own module doc) -- proves tenant-b reusing the
 exact same Idempotency-Key tenant-a already used is never short-circuited
 by tenant-a's cached record.
+A fourth follow-up adds 'ads_get_ingestion_job': ads-core's real,
+unmodified production FastAPI app (src.main:app) run directly via uvicorn
+-- no eval-only entrypoint needed (see ingestion_client.py's own module
+doc). The real cross-tenant 404 comes entirely from
+SqlAlchemyIngestionRepository's own real RLS-scoped session.
 HARD-7h adds 'project' (project-E2E, 3/3 real cases): a real call to
 intelligence-service's PlannerService.Decompose with
 strategy=plan_then_execute, reusing HARD-7b's exact same real HTTP
@@ -129,6 +134,7 @@ from src.db.models import EvalCase, EvalResult, EvalRun, GoldenSet
 
 from .credential_client import CredentialEvalClient
 from .idempotency_client import IdempotencyReplayClient
+from .ingestion_client import IngestionEvalClient
 from .intent_client import IntentClient
 from .planner_client import PlannerClient
 from .recovery_client import RecoveryClient
@@ -236,6 +242,7 @@ class EvalRunOrchestrator:
         credential_client: CredentialEvalClient,
         tool_consume_client: ToolgwClient,
         idempotency_replay_client: IdempotencyReplayClient,
+        ingestion_client: IngestionEvalClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -258,6 +265,7 @@ class EvalRunOrchestrator:
         # ts's own module doc.
         self._tool_consume_client = tool_consume_client
         self._idempotency_replay_client = idempotency_replay_client
+        self._ingestion_client = ingestion_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -574,16 +582,27 @@ class EvalRunOrchestrator:
                 )
                 observed_outcome = "isolated_record" if replay.isolated else "leaked_replay"
                 extra = {}
+            elif operation == "ads_get_ingestion_job":
+                other_tenant_uuid = "018f4d6e-cccc-7ccc-8ccc-cccccccccccc"
+                ingestion_job_id = self._ingestion_client.seed_cross_tenant_ingestion_job(
+                    other_tenant_uuid=other_tenant_uuid
+                )
+                ingestion_lookup = self._ingestion_client.check_get(
+                    ingestion_job_id=ingestion_job_id,
+                    tenant_id=_EVAL_ADS_TENANT_ID,
+                )
+                observed_outcome = "not_found" if ingestion_lookup.not_found else "found"
+                extra = {"ingestion_job_id": ingestion_job_id}
             else:
                 return _CaseVerdict(
                     verdict="fail",
                     score=0.0,
                     details={
                         "error": f"unsupported operation {operation!r} for domain=tenant-isolation "
-                        "(only ads_retrieve, tool_resolve_credential, tool_consume_credential, "
-                        "platform_credential_get/delete, idempotency_replay are real; the other "
-                        "14 of 20 real tenant-isolation cases are disclosed follow-up scope, see "
-                        "orchestrator.py's own module doc)"
+                        "(only ads_retrieve, ads_get_ingestion_job, tool_resolve_credential, "
+                        "tool_consume_credential, platform_credential_get/delete, "
+                        "idempotency_replay are real; the other 13 of 20 real tenant-isolation "
+                        "cases are disclosed follow-up scope, see orchestrator.py's own module doc)"
                     },
                 )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
