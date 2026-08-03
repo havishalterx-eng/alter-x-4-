@@ -20,7 +20,7 @@ import { CredentialExceptionFilter } from "./credentials/credential-exception.fi
 import { CredentialRepository } from "./credentials/credential.repository";
 import { CredentialService } from "./credentials/credential.service";
 import { CREDENTIAL_SECRETS_PROVIDER } from "./credentials/tokens";
-import { createMockSecretsProvider } from "@alterx/shared-clients";
+import { createMockMutableSecretsProvider } from "@alterx/shared-clients";
 import type { ActorContextType, RbacRequest } from "./rbac";
 
 /**
@@ -32,8 +32,14 @@ import type { ActorContextType, RbacRequest } from "./rbac";
  * IdempotencyModule unmodified -- a near-verbatim copy of
  * credentials/credential.module.ts's own real provider wiring, with
  * exactly one swap: AwsSecretsManagerProvider (needs real AWS access,
- * unavailable here) -> createMockSecretsProvider(), the same sanctioned
- * mock every other eval-only entrypoint in this campaign already uses.
+ * unavailable here) -> createMockMutableSecretsProvider(). CredentialService
+ * requires the wider MutableSecretsProvider interface (put/deleteSecret,
+ * not just getSecret) for its real update()/delete() paths -- the
+ * read-only createMockSecretsProvider() used here originally satisfied
+ * platform-api's own (loose, DI-token-based) typecheck but throws at
+ * runtime the moment a real same-tenant update/delete actually reaches
+ * the secrets provider (only cross-tenant not_found paths, which never
+ * touch it, were exercised before the idempotency_replay follow-up).
  * get()/delete()'s real cross-tenant "not_found" behavior comes entirely
  * from CredentialRepository's own real, tenant-scoped SQL -- untouched.
  *
@@ -78,7 +84,10 @@ class EvalCredentialModule {
               true,
             ),
         },
-        { provide: CREDENTIAL_SECRETS_PROVIDER, useFactory: () => createMockSecretsProvider() },
+        {
+          provide: CREDENTIAL_SECRETS_PROVIDER,
+          useFactory: () => createMockMutableSecretsProvider(),
+        },
         CredentialService,
         CredentialEtagResolver,
         { provide: ETAG_RESOURCE_RESOLVER, useExisting: CredentialEtagResolver },

@@ -235,6 +235,7 @@ export {
   InvalidSecretReferenceError,
   SecretNotFoundError,
   createMockSecretsProvider,
+  createMockMutableSecretsProvider,
   type MockSecretsProviderOptions,
 } from "./mocks/secrets-provider";
 export {

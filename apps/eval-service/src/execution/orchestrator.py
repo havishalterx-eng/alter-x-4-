@@ -60,6 +60,12 @@ register() and ToolGatewayService completely unmodified, seeding the same
 real mock SecretsProvider with one additional real key equal to the test's
 own credential_ref. The real cross-tenant "not owned" denial comes entirely
 from the real, unmodified #resolveCredentialReference tenant check.
+A third follow-up adds 'idempotency_replay': two instances of
+eval_credential_http_server.ts, one per tenant, sharing one real Postgres,
+both hitting the same real, tenant-scoped idempotency_keys table (see
+idempotency_client.py's own module doc) -- proves tenant-b reusing the
+exact same Idempotency-Key tenant-a already used is never short-circuited
+by tenant-a's cached record.
 HARD-7h adds 'project' (project-E2E, 3/3 real cases): a real call to
 intelligence-service's PlannerService.Decompose with
 strategy=plan_then_execute, reusing HARD-7b's exact same real HTTP
@@ -122,6 +128,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.db.models import EvalCase, EvalResult, EvalRun, GoldenSet
 
 from .credential_client import CredentialEvalClient
+from .idempotency_client import IdempotencyReplayClient
 from .intent_client import IntentClient
 from .planner_client import PlannerClient
 from .recovery_client import RecoveryClient
@@ -228,6 +235,7 @@ class EvalRunOrchestrator:
         trigger_registry_client: TriggerRegistryClient,
         credential_client: CredentialEvalClient,
         tool_consume_client: ToolgwClient,
+        idempotency_replay_client: IdempotencyReplayClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -249,6 +257,7 @@ class EvalRunOrchestrator:
         # ownership-valid credential_ref -- see eval_credential_grpc_server.
         # ts's own module doc.
         self._tool_consume_client = tool_consume_client
+        self._idempotency_replay_client = idempotency_replay_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -558,6 +567,13 @@ class EvalRunOrchestrator:
                 )
                 observed_outcome = "not_found" if lookup.not_found else "found"
                 extra = {"credential_id": credential_id}
+            elif operation == "idempotency_replay":
+                replay = self._idempotency_replay_client.check_isolated(
+                    tenant_a_uuid="018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+                    tenant_b_uuid="018f4d6e-cccc-7ccc-8ccc-cccccccccccc",
+                )
+                observed_outcome = "isolated_record" if replay.isolated else "leaked_replay"
+                extra = {}
             else:
                 return _CaseVerdict(
                     verdict="fail",
@@ -565,8 +581,8 @@ class EvalRunOrchestrator:
                     details={
                         "error": f"unsupported operation {operation!r} for domain=tenant-isolation "
                         "(only ads_retrieve, tool_resolve_credential, tool_consume_credential, "
-                        "platform_credential_get/delete are real; the other 15 of 20 real "
-                        "tenant-isolation cases are disclosed follow-up scope, see "
+                        "platform_credential_get/delete, idempotency_replay are real; the other "
+                        "14 of 20 real tenant-isolation cases are disclosed follow-up scope, see "
                         "orchestrator.py's own module doc)"
                     },
                 )
