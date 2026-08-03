@@ -2201,15 +2201,17 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
             "verification_score_node",
             "audit_event_read",
             "memory_drift_observations",
+            "ads_upload_download",
         )
         real_results = [row for row in results if row.details.get("operation") in real_operations]
         # ads_retrieve, ads_get_ingestion_job, tool_resolve_credential,
         # tool_consume_credential, platform_credential_get,
         # platform_credential_delete, idempotency_replay, policy_read,
         # recovery_node_lookup, run_stream_subscribe, verification_score_node,
-        # audit_event_read, memory_drift_observations are real and must
-        # always pass regardless of whether a real LLM key is available.
-        assert len(real_results) == 13
+        # audit_event_read, memory_drift_observations, ads_upload_download
+        # are real and must always pass regardless of whether a real LLM
+        # key is available.
+        assert len(real_results) == 14
         assert all(row.verdict == "pass" for row in real_results)
 
         # model_gateway_cache is real but, like injection's LLM-dependent
@@ -2235,7 +2237,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
 
         excluded = [*real_results, *live_key_dependent_results]
         unsupported_results = [row for row in results if row not in excluded]
-        assert len(unsupported_results) == 6
+        assert len(unsupported_results) == 5
         assert all(row.verdict == "fail" for row in unsupported_results)
         assert all(
             "unsupported operation" in row.details.get("error", "") for row in unsupported_results

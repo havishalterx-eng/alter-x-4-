@@ -131,6 +131,35 @@ local ownership projection, per that migration's own docstring (see
 memory_drift_client.py's own module doc). No eval-only entrypoint
 needed -- src.main:app run directly, same shape as policy_client.py's
 target.
+An eleventh follow-up adds 'ads_upload_download': ads-core's real,
+unmodified production POST /ads/ingestion/uploads/complete. Unlike
+ads_get_ingestion_job (a resource-visibility "not_found"), the real
+cross-tenant mechanism here is an explicit 403 FORBIDDEN ("upload_key
+does not belong to the requesting tenant" -- router.py's own upload_key
+prefix check, evaluated before any object storage or DB call). Golden
+set's expected_json was corrected from "not_found" to "denied" to match
+-- the opposite vocabulary-fix direction from every other HARD-7g case
+so far, because this one really is an authorization denial, not a
+visibility check (see ingestion_client.py's own module doc, which also
+fixes a real pre-existing bug: check_get/ads_get_ingestion_job's
+unprefixed /ingestion/jobs/{id} path 404s unconditionally regardless of
+real cross-tenant logic since the real router mounts under
+prefix="/ads" -- this happened to coincide with the expected
+"not_found" outcome, so the case appeared to pass without ever
+exercising SqlAlchemyIngestionRepository's real RLS-scoped lookup).
+Investigated but NOT built: 'workflow_get'/'workflow_update' and
+'project_get'/'project_deploy' are the same structural dead end already
+documented below for HARD-7j's create_save_workflow/simulate_workflow --
+orchestration-service (the real "engine" platform-api's WorkflowService/
+ProjectService both call via EngineClient) serves NO /api/v1/workflows
+or /api/v1/projects routes at all, confirmed by grepping its own source
+tree. platform-api's own WorkflowController does have real GET/PATCH
+:workflowId routes and ProjectOperationsController does have a real
+POST :projectId/actions/deploy route, but both delegate to the same
+nonexistent engine backend -- building real tenant checks for these
+would mean building the missing production engine routes first, a much
+larger scope than a tenant-isolation eval-wiring case. Left as disclosed
+follow-up, not silently skipped.
 HARD-7h adds 'project' (project-E2E, 3/3 real cases): a real call to
 intelligence-service's PlannerService.Decompose with
 strategy=plan_then_execute, reusing HARD-7b's exact same real HTTP
@@ -671,6 +700,14 @@ class EvalRunOrchestrator:
                 )
                 observed_outcome = "not_found" if ingestion_lookup.not_found else "found"
                 extra = {"ingestion_job_id": ingestion_job_id}
+            elif operation == "ads_upload_download":
+                other_tenant_uuid = "018f4d6e-cccc-7ccc-8ccc-cccccccccccc"
+                upload_result = self._ingestion_client.check_complete_upload_cross_tenant(
+                    caller_tenant_id=_EVAL_ADS_TENANT_ID,
+                    other_tenant_uuid=other_tenant_uuid,
+                )
+                observed_outcome = "denied" if upload_result.denied else "allowed"
+                extra = {}
             elif operation == "policy_read":
                 policy_kind = "routing_weights"
                 other_tenant_uuid = "018f4d6e-cccc-7ccc-8ccc-cccccccccccc"
@@ -761,9 +798,9 @@ class EvalRunOrchestrator:
                         "tool_consume_credential, platform_credential_get/delete, "
                         "idempotency_replay, policy_read, recovery_node_lookup, "
                         "run_stream_subscribe, model_gateway_cache, verification_score_node, "
-                        "audit_event_read, memory_drift_observations are real; the other 6 of "
-                        "20 real tenant-isolation cases are disclosed follow-up scope, see "
-                        "orchestrator.py's own module doc)"
+                        "audit_event_read, memory_drift_observations, ads_upload_download "
+                        "are real; the other 5 of 20 real tenant-isolation cases are "
+                        "disclosed follow-up scope, see orchestrator.py's own module doc)"
                     },
                 )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
