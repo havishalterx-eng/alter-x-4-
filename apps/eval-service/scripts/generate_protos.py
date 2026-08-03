@@ -5,8 +5,10 @@ same tool, same check-mode contract. verify.proto is HARD-7a's real
 ScoreNodeInline client; adsq.proto is HARD-7c's real retrieval client;
 conversation.proto is HARD-7e's real ClassifyIntent client;
 toolgw.proto is HARD-7g's real ResolveCredential client;
-recovery.proto is HARD-7i's real SelectStrategy client. No modelgw.proto
--- eval-service has no direct Model Gateway dependency.
+recovery.proto is HARD-7i's real SelectStrategy client; modelgw.proto is
+the tenant-isolation follow-up's real model_gateway_cache client
+(model_cache_client.py's real InvokeRequest/InvokeResponse -- the
+cache_hit field this case depends on).
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ PROTO_FILES = (
     "alter/conversation/v1/conversation.proto",
     "alter/toolgw/v1/toolgw.proto",
     "alter/recovery/v1/recovery.proto",
+    "alter/modelgw/v1/modelgw.proto",
 )
 
 

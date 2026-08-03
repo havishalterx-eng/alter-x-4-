@@ -21,14 +21,16 @@ class InvokeRequest(_message.Message):
     def __init__(self, tenant_id: _Optional[str] = ..., run_id: _Optional[str] = ..., node_execution_id: _Optional[str] = ..., model_alias: _Optional[str] = ..., input_json: _Optional[str] = ...) -> None: ...
 
 class InvokeResponse(_message.Message):
-    __slots__ = ("output_json", "usage_json", "resolved_capability")
+    __slots__ = ("output_json", "usage_json", "resolved_capability", "cache_hit")
     OUTPUT_JSON_FIELD_NUMBER: _ClassVar[int]
     USAGE_JSON_FIELD_NUMBER: _ClassVar[int]
     RESOLVED_CAPABILITY_FIELD_NUMBER: _ClassVar[int]
+    CACHE_HIT_FIELD_NUMBER: _ClassVar[int]
     output_json: str
     usage_json: str
     resolved_capability: str
-    def __init__(self, output_json: _Optional[str] = ..., usage_json: _Optional[str] = ..., resolved_capability: _Optional[str] = ...) -> None: ...
+    cache_hit: bool
+    def __init__(self, output_json: _Optional[str] = ..., usage_json: _Optional[str] = ..., resolved_capability: _Optional[str] = ..., cache_hit: _Optional[bool] = ...) -> None: ...
 
 class StreamRequest(_message.Message):
     __slots__ = ("tenant_id", "run_id", "node_execution_id", "model_alias", "input_json")
