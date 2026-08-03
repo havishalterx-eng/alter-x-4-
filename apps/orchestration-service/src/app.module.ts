@@ -74,6 +74,8 @@ import { TriggerRegistryController } from "./trigger-registry/trigger-registry.c
 import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
 import { WorkflowReadController } from "./workflow-read/workflow-read.controller";
 import { WorkflowReadService } from "./workflow-read/workflow-read.service";
+import { ProjectReadController } from "./project-read/project-read.controller";
+import { ProjectReadService } from "./project-read/project-read.service";
 import { TOOLGW_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
 import { ConversationDispatchService } from "./webhooks/conversation-dispatch.service";
 import { WhatsappWebhookController } from "./webhooks/whatsapp-webhook.controller";
@@ -102,6 +104,7 @@ import { OrchestrationDeletionService } from "./deletion/deletion.service";
     ApprovalsController,
     TriggerRegistryController,
     WorkflowReadController,
+    ProjectReadController,
     WhatsappWebhookController,
     DeletionController,
   ],
@@ -235,6 +238,23 @@ import { OrchestrationDeletionService } from "./deletion/deletion.service";
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
         return new WorkflowReadService(store);
+      },
+    },
+    {
+      provide: ProjectReadService,
+      useFactory: () => {
+        // Same reasoning as WorkflowReadService above.
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        return new ProjectReadService(store);
       },
     },
     {

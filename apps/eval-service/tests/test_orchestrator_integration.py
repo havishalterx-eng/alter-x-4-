@@ -43,6 +43,7 @@ from src.execution.orchestrator import (
 )
 from src.execution.planner_client import PlannerClient
 from src.execution.policy_client import PolicyEvalClient
+from src.execution.project_client import ProjectEvalClient
 from src.execution.recovery_client import RecoveryClient
 from src.execution.retrieval_client import RetrievalClient
 from src.execution.run_visibility_client import RunVisibilityEvalClient
@@ -91,6 +92,8 @@ _UNUSED_WORKFLOW_TARGET = "http://127.0.0.1:1"
 _UNUSED_WORKFLOW_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
 _UNUSED_AGENT_BINDING_TARGET = "http://127.0.0.1:1"
 _UNUSED_AGENT_BINDING_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
+_UNUSED_PROJECT_TARGET = "http://127.0.0.1:1"
+_UNUSED_PROJECT_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
 
 # Must match apps/ads-core/src/query/eval_grpc_server.py's own literal
 # values -- see orchestrator.py's _EVAL_ADS_* constants for why these must
@@ -577,6 +580,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     agent_binding_client = AgentBindingEvalClient(
         _UNUSED_AGENT_BINDING_TARGET, _UNUSED_AGENT_BINDING_DB_URL
     )
+    project_client = ProjectEvalClient(_UNUSED_PROJECT_TARGET, _UNUSED_PROJECT_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -608,6 +612,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         memory_drift_client,
         workflow_client,
         agent_binding_client,
+        project_client,
     )
 
     try:
@@ -635,6 +640,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         memory_drift_client.close()
         workflow_client.close()
         agent_binding_client.close()
+        project_client.close()
 
     assert summary.total_cases == 20
     assert summary.passed == 20
@@ -691,6 +697,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
     agent_binding_client = AgentBindingEvalClient(
         _UNUSED_AGENT_BINDING_TARGET, _UNUSED_AGENT_BINDING_DB_URL
     )
+    project_client = ProjectEvalClient(_UNUSED_PROJECT_TARGET, _UNUSED_PROJECT_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -722,6 +729,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         memory_drift_client,
         workflow_client,
         agent_binding_client,
+        project_client,
     )
     try:
         first = orchestrator.run("verification")
@@ -749,6 +757,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         memory_drift_client.close()
         workflow_client.close()
         agent_binding_client.close()
+        project_client.close()
 
     assert first.eval_run_id != second.eval_run_id
     assert first.pass_rate == second.pass_rate == 1.0
@@ -838,6 +847,7 @@ def test_unknown_golden_set_raises(
     agent_binding_client = AgentBindingEvalClient(
         _UNUSED_AGENT_BINDING_TARGET, _UNUSED_AGENT_BINDING_DB_URL
     )
+    project_client = ProjectEvalClient(_UNUSED_PROJECT_TARGET, _UNUSED_PROJECT_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -869,6 +879,7 @@ def test_unknown_golden_set_raises(
         memory_drift_client,
         workflow_client,
         agent_binding_client,
+        project_client,
     )
     try:
         with pytest.raises(GoldenSetNotFoundError):
@@ -896,6 +907,7 @@ def test_unknown_golden_set_raises(
         memory_drift_client.close()
         workflow_client.close()
         agent_binding_client.close()
+        project_client.close()
 
 
 def test_planner_select_strategy_cases_execute_for_real(
@@ -933,6 +945,7 @@ def test_planner_select_strategy_cases_execute_for_real(
     agent_binding_client = AgentBindingEvalClient(
         _UNUSED_AGENT_BINDING_TARGET, _UNUSED_AGENT_BINDING_DB_URL
     )
+    project_client = ProjectEvalClient(_UNUSED_PROJECT_TARGET, _UNUSED_PROJECT_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -964,6 +977,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         memory_drift_client,
         workflow_client,
         agent_binding_client,
+        project_client,
     )
 
     try:
@@ -991,6 +1005,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         memory_drift_client.close()
         workflow_client.close()
         agent_binding_client.close()
+        project_client.close()
 
     # 16 of the 20 seeded planner cases are select_strategy (real as of
     # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
@@ -1081,6 +1096,7 @@ def test_retrieval_golden_set_executes_for_real(
     agent_binding_client = AgentBindingEvalClient(
         _UNUSED_AGENT_BINDING_TARGET, _UNUSED_AGENT_BINDING_DB_URL
     )
+    project_client = ProjectEvalClient(_UNUSED_PROJECT_TARGET, _UNUSED_PROJECT_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1112,6 +1128,7 @@ def test_retrieval_golden_set_executes_for_real(
         memory_drift_client,
         workflow_client,
         agent_binding_client,
+        project_client,
     )
 
     try:
@@ -1139,6 +1156,7 @@ def test_retrieval_golden_set_executes_for_real(
         memory_drift_client.close()
         workflow_client.close()
         agent_binding_client.close()
+        project_client.close()
 
     # All 20 retrieval cases are real "retrieve" operations against a real
     # hybrid-retrieval gRPC server. Asserting the real, observed pass rate
@@ -1204,6 +1222,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
     agent_binding_client = AgentBindingEvalClient(
         _UNUSED_AGENT_BINDING_TARGET, _UNUSED_AGENT_BINDING_DB_URL
     )
+    project_client = ProjectEvalClient(_UNUSED_PROJECT_TARGET, _UNUSED_PROJECT_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1235,6 +1254,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         memory_drift_client,
         workflow_client,
         agent_binding_client,
+        project_client,
     )
 
     try:
@@ -1262,6 +1282,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         memory_drift_client.close()
         workflow_client.close()
         agent_binding_client.close()
+        project_client.close()
 
     # All 30 intent cases are real classify_intent calls against a real,
     # live LLM (whichever of Anthropic/OpenAI the environment running this
@@ -1457,6 +1478,7 @@ def test_injection_golden_set_executes_for_real(
     agent_binding_client = AgentBindingEvalClient(
         _UNUSED_AGENT_BINDING_TARGET, _UNUSED_AGENT_BINDING_DB_URL
     )
+    project_client = ProjectEvalClient(_UNUSED_PROJECT_TARGET, _UNUSED_PROJECT_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1488,6 +1510,7 @@ def test_injection_golden_set_executes_for_real(
         memory_drift_client,
         workflow_client,
         agent_binding_client,
+        project_client,
     )
 
     try:
@@ -1515,6 +1538,7 @@ def test_injection_golden_set_executes_for_real(
         memory_drift_client.close()
         workflow_client.close()
         agent_binding_client.close()
+        project_client.close()
 
     assert summary.total_cases == _EVAL_INJECTION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_INJECTION_CASE_COUNT
@@ -2277,6 +2301,55 @@ def agent_binding_server_target() -> Generator[tuple[str, str], None, None]:
                 model_gateway_process.kill()
 
 
+@pytest.fixture(scope="module")
+def project_read_server_target() -> Generator[tuple[str, str], None, None]:
+    """Real, live orchestration-service eval-only HTTP server
+    (eval_project_read_http_server.js) for project_get and
+    project_deploy -- reuses ProjectReadController completely
+    unmodified (see that file's own module doc). Same reasoning as
+    workflow_read_server_target: the real check is the tables' own RLS
+    policy plus ProjectReadService's own explicit
+    `WHERE tenant_id = $1 AND id = $2`, not solely RLS-dependent, so the
+    plain testcontainers bootstrap role is sufficient here.
+    """
+    orchestration_root = REPO_ROOT / "apps" / "orchestration-service"
+    orchestration_dist = (
+        REPO_ROOT
+        / "dist"
+        / "apps"
+        / "orchestration-service"
+        / "eval_project_read_http_server.js"
+    )
+    if not orchestration_dist.exists():
+        pytest.skip(
+            "orchestration-service eval build not present -- run "
+            "`pnpm exec nx run orchestration-service:build` first."
+        )
+    with PostgresContainer(image="postgres:16-alpine", dbname="orchestration_db") as postgres:
+        db_url = postgres.get_connection_url().replace("postgresql+psycopg2://", "postgresql://")
+        port = _free_port()
+        process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+            ["node", str(orchestration_dist)],
+            cwd=str(REPO_ROOT),
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "NODE_PATH": f"{orchestration_root / 'node_modules'}:{REPO_ROOT / 'node_modules'}",
+                "EVAL_PROJECT_READ_DB_URL": db_url,
+                "EVAL_TENANT_ID": _EVAL_RUN_VISIBILITY_TENANT_ID,
+                "HTTP_PORT": str(port),
+            },
+        )
+        try:
+            _wait_for_port(port, timeout_seconds=40.0)
+            yield f"http://127.0.0.1:{port}", db_url
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
 def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     sessions: sessionmaker[Session],
     ads_isolation_server_target: str,
@@ -2293,6 +2366,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     memory_drift_server_target: tuple[str, str],
     workflow_read_server_target: tuple[str, str],
     agent_binding_server_target: tuple[str, str],
+    project_read_server_target: tuple[str, str],
 ) -> None:
     credential_http_target, credential_db_url = platform_credential_server_target
     idempotency_tenant_a_url, idempotency_tenant_b_url, idempotency_db_url = (
@@ -2307,6 +2381,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     memory_drift_http_target, memory_drift_system_db_url = memory_drift_server_target
     workflow_read_http_target, workflow_read_db_url = workflow_read_server_target
     agent_binding_http_target, agent_binding_db_url = agent_binding_server_target
+    project_read_http_target, project_read_db_url = project_read_server_target
     verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
@@ -2343,6 +2418,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     )
     workflow_client = WorkflowEvalClient(workflow_read_http_target, workflow_read_db_url)
     agent_binding_client = AgentBindingEvalClient(agent_binding_http_target, agent_binding_db_url)
+    project_client = ProjectEvalClient(project_read_http_target, project_read_db_url)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -2367,6 +2443,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         memory_drift_client,
         workflow_client,
         agent_binding_client,
+        project_client,
     )
 
     try:
@@ -2394,6 +2471,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         memory_drift_client.close()
         workflow_client.close()
         agent_binding_client.close()
+        project_client.close()
 
     assert summary.total_cases == _EVAL_TENANT_ISOLATION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_TENANT_ISOLATION_CASE_COUNT
@@ -2423,6 +2501,8 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
             "workflow_get",
             "workflow_update",
             "agent_selection_binding",
+            "project_get",
+            "project_deploy",
         )
         real_results = [row for row in results if row.details.get("operation") in real_operations]
         # ads_retrieve, ads_get_ingestion_job, tool_resolve_credential,
@@ -2430,10 +2510,11 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         # platform_credential_delete, idempotency_replay, policy_read,
         # recovery_node_lookup, run_stream_subscribe, verification_score_node,
         # audit_event_read, memory_drift_observations, ads_upload_download,
-        # workflow_get, workflow_update, agent_selection_binding are real
-        # and must always pass regardless of whether a real LLM key is
-        # available.
-        assert len(real_results) == 17
+        # workflow_get, workflow_update, agent_selection_binding, project_get,
+        # project_deploy are real and must always pass regardless of
+        # whether a real LLM key is available. All 20 of 20 tenant-
+        # isolation cases HARD-7g targeted are real.
+        assert len(real_results) == 19
         assert all(row.verdict == "pass" for row in real_results)
 
         # model_gateway_cache is real but, like injection's LLM-dependent
@@ -2459,7 +2540,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
 
         excluded = [*real_results, *live_key_dependent_results]
         unsupported_results = [row for row in results if row not in excluded]
-        assert len(unsupported_results) == 2
+        assert len(unsupported_results) == 0
         assert all(row.verdict == "fail" for row in unsupported_results)
         assert all(
             "unsupported operation" in row.details.get("error", "") for row in unsupported_results
@@ -2501,6 +2582,7 @@ def test_project_golden_set_executes_for_real(
     agent_binding_client = AgentBindingEvalClient(
         _UNUSED_AGENT_BINDING_TARGET, _UNUSED_AGENT_BINDING_DB_URL
     )
+    project_client = ProjectEvalClient(_UNUSED_PROJECT_TARGET, _UNUSED_PROJECT_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -2532,6 +2614,7 @@ def test_project_golden_set_executes_for_real(
         memory_drift_client,
         workflow_client,
         agent_binding_client,
+        project_client,
     )
 
     try:
@@ -2559,6 +2642,7 @@ def test_project_golden_set_executes_for_real(
         memory_drift_client.close()
         workflow_client.close()
         agent_binding_client.close()
+        project_client.close()
 
     # build_project_skeleton is pure and deterministic -- real 3/3 pass.
     assert summary.total_cases == 3
@@ -2653,6 +2737,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
     agent_binding_client = AgentBindingEvalClient(
         _UNUSED_AGENT_BINDING_TARGET, _UNUSED_AGENT_BINDING_DB_URL
     )
+    project_client = ProjectEvalClient(_UNUSED_PROJECT_TARGET, _UNUSED_PROJECT_DB_URL)
     recovery_client = RecoveryClient(grpc_target, db_url)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -2684,6 +2769,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         memory_drift_client,
         workflow_client,
         agent_binding_client,
+        project_client,
     )
 
     try:
@@ -2711,6 +2797,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         memory_drift_client.close()
         workflow_client.close()
         agent_binding_client.close()
+        project_client.close()
 
     assert summary.total_cases == _EVAL_RECOVERY_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_RECOVERY_CASE_COUNT
@@ -2836,6 +2923,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
     agent_binding_client = AgentBindingEvalClient(
         _UNUSED_AGENT_BINDING_TARGET, _UNUSED_AGENT_BINDING_DB_URL
     )
+    project_client = ProjectEvalClient(_UNUSED_PROJECT_TARGET, _UNUSED_PROJECT_DB_URL)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(http_target, db_url)
     credential_client = CredentialEvalClient(_UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL)
@@ -2863,6 +2951,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         memory_drift_client,
         workflow_client,
         agent_binding_client,
+        project_client,
     )
 
     try:
@@ -2890,6 +2979,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         memory_drift_client.close()
         workflow_client.close()
         agent_binding_client.close()
+        project_client.close()
 
     assert summary.total_cases == _EVAL_WORKFLOW_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_WORKFLOW_CASE_COUNT
