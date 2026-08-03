@@ -10,15 +10,18 @@ Planner and Verification both do the same). The engine needs a per-request
 AsyncSession (unlike verification's singleton kernel), so it is constructed
 per-request from injected dependencies rather than cached at app startup.
 
-HEAL-6 PR B known gap: the embedding_client default (NotImplementedEmbeddingClient)
-means the capability-similarity ranked-match path always fails closed with a
-clear error. Only requests carrying a `preferred_agent_id` in their node
-requirement succeed today -- see embedding_client.py's docstring.
+The embedding_client is a real GrpcEmbeddingClient (Model Gateway's Embed
+RPC), opened once at app startup and reused across requests -- same
+lifespan-managed-singleton pattern planner/router.py's GrpcAdsClient uses,
+not a per-request channel. See selection_binding_lifespan below and
+embedding_client.py's own module doc for what closed this gap.
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +30,7 @@ from src.db.session import get_db_session
 from src.selection_binding.embedding_client import (
     EmbeddingClient,
     EmbeddingTransportUnavailableError,
-    NotImplementedEmbeddingClient,
+    GrpcEmbeddingClient,
 )
 from src.selection_binding.engine import (
     BindingValidationError,
@@ -45,9 +48,35 @@ from src.selection_binding.models import (
     WorkspaceId,
 )
 
+_default_embedding_client: EmbeddingClient | None = None
+
+
+@asynccontextmanager
+async def selection_binding_lifespan(app: FastAPI) -> AsyncIterator[None]:
+    del app
+    global _default_embedding_client
+
+    from ..config import get_settings
+
+    settings = get_settings()
+    client = GrpcEmbeddingClient(
+        settings.model_gateway_grpc_target,
+        timeout_seconds=settings.model_gateway_grpc_timeout_seconds,
+    )
+    _default_embedding_client = client
+    try:
+        yield
+    finally:
+        await client.close()
+        _default_embedding_client = None
+
 
 def get_embedding_client() -> EmbeddingClient:
-    return NotImplementedEmbeddingClient()
+    if _default_embedding_client is None:
+        raise RuntimeError(
+            "EmbeddingClient not initialised -- call selection_binding_lifespan first"
+        )
+    return _default_embedding_client
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]

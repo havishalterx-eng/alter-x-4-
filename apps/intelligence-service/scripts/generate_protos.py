@@ -1,4 +1,10 @@
-"""Generate the ADS Q Python gRPC bindings consumed by Planning."""
+"""Generate the Python gRPC bindings consumed by intelligence-service.
+
+adsq.proto is Planning's real ADS Q client; modelgw.proto is the
+embedding-transport follow-up's real Embed client (embedding_client.py's
+GrpcEmbeddingClient -- see that module's own doc), closing the gap
+flagged in selection_binding/embedding_client.py's NotImplementedEmbeddingClient.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +18,10 @@ from pathlib import Path
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SERVICE_ROOT.parents[1]
 PROTO_ROOT = REPO_ROOT / "packages" / "contracts" / "proto"
-PROTO_FILE = "alter/adsq/v1/adsq.proto"
+PROTO_FILES = (
+    "alter/adsq/v1/adsq.proto",
+    "alter/modelgw/v1/modelgw.proto",
+)
 
 
 def generate(output: Path) -> None:
@@ -25,7 +34,7 @@ def generate(output: Path) -> None:
             f"--python_out={output}",
             f"--pyi_out={output}",
             f"--grpc_python_out={output}",
-            str(PROTO_ROOT / PROTO_FILE),
+            *(str(PROTO_ROOT / path) for path in PROTO_FILES),
         ],
         check=True,
     )

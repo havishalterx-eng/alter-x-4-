@@ -7,12 +7,14 @@ from .performance.router import router as performance_router
 from .planner.router import planner_lifespan
 from .planner.router import router as planner_router
 from .selection_binding.router import router as selection_binding_router
+from .selection_binding.router import selection_binding_lifespan
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with planner_lifespan(app):
-        yield
+        async with selection_binding_lifespan(app):
+            yield
 
 
 app = FastAPI(lifespan=lifespan)

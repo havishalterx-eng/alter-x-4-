@@ -1,12 +1,19 @@
-"""Structural embedding dependency for PLAN-7.
+"""Embedding dependency for PLAN-7.
 
-No concrete implementation belongs here.  Python-to-EmbeddingProvider transport
-does not exist yet; a future contract ticket must provide it through the Model
-Gateway or a dedicated vendor-neutral embedding RPC.
+GrpcEmbeddingClient closes the transport gap this module used to flag as
+missing: it calls the real, unmodified alter.modelgw.v1.ModelgwService.Embed
+RPC (the same real RPC ads-core's own GrpcEmbeddingClient in
+apps/ads-core/src/ingestion/embedding_client.py calls for ingestion embedding
+-- that module's own docstring named this exact gap as a separate, disclosed
+follow-up). Async here (unlike ads-core's sync client) to match
+SelectionBindingEngine.bind's own async call site and this service's existing
+async gRPC convention (see ads_client/client.py's GrpcAdsClient).
 """
 
 from collections.abc import Sequence
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
+
+CAPABILITY_QUERY_DIMENSIONS = 512
 
 
 @runtime_checkable
@@ -17,24 +24,76 @@ class EmbeddingClient(Protocol):
 
 
 class EmbeddingTransportUnavailableError(RuntimeError):
-    """Raised by NotImplementedEmbeddingClient -- see its docstring."""
+    """Raised by NotImplementedEmbeddingClient and GrpcEmbeddingClient alike
+    (transport down/unreachable) -- see their own docstrings."""
 
 
 class NotImplementedEmbeddingClient:
-    """Honest default for the HTTP router (HEAL-6 PR B).
-
-    The capability-similarity ranked-match path in SelectionBindingEngine.bind
-    needs a real embedding vector and has never had one to call -- this
-    class exists so that path fails closed with a clear, specific error
-    instead of the route silently having no default embedding_client at
-    all. The `preferred_agent_id` path (SelectionBindingEngine._bind_preferred)
-    never calls this and works today. Swap this for a real implementation
-    once Python-to-EmbeddingProvider transport exists (disclosed gap, not
-    invented here).
+    """Honest default for tests and any deployment without a reachable Model
+    Gateway. The capability-similarity ranked-match path in
+    SelectionBindingEngine.bind fails closed with a clear, specific error
+    instead of silently having no default embedding_client at all. The
+    `preferred_agent_id` path (SelectionBindingEngine._bind_preferred) never
+    calls this and works today regardless.
     """
 
     async def embed(self, *, tenant_id: str, text: str) -> Sequence[float]:
         raise EmbeddingTransportUnavailableError(
-            "Python-to-EmbeddingProvider transport does not exist yet -- "
-            "only preferred_agent_id-based binding is available until it does"
+            "Python-to-EmbeddingProvider transport is not configured for this "
+            "deployment -- only preferred_agent_id-based binding is available"
         )
+
+
+class GrpcEmbeddingClient:
+    """Real, async caller over alter.modelgw.v1.ModelgwService.Embed.
+
+    Mirrors GrpcAdsClient's deferred-import pattern (ads_client/client.py) so
+    the optional grpc/generated-stub dependency is only imported when a real
+    client is actually constructed, not at module import time.
+    """
+
+    def __init__(
+        self,
+        target: str,
+        *,
+        timeout_seconds: float = 15.0,
+        channel: Any | None = None,
+    ) -> None:
+        grpc, modelgw_pb2, modelgw_pb2_grpc = _load_grpc_bindings()
+        self._grpc = grpc
+        self._modelgw_pb2 = modelgw_pb2
+        self._timeout_seconds = timeout_seconds
+        self._channel = channel or grpc.aio.insecure_channel(target)
+        self._stub = modelgw_pb2_grpc.ModelgwServiceStub(self._channel)
+
+    async def close(self) -> None:
+        await self._channel.close()
+
+    async def embed(self, *, tenant_id: str, text: str) -> Sequence[float]:
+        try:
+            response = await self._stub.Embed(
+                self._modelgw_pb2.EmbedRequest(
+                    tenant_id=tenant_id,
+                    text=text,
+                    dimensions=CAPABILITY_QUERY_DIMENSIONS,
+                ),
+                timeout=self._timeout_seconds,
+            )
+        except self._grpc.aio.AioRpcError as exc:
+            raise EmbeddingTransportUnavailableError(
+                "Embed RPC call to Model Gateway failed"
+            ) from exc
+        return tuple(response.embedding)
+
+
+def _load_grpc_bindings() -> tuple[Any, Any, Any]:
+    """Defer the optional transport imports until the production client starts."""
+    try:
+        import grpc
+
+        from alter.modelgw.v1 import modelgw_pb2, modelgw_pb2_grpc
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "GrpcEmbeddingClient requires the intelligence-service dependencies"
+        ) from exc
+    return grpc, modelgw_pb2, modelgw_pb2_grpc

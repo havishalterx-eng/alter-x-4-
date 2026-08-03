@@ -160,16 +160,20 @@ class TestBindAgentModelToolRoute:
         assert response.status_code == 200
         assert response.json()["agent_id"] == AGENT_A
 
-    def test_ranked_match_path_fails_closed_without_real_embedding_transport(
+    def test_ranked_match_path_fails_closed_when_model_gateway_is_unreachable(
         self, client: TestClient
     ) -> None:
+        # No Model Gateway is running in this test environment -- the real
+        # GrpcEmbeddingClient's Embed RPC genuinely fails (connection
+        # refused against the default localhost:50051 target), exercising
+        # the real fail-closed path rather than a hardcoded stub error.
         response = client.post(
             "/selection-binding/bind-agent-model-tool",
             json=request_body(),
         )
 
         assert response.status_code == 503
-        assert "Python-to-EmbeddingProvider transport" in response.json()["detail"]
+        assert "Embed RPC call to Model Gateway failed" in response.json()["detail"]
 
     def test_ranked_match_path_succeeds_when_a_real_embedding_client_is_provided(
         self, client: TestClient
