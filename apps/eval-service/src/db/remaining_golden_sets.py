@@ -221,7 +221,7 @@ TENANT_ISOLATION_CASES: tuple[EvalCaseSeed, ...] = (
     _tenant("tool_consume_credential", "opaque credential token", "denied", "credential-token"),
     _tenant("tool_resolve_credential", "credential reference", "denied", "credential-reference"),
     _tenant("verification_score_node", "node execution", "denied", "verification-node"),
-    _tenant("recovery_node_lookup", "failed node", "denied", "recovery-node"),
+    _tenant("recovery_node_lookup", "failed node", "not_found", "recovery-node"),
     _tenant("model_gateway_cache", "identical model request", "cache_miss", "model-cache"),
     _tenant("agent_selection_binding", "tenant-b embedding", "no_match", "agent-binding"),
     _tenant("platform_credential_get", "credential", "not_found", "platform-credentials"),
@@ -233,7 +233,7 @@ TENANT_ISOLATION_CASES: tuple[EvalCaseSeed, ...] = (
     _tenant("project_deploy", "deployment", "not_found", "project-deploy"),
     _tenant("memory_drift_observations", "drift scores", "empty_result", "memory-drift"),
     _tenant("audit_event_read", "audit event", "denied", "audit"),
-    _tenant("run_stream_subscribe", "run stream", "denied", "stream"),
+    _tenant("run_stream_subscribe", "run stream", "not_found", "stream"),
     _tenant("ads_upload_download", "upload artifact", "not_found", "upload"),
     _tenant("policy_read", "tenant policy", "empty_result", "policy"),
 )

@@ -77,6 +77,16 @@ eval-only entrypoint needed (see policy_client.py's own module doc). The
 real cross-tenant "empty_result" (found=False) comes entirely from
 SqlAlchemyPolicyStoreRepository.get_active_policy()'s own real,
 RLS-scoped session.
+A sixth follow-up adds 'recovery_node_lookup' and 'run_stream_subscribe':
+apps/orchestration-service/src/eval_run_visibility_http_server.ts, a real
+eval-only entrypoint reusing NodeExecutionsController/RunStreamController
+unmodified (see its own module doc). Both cases were originally seeded
+with expected outcome "denied", but the real backing mechanism for both
+(NodeExecutionLedgerService.list()'s and RunStreamEventService.
+runIsVisible()'s identical explicit `WHERE tenant_id = $1 AND id = $2`
+checks) is a resource-visibility check, not an authorization denial --
+the golden set's expected_json was corrected to "not_found" to match
+what the real system actually does (see remaining_golden_sets.py).
 HARD-7h adds 'project' (project-E2E, 3/3 real cases): a real call to
 intelligence-service's PlannerService.Decompose with
 strategy=plan_then_execute, reusing HARD-7b's exact same real HTTP
@@ -146,6 +156,7 @@ from .planner_client import PlannerClient
 from .policy_client import PolicyEvalClient
 from .recovery_client import RecoveryClient
 from .retrieval_client import RetrievalClient
+from .run_visibility_client import RunVisibilityEvalClient
 from .security_client import SecurityEvalClient, UploadEvalClient
 from .toolgw_client import ToolgwClient
 from .trigger_client import TriggerRegistryClient
@@ -251,6 +262,7 @@ class EvalRunOrchestrator:
         idempotency_replay_client: IdempotencyReplayClient,
         ingestion_client: IngestionEvalClient,
         policy_client: PolicyEvalClient,
+        run_visibility_client: RunVisibilityEvalClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -275,6 +287,7 @@ class EvalRunOrchestrator:
         self._idempotency_replay_client = idempotency_replay_client
         self._ingestion_client = ingestion_client
         self._policy_client = policy_client
+        self._run_visibility_client = run_visibility_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -613,6 +626,18 @@ class EvalRunOrchestrator:
                 )
                 observed_outcome = "empty_result" if not policy_lookup.found else "found"
                 extra = {"policy_id": policy_id}
+            elif operation in ("recovery_node_lookup", "run_stream_subscribe"):
+                other_tenant_uuid = "018f4d6e-cccc-7ccc-8ccc-cccccccccccc"
+                run_id = self._run_visibility_client.seed_cross_tenant_run(
+                    other_tenant_uuid=other_tenant_uuid
+                )
+                run_lookup = (
+                    self._run_visibility_client.check_node_executions(run_id=run_id)
+                    if operation == "recovery_node_lookup"
+                    else self._run_visibility_client.check_stream(run_id=run_id)
+                )
+                observed_outcome = "not_found" if run_lookup.not_found else "found"
+                extra = {"run_id": run_id}
             else:
                 return _CaseVerdict(
                     verdict="fail",
@@ -621,9 +646,9 @@ class EvalRunOrchestrator:
                         "error": f"unsupported operation {operation!r} for domain=tenant-isolation "
                         "(only ads_retrieve, ads_get_ingestion_job, tool_resolve_credential, "
                         "tool_consume_credential, platform_credential_get/delete, "
-                        "idempotency_replay, policy_read are real; the other 12 of 20 real "
-                        "tenant-isolation cases are disclosed follow-up scope, see "
-                        "orchestrator.py's own module doc)"
+                        "idempotency_replay, policy_read, recovery_node_lookup, "
+                        "run_stream_subscribe are real; the other 10 of 20 real tenant-isolation "
+                        "cases are disclosed follow-up scope, see orchestrator.py's own module doc)"
                     },
                 )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
