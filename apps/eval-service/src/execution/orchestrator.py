@@ -119,6 +119,18 @@ a real, disclosed eval-only entrypoint (production main.ts always needs
 live AWS Secrets Manager access with no mock-config escape hatch;
 AuditService/AuditGrpcController/PostgresAuditStoreProvider are all real
 and unmodified -- see audit_client.py's own module doc).
+A tenth follow-up adds 'memory_drift_observations': a new real GET-style
+read route (POST /drift/agents/scores) on memory-service's real
+DriftDetector/SqlAlchemyDriftRepository (previously write-only via
+compute_agent_drift). The real cross-tenant "empty_result" is NOT an
+app-level tenant check at all -- drift_scores' own `drift_read` RLS
+policy (0001_create_policy_tables.py) only permits SELECT of
+subject_type IN ('model','provider'); agent-subject rows are
+deliberately default-deny for every tenant session pending KNOW-15's
+local ownership projection, per that migration's own docstring (see
+memory_drift_client.py's own module doc). No eval-only entrypoint
+needed -- src.main:app run directly, same shape as policy_client.py's
+target.
 HARD-7h adds 'project' (project-E2E, 3/3 real cases): a real call to
 intelligence-service's PlannerService.Decompose with
 strategy=plan_then_execute, reusing HARD-7b's exact same real HTTP
@@ -185,6 +197,7 @@ from .credential_client import CredentialEvalClient
 from .idempotency_client import IdempotencyReplayClient
 from .ingestion_client import IngestionEvalClient
 from .intent_client import IntentClient
+from .memory_drift_client import MemoryDriftEvalClient
 from .model_cache_client import ModelGatewayCacheClient
 from .planner_client import PlannerClient
 from .policy_client import PolicyEvalClient
@@ -301,6 +314,7 @@ class EvalRunOrchestrator:
         model_cache_client: ModelGatewayCacheClient,
         verification_severity_client: VerificationSeverityEvalClient,
         audit_client: AuditEvalClient,
+        memory_drift_client: MemoryDriftEvalClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -329,6 +343,7 @@ class EvalRunOrchestrator:
         self._model_cache_client = model_cache_client
         self._verification_severity_client = verification_severity_client
         self._audit_client = audit_client
+        self._memory_drift_client = memory_drift_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -728,6 +743,14 @@ class EvalRunOrchestrator:
                 )
                 observed_outcome = "not_found" if audit_lookup.not_found else "found"
                 extra = {"event_id": seeded_event_id}
+            elif operation == "memory_drift_observations":
+                seeded_agent_id = self._memory_drift_client.seed_agent_drift_score()
+                drift_lookup = self._memory_drift_client.check_agent_scores(
+                    tenant_id=_EVAL_TENANT_ID,
+                    agent_id=seeded_agent_id,
+                )
+                observed_outcome = "empty_result" if drift_lookup.empty else "found"
+                extra = {"agent_id": seeded_agent_id}
             else:
                 return _CaseVerdict(
                     verdict="fail",
@@ -738,9 +761,9 @@ class EvalRunOrchestrator:
                         "tool_consume_credential, platform_credential_get/delete, "
                         "idempotency_replay, policy_read, recovery_node_lookup, "
                         "run_stream_subscribe, model_gateway_cache, verification_score_node, "
-                        "audit_event_read are real; the other 7 of 20 real tenant-isolation "
-                        "cases are disclosed follow-up scope, see orchestrator.py's own module "
-                        "doc)"
+                        "audit_event_read, memory_drift_observations are real; the other 6 of "
+                        "20 real tenant-isolation cases are disclosed follow-up scope, see "
+                        "orchestrator.py's own module doc)"
                     },
                 )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc

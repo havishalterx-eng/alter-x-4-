@@ -34,6 +34,7 @@ from src.execution.credential_client import CredentialEvalClient
 from src.execution.idempotency_client import IdempotencyReplayClient
 from src.execution.ingestion_client import IngestionEvalClient
 from src.execution.intent_client import IntentClient
+from src.execution.memory_drift_client import MemoryDriftEvalClient
 from src.execution.model_cache_client import ModelGatewayCacheClient
 from src.execution.orchestrator import (
     EvalRunOrchestrator,
@@ -82,6 +83,8 @@ _UNUSED_MODEL_CACHE_TARGET = "127.0.0.1:1"
 _UNUSED_VERIFICATION_SEVERITY_TARGET = "127.0.0.1:1"
 _UNUSED_VERIFICATION_SEVERITY_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
 _UNUSED_AUDIT_TARGET = "127.0.0.1:1"
+_UNUSED_MEMORY_DRIFT_TARGET = "http://127.0.0.1:1"
+_UNUSED_MEMORY_DRIFT_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
 
 # Must match apps/ads-core/src/query/eval_grpc_server.py's own literal
 # values -- see orchestrator.py's _EVAL_ADS_* constants for why these must
@@ -561,6 +564,9 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
     audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
+    memory_drift_client = MemoryDriftEvalClient(
+        _UNUSED_MEMORY_DRIFT_TARGET, _UNUSED_MEMORY_DRIFT_DB_URL
+    )
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -589,6 +595,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         model_cache_client,
         verification_severity_client,
         audit_client,
+        memory_drift_client,
     )
 
     try:
@@ -613,6 +620,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         model_cache_client.close()
         verification_severity_client.close()
         audit_client.close()
+        memory_drift_client.close()
 
     assert summary.total_cases == 20
     assert summary.passed == 20
@@ -662,6 +670,9 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
     audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
+    memory_drift_client = MemoryDriftEvalClient(
+        _UNUSED_MEMORY_DRIFT_TARGET, _UNUSED_MEMORY_DRIFT_DB_URL
+    )
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -690,6 +701,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         model_cache_client,
         verification_severity_client,
         audit_client,
+        memory_drift_client,
     )
     try:
         first = orchestrator.run("verification")
@@ -714,6 +726,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         model_cache_client.close()
         verification_severity_client.close()
         audit_client.close()
+        memory_drift_client.close()
 
     assert first.eval_run_id != second.eval_run_id
     assert first.pass_rate == second.pass_rate == 1.0
@@ -796,6 +809,9 @@ def test_unknown_golden_set_raises(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
     audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
+    memory_drift_client = MemoryDriftEvalClient(
+        _UNUSED_MEMORY_DRIFT_TARGET, _UNUSED_MEMORY_DRIFT_DB_URL
+    )
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -824,6 +840,7 @@ def test_unknown_golden_set_raises(
         model_cache_client,
         verification_severity_client,
         audit_client,
+        memory_drift_client,
     )
     try:
         with pytest.raises(GoldenSetNotFoundError):
@@ -848,6 +865,7 @@ def test_unknown_golden_set_raises(
         model_cache_client.close()
         verification_severity_client.close()
         audit_client.close()
+        memory_drift_client.close()
 
 
 def test_planner_select_strategy_cases_execute_for_real(
@@ -878,6 +896,9 @@ def test_planner_select_strategy_cases_execute_for_real(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
     audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
+    memory_drift_client = MemoryDriftEvalClient(
+        _UNUSED_MEMORY_DRIFT_TARGET, _UNUSED_MEMORY_DRIFT_DB_URL
+    )
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -906,6 +927,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         model_cache_client,
         verification_severity_client,
         audit_client,
+        memory_drift_client,
     )
 
     try:
@@ -930,6 +952,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         model_cache_client.close()
         verification_severity_client.close()
         audit_client.close()
+        memory_drift_client.close()
 
     # 16 of the 20 seeded planner cases are select_strategy (real as of
     # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
@@ -1013,6 +1036,9 @@ def test_retrieval_golden_set_executes_for_real(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
     audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
+    memory_drift_client = MemoryDriftEvalClient(
+        _UNUSED_MEMORY_DRIFT_TARGET, _UNUSED_MEMORY_DRIFT_DB_URL
+    )
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1041,6 +1067,7 @@ def test_retrieval_golden_set_executes_for_real(
         model_cache_client,
         verification_severity_client,
         audit_client,
+        memory_drift_client,
     )
 
     try:
@@ -1065,6 +1092,7 @@ def test_retrieval_golden_set_executes_for_real(
         model_cache_client.close()
         verification_severity_client.close()
         audit_client.close()
+        memory_drift_client.close()
 
     # All 20 retrieval cases are real "retrieve" operations against a real
     # hybrid-retrieval gRPC server. Asserting the real, observed pass rate
@@ -1123,6 +1151,9 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
     audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
+    memory_drift_client = MemoryDriftEvalClient(
+        _UNUSED_MEMORY_DRIFT_TARGET, _UNUSED_MEMORY_DRIFT_DB_URL
+    )
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1151,6 +1182,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         model_cache_client,
         verification_severity_client,
         audit_client,
+        memory_drift_client,
     )
 
     try:
@@ -1175,6 +1207,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         model_cache_client.close()
         verification_severity_client.close()
         audit_client.close()
+        memory_drift_client.close()
 
     # All 30 intent cases are real classify_intent calls against a real,
     # live LLM (whichever of Anthropic/OpenAI the environment running this
@@ -1363,6 +1396,9 @@ def test_injection_golden_set_executes_for_real(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
     audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
+    memory_drift_client = MemoryDriftEvalClient(
+        _UNUSED_MEMORY_DRIFT_TARGET, _UNUSED_MEMORY_DRIFT_DB_URL
+    )
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1391,6 +1427,7 @@ def test_injection_golden_set_executes_for_real(
         model_cache_client,
         verification_severity_client,
         audit_client,
+        memory_drift_client,
     )
 
     try:
@@ -1415,6 +1452,7 @@ def test_injection_golden_set_executes_for_real(
         model_cache_client.close()
         verification_severity_client.close()
         audit_client.close()
+        memory_drift_client.close()
 
     assert summary.total_cases == _EVAL_INJECTION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_INJECTION_CASE_COUNT
@@ -1888,6 +1926,97 @@ def policy_server_target() -> Generator[tuple[str, str], None, None]:
                 process.kill()
 
 
+@pytest.fixture(scope="module")
+def memory_drift_server_target() -> Generator[tuple[str, str], None, None]:
+    """Real, live memory-service production FastAPI app (src.main:app),
+    same shape as policy_server_target -- but the system role here MUST
+    be named exactly `policy_system_writer` (not an eval-prefixed
+    alias): drift_scores' own `drift_system_write` RLS policy hardcodes
+    `current_user='policy_system_writer'` as a literal string check
+    (0001_create_policy_tables.py), matching production's own
+    POLICY_DB_SYSTEM_URL_SYNC default. A differently-named role would
+    make seeding (and the real compute_agent_drift write path) fail
+    outright, not silently pass -- see memory_drift_client.py's own
+    module doc.
+    """
+    memory_service_root = REPO_ROOT / "apps" / "memory-service"
+    memory_service_python = memory_service_root / ".venv" / "bin" / "python"
+    if not memory_service_python.exists():
+        pytest.skip(
+            "apps/memory-service/.venv not present -- run `uv sync` there first "
+            "(same real dependency this test always needed, just not eval-service's own venv)"
+        )
+    with PostgresContainer(image="postgres:16-alpine", dbname="policy_db") as postgres:
+        admin_url = postgres.get_connection_url()
+        subprocess.run(  # noqa: S603 -- fixed argv, no shell, test-only
+            [str(memory_service_python), "-m", "alembic", "upgrade", "head"],
+            cwd=str(memory_service_root),
+            env={"PATH": os.environ.get("PATH", ""), "POLICY_DB_URL_SYNC": admin_url},
+            check=True,
+        )
+
+        admin_engine = sa.create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        with admin_engine.connect() as connection:
+            connection.execute(
+                sa.text("CREATE ROLE eval_drift_tenant_reader LOGIN PASSWORD 'eval-test-only'")
+            )
+            connection.execute(
+                sa.text("CREATE ROLE policy_system_writer LOGIN PASSWORD 'eval-test-only'")
+            )
+            connection.execute(
+                sa.text(
+                    "GRANT CONNECT ON DATABASE policy_db TO "
+                    "eval_drift_tenant_reader, policy_system_writer"
+                )
+            )
+            connection.execute(
+                sa.text(
+                    "GRANT USAGE ON SCHEMA public TO "
+                    "eval_drift_tenant_reader, policy_system_writer"
+                )
+            )
+            connection.execute(
+                sa.text(
+                    "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "
+                    "eval_drift_tenant_reader, policy_system_writer"
+                )
+            )
+        admin_engine.dispose()
+
+        tenant_url = _role_url(admin_url, "eval_drift_tenant_reader", "eval-test-only")
+        system_url = _role_url(admin_url, "policy_system_writer", "eval-test-only")
+        plain_system_url = system_url.replace("postgresql+psycopg2://", "postgresql://")
+
+        port = _free_port()
+        process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+            [
+                str(memory_service_python),
+                "-m",
+                "uvicorn",
+                "src.main:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+            ],
+            cwd=str(memory_service_root),
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "POLICY_DB_URL_SYNC": tenant_url,
+                "POLICY_DB_SYSTEM_URL_SYNC": system_url,
+            },
+        )
+        try:
+            _wait_for_port(port, timeout_seconds=40.0)
+            yield f"http://127.0.0.1:{port}", plain_system_url
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
 _EVAL_RUN_VISIBILITY_TENANT_ID = "ten_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 
 
@@ -1953,6 +2082,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     model_cache_server_target: str | None,
     verification_severity_server_target: tuple[str, str],
     audit_server_target: str,
+    memory_drift_server_target: tuple[str, str],
 ) -> None:
     credential_http_target, credential_db_url = platform_credential_server_target
     idempotency_tenant_a_url, idempotency_tenant_b_url, idempotency_db_url = (
@@ -1964,6 +2094,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     verification_severity_http_target, verification_severity_db_url = (
         verification_severity_server_target
     )
+    memory_drift_http_target, memory_drift_system_db_url = memory_drift_server_target
     verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
@@ -1995,6 +2126,9 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         verification_severity_http_target, verification_severity_db_url
     )
     audit_client = AuditEvalClient(audit_server_target)
+    memory_drift_client = MemoryDriftEvalClient(
+        memory_drift_http_target, memory_drift_system_db_url
+    )
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -2016,6 +2150,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         model_cache_client,
         verification_severity_client,
         audit_client,
+        memory_drift_client,
     )
 
     try:
@@ -2040,6 +2175,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         model_cache_client.close()
         verification_severity_client.close()
         audit_client.close()
+        memory_drift_client.close()
 
     assert summary.total_cases == _EVAL_TENANT_ISOLATION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_TENANT_ISOLATION_CASE_COUNT
@@ -2064,15 +2200,16 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
             "run_stream_subscribe",
             "verification_score_node",
             "audit_event_read",
+            "memory_drift_observations",
         )
         real_results = [row for row in results if row.details.get("operation") in real_operations]
         # ads_retrieve, ads_get_ingestion_job, tool_resolve_credential,
         # tool_consume_credential, platform_credential_get,
         # platform_credential_delete, idempotency_replay, policy_read,
         # recovery_node_lookup, run_stream_subscribe, verification_score_node,
-        # audit_event_read are real and must always pass regardless of
-        # whether a real LLM key is available.
-        assert len(real_results) == 12
+        # audit_event_read, memory_drift_observations are real and must
+        # always pass regardless of whether a real LLM key is available.
+        assert len(real_results) == 13
         assert all(row.verdict == "pass" for row in real_results)
 
         # model_gateway_cache is real but, like injection's LLM-dependent
@@ -2098,7 +2235,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
 
         excluded = [*real_results, *live_key_dependent_results]
         unsupported_results = [row for row in results if row not in excluded]
-        assert len(unsupported_results) == 7
+        assert len(unsupported_results) == 6
         assert all(row.verdict == "fail" for row in unsupported_results)
         assert all(
             "unsupported operation" in row.details.get("error", "") for row in unsupported_results
@@ -2133,6 +2270,9 @@ def test_project_golden_set_executes_for_real(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
     audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
+    memory_drift_client = MemoryDriftEvalClient(
+        _UNUSED_MEMORY_DRIFT_TARGET, _UNUSED_MEMORY_DRIFT_DB_URL
+    )
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -2161,6 +2301,7 @@ def test_project_golden_set_executes_for_real(
         model_cache_client,
         verification_severity_client,
         audit_client,
+        memory_drift_client,
     )
 
     try:
@@ -2185,6 +2326,7 @@ def test_project_golden_set_executes_for_real(
         model_cache_client.close()
         verification_severity_client.close()
         audit_client.close()
+        memory_drift_client.close()
 
     # build_project_skeleton is pure and deterministic -- real 3/3 pass.
     assert summary.total_cases == 3
@@ -2272,6 +2414,9 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
     audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
+    memory_drift_client = MemoryDriftEvalClient(
+        _UNUSED_MEMORY_DRIFT_TARGET, _UNUSED_MEMORY_DRIFT_DB_URL
+    )
     recovery_client = RecoveryClient(grpc_target, db_url)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -2300,6 +2445,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         model_cache_client,
         verification_severity_client,
         audit_client,
+        memory_drift_client,
     )
 
     try:
@@ -2324,6 +2470,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         model_cache_client.close()
         verification_severity_client.close()
         audit_client.close()
+        memory_drift_client.close()
 
     assert summary.total_cases == _EVAL_RECOVERY_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_RECOVERY_CASE_COUNT
@@ -2442,6 +2589,9 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
     audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
+    memory_drift_client = MemoryDriftEvalClient(
+        _UNUSED_MEMORY_DRIFT_TARGET, _UNUSED_MEMORY_DRIFT_DB_URL
+    )
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(http_target, db_url)
     credential_client = CredentialEvalClient(_UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL)
@@ -2466,6 +2616,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         model_cache_client,
         verification_severity_client,
         audit_client,
+        memory_drift_client,
     )
 
     try:
@@ -2490,6 +2641,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         model_cache_client.close()
         verification_severity_client.close()
         audit_client.close()
+        memory_drift_client.close()
 
     assert summary.total_cases == _EVAL_WORKFLOW_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_WORKFLOW_CASE_COUNT

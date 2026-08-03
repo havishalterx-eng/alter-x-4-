@@ -47,3 +47,13 @@ class StoredDriftScore(StrictModel):
     score: float
     baseline: float
     action_taken: DriftAction
+
+
+class ListAgentDriftRequest(StrictModel):
+    tenant_id: str
+    agent_id: str
+
+
+class ListAgentDriftResponse(StrictModel):
+    agent_id: str
+    scores: tuple[StoredDriftScore, ...]

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from typing import cast
+
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.models import DriftScore
@@ -7,9 +10,16 @@ from src.memory_learning.ids import new_prefixed_uuid7
 
 from .models import DriftAction, StoredDriftScore
 
+_SET_TENANT = text("SELECT set_config('app.current_tenant_id', :tenant_id, true)")
+
 
 class SqlAlchemyDriftRepository:
-    def __init__(self, system_sessions: sessionmaker[Session]) -> None:
+    def __init__(
+        self,
+        tenant_sessions: sessionmaker[Session],
+        system_sessions: sessionmaker[Session],
+    ) -> None:
+        self._tenant_sessions = tenant_sessions
         self._system_sessions = system_sessions
 
     def record_agent_score(
@@ -50,4 +60,33 @@ class SqlAlchemyDriftRepository:
                 score=score,
                 baseline=baseline,
                 action_taken=action_taken,
+            )
+
+    def list_agent_scores(
+        self, *, tenant_uuid: str, agent_id: str
+    ) -> tuple[StoredDriftScore, ...]:
+        """Real read under RLS. drift_scores' own drift_read policy
+        (0001_create_policy_tables.py) only permits SELECT of
+        subject_type IN ('model','provider') rows -- agent-subject rows
+        are deliberately default-deny for every tenant session pending
+        KNOW-15's local ownership projection, per that migration's own
+        docstring. A cross-tenant (or same-tenant) read of another
+        agent's drift scores therefore always returns empty here, not
+        because of an app-level ownership check but because the real,
+        unmodified RLS policy excludes the row entirely."""
+        with self._tenant_sessions.begin() as session:
+            session.execute(_SET_TENANT, {"tenant_id": tenant_uuid})
+            rows = session.scalars(
+                select(DriftScore)
+                .where(DriftScore.subject_type == "agent", DriftScore.subject_ref == agent_id)
+                .order_by(DriftScore.created_at.desc())
+            ).all()
+            return tuple(
+                StoredDriftScore(
+                    drift_score_id=row.id,
+                    score=float(row.score),
+                    baseline=float(row.baseline) if row.baseline is not None else 0.0,
+                    action_taken=cast(DriftAction, row.action_taken),
+                )
+                for row in rows
             )

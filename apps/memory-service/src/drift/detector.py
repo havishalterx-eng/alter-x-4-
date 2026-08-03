@@ -10,6 +10,8 @@ from .intelligence_client import IntelligencePerformanceClient
 from .models import (
     ComputeAgentDriftRequest,
     ComputeAgentDriftResponse,
+    ListAgentDriftRequest,
+    ListAgentDriftResponse,
     PerformanceObservation,
 )
 from .repository import SqlAlchemyDriftRepository
@@ -94,6 +96,21 @@ class DriftDetector:
             baseline=stored.baseline,
             action_taken=stored.action_taken,
         )
+
+    async def list_agent_drift(
+        self,
+        request: ListAgentDriftRequest,
+        authorization: str,
+    ) -> ListAgentDriftResponse:
+        self._validate_authorization(authorization)
+        self._raw_id(request.tenant_id, "ten")
+        self._raw_id(request.agent_id, "agt")
+        scores = await asyncio.to_thread(
+            self._repository.list_agent_scores,
+            tenant_uuid=request.tenant_id,
+            agent_id=request.agent_id,
+        )
+        return ListAgentDriftResponse(agent_id=request.agent_id, scores=scores)
 
     @staticmethod
     def _raw_id(value: str, prefix: str) -> str:
