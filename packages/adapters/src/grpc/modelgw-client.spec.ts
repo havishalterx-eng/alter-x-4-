@@ -46,6 +46,7 @@ describe("ModelGatewayClient", () => {
         output_json: JSON.stringify({ intent: "answer" }),
         usage_json: JSON.stringify({ totalTokens: 12 }),
         resolved_capability: "FAST:aws-bedrock",
+        cache_hit: false,
       },
     }));
     const client = new ModelGatewayClient(

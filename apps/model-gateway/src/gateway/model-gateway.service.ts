@@ -49,7 +49,7 @@ interface CachedInvokeValue {
 
 function parseCachedInvokeValue(
   valueJson: string,
-): CachedInvokeValue | undefined {
+): ModelgwInvokeResponse | undefined {
   try {
     const parsed = JSON.parse(valueJson) as Partial<CachedInvokeValue>;
     if (
@@ -63,6 +63,7 @@ function parseCachedInvokeValue(
       output_json: parsed.output_json,
       usage_json: parsed.usage_json,
       resolved_capability: parsed.resolved_capability,
+      cache_hit: true,
     };
   } catch {
     return undefined;
@@ -172,6 +173,7 @@ export class ModelGatewayService implements ModelgwHandler {
       // the normal path or "STANDARD:anthropic-direct" when GATE-3's
       // failover chain kicked in -- never a silent downgrade.
       resolved_capability: `${alias}:${result.servedBy}`,
+      cache_hit: false,
     };
 
     await this.#storeCacheBestEffort(request.tenant_id, embedding, response);

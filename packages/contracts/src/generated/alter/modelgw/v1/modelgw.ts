@@ -23,6 +23,8 @@ export interface InvokeResponse {
   output_json: string;
   usage_json: string;
   resolved_capability: string;
+  /** true when this response came from the semantic cache, not a live model call */
+  cache_hit: boolean;
 }
 
 export interface StreamRequest {

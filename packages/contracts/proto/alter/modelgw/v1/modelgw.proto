@@ -26,6 +26,7 @@ message InvokeResponse {
   string output_json = 1;
   string usage_json = 2;
   string resolved_capability = 3;
+  bool cache_hit = 4; // true when this response came from the semantic cache, not a live model call
 }
 
 message StreamRequest {

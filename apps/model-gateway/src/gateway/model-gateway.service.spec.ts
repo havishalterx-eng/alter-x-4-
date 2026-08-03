@@ -632,7 +632,9 @@ describe("ModelGatewayService", () => {
     const second = await service.invoke(request());
 
     expect(invoke).toHaveBeenCalledTimes(1);
-    expect(second).toEqual(first);
+    expect(first.cache_hit).toBe(false);
+    expect(second.cache_hit).toBe(true);
+    expect(second).toEqual({ ...first, cache_hit: true });
   });
 
   it("does not cache-hit across different tenants even with identical input", async () => {

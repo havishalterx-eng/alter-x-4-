@@ -33,6 +33,7 @@ from src.execution.credential_client import CredentialEvalClient
 from src.execution.idempotency_client import IdempotencyReplayClient
 from src.execution.ingestion_client import IngestionEvalClient
 from src.execution.intent_client import IntentClient
+from src.execution.model_cache_client import ModelGatewayCacheClient
 from src.execution.orchestrator import (
     EvalRunOrchestrator,
     GoldenSetNotFoundError,
@@ -75,6 +76,7 @@ _UNUSED_POLICY_TARGET = "http://127.0.0.1:1"
 _UNUSED_POLICY_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
 _UNUSED_RUN_VISIBILITY_TARGET = "http://127.0.0.1:1"
 _UNUSED_RUN_VISIBILITY_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
+_UNUSED_MODEL_CACHE_TARGET = "127.0.0.1:1"
 
 # Must match apps/ads-core/src/query/eval_grpc_server.py's own literal
 # values -- see orchestrator.py's _EVAL_ADS_* constants for why these must
@@ -353,6 +355,68 @@ def orchestration_intent_server_target() -> Generator[str, None, None]:
                 process.kill()
 
 
+@pytest.fixture(scope="module")
+def model_cache_server_target() -> Generator[str | None, None, None]:
+    """Real, live model-gateway (HARD-7d's eval_bootstrap.ts), reused
+    unmodified -- same real, live-LLM-dependent target as
+    orchestration_intent_server_target's own model-gateway leg, just
+    called directly (no orchestration-service intent layer needed for
+    the real semantic cache under test).
+
+    Unlike orchestration_intent_server_target, this does NOT skip the
+    whole test without a key: model_gateway_cache lives inside the
+    shared tenant-isolation test alongside 10 other real, key-independent
+    cases, and eval_bootstrap.ts's own createEvalModelProvider() throws
+    synchronously before the server ever starts listening when no key is
+    present (unlike security_eval_server_target's LLM-optional case,
+    which starts fine either way) -- so yielding None here lets the test
+    fall back to an unreachable placeholder target for this one case
+    only, while the other 10 real cases still run and are asserted for
+    real in CI (which has no live key configured).
+    """
+    api_key_env: dict[str, str] = {}
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        api_key_env["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
+    elif os.environ.get("OPENAI_API_KEY"):
+        api_key_env["OPENAI_API_KEY"] = os.environ["OPENAI_API_KEY"]
+    else:
+        yield None
+        return
+
+    model_gateway_root = REPO_ROOT / "apps" / "model-gateway"
+    model_gateway_dist = REPO_ROOT / "dist" / "apps" / "model-gateway" / "eval_bootstrap.js"
+    if not model_gateway_dist.exists():
+        yield None
+        return
+
+    port = _free_port()
+    http_port = _free_port()
+    process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+        ["node", str(model_gateway_dist)],
+        cwd=str(REPO_ROOT),
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "NODE_PATH": f"{model_gateway_root / 'node_modules'}:{REPO_ROOT / 'node_modules'}",
+            "ALTER_ENV": "local",
+            "ALTER_SERVICE_NAME": "model-gateway",
+            "ALTER_REGION": "ap-south-1",
+            "ALTER_CONFIG_SOURCE": "mock",
+            "PORT": str(http_port),
+            "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+            **api_key_env,
+        },
+    )
+    try:
+        _wait_for_port(port)
+        yield f"127.0.0.1:{port}"
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
 def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     sessions: sessionmaker[Session],
     verification_server_target: str,
@@ -376,6 +440,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     run_visibility_client = RunVisibilityEvalClient(
         _UNUSED_RUN_VISIBILITY_TARGET, _UNUSED_RUN_VISIBILITY_DB_URL
     )
+    model_cache_client = ModelGatewayCacheClient(_UNUSED_MODEL_CACHE_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -401,6 +466,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         ingestion_client,
         policy_client,
         run_visibility_client,
+        model_cache_client,
     )
 
     try:
@@ -422,6 +488,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         ingestion_client.close()
         policy_client.close()
         run_visibility_client.close()
+        model_cache_client.close()
 
     assert summary.total_cases == 20
     assert summary.passed == 20
@@ -466,6 +533,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
     run_visibility_client = RunVisibilityEvalClient(
         _UNUSED_RUN_VISIBILITY_TARGET, _UNUSED_RUN_VISIBILITY_DB_URL
     )
+    model_cache_client = ModelGatewayCacheClient(_UNUSED_MODEL_CACHE_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -491,6 +559,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         ingestion_client,
         policy_client,
         run_visibility_client,
+        model_cache_client,
     )
     try:
         first = orchestrator.run("verification")
@@ -512,6 +581,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         ingestion_client.close()
         policy_client.close()
         run_visibility_client.close()
+        model_cache_client.close()
 
     assert first.eval_run_id != second.eval_run_id
     assert first.pass_rate == second.pass_rate == 1.0
@@ -589,6 +659,7 @@ def test_unknown_golden_set_raises(
     run_visibility_client = RunVisibilityEvalClient(
         _UNUSED_RUN_VISIBILITY_TARGET, _UNUSED_RUN_VISIBILITY_DB_URL
     )
+    model_cache_client = ModelGatewayCacheClient(_UNUSED_MODEL_CACHE_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -614,6 +685,7 @@ def test_unknown_golden_set_raises(
         ingestion_client,
         policy_client,
         run_visibility_client,
+        model_cache_client,
     )
     try:
         with pytest.raises(GoldenSetNotFoundError):
@@ -635,6 +707,7 @@ def test_unknown_golden_set_raises(
         ingestion_client.close()
         policy_client.close()
         run_visibility_client.close()
+        model_cache_client.close()
 
 
 def test_planner_select_strategy_cases_execute_for_real(
@@ -660,6 +733,7 @@ def test_planner_select_strategy_cases_execute_for_real(
     run_visibility_client = RunVisibilityEvalClient(
         _UNUSED_RUN_VISIBILITY_TARGET, _UNUSED_RUN_VISIBILITY_DB_URL
     )
+    model_cache_client = ModelGatewayCacheClient(_UNUSED_MODEL_CACHE_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -685,6 +759,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         ingestion_client,
         policy_client,
         run_visibility_client,
+        model_cache_client,
     )
 
     try:
@@ -706,6 +781,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         ingestion_client.close()
         policy_client.close()
         run_visibility_client.close()
+        model_cache_client.close()
 
     # 16 of the 20 seeded planner cases are select_strategy (real as of
     # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
@@ -784,6 +860,7 @@ def test_retrieval_golden_set_executes_for_real(
     run_visibility_client = RunVisibilityEvalClient(
         _UNUSED_RUN_VISIBILITY_TARGET, _UNUSED_RUN_VISIBILITY_DB_URL
     )
+    model_cache_client = ModelGatewayCacheClient(_UNUSED_MODEL_CACHE_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -809,6 +886,7 @@ def test_retrieval_golden_set_executes_for_real(
         ingestion_client,
         policy_client,
         run_visibility_client,
+        model_cache_client,
     )
 
     try:
@@ -830,6 +908,7 @@ def test_retrieval_golden_set_executes_for_real(
         ingestion_client.close()
         policy_client.close()
         run_visibility_client.close()
+        model_cache_client.close()
 
     # All 20 retrieval cases are real "retrieve" operations against a real
     # hybrid-retrieval gRPC server. Asserting the real, observed pass rate
@@ -883,6 +962,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
     run_visibility_client = RunVisibilityEvalClient(
         _UNUSED_RUN_VISIBILITY_TARGET, _UNUSED_RUN_VISIBILITY_DB_URL
     )
+    model_cache_client = ModelGatewayCacheClient(_UNUSED_MODEL_CACHE_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -908,6 +988,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         ingestion_client,
         policy_client,
         run_visibility_client,
+        model_cache_client,
     )
 
     try:
@@ -929,6 +1010,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         ingestion_client.close()
         policy_client.close()
         run_visibility_client.close()
+        model_cache_client.close()
 
     # All 30 intent cases are real classify_intent calls against a real,
     # live LLM (whichever of Anthropic/OpenAI the environment running this
@@ -1112,6 +1194,7 @@ def test_injection_golden_set_executes_for_real(
     run_visibility_client = RunVisibilityEvalClient(
         _UNUSED_RUN_VISIBILITY_TARGET, _UNUSED_RUN_VISIBILITY_DB_URL
     )
+    model_cache_client = ModelGatewayCacheClient(_UNUSED_MODEL_CACHE_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1137,6 +1220,7 @@ def test_injection_golden_set_executes_for_real(
         ingestion_client,
         policy_client,
         run_visibility_client,
+        model_cache_client,
     )
 
     try:
@@ -1158,6 +1242,7 @@ def test_injection_golden_set_executes_for_real(
         ingestion_client.close()
         policy_client.close()
         run_visibility_client.close()
+        model_cache_client.close()
 
     assert summary.total_cases == _EVAL_INJECTION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_INJECTION_CASE_COUNT
@@ -1693,6 +1778,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     ingestion_server_target: tuple[str, str],
     policy_server_target: tuple[str, str],
     run_visibility_server_target: tuple[str, str],
+    model_cache_server_target: str | None,
 ) -> None:
     credential_http_target, credential_db_url = platform_credential_server_target
     idempotency_tenant_a_url, idempotency_tenant_b_url, idempotency_db_url = (
@@ -1725,6 +1811,9 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     run_visibility_client = RunVisibilityEvalClient(
         run_visibility_http_target, run_visibility_db_url
     )
+    model_cache_client = ModelGatewayCacheClient(
+        model_cache_server_target or _UNUSED_MODEL_CACHE_TARGET
+    )
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -1743,6 +1832,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         ingestion_client,
         policy_client,
         run_visibility_client,
+        model_cache_client,
     )
 
     try:
@@ -1764,6 +1854,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         ingestion_client.close()
         policy_client.close()
         run_visibility_client.close()
+        model_cache_client.close()
 
     assert summary.total_cases == _EVAL_TENANT_ISOLATION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_TENANT_ISOLATION_CASE_COUNT
@@ -1792,14 +1883,34 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         # tool_consume_credential, platform_credential_get,
         # platform_credential_delete, idempotency_replay, policy_read,
         # recovery_node_lookup, run_stream_subscribe are real and must
-        # always pass -- the other 10 of 20 cases are disclosed follow-up
-        # scope, real-failing with an "unsupported operation" message,
-        # never silently skipped.
+        # always pass regardless of whether a real LLM key is available.
         assert len(real_results) == 10
         assert all(row.verdict == "pass" for row in real_results)
 
-        unsupported_results = [row for row in results if row not in real_results]
-        assert len(unsupported_results) == 10
+        # model_gateway_cache is real but, like injection's LLM-dependent
+        # suites, needs a real live ANTHROPIC_API_KEY/OPENAI_API_KEY to
+        # populate the real cache in the first place -- its pass/fail is
+        # not asserted here (same pattern as
+        # test_injection_golden_set_executes_for_real's ssrf/upload-only
+        # assertion), it just must never fall into the "unsupported
+        # operation" bucket below.
+        # On a real exception (e.g. no live LLM key -> unreachable target),
+        # the generic per-case except clause's details dict only has
+        # "error" (embedding the operation name inline via repr), not a
+        # top-level "operation" key -- check both shapes.
+        live_key_dependent_results = [
+            row
+            for row in results
+            if row.details.get("operation") == "model_gateway_cache"
+            or "'model_gateway_cache'" in row.details.get("error", "")
+        ]
+        assert len(live_key_dependent_results) == 1
+        live_key_error = live_key_dependent_results[0].details.get("error", "")
+        assert "unsupported operation" not in live_key_error
+
+        excluded = [*real_results, *live_key_dependent_results]
+        unsupported_results = [row for row in results if row not in excluded]
+        assert len(unsupported_results) == 9
         assert all(row.verdict == "fail" for row in unsupported_results)
         assert all(
             "unsupported operation" in row.details.get("error", "") for row in unsupported_results
@@ -1829,6 +1940,7 @@ def test_project_golden_set_executes_for_real(
     run_visibility_client = RunVisibilityEvalClient(
         _UNUSED_RUN_VISIBILITY_TARGET, _UNUSED_RUN_VISIBILITY_DB_URL
     )
+    model_cache_client = ModelGatewayCacheClient(_UNUSED_MODEL_CACHE_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1854,6 +1966,7 @@ def test_project_golden_set_executes_for_real(
         ingestion_client,
         policy_client,
         run_visibility_client,
+        model_cache_client,
     )
 
     try:
@@ -1875,6 +1988,7 @@ def test_project_golden_set_executes_for_real(
         ingestion_client.close()
         policy_client.close()
         run_visibility_client.close()
+        model_cache_client.close()
 
     # build_project_skeleton is pure and deterministic -- real 3/3 pass.
     assert summary.total_cases == 3
@@ -1957,6 +2071,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
     run_visibility_client = RunVisibilityEvalClient(
         _UNUSED_RUN_VISIBILITY_TARGET, _UNUSED_RUN_VISIBILITY_DB_URL
     )
+    model_cache_client = ModelGatewayCacheClient(_UNUSED_MODEL_CACHE_TARGET)
     recovery_client = RecoveryClient(grpc_target, db_url)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1982,6 +2097,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         ingestion_client,
         policy_client,
         run_visibility_client,
+        model_cache_client,
     )
 
     try:
@@ -2003,6 +2119,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         ingestion_client.close()
         policy_client.close()
         run_visibility_client.close()
+        model_cache_client.close()
 
     assert summary.total_cases == _EVAL_RECOVERY_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_RECOVERY_CASE_COUNT
@@ -2116,6 +2233,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
     run_visibility_client = RunVisibilityEvalClient(
         _UNUSED_RUN_VISIBILITY_TARGET, _UNUSED_RUN_VISIBILITY_DB_URL
     )
+    model_cache_client = ModelGatewayCacheClient(_UNUSED_MODEL_CACHE_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(http_target, db_url)
     credential_client = CredentialEvalClient(_UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL)
@@ -2137,6 +2255,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         ingestion_client,
         policy_client,
         run_visibility_client,
+        model_cache_client,
     )
 
     try:
@@ -2158,6 +2277,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         ingestion_client.close()
         policy_client.close()
         run_visibility_client.close()
+        model_cache_client.close()
 
     assert summary.total_cases == _EVAL_WORKFLOW_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_WORKFLOW_CASE_COUNT

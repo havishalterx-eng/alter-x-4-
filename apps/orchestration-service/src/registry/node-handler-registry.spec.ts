@@ -24,6 +24,7 @@ function runtimeRegistry(toolInvoke = vi.fn(async () => ({
         output_json: "{}",
         usage_json: "{}",
         resolved_capability: "test",
+        cache_hit: false,
       }),
     },
     toolGateway: { invoke: toolInvoke },
@@ -102,6 +103,7 @@ describe("NodeHandlerRegistry", () => {
       output_json: JSON.stringify({ summary: "merged" }),
       usage_json: "{}",
       resolved_capability: "test",
+      cache_hit: false,
     }));
     const registry = createRuntimeNodeHandlerRegistry({
       modelGateway: { invoke },

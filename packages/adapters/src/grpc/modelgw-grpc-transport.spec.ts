@@ -87,6 +87,7 @@ const handler: ModelgwHandler = {
       output_json: JSON.stringify({ ok: true }),
       usage_json: JSON.stringify({ input_tokens: 1, output_tokens: 1 }),
       resolved_capability: request.model_alias,
+      cache_hit: false,
     } satisfies ModelgwInvokeResponse;
   }),
   stream: async function* (request: ModelgwStreamRequest) {
@@ -245,6 +246,7 @@ describe("modelgw gRPC transport adapter", () => {
       output_json: JSON.stringify({ ok: true }),
       usage_json: JSON.stringify({ input_tokens: 1, output_tokens: 1 }),
       resolved_capability: "STANDARD",
+      cache_hit: false,
     });
   });
 

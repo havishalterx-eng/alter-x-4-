@@ -104,6 +104,7 @@ function classificationInvoke(
     }),
     usage_json: JSON.stringify({ input_tokens: 10, output_tokens: 5 }),
     resolved_capability: "FAST:mock",
+    cache_hit: false,
   });
 }
 

@@ -87,6 +87,16 @@ runIsVisible()'s identical explicit `WHERE tenant_id = $1 AND id = $2`
 checks) is a resource-visibility check, not an authorization denial --
 the golden set's expected_json was corrected to "not_found" to match
 what the real system actually does (see remaining_golden_sets.py).
+A seventh follow-up adds 'model_gateway_cache': model-gateway's real
+semantic cache (ModelGatewayService's #lookupCacheBestEffort/
+#storeCacheBestEffort) had no way to observe cache hit vs miss from
+outside at all until now -- InvokeResponse's real proto gained a new
+`cache_hit: bool` field (see model_cache_client.py's own module doc and
+the proto's own comment) so this case can be tested against the real,
+caller-visible API rather than internal state. Needs a real, live
+ANTHROPIC_API_KEY/OPENAI_API_KEY (same disclosed dependency as
+'intent'/'injection') since the real cache is only ever populated by a
+real live model call.
 HARD-7h adds 'project' (project-E2E, 3/3 real cases): a real call to
 intelligence-service's PlannerService.Decompose with
 strategy=plan_then_execute, reusing HARD-7b's exact same real HTTP
@@ -152,6 +162,7 @@ from .credential_client import CredentialEvalClient
 from .idempotency_client import IdempotencyReplayClient
 from .ingestion_client import IngestionEvalClient
 from .intent_client import IntentClient
+from .model_cache_client import ModelGatewayCacheClient
 from .planner_client import PlannerClient
 from .policy_client import PolicyEvalClient
 from .recovery_client import RecoveryClient
@@ -263,6 +274,7 @@ class EvalRunOrchestrator:
         ingestion_client: IngestionEvalClient,
         policy_client: PolicyEvalClient,
         run_visibility_client: RunVisibilityEvalClient,
+        model_cache_client: ModelGatewayCacheClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -288,6 +300,7 @@ class EvalRunOrchestrator:
         self._ingestion_client = ingestion_client
         self._policy_client = policy_client
         self._run_visibility_client = run_visibility_client
+        self._model_cache_client = model_cache_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -638,6 +651,30 @@ class EvalRunOrchestrator:
                 )
                 observed_outcome = "not_found" if run_lookup.not_found else "found"
                 extra = {"run_id": run_id}
+            elif operation == "model_gateway_cache":
+                cache_model_alias = "STANDARD"
+                cache_input_json = json.dumps(
+                    {"message": "eval-probe: identical request across tenants"}
+                )
+                # Real live model call as tenant-b populates the real
+                # semantic cache under tenant-b's own {tenantId, embedding}
+                # key -- see model_cache_client.py's own module doc.
+                self._model_cache_client.invoke(
+                    tenant_id="ten_018f4d6e-cccc-7ccc-8ccc-cccccccccccc",
+                    run_id=_EVAL_RUN_ID,
+                    node_execution_id="node_018f4d6e-cccc-7ccc-8ccc-cccccccccccc",
+                    model_alias=cache_model_alias,
+                    input_json=cache_input_json,
+                )
+                cache_result = self._model_cache_client.invoke(
+                    tenant_id=_EVAL_ADS_TENANT_ID,
+                    run_id=_EVAL_RUN_ID,
+                    node_execution_id="node_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee",
+                    model_alias=cache_model_alias,
+                    input_json=cache_input_json,
+                )
+                observed_outcome = "cache_hit" if cache_result.cache_hit else "cache_miss"
+                extra = {}
             else:
                 return _CaseVerdict(
                     verdict="fail",
@@ -647,8 +684,9 @@ class EvalRunOrchestrator:
                         "(only ads_retrieve, ads_get_ingestion_job, tool_resolve_credential, "
                         "tool_consume_credential, platform_credential_get/delete, "
                         "idempotency_replay, policy_read, recovery_node_lookup, "
-                        "run_stream_subscribe are real; the other 10 of 20 real tenant-isolation "
-                        "cases are disclosed follow-up scope, see orchestrator.py's own module doc)"
+                        "run_stream_subscribe, model_gateway_cache are real; the other 9 of 20 "
+                        "real tenant-isolation cases are disclosed follow-up scope, see "
+                        "orchestrator.py's own module doc)"
                     },
                 )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
