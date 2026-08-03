@@ -8,7 +8,8 @@ toolgw.proto is HARD-7g's real ResolveCredential client;
 recovery.proto is HARD-7i's real SelectStrategy client; modelgw.proto is
 the tenant-isolation follow-up's real model_gateway_cache client
 (model_cache_client.py's real InvokeRequest/InvokeResponse -- the
-cache_hit field this case depends on).
+cache_hit field this case depends on); audit.proto is the
+audit_event_read follow-up's real GetEvent client (audit_client.py).
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ PROTO_FILES = (
     "alter/toolgw/v1/toolgw.proto",
     "alter/recovery/v1/recovery.proto",
     "alter/modelgw/v1/modelgw.proto",
+    "alter/audit/v1/audit.proto",
 )
 
 

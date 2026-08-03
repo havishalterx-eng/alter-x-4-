@@ -4,6 +4,12 @@ package alter.audit.v1;
 
 service AuditService {
   rpc RecordEvent(RecordEventRequest) returns (RecordEventResponse);
+  // Real, tenant-scoped read. A caller can only ever read an event
+  // recorded under their own tenant_id; NOT_FOUND is returned both for
+  // an event that never existed and for one that exists under a
+  // different tenant -- the two are deliberately indistinguishable from
+  // outside, same as every other real cross-tenant lookup in this system.
+  rpc GetEvent(GetEventRequest) returns (GetEventResponse);
 }
 
 message RecordEventRequest {
@@ -22,4 +28,23 @@ message RecordEventRequest {
 message RecordEventResponse {
   string id = 1; // aud_ prefixed UUIDv7
   string entry_hash = 2; // Hex-encoded SHA-256 digest.
+}
+
+message GetEventRequest {
+  string tenant_id = 1; // Caller's own tenant; ten_ prefixed UUIDv7.
+  string event_id = 2; // aud_ prefixed UUIDv7.
+}
+
+message GetEventResponse {
+  string id = 1; // aud_ prefixed UUIDv7
+  string actor_type = 2;
+  string actor_ref = 3;
+  string action = 4;
+  string target_type = 5;
+  string target_ref = 6;
+  string result = 7;
+  string reason_code = 8;
+  string context_json = 9;
+  string occurred_at = 10; // ISO 8601 timestamp.
+  string entry_hash = 11; // Hex-encoded SHA-256 digest.
 }

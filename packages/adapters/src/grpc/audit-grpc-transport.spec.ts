@@ -20,6 +20,7 @@ import type {
 } from "@alterx/contracts";
 import {
   AUDIT_EVENT_HANDLER,
+  AuditEventNotFoundError,
   AuditValidationError,
   type AuditEventHandler,
 } from "@alterx/shared-clients";
@@ -62,6 +63,9 @@ const handler: AuditEventHandler = {
       id: "aud_018f47a2-7b11-7b11-8a11-1234567890ab",
       entry_hash: "a".repeat(64),
     } satisfies RecordEventResponse;
+  }),
+  getEvent: vi.fn(async () => {
+    throw new AuditEventNotFoundError("aud_018f47a2-7b11-7b11-8a11-1234567890ab");
   }),
 };
 
@@ -170,6 +174,9 @@ describe("audit gRPC transport adapter", () => {
   it("hides internal handler failures", async () => {
     const failing = new AuditGrpcController({
       recordEvent: vi.fn(async () => {
+        throw new Error("database credential and internals");
+      }),
+      getEvent: vi.fn(async () => {
         throw new Error("database credential and internals");
       }),
     });

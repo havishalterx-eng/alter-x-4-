@@ -261,6 +261,26 @@ export class PostgresAuditStoreProvider implements AuditStoreProvider {
     }
   }
 
+  async getById(id: string): Promise<StoredAuditEvent | undefined> {
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN READ ONLY");
+      await enableInternalAuditAccess(client);
+      const result = await client.query<DatabaseAuditRow>(
+        "SELECT * FROM audit_events WHERE id = $1",
+        [id],
+      );
+      await client.query("COMMIT");
+      const row = result.rows[0];
+      return row === undefined ? undefined : toStoredAuditEvent(row);
+    } catch (error: unknown) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async readGlobalChain(): Promise<readonly StoredAuditEvent[]> {
     const client = await this.#pool.connect();
     try {

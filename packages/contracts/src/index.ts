@@ -32,6 +32,8 @@ export {
   type ProviderCapabilities,
 } from "./provider-capabilities";
 export type {
+  GetEventRequest,
+  GetEventResponse,
   RecordEventRequest,
   RecordEventResponse,
 } from "./generated/alter/audit/v1/audit";

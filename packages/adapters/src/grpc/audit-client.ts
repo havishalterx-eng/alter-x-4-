@@ -1,7 +1,12 @@
 import { credentials, loadPackageDefinition, type Client } from "@grpc/grpc-js";
 import { loadSync } from "@grpc/proto-loader";
 
-import type { RecordEventRequest, RecordEventResponse } from "@alterx/contracts";
+import type {
+  GetEventRequest,
+  GetEventResponse,
+  RecordEventRequest,
+  RecordEventResponse,
+} from "@alterx/contracts";
 import type { AuditEventHandler } from "@alterx/shared-clients";
 
 export interface AuditServiceClientConfig {
@@ -15,6 +20,11 @@ interface AuditServiceGrpcClient extends Client {
     request: RecordEventRequest,
     options: { readonly deadline: Date },
     callback: (error: Error | null, response?: RecordEventResponse) => void,
+  ): void;
+  getEvent(
+    request: GetEventRequest,
+    options: { readonly deadline: Date },
+    callback: (error: Error | null, response?: GetEventResponse) => void,
   ): void;
 }
 
@@ -61,6 +71,23 @@ export class AuditServiceClient implements AuditEventHandler {
     return new Promise<RecordEventResponse>((resolve, reject) => {
       const deadline = new Date(Date.now() + this.#timeoutMs);
       this.#client.recordEvent(request, { deadline }, (error, response) => {
+        if (error !== null) {
+          reject(error);
+          return;
+        }
+        if (response === undefined) {
+          reject(new Error("Audit service returned an empty response"));
+          return;
+        }
+        resolve(response);
+      });
+    });
+  }
+
+  async getEvent(request: GetEventRequest): Promise<GetEventResponse> {
+    return new Promise<GetEventResponse>((resolve, reject) => {
+      const deadline = new Date(Date.now() + this.#timeoutMs);
+      this.#client.getEvent(request, { deadline }, (error, response) => {
         if (error !== null) {
           reject(error);
           return;

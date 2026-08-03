@@ -109,6 +109,16 @@ ever reaching the real ModelGatewayClient call, so no live LLM key is
 needed for this specific cross-tenant check. Golden set's expected_json
 was corrected from "denied" to "not_found" to match the real mechanism
 (same vocabulary fix as recovery_node_lookup/run_stream_subscribe).
+A ninth follow-up adds 'audit_event_read': a new real GetEvent RPC on
+AuditService (audit-service was write-only before this -- RecordEvent
+only). AuditService.getEvent()'s real, explicit
+`stored.tenantId !== request.tenant_id` check (audit.service.ts) makes a
+cross-tenant read a real NOT_FOUND, deliberately indistinguishable from
+an event that never existed. Uses apps/audit-service/src/eval_bootstrap.ts,
+a real, disclosed eval-only entrypoint (production main.ts always needs
+live AWS Secrets Manager access with no mock-config escape hatch;
+AuditService/AuditGrpcController/PostgresAuditStoreProvider are all real
+and unmodified -- see audit_client.py's own module doc).
 HARD-7h adds 'project' (project-E2E, 3/3 real cases): a real call to
 intelligence-service's PlannerService.Decompose with
 strategy=plan_then_execute, reusing HARD-7b's exact same real HTTP
@@ -170,6 +180,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.models import EvalCase, EvalResult, EvalRun, GoldenSet
 
+from .audit_client import AuditEvalClient
 from .credential_client import CredentialEvalClient
 from .idempotency_client import IdempotencyReplayClient
 from .ingestion_client import IngestionEvalClient
@@ -289,6 +300,7 @@ class EvalRunOrchestrator:
         run_visibility_client: RunVisibilityEvalClient,
         model_cache_client: ModelGatewayCacheClient,
         verification_severity_client: VerificationSeverityEvalClient,
+        audit_client: AuditEvalClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -316,6 +328,7 @@ class EvalRunOrchestrator:
         self._run_visibility_client = run_visibility_client
         self._model_cache_client = model_cache_client
         self._verification_severity_client = verification_severity_client
+        self._audit_client = audit_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -704,6 +717,17 @@ class EvalRunOrchestrator:
                 )
                 observed_outcome = "not_found" if severity_lookup.not_found else "found"
                 extra = {"node_execution_id": seeded_node_id}
+            elif operation == "audit_event_read":
+                other_tenant_id = "ten_018f4d6e-cccc-7ccc-8ccc-cccccccccccc"
+                seeded_event_id = self._audit_client.record_cross_tenant_event(
+                    other_tenant_id=other_tenant_id
+                )
+                audit_lookup = self._audit_client.check_get_event(
+                    tenant_id=_EVAL_TENANT_ID,
+                    event_id=seeded_event_id,
+                )
+                observed_outcome = "not_found" if audit_lookup.not_found else "found"
+                extra = {"event_id": seeded_event_id}
             else:
                 return _CaseVerdict(
                     verdict="fail",
@@ -713,9 +737,10 @@ class EvalRunOrchestrator:
                         "(only ads_retrieve, ads_get_ingestion_job, tool_resolve_credential, "
                         "tool_consume_credential, platform_credential_get/delete, "
                         "idempotency_replay, policy_read, recovery_node_lookup, "
-                        "run_stream_subscribe, model_gateway_cache, verification_score_node "
-                        "are real; the other 8 of 20 real tenant-isolation cases are disclosed "
-                        "follow-up scope, see orchestrator.py's own module doc)"
+                        "run_stream_subscribe, model_gateway_cache, verification_score_node, "
+                        "audit_event_read are real; the other 7 of 20 real tenant-isolation "
+                        "cases are disclosed follow-up scope, see orchestrator.py's own module "
+                        "doc)"
                     },
                 )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc

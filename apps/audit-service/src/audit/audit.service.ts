@@ -1,11 +1,14 @@
 import { Inject, Injectable } from "@nestjs/common";
 
 import type {
+  GetEventRequest,
+  GetEventResponse,
   RecordEventRequest,
   RecordEventResponse,
 } from "@alterx/contracts";
 import {
   AUDIT_STORE_PROVIDER,
+  AuditEventNotFoundError,
   AuditValidationError,
   verifyAuditChain,
   type AuditActorType,
@@ -200,6 +203,31 @@ export class AuditService implements AuditEventHandler {
     });
     return {
       id: auditId(stored.id),
+      entry_hash: stored.entryHash.toString("hex"),
+    };
+  }
+
+  async getEvent(request: GetEventRequest): Promise<GetEventResponse> {
+    const eventId = requiredText(request.event_id, "event_id").replace(/^aud_/, "");
+    const stored = await this.store.getById(eventId);
+    // Real tenant-scoping happens here, not in the store: a caller can
+    // only ever read an event recorded under their own tenant_id. An
+    // event that doesn't exist and one that exists under a different
+    // tenant are deliberately indistinguishable from outside.
+    if (stored === undefined || stored.tenantId !== parseTenantId(request.tenant_id)) {
+      throw new AuditEventNotFoundError(request.event_id);
+    }
+    return {
+      id: auditId(stored.id),
+      actor_type: stored.actorType,
+      actor_ref: stored.actorRef,
+      action: stored.action,
+      target_type: stored.targetType ?? "",
+      target_ref: stored.targetRef ?? "",
+      result: stored.result,
+      reason_code: stored.reasonCode ?? "",
+      context_json: stored.context === null ? "" : JSON.stringify(stored.context),
+      occurred_at: stored.occurredAt.toISOString(),
       entry_hash: stored.entryHash.toString("hex"),
     };
   }

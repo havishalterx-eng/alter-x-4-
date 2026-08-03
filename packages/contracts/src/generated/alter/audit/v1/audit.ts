@@ -34,3 +34,27 @@ export interface RecordEventResponse {
   /** Hex-encoded SHA-256 digest. */
   entry_hash: string;
 }
+
+export interface GetEventRequest {
+  /** Caller's own tenant; ten_ prefixed UUIDv7. */
+  tenant_id: string;
+  /** aud_ prefixed UUIDv7. */
+  event_id: string;
+}
+
+export interface GetEventResponse {
+  /** aud_ prefixed UUIDv7 */
+  id: string;
+  actor_type: string;
+  actor_ref: string;
+  action: string;
+  target_type: string;
+  target_ref: string;
+  result: string;
+  reason_code: string;
+  context_json: string;
+  /** ISO 8601 timestamp. */
+  occurred_at: string;
+  /** Hex-encoded SHA-256 digest. */
+  entry_hash: string;
+}

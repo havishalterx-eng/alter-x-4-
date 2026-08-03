@@ -69,6 +69,10 @@ export function createMockAuditStoreProvider(
     implementation: {
       migrate: async () => undefined,
       append,
+      getById: async (id) => {
+        const found = events.find((event) => event.id === id);
+        return found === undefined ? undefined : cloneEvent(found);
+      },
       readGlobalChain: async () => events.map(cloneEvent),
       storeDeletionCertificate: async (certificate) => {
         certificates.push(structuredClone(certificate));

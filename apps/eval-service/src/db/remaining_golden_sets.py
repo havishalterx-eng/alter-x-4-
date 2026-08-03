@@ -232,7 +232,7 @@ TENANT_ISOLATION_CASES: tuple[EvalCaseSeed, ...] = (
     _tenant("project_get", "project", "not_found", "project-read"),
     _tenant("project_deploy", "deployment", "not_found", "project-deploy"),
     _tenant("memory_drift_observations", "drift scores", "empty_result", "memory-drift"),
-    _tenant("audit_event_read", "audit event", "denied", "audit"),
+    _tenant("audit_event_read", "audit event", "not_found", "audit"),
     _tenant("run_stream_subscribe", "run stream", "not_found", "stream"),
     _tenant("ads_upload_download", "upload artifact", "not_found", "upload"),
     _tenant("policy_read", "tenant policy", "empty_result", "policy"),

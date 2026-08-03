@@ -28,6 +28,7 @@ export {
   AUDIT_GENESIS_HASH_HEX,
   AUDIT_EVENT_HANDLER,
   AUDIT_STORE_PROVIDER,
+  AuditEventNotFoundError,
   AuditValidationError,
   auditGenesisHash,
   calculateAuditEntryHash,

@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from src.execution.audit_client import AuditEvalClient
 from src.execution.credential_client import CredentialEvalClient
 from src.execution.idempotency_client import IdempotencyReplayClient
 from src.execution.ingestion_client import IngestionEvalClient
@@ -80,6 +81,7 @@ _UNUSED_RUN_VISIBILITY_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
 _UNUSED_MODEL_CACHE_TARGET = "127.0.0.1:1"
 _UNUSED_VERIFICATION_SEVERITY_TARGET = "127.0.0.1:1"
 _UNUSED_VERIFICATION_SEVERITY_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
+_UNUSED_AUDIT_TARGET = "127.0.0.1:1"
 
 # Must match apps/ads-core/src/query/eval_grpc_server.py's own literal
 # values -- see orchestrator.py's _EVAL_ADS_* constants for why these must
@@ -240,6 +242,49 @@ def verification_severity_server_target() -> Generator[tuple[str, str], None, No
         try:
             _wait_for_port(port, timeout_seconds=40.0)
             yield f"127.0.0.1:{port}", plain_db_url
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
+@pytest.fixture(scope="module")
+def audit_server_target() -> Generator[str, None, None]:
+    """Real, live audit-service eval-only gRPC server
+    (eval_bootstrap.js) -- reuses AuditGrpcController/AuditService/
+    PostgresAuditStoreProvider completely unmodified (see its own
+    module doc). Production main.ts always needs live AWS Secrets
+    Manager access with no mock-config escape hatch, so this bypasses
+    only where the database connection string comes from -- a plain
+    static connection string, never the real GetEvent business logic.
+    """
+    audit_dist = REPO_ROOT / "dist" / "apps" / "audit-service" / "eval_bootstrap.js"
+    if not audit_dist.exists():
+        pytest.skip(
+            "audit-service eval build not present -- run "
+            "`pnpm exec nx run audit-service:build` first."
+        )
+    with PostgresContainer(image="postgres:16-alpine", dbname="audit_db") as postgres:
+        db_url = postgres.get_connection_url().replace("postgresql+psycopg2://", "postgresql://")
+        port = _free_port()
+        process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+            ["node", str(audit_dist)],
+            cwd=str(REPO_ROOT),
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "NODE_PATH": (
+                    f"{REPO_ROOT / 'apps' / 'audit-service' / 'node_modules'}:"
+                    f"{REPO_ROOT / 'node_modules'}"
+                ),
+                "EVAL_AUDIT_DB_URL": db_url,
+                "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+            },
+        )
+        try:
+            _wait_for_port(port, timeout_seconds=40.0)
+            yield f"127.0.0.1:{port}"
         finally:
             process.terminate()
             try:
@@ -515,6 +560,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     verification_severity_client = VerificationSeverityEvalClient(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
+    audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -542,6 +588,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         run_visibility_client,
         model_cache_client,
         verification_severity_client,
+        audit_client,
     )
 
     try:
@@ -565,6 +612,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         run_visibility_client.close()
         model_cache_client.close()
         verification_severity_client.close()
+        audit_client.close()
 
     assert summary.total_cases == 20
     assert summary.passed == 20
@@ -613,6 +661,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
     verification_severity_client = VerificationSeverityEvalClient(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
+    audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -640,6 +689,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         run_visibility_client,
         model_cache_client,
         verification_severity_client,
+        audit_client,
     )
     try:
         first = orchestrator.run("verification")
@@ -663,6 +713,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         run_visibility_client.close()
         model_cache_client.close()
         verification_severity_client.close()
+        audit_client.close()
 
     assert first.eval_run_id != second.eval_run_id
     assert first.pass_rate == second.pass_rate == 1.0
@@ -744,6 +795,7 @@ def test_unknown_golden_set_raises(
     verification_severity_client = VerificationSeverityEvalClient(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
+    audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -771,6 +823,7 @@ def test_unknown_golden_set_raises(
         run_visibility_client,
         model_cache_client,
         verification_severity_client,
+        audit_client,
     )
     try:
         with pytest.raises(GoldenSetNotFoundError):
@@ -794,6 +847,7 @@ def test_unknown_golden_set_raises(
         run_visibility_client.close()
         model_cache_client.close()
         verification_severity_client.close()
+        audit_client.close()
 
 
 def test_planner_select_strategy_cases_execute_for_real(
@@ -823,6 +877,7 @@ def test_planner_select_strategy_cases_execute_for_real(
     verification_severity_client = VerificationSeverityEvalClient(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
+    audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -850,6 +905,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         run_visibility_client,
         model_cache_client,
         verification_severity_client,
+        audit_client,
     )
 
     try:
@@ -873,6 +929,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         run_visibility_client.close()
         model_cache_client.close()
         verification_severity_client.close()
+        audit_client.close()
 
     # 16 of the 20 seeded planner cases are select_strategy (real as of
     # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
@@ -955,6 +1012,7 @@ def test_retrieval_golden_set_executes_for_real(
     verification_severity_client = VerificationSeverityEvalClient(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
+    audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -982,6 +1040,7 @@ def test_retrieval_golden_set_executes_for_real(
         run_visibility_client,
         model_cache_client,
         verification_severity_client,
+        audit_client,
     )
 
     try:
@@ -1005,6 +1064,7 @@ def test_retrieval_golden_set_executes_for_real(
         run_visibility_client.close()
         model_cache_client.close()
         verification_severity_client.close()
+        audit_client.close()
 
     # All 20 retrieval cases are real "retrieve" operations against a real
     # hybrid-retrieval gRPC server. Asserting the real, observed pass rate
@@ -1062,6 +1122,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
     verification_severity_client = VerificationSeverityEvalClient(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
+    audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1089,6 +1150,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         run_visibility_client,
         model_cache_client,
         verification_severity_client,
+        audit_client,
     )
 
     try:
@@ -1112,6 +1174,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         run_visibility_client.close()
         model_cache_client.close()
         verification_severity_client.close()
+        audit_client.close()
 
     # All 30 intent cases are real classify_intent calls against a real,
     # live LLM (whichever of Anthropic/OpenAI the environment running this
@@ -1299,6 +1362,7 @@ def test_injection_golden_set_executes_for_real(
     verification_severity_client = VerificationSeverityEvalClient(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
+    audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1326,6 +1390,7 @@ def test_injection_golden_set_executes_for_real(
         run_visibility_client,
         model_cache_client,
         verification_severity_client,
+        audit_client,
     )
 
     try:
@@ -1349,6 +1414,7 @@ def test_injection_golden_set_executes_for_real(
         run_visibility_client.close()
         model_cache_client.close()
         verification_severity_client.close()
+        audit_client.close()
 
     assert summary.total_cases == _EVAL_INJECTION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_INJECTION_CASE_COUNT
@@ -1886,6 +1952,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     run_visibility_server_target: tuple[str, str],
     model_cache_server_target: str | None,
     verification_severity_server_target: tuple[str, str],
+    audit_server_target: str,
 ) -> None:
     credential_http_target, credential_db_url = platform_credential_server_target
     idempotency_tenant_a_url, idempotency_tenant_b_url, idempotency_db_url = (
@@ -1927,6 +1994,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     verification_severity_client = VerificationSeverityEvalClient(
         verification_severity_http_target, verification_severity_db_url
     )
+    audit_client = AuditEvalClient(audit_server_target)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -1947,6 +2015,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         run_visibility_client,
         model_cache_client,
         verification_severity_client,
+        audit_client,
     )
 
     try:
@@ -1970,6 +2039,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         run_visibility_client.close()
         model_cache_client.close()
         verification_severity_client.close()
+        audit_client.close()
 
     assert summary.total_cases == _EVAL_TENANT_ISOLATION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_TENANT_ISOLATION_CASE_COUNT
@@ -1993,15 +2063,16 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
             "recovery_node_lookup",
             "run_stream_subscribe",
             "verification_score_node",
+            "audit_event_read",
         )
         real_results = [row for row in results if row.details.get("operation") in real_operations]
         # ads_retrieve, ads_get_ingestion_job, tool_resolve_credential,
         # tool_consume_credential, platform_credential_get,
         # platform_credential_delete, idempotency_replay, policy_read,
-        # recovery_node_lookup, run_stream_subscribe, verification_score_node
-        # are real and must always pass regardless of whether a real LLM
-        # key is available.
-        assert len(real_results) == 11
+        # recovery_node_lookup, run_stream_subscribe, verification_score_node,
+        # audit_event_read are real and must always pass regardless of
+        # whether a real LLM key is available.
+        assert len(real_results) == 12
         assert all(row.verdict == "pass" for row in real_results)
 
         # model_gateway_cache is real but, like injection's LLM-dependent
@@ -2027,7 +2098,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
 
         excluded = [*real_results, *live_key_dependent_results]
         unsupported_results = [row for row in results if row not in excluded]
-        assert len(unsupported_results) == 8
+        assert len(unsupported_results) == 7
         assert all(row.verdict == "fail" for row in unsupported_results)
         assert all(
             "unsupported operation" in row.details.get("error", "") for row in unsupported_results
@@ -2061,6 +2132,7 @@ def test_project_golden_set_executes_for_real(
     verification_severity_client = VerificationSeverityEvalClient(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
+    audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -2088,6 +2160,7 @@ def test_project_golden_set_executes_for_real(
         run_visibility_client,
         model_cache_client,
         verification_severity_client,
+        audit_client,
     )
 
     try:
@@ -2111,6 +2184,7 @@ def test_project_golden_set_executes_for_real(
         run_visibility_client.close()
         model_cache_client.close()
         verification_severity_client.close()
+        audit_client.close()
 
     # build_project_skeleton is pure and deterministic -- real 3/3 pass.
     assert summary.total_cases == 3
@@ -2197,6 +2271,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
     verification_severity_client = VerificationSeverityEvalClient(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
+    audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
     recovery_client = RecoveryClient(grpc_target, db_url)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -2224,6 +2299,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         run_visibility_client,
         model_cache_client,
         verification_severity_client,
+        audit_client,
     )
 
     try:
@@ -2247,6 +2323,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         run_visibility_client.close()
         model_cache_client.close()
         verification_severity_client.close()
+        audit_client.close()
 
     assert summary.total_cases == _EVAL_RECOVERY_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_RECOVERY_CASE_COUNT
@@ -2364,6 +2441,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
     verification_severity_client = VerificationSeverityEvalClient(
         _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
     )
+    audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(http_target, db_url)
     credential_client = CredentialEvalClient(_UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL)
@@ -2387,6 +2465,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         run_visibility_client,
         model_cache_client,
         verification_severity_client,
+        audit_client,
     )
 
     try:
@@ -2410,6 +2489,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         run_visibility_client.close()
         model_cache_client.close()
         verification_severity_client.close()
+        audit_client.close()
 
     assert summary.total_cases == _EVAL_WORKFLOW_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_WORKFLOW_CASE_COUNT

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 
 import type {
+  GetEventRequest,
+  GetEventResponse,
   RecordEventRequest,
   RecordEventResponse,
 } from "@alterx/contracts";
@@ -70,6 +72,7 @@ export interface AuditChainVerificationResult {
 export interface AuditStoreProvider extends BaseProvider<"AuditStoreProvider"> {
   migrate(): Promise<void>;
   append(event: AuditEventToAppend): Promise<StoredAuditEvent>;
+  getById(id: string): Promise<StoredAuditEvent | undefined>;
   readGlobalChain(): Promise<readonly StoredAuditEvent[]>;
   storeDeletionCertificate(certificate: DeletionCertificateToStore): Promise<void>;
   appendDeletionLedger(entry: DeletionLedgerEntry): Promise<void>;
@@ -83,6 +86,14 @@ export interface AuditStoreProvider extends BaseProvider<"AuditStoreProvider"> {
 
 export interface AuditEventHandler {
   recordEvent(request: RecordEventRequest): Promise<RecordEventResponse>;
+  getEvent(request: GetEventRequest): Promise<GetEventResponse>;
+}
+
+export class AuditEventNotFoundError extends Error {
+  constructor(eventId: string) {
+    super(`Audit event was not found: ${eventId}`);
+    this.name = "AuditEventNotFoundError";
+  }
 }
 
 export class AuditValidationError extends Error {
