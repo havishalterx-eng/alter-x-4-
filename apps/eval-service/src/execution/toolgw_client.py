@@ -1,12 +1,23 @@
-"""Real gRPC client to tool-gateway's ToolgwService (HARD-7g).
+"""Real gRPC client to tool-gateway's ToolgwService (HARD-7g + follow-up).
 
-Target is tool-gateway's real, unmodified production main.js -- no
-eval-only entrypoint needed. ResolveCredential's cross-tenant ownership
-check (assertCredentialReferenceOwnedBy) is pure and throws before ever
-touching the real SecretsProvider, so ALTER_CONFIG_SOURCE=mock (the same
-real, sanctioned local/dev mode model-gateway and tool-gateway both
-support) is sufficient -- no live AWS access needed for this specific
+resolve_credential targets tool-gateway's real, unmodified production
+main.js -- no eval-only entrypoint needed. ResolveCredential's cross-tenant
+ownership check (assertCredentialReferenceOwnedBy) is pure and throws
+before ever touching the real SecretsProvider, so ALTER_CONFIG_SOURCE=mock
+(the same real, sanctioned local/dev mode model-gateway and tool-gateway
+both support) is sufficient -- no live AWS access needed for this specific
 real call.
+
+mint_credential_token/consume_credential target
+apps/tool-gateway/src/eval_credential_grpc_server.ts, a real, disclosed
+eval-only entrypoint: AppModule.register() and ToolGatewayService are the
+real, unmodified production wiring, run through the real gRPC transport --
+the only difference from production main.js is the mock SecretsProvider is
+seeded with one extra real key (equal to the test's own credential_ref) so
+a real, ownership-valid ResolveCredential call can actually succeed and
+mint a real opaque token from the real in-memory #credentialTokens map,
+which consume_credential's InvokeTool call then exercises for a real
+cross-tenant "not owned" denial.
 """
 
 from __future__ import annotations
@@ -22,6 +33,12 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 
 @dataclass(frozen=True)
 class ResolveCredentialOutcome:
+    denied: bool
+    error_message: str | None
+
+
+@dataclass(frozen=True)
+class ConsumeCredentialOutcome:
     denied: bool
     error_message: str | None
 
@@ -48,6 +65,50 @@ class ToolgwClient:
         except grpc.RpcError as error:
             if error.code() == grpc.StatusCode.INVALID_ARGUMENT:
                 return ResolveCredentialOutcome(denied=True, error_message=error.details())
+            raise
+
+    def mint_credential_token(
+        self, *, tenant_id: str, integration_id: str, credential_ref: str
+    ) -> str:
+        """Real ResolveCredential call expected to succeed, returning the
+        real opaque token minted into tool-gateway's in-memory
+        #credentialTokens map."""
+        response = self._stub.ResolveCredential(
+            toolgw_pb2.ResolveCredentialRequest(
+                tenant_id=tenant_id,
+                integration_id=integration_id,
+                credential_ref=credential_ref,
+            ),
+            timeout=self._timeout_seconds,
+        )
+        return str(response.resolved_reference)
+
+    def consume_credential(
+        self,
+        *,
+        tenant_id: str,
+        run_id: str,
+        node_execution_id: str,
+        tool_name: str,
+        input_json: str,
+        token: str,
+    ) -> ConsumeCredentialOutcome:
+        try:
+            self._stub.InvokeTool(
+                toolgw_pb2.InvokeToolRequest(
+                    tenant_id=tenant_id,
+                    run_id=run_id,
+                    node_execution_id=node_execution_id,
+                    tool_name=tool_name,
+                    input_json=input_json,
+                    credential_ref=token,
+                ),
+                timeout=self._timeout_seconds,
+            )
+            return ConsumeCredentialOutcome(denied=False, error_message=None)
+        except grpc.RpcError as error:
+            if error.code() == grpc.StatusCode.INVALID_ARGUMENT:
+                return ConsumeCredentialOutcome(denied=True, error_message=error.details())
             raise
 
     def close(self) -> None:

@@ -46,6 +46,20 @@ in this campaign targeting platform-api, not orchestration-service; see
 apps/platform-api/src/eval_credential_http_server.ts's own module doc).
 The real "not_found" behavior comes entirely from CredentialRepository's
 own tenant-scoped SQL.
+A second HARD-7g follow-up adds 'tool_consume_credential' (real, in-memory
+#credentialTokens ownership check inside ToolGatewayService.invokeTool()'s
+#resolveCredentialReference -- unlike tool_resolve_credential, this case
+needs a real ResolveCredential call to actually SUCCEED first, as tenant-b,
+to mint a real opaque token, before InvokeTool is called as tenant-a with
+that token. Production main.js's own default mock SecretsProvider seeds
+only one fixed, unscoped secret key, which can never simultaneously satisfy
+the real tenant/integration ownership check AND resolve as a real secret,
+so this is the first tool-gateway eval-only entrypoint in this campaign:
+apps/tool-gateway/src/eval_credential_grpc_server.ts reuses AppModule.
+register() and ToolGatewayService completely unmodified, seeding the same
+real mock SecretsProvider with one additional real key equal to the test's
+own credential_ref. The real cross-tenant "not owned" denial comes entirely
+from the real, unmodified #resolveCredentialReference tenant check.
 HARD-7h adds 'project' (project-E2E, 3/3 real cases): a real call to
 intelligence-service's PlannerService.Decompose with
 strategy=plan_then_execute, reusing HARD-7b's exact same real HTTP
@@ -213,6 +227,7 @@ class EvalRunOrchestrator:
         recovery_client: RecoveryClient,
         trigger_registry_client: TriggerRegistryClient,
         credential_client: CredentialEvalClient,
+        tool_consume_client: ToolgwClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -226,6 +241,14 @@ class EvalRunOrchestrator:
         self._recovery_client = recovery_client
         self._trigger_registry_client = trigger_registry_client
         self._credential_client = credential_client
+        # Real, distinct target from _toolgw_client: tool_resolve_credential
+        # hits production main.js (its cross-tenant throw never reaches the
+        # real secrets provider); tool_consume_credential needs
+        # ResolveCredential to actually SUCCEED first, which production's
+        # fixed default mock secret can never satisfy for a real,
+        # ownership-valid credential_ref -- see eval_credential_grpc_server.
+        # ts's own module doc.
+        self._tool_consume_client = tool_consume_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -502,6 +525,27 @@ class EvalRunOrchestrator:
                 )
                 observed_outcome = "denied" if outcome.denied else "allowed"
                 extra = {"error_message": outcome.error_message}
+            elif operation == "tool_consume_credential":
+                mint_integration_id = "itg_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
+                mint_credential_ref = (
+                    "/alter/prod/tenant/ten_018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb/"
+                    "integration/itg_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee/eval-secret"
+                )
+                token = self._tool_consume_client.mint_credential_token(
+                    tenant_id="ten_018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+                    integration_id=mint_integration_id,
+                    credential_ref=mint_credential_ref,
+                )
+                consume_outcome = self._tool_consume_client.consume_credential(
+                    tenant_id=_EVAL_TENANT_ID,
+                    run_id=_EVAL_RUN_ID,
+                    node_execution_id="node_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee",
+                    tool_name="search.web",
+                    input_json=json.dumps({"query": "eval-probe"}),
+                    token=token,
+                )
+                observed_outcome = "denied" if consume_outcome.denied else "allowed"
+                extra = {"error_message": consume_outcome.error_message}
             elif operation in ("platform_credential_get", "platform_credential_delete"):
                 other_tenant_uuid = "018f4d6e-cccc-7ccc-8ccc-cccccccccccc"
                 credential_id = self._credential_client.seed_cross_tenant_credential(
@@ -520,9 +564,10 @@ class EvalRunOrchestrator:
                     score=0.0,
                     details={
                         "error": f"unsupported operation {operation!r} for domain=tenant-isolation "
-                        "(only ads_retrieve, tool_resolve_credential, platform_credential_get/"
-                        "delete are real; the other 16 of 20 real tenant-isolation cases are "
-                        "disclosed follow-up scope, see orchestrator.py's own module doc)"
+                        "(only ads_retrieve, tool_resolve_credential, tool_consume_credential, "
+                        "platform_credential_get/delete are real; the other 15 of 20 real "
+                        "tenant-isolation cases are disclosed follow-up scope, see "
+                        "orchestrator.py's own module doc)"
                     },
                 )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc

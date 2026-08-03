@@ -351,6 +351,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    tool_consume_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -371,6 +372,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         recovery_client,
         trigger_registry_client,
         credential_client,
+        tool_consume_client,
     )
 
     try:
@@ -387,6 +389,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         recovery_client.close()
         trigger_registry_client.close()
         credential_client.close()
+        tool_consume_client.close()
 
     assert summary.total_cases == 20
     assert summary.passed == 20
@@ -420,6 +423,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    tool_consume_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -440,6 +444,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         recovery_client,
         trigger_registry_client,
         credential_client,
+        tool_consume_client,
     )
     try:
         first = orchestrator.run("verification")
@@ -456,6 +461,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         recovery_client.close()
         trigger_registry_client.close()
         credential_client.close()
+        tool_consume_client.close()
 
     assert first.eval_run_id != second.eval_run_id
     assert first.pass_rate == second.pass_rate == 1.0
@@ -522,6 +528,7 @@ def test_unknown_golden_set_raises(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    tool_consume_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -542,6 +549,7 @@ def test_unknown_golden_set_raises(
         recovery_client,
         trigger_registry_client,
         credential_client,
+        tool_consume_client,
     )
     try:
         with pytest.raises(GoldenSetNotFoundError):
@@ -558,6 +566,7 @@ def test_unknown_golden_set_raises(
         recovery_client.close()
         trigger_registry_client.close()
         credential_client.close()
+        tool_consume_client.close()
 
 
 def test_planner_select_strategy_cases_execute_for_real(
@@ -572,6 +581,7 @@ def test_planner_select_strategy_cases_execute_for_real(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    tool_consume_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -592,6 +602,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         recovery_client,
         trigger_registry_client,
         credential_client,
+        tool_consume_client,
     )
 
     try:
@@ -608,6 +619,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         recovery_client.close()
         trigger_registry_client.close()
         credential_client.close()
+        tool_consume_client.close()
 
     # 16 of the 20 seeded planner cases are select_strategy (real as of
     # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
@@ -675,6 +687,7 @@ def test_retrieval_golden_set_executes_for_real(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    tool_consume_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -695,6 +708,7 @@ def test_retrieval_golden_set_executes_for_real(
         recovery_client,
         trigger_registry_client,
         credential_client,
+        tool_consume_client,
     )
 
     try:
@@ -711,6 +725,7 @@ def test_retrieval_golden_set_executes_for_real(
         recovery_client.close()
         trigger_registry_client.close()
         credential_client.close()
+        tool_consume_client.close()
 
     # All 20 retrieval cases are real "retrieve" operations against a real
     # hybrid-retrieval gRPC server. Asserting the real, observed pass rate
@@ -753,6 +768,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    tool_consume_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -773,6 +789,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         recovery_client,
         trigger_registry_client,
         credential_client,
+        tool_consume_client,
     )
 
     try:
@@ -789,6 +806,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         recovery_client.close()
         trigger_registry_client.close()
         credential_client.close()
+        tool_consume_client.close()
 
     # All 30 intent cases are real classify_intent calls against a real,
     # live LLM (whichever of Anthropic/OpenAI the environment running this
@@ -961,6 +979,7 @@ def test_injection_golden_set_executes_for_real(
     upload_client = UploadEvalClient(ads_core_upload_server_target)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    tool_consume_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -981,6 +1000,7 @@ def test_injection_golden_set_executes_for_real(
         recovery_client,
         trigger_registry_client,
         credential_client,
+        tool_consume_client,
     )
 
     try:
@@ -997,6 +1017,7 @@ def test_injection_golden_set_executes_for_real(
         recovery_client.close()
         trigger_registry_client.close()
         credential_client.close()
+        tool_consume_client.close()
 
     assert summary.total_cases == _EVAL_INJECTION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_INJECTION_CASE_COUNT
@@ -1111,6 +1132,59 @@ def tool_gateway_server_target() -> Generator[str, None, None]:
             process.kill()
 
 
+_EVAL_TOOL_CONSUME_TENANT_UUID = "018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb"
+_EVAL_TOOL_CONSUME_INTEGRATION_ID = "itg_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
+_EVAL_TOOL_CONSUME_CREDENTIAL_REF = (
+    "/alter/prod/tenant/ten_018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb/"
+    "integration/itg_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee/eval-secret"
+)
+
+
+@pytest.fixture(scope="module")
+def tool_gateway_consume_server_target() -> Generator[str, None, None]:
+    """Real, live tool-gateway eval-only gRPC server
+    (eval_credential_grpc_server.js) for tool_consume_credential -- reuses
+    AppModule.register()/ToolGatewayService completely unmodified, the
+    ONLY difference from tool_gateway_server_target's production main.js
+    is one extra key seeded into the same real mock SecretsProvider (see
+    eval_credential_grpc_server.ts's own module doc for why production's
+    fixed default secret can never satisfy a real, ownership-valid
+    tool_consume_credential probe).
+    """
+    tool_gateway_root = REPO_ROOT / "apps" / "tool-gateway"
+    tool_gateway_dist = (
+        REPO_ROOT / "dist" / "apps" / "tool-gateway" / "eval_credential_grpc_server.js"
+    )
+    if not tool_gateway_dist.exists():
+        pytest.skip(
+            "tool-gateway eval build not present -- run "
+            "`pnpm exec nx run tool-gateway:build` first."
+        )
+    port = _free_port()
+    http_port = _free_port()
+    process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+        ["node", str(tool_gateway_dist)],
+        cwd=str(REPO_ROOT),
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "NODE_PATH": f"{tool_gateway_root / 'node_modules'}:{REPO_ROOT / 'node_modules'}",
+            "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+            "HTTP_PORT": str(http_port),
+            "EVAL_CREDENTIAL_REF": _EVAL_TOOL_CONSUME_CREDENTIAL_REF,
+            "EVAL_SECRET_VALUE": "eval-secret-value",
+        },
+    )
+    try:
+        _wait_for_port(port)
+        yield f"127.0.0.1:{port}"
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
 @pytest.fixture(scope="module")
 def platform_credential_server_target() -> Generator[tuple[str, str], None, None]:
     """Real, live platform-api eval-only credential HTTP server (follow-up
@@ -1182,6 +1256,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     sessions: sessionmaker[Session],
     ads_isolation_server_target: str,
     tool_gateway_server_target: str,
+    tool_gateway_consume_server_target: str,
     platform_credential_server_target: tuple[str, str],
 ) -> None:
     credential_http_target, credential_db_url = platform_credential_server_target
@@ -1198,6 +1273,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
     )
     credential_client = CredentialEvalClient(credential_http_target, credential_db_url)
+    tool_consume_client = ToolgwClient(tool_gateway_consume_server_target)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -1211,6 +1287,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         recovery_client,
         trigger_registry_client,
         credential_client,
+        tool_consume_client,
     )
 
     try:
@@ -1227,6 +1304,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         recovery_client.close()
         trigger_registry_client.close()
         credential_client.close()
+        tool_consume_client.close()
 
     assert summary.total_cases == _EVAL_TENANT_ISOLATION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_TENANT_ISOLATION_CASE_COUNT
@@ -1241,19 +1319,21 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         real_operations = (
             "ads_retrieve",
             "tool_resolve_credential",
+            "tool_consume_credential",
             "platform_credential_get",
             "platform_credential_delete",
         )
         real_results = [row for row in results if row.details.get("operation") in real_operations]
-        # ads_retrieve, tool_resolve_credential, platform_credential_get,
-        # platform_credential_delete are real and must always pass -- the
-        # other 16 of 20 cases are disclosed follow-up scope, real-failing
-        # with an "unsupported operation" message, never silently skipped.
-        assert len(real_results) == 4
+        # ads_retrieve, tool_resolve_credential, tool_consume_credential,
+        # platform_credential_get, platform_credential_delete are real and
+        # must always pass -- the other 15 of 20 cases are disclosed
+        # follow-up scope, real-failing with an "unsupported operation"
+        # message, never silently skipped.
+        assert len(real_results) == 5
         assert all(row.verdict == "pass" for row in real_results)
 
         unsupported_results = [row for row in results if row not in real_results]
-        assert len(unsupported_results) == 16
+        assert len(unsupported_results) == 15
         assert all(row.verdict == "fail" for row in unsupported_results)
         assert all(
             "unsupported operation" in row.details.get("error", "") for row in unsupported_results
@@ -1272,6 +1352,7 @@ def test_project_golden_set_executes_for_real(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    tool_consume_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1292,6 +1373,7 @@ def test_project_golden_set_executes_for_real(
         recovery_client,
         trigger_registry_client,
         credential_client,
+        tool_consume_client,
     )
 
     try:
@@ -1308,6 +1390,7 @@ def test_project_golden_set_executes_for_real(
         recovery_client.close()
         trigger_registry_client.close()
         credential_client.close()
+        tool_consume_client.close()
 
     # build_project_skeleton is pure and deterministic -- real 3/3 pass.
     assert summary.total_cases == 3
@@ -1379,6 +1462,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    tool_consume_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     recovery_client = RecoveryClient(grpc_target, db_url)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
@@ -1399,6 +1483,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         recovery_client,
         trigger_registry_client,
         credential_client,
+        tool_consume_client,
     )
 
     try:
@@ -1415,6 +1500,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         recovery_client.close()
         trigger_registry_client.close()
         credential_client.close()
+        tool_consume_client.close()
 
     assert summary.total_cases == _EVAL_RECOVERY_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_RECOVERY_CASE_COUNT
@@ -1517,6 +1603,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    tool_consume_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(http_target, db_url)
     credential_client = CredentialEvalClient(_UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL)
@@ -1533,6 +1620,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         recovery_client,
         trigger_registry_client,
         credential_client,
+        tool_consume_client,
     )
 
     try:
@@ -1549,6 +1637,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         recovery_client.close()
         trigger_registry_client.close()
         credential_client.close()
+        tool_consume_client.close()
 
     assert summary.total_cases == _EVAL_WORKFLOW_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_WORKFLOW_CASE_COUNT
