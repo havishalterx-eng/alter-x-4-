@@ -72,6 +72,8 @@ import { RecoveryTriggerService } from "./recovery/recovery-trigger.service";
 import { loadRecoveryEnvironment } from "./config/recovery-environment";
 import { TriggerRegistryController } from "./trigger-registry/trigger-registry.controller";
 import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
+import { WorkflowReadController } from "./workflow-read/workflow-read.controller";
+import { WorkflowReadService } from "./workflow-read/workflow-read.service";
 import { TOOLGW_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
 import { ConversationDispatchService } from "./webhooks/conversation-dispatch.service";
 import { WhatsappWebhookController } from "./webhooks/whatsapp-webhook.controller";
@@ -99,6 +101,7 @@ import { OrchestrationDeletionService } from "./deletion/deletion.service";
     RunLearningController,
     ApprovalsController,
     TriggerRegistryController,
+    WorkflowReadController,
     WhatsappWebhookController,
     DeletionController,
   ],
@@ -213,6 +216,25 @@ import { OrchestrationDeletionService } from "./deletion/deletion.service";
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
         return new TriggerRegistryService(store);
+      },
+    },
+    {
+      provide: WorkflowReadService,
+      useFactory: () => {
+        // Same reasoning as TriggerRegistryService above: constructs its
+        // own PostgresOrchestrationStoreProvider rather than reaching into
+        // the guard's private instance.
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        return new WorkflowReadService(store);
       },
     },
     {

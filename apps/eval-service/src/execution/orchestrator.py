@@ -147,19 +147,35 @@ real cross-tenant logic since the real router mounts under
 prefix="/ads" -- this happened to coincide with the expected
 "not_found" outcome, so the case appeared to pass without ever
 exercising SqlAlchemyIngestionRepository's real RLS-scoped lookup).
-Investigated but NOT built: 'workflow_get'/'workflow_update' and
-'project_get'/'project_deploy' are the same structural dead end already
-documented below for HARD-7j's create_save_workflow/simulate_workflow --
-orchestration-service (the real "engine" platform-api's WorkflowService/
-ProjectService both call via EngineClient) serves NO /api/v1/workflows
-or /api/v1/projects routes at all, confirmed by grepping its own source
-tree. platform-api's own WorkflowController does have real GET/PATCH
-:workflowId routes and ProjectOperationsController does have a real
-POST :projectId/actions/deploy route, but both delegate to the same
-nonexistent engine backend -- building real tenant checks for these
-would mean building the missing production engine routes first, a much
-larger scope than a tenant-isolation eval-wiring case. Left as disclosed
-follow-up, not silently skipped.
+A twelfth follow-up adds 'workflow_get'/'workflow_update': the real
+`workflows` table (0000_create_workflows.sql, real tenant-scoped RLS
+policy) has existed since Planning (PLAN-9) but had zero real reader or
+writer anywhere in orchestration-service until now -- platform-api's
+WorkflowController called a GET/PATCH /api/v1/workflows/:id route that
+never existed on the engine side. Adds WorkflowReadService/
+WorkflowReadController (real, minimal: read + name/status update only,
+no etag/canvas/versions/validate/compile/simulate -- that's real,
+larger production-feature scope platform-api's own controller already
+half-implements, a disclosed separate follow-up). Uses
+eval_workflow_read_http_server.ts, a real, disclosed eval-only
+entrypoint reusing WorkflowReadController unmodified (same synthetic-
+ActorContext shape as eval_run_visibility_http_server.ts -- production's
+real SessionGatewayGuard needs live JWT signing keys not reachable
+here). The real cross-tenant "not_found" comes from the `workflows`
+table's own RLS policy plus WorkflowReadService's own explicit
+`WHERE tenant_id = $1 AND id = $2` -- defense in depth, matching
+run_visibility_client.py's shape (see workflow_client.py's own module
+doc).
+Investigated but confirmed NOT buildable without much larger scope:
+'project_get'/'project_deploy' -- unlike workflows, NO real schema
+exists anywhere for a "project"/"deployment" resource on
+orchestration-service (confirmed by grepping its own migrations and
+service code); ProjectOperationsController's real POST
+:projectId/actions/deploy route on platform-api delegates to the same
+nonexistent engine backend workflow_get/update used to. Building this
+means designing and building a genuinely new schema + service from
+scratch, not wiring an existing one -- a much larger, disclosed
+follow-up, left for a dedicated ticket rather than invented here.
 HARD-7h adds 'project' (project-E2E, 3/3 real cases): a real call to
 intelligence-service's PlannerService.Decompose with
 strategy=plan_then_execute, reusing HARD-7b's exact same real HTTP
@@ -238,6 +254,7 @@ from .toolgw_client import ToolgwClient
 from .trigger_client import TriggerRegistryClient
 from .verification_client import VerificationClient
 from .verification_severity_client import VerificationSeverityEvalClient
+from .workflow_client import WorkflowEvalClient
 
 # Real, fixed synthetic identity for every case this orchestrator scores --
 # ScoreNodeInline's kernel is pure (no DB lookup against these IDs, see
@@ -344,6 +361,7 @@ class EvalRunOrchestrator:
         verification_severity_client: VerificationSeverityEvalClient,
         audit_client: AuditEvalClient,
         memory_drift_client: MemoryDriftEvalClient,
+        workflow_client: WorkflowEvalClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -373,6 +391,7 @@ class EvalRunOrchestrator:
         self._verification_severity_client = verification_severity_client
         self._audit_client = audit_client
         self._memory_drift_client = memory_drift_client
+        self._workflow_client = workflow_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -731,6 +750,18 @@ class EvalRunOrchestrator:
                 )
                 observed_outcome = "not_found" if run_lookup.not_found else "found"
                 extra = {"run_id": run_id}
+            elif operation in ("workflow_get", "workflow_update"):
+                other_tenant_uuid = "018f4d6e-cccc-7ccc-8ccc-cccccccccccc"
+                workflow_id = self._workflow_client.seed_cross_tenant_workflow(
+                    other_tenant_uuid=other_tenant_uuid
+                )
+                workflow_lookup = (
+                    self._workflow_client.check_get(workflow_id=workflow_id)
+                    if operation == "workflow_get"
+                    else self._workflow_client.check_update(workflow_id=workflow_id)
+                )
+                observed_outcome = "not_found" if workflow_lookup.not_found else "found"
+                extra = {"workflow_id": workflow_id}
             elif operation == "model_gateway_cache":
                 cache_model_alias = "STANDARD"
                 cache_input_json = json.dumps(
@@ -798,9 +829,10 @@ class EvalRunOrchestrator:
                         "tool_consume_credential, platform_credential_get/delete, "
                         "idempotency_replay, policy_read, recovery_node_lookup, "
                         "run_stream_subscribe, model_gateway_cache, verification_score_node, "
-                        "audit_event_read, memory_drift_observations, ads_upload_download "
-                        "are real; the other 5 of 20 real tenant-isolation cases are "
-                        "disclosed follow-up scope, see orchestrator.py's own module doc)"
+                        "audit_event_read, memory_drift_observations, ads_upload_download, "
+                        "workflow_get, workflow_update are real; the other 3 of 20 real "
+                        "tenant-isolation cases are disclosed follow-up scope, see "
+                        "orchestrator.py's own module doc)"
                     },
                 )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
