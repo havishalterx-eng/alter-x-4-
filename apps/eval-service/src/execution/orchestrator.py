@@ -39,6 +39,13 @@ real security property under test, not a literal array-length check) and
 'tool_resolve_credential' (real, pure ownership check in tool-gateway's
 production ResolveCredential -- no eval-only entrypoint needed, the
 cross-tenant case throws before ever touching a real secrets provider).
+A HARD-7g follow-up adds 'platform_credential_get'/'platform_credential_
+delete' (real, unmodified CredentialController + CredentialService +
+CredentialRepository from platform-api -- the first eval-only entrypoint
+in this campaign targeting platform-api, not orchestration-service; see
+apps/platform-api/src/eval_credential_http_server.ts's own module doc).
+The real "not_found" behavior comes entirely from CredentialRepository's
+own tenant-scoped SQL.
 HARD-7h adds 'project' (project-E2E, 3/3 real cases): a real call to
 intelligence-service's PlannerService.Decompose with
 strategy=plan_then_execute, reusing HARD-7b's exact same real HTTP
@@ -100,6 +107,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.models import EvalCase, EvalResult, EvalRun, GoldenSet
 
+from .credential_client import CredentialEvalClient
 from .intent_client import IntentClient
 from .planner_client import PlannerClient
 from .recovery_client import RecoveryClient
@@ -204,6 +212,7 @@ class EvalRunOrchestrator:
         toolgw_client: ToolgwClient,
         recovery_client: RecoveryClient,
         trigger_registry_client: TriggerRegistryClient,
+        credential_client: CredentialEvalClient,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -216,6 +225,7 @@ class EvalRunOrchestrator:
         self._toolgw_client = toolgw_client
         self._recovery_client = recovery_client
         self._trigger_registry_client = trigger_registry_client
+        self._credential_client = credential_client
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -492,15 +502,27 @@ class EvalRunOrchestrator:
                 )
                 observed_outcome = "denied" if outcome.denied else "allowed"
                 extra = {"error_message": outcome.error_message}
+            elif operation in ("platform_credential_get", "platform_credential_delete"):
+                other_tenant_uuid = "018f4d6e-cccc-7ccc-8ccc-cccccccccccc"
+                credential_id = self._credential_client.seed_cross_tenant_credential(
+                    other_tenant_uuid=other_tenant_uuid
+                )
+                lookup = (
+                    self._credential_client.check_get(credential_id=credential_id)
+                    if operation == "platform_credential_get"
+                    else self._credential_client.check_delete(credential_id=credential_id)
+                )
+                observed_outcome = "not_found" if lookup.not_found else "found"
+                extra = {"credential_id": credential_id}
             else:
                 return _CaseVerdict(
                     verdict="fail",
                     score=0.0,
                     details={
                         "error": f"unsupported operation {operation!r} for domain=tenant-isolation "
-                        "(only ads_retrieve and tool_resolve_credential are real as of HARD-7g; "
-                        "the other 18 of 20 real tenant-isolation cases are disclosed follow-up "
-                        "scope, see orchestrator.py's own module doc)"
+                        "(only ads_retrieve, tool_resolve_credential, platform_credential_get/"
+                        "delete are real; the other 16 of 20 real tenant-isolation cases are "
+                        "disclosed follow-up scope, see orchestrator.py's own module doc)"
                     },
                 )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc

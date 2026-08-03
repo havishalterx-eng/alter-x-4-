@@ -19,6 +19,7 @@ import time
 from collections.abc import Generator
 from pathlib import Path
 
+import psycopg2
 import pytest
 import sqlalchemy as sa
 from alembic.config import Config as AlembicConfig
@@ -27,6 +28,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from src.execution.credential_client import CredentialEvalClient
 from src.execution.intent_client import IntentClient
 from src.execution.orchestrator import (
     EvalRunOrchestrator,
@@ -57,6 +59,8 @@ _UNUSED_RECOVERY_GRPC_TARGET = "127.0.0.1:1"
 _UNUSED_RECOVERY_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
 _UNUSED_TRIGGER_REGISTRY_TARGET = "http://127.0.0.1:1"
 _UNUSED_TRIGGER_REGISTRY_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
+_UNUSED_CREDENTIAL_TARGET = "http://127.0.0.1:1"
+_UNUSED_CREDENTIAL_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
 
 # Must match apps/ads-core/src/query/eval_grpc_server.py's own literal
 # values -- see orchestrator.py's _EVAL_ADS_* constants for why these must
@@ -351,6 +355,9 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
     )
+    credential_client = CredentialEvalClient(
+        _UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL
+    )
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -363,6 +370,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         toolgw_client,
         recovery_client,
         trigger_registry_client,
+        credential_client,
     )
 
     try:
@@ -378,6 +386,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
         toolgw_client.close()
         recovery_client.close()
         trigger_registry_client.close()
+        credential_client.close()
 
     assert summary.total_cases == 20
     assert summary.passed == 20
@@ -415,6 +424,9 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
     )
+    credential_client = CredentialEvalClient(
+        _UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL
+    )
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -427,6 +439,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         toolgw_client,
         recovery_client,
         trigger_registry_client,
+        credential_client,
     )
     try:
         first = orchestrator.run("verification")
@@ -442,6 +455,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
         toolgw_client.close()
         recovery_client.close()
         trigger_registry_client.close()
+        credential_client.close()
 
     assert first.eval_run_id != second.eval_run_id
     assert first.pass_rate == second.pass_rate == 1.0
@@ -512,6 +526,9 @@ def test_unknown_golden_set_raises(
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
     )
+    credential_client = CredentialEvalClient(
+        _UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL
+    )
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -524,6 +541,7 @@ def test_unknown_golden_set_raises(
         toolgw_client,
         recovery_client,
         trigger_registry_client,
+        credential_client,
     )
     try:
         with pytest.raises(GoldenSetNotFoundError):
@@ -539,6 +557,7 @@ def test_unknown_golden_set_raises(
         toolgw_client.close()
         recovery_client.close()
         trigger_registry_client.close()
+        credential_client.close()
 
 
 def test_planner_select_strategy_cases_execute_for_real(
@@ -557,6 +576,9 @@ def test_planner_select_strategy_cases_execute_for_real(
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
     )
+    credential_client = CredentialEvalClient(
+        _UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL
+    )
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -569,6 +591,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         toolgw_client,
         recovery_client,
         trigger_registry_client,
+        credential_client,
     )
 
     try:
@@ -584,6 +607,7 @@ def test_planner_select_strategy_cases_execute_for_real(
         toolgw_client.close()
         recovery_client.close()
         trigger_registry_client.close()
+        credential_client.close()
 
     # 16 of the 20 seeded planner cases are select_strategy (real as of
     # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
@@ -655,6 +679,9 @@ def test_retrieval_golden_set_executes_for_real(
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
     )
+    credential_client = CredentialEvalClient(
+        _UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL
+    )
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -667,6 +694,7 @@ def test_retrieval_golden_set_executes_for_real(
         toolgw_client,
         recovery_client,
         trigger_registry_client,
+        credential_client,
     )
 
     try:
@@ -682,6 +710,7 @@ def test_retrieval_golden_set_executes_for_real(
         toolgw_client.close()
         recovery_client.close()
         trigger_registry_client.close()
+        credential_client.close()
 
     # All 20 retrieval cases are real "retrieve" operations against a real
     # hybrid-retrieval gRPC server. Asserting the real, observed pass rate
@@ -728,6 +757,9 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
     )
+    credential_client = CredentialEvalClient(
+        _UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL
+    )
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -740,6 +772,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         toolgw_client,
         recovery_client,
         trigger_registry_client,
+        credential_client,
     )
 
     try:
@@ -755,6 +788,7 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
         toolgw_client.close()
         recovery_client.close()
         trigger_registry_client.close()
+        credential_client.close()
 
     # All 30 intent cases are real classify_intent calls against a real,
     # live LLM (whichever of Anthropic/OpenAI the environment running this
@@ -931,6 +965,9 @@ def test_injection_golden_set_executes_for_real(
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
     )
+    credential_client = CredentialEvalClient(
+        _UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL
+    )
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -943,6 +980,7 @@ def test_injection_golden_set_executes_for_real(
         toolgw_client,
         recovery_client,
         trigger_registry_client,
+        credential_client,
     )
 
     try:
@@ -958,6 +996,7 @@ def test_injection_golden_set_executes_for_real(
         toolgw_client.close()
         recovery_client.close()
         trigger_registry_client.close()
+        credential_client.close()
 
     assert summary.total_cases == _EVAL_INJECTION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_INJECTION_CASE_COUNT
@@ -1072,6 +1111,70 @@ def tool_gateway_server_target() -> Generator[str, None, None]:
             process.kill()
 
 
+@pytest.fixture(scope="module")
+def platform_credential_server_target() -> Generator[tuple[str, str], None, None]:
+    """Real, live platform-api eval-only credential HTTP server (follow-up
+    to HARD-7g's eval_credential_http_server.ts) -- the real, unmodified
+    CredentialController + CredentialService + CredentialRepository, with
+    a synthetic ActorContext injected in place of production's real
+    JWT-backed RbacGuard. Real Postgres (own Testcontainers instance),
+    real raw-SQL migrations applied from platform-api's own
+    src/db/migrations directory (not drizzle -- a different migration
+    tool than orchestration-service/ads-core use).
+
+    Real platform_api/platform_provisioner Postgres roles are created
+    here before migrations run -- production provisions these via a
+    separate real infra step (outside these migration files, confirmed
+    by reading them: only GRANTs to platform_api, never a CREATE ROLE),
+    same "create the role a real migration assumes exists" pattern
+    trigger-registry and recovery's own eval fixtures don't need but
+    tenant-isolation's earlier ads-core/model-gateway fixtures do for
+    their own roles.
+    """
+    platform_root = REPO_ROOT / "apps" / "platform-api"
+    platform_dist = REPO_ROOT / "dist" / "apps" / "platform-api" / "eval_credential_http_server.js"
+    if not platform_dist.exists():
+        pytest.skip(
+            "platform-api eval build not present -- run "
+            "`pnpm exec nx run platform-api:build` first."
+        )
+    with PostgresContainer(
+        image="postgres:16-alpine", dbname="platform_db", username="platform_exit_check"
+    ) as postgres:
+        db_url = postgres.get_connection_url().replace("postgresql+psycopg2://", "postgresql://")
+        admin_connection = psycopg2.connect(db_url)
+        admin_connection.autocommit = True
+        admin_cursor = admin_connection.cursor()
+        admin_cursor.execute("CREATE ROLE platform_api")
+        admin_cursor.execute("CREATE ROLE platform_provisioner")
+        admin_cursor.close()
+        admin_connection.close()
+
+        port = _free_port()
+        process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+            ["node", str(platform_dist)],
+            cwd=str(REPO_ROOT),
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "NODE_PATH": f"{platform_root / 'node_modules'}:{REPO_ROOT / 'node_modules'}",
+                "DATABASE_URL": db_url,
+                "EVAL_TENANT_ID": _EVAL_CREDENTIAL_TENANT_UUID,
+                "HTTP_PORT": str(port),
+                "EVAL_MIGRATIONS_DIR": str(platform_root / "src" / "db" / "migrations"),
+            },
+        )
+        try:
+            _wait_for_port(port, timeout_seconds=40.0)
+            yield f"http://127.0.0.1:{port}", db_url
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
+_EVAL_CREDENTIAL_TENANT_UUID = "018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb"
 _EVAL_TENANT_ISOLATION_CASE_COUNT = 20
 
 
@@ -1079,7 +1182,9 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     sessions: sessionmaker[Session],
     ads_isolation_server_target: str,
     tool_gateway_server_target: str,
+    platform_credential_server_target: tuple[str, str],
 ) -> None:
+    credential_http_target, credential_db_url = platform_credential_server_target
     verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
@@ -1092,6 +1197,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
     )
+    credential_client = CredentialEvalClient(credential_http_target, credential_db_url)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -1104,6 +1210,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         toolgw_client,
         recovery_client,
         trigger_registry_client,
+        credential_client,
     )
 
     try:
@@ -1119,6 +1226,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         toolgw_client.close()
         recovery_client.close()
         trigger_registry_client.close()
+        credential_client.close()
 
     assert summary.total_cases == _EVAL_TENANT_ISOLATION_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_TENANT_ISOLATION_CASE_COUNT
@@ -1130,17 +1238,22 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         ).all()
         assert len(results) == _EVAL_TENANT_ISOLATION_CASE_COUNT
 
-        real_operations = ("ads_retrieve", "tool_resolve_credential")
+        real_operations = (
+            "ads_retrieve",
+            "tool_resolve_credential",
+            "platform_credential_get",
+            "platform_credential_delete",
+        )
         real_results = [row for row in results if row.details.get("operation") in real_operations]
-        # ads_retrieve and tool_resolve_credential are real and must always
-        # pass -- the other 18 of 20 cases are disclosed follow-up scope,
-        # real-failing with an "unsupported operation" message, never
-        # silently skipped.
-        assert len(real_results) == 2
+        # ads_retrieve, tool_resolve_credential, platform_credential_get,
+        # platform_credential_delete are real and must always pass -- the
+        # other 16 of 20 cases are disclosed follow-up scope, real-failing
+        # with an "unsupported operation" message, never silently skipped.
+        assert len(real_results) == 4
         assert all(row.verdict == "pass" for row in real_results)
 
         unsupported_results = [row for row in results if row not in real_results]
-        assert len(unsupported_results) == 18
+        assert len(unsupported_results) == 16
         assert all(row.verdict == "fail" for row in unsupported_results)
         assert all(
             "unsupported operation" in row.details.get("error", "") for row in unsupported_results
@@ -1163,6 +1276,9 @@ def test_project_golden_set_executes_for_real(
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
     )
+    credential_client = CredentialEvalClient(
+        _UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL
+    )
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -1175,6 +1291,7 @@ def test_project_golden_set_executes_for_real(
         toolgw_client,
         recovery_client,
         trigger_registry_client,
+        credential_client,
     )
 
     try:
@@ -1190,6 +1307,7 @@ def test_project_golden_set_executes_for_real(
         toolgw_client.close()
         recovery_client.close()
         trigger_registry_client.close()
+        credential_client.close()
 
     # build_project_skeleton is pure and deterministic -- real 3/3 pass.
     assert summary.total_cases == 3
@@ -1265,6 +1383,9 @@ def test_recovery_golden_set_executes_for_real_where_wired(
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
     )
+    credential_client = CredentialEvalClient(
+        _UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL
+    )
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -1277,6 +1398,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         toolgw_client,
         recovery_client,
         trigger_registry_client,
+        credential_client,
     )
 
     try:
@@ -1292,6 +1414,7 @@ def test_recovery_golden_set_executes_for_real_where_wired(
         toolgw_client.close()
         recovery_client.close()
         trigger_registry_client.close()
+        credential_client.close()
 
     assert summary.total_cases == _EVAL_RECOVERY_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_RECOVERY_CASE_COUNT
@@ -1396,6 +1519,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(http_target, db_url)
+    credential_client = CredentialEvalClient(_UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL)
     orchestrator = EvalRunOrchestrator(
         sessions,
         verification_client,
@@ -1408,6 +1532,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         toolgw_client,
         recovery_client,
         trigger_registry_client,
+        credential_client,
     )
 
     try:
@@ -1423,6 +1548,7 @@ def test_workflow_golden_set_executes_for_real_where_wired(
         toolgw_client.close()
         recovery_client.close()
         trigger_registry_client.close()
+        credential_client.close()
 
     assert summary.total_cases == _EVAL_WORKFLOW_CASE_COUNT
     assert summary.passed + summary.failed == _EVAL_WORKFLOW_CASE_COUNT
