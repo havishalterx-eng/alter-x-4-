@@ -1,44 +1,91 @@
-import type { JsonValue } from "@alterx/shared-clients";
+import type { ConnectorId } from "./connectors";
 
-export type IntegrationResource = Readonly<Record<string, JsonValue>>;
-export type IntegrationInput = Record<string, JsonValue>;
-
-export interface IntegrationPage {
-  data: IntegrationResource[];
-  page: {
-    next_cursor: string | null;
-    has_more: boolean;
-  };
+export interface ConnectorCatalogEntry {
+  readonly id: ConnectorId;
+  readonly display_name: string;
+  readonly scopes: readonly string[];
+  readonly pkce: boolean;
+  readonly configured: boolean;
 }
 
-export interface IntegrationPagination {
-  cursor?: string | undefined;
-  limit?: number | undefined;
+export interface OAuthAuthorizeInput {
+  readonly redirect_uri: string;
+}
+
+export interface OAuthAuthorizeView {
+  readonly authorize_url: string;
+  readonly state: string;
+  readonly expires_at: string;
+}
+
+export interface OAuthCallbackInput {
+  readonly code: string;
+  readonly state: string;
+}
+
+export interface OAuthStateRecord {
+  readonly tenantId: string;
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly connector: ConnectorId;
+  readonly codeVerifier: string | null;
+  readonly redirectUri: string;
+  readonly createdBy: string;
+  readonly createdAt: Date;
+  readonly expiresAt: Date;
+}
+
+export type OAuthConnectionStatus = "connected" | "revoked" | "error";
+
+export interface OAuthConnectionRecord {
+  readonly tenantId: string;
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly connector: ConnectorId;
+  readonly externalAccountId: string;
+  readonly scopes: string;
+  readonly status: OAuthConnectionStatus;
+  readonly lastHealthStatus: string | null;
+  readonly lastHealthCheckedAt: Date | null;
+  readonly revokedAt: Date | null;
+  readonly useAuditPtr: string | null;
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
+}
+
+export interface OAuthConnectionView {
+  readonly id: string;
+  readonly connector: ConnectorId;
+  readonly external_account_id: string;
+  readonly scopes: readonly string[];
+  readonly status: OAuthConnectionStatus;
+  readonly last_health_status: string | null;
+  readonly last_health_checked_at: string | null;
+  readonly created_at: string;
+  readonly version: string;
+}
+
+export interface OAuthRevokeView extends OAuthConnectionView {
+  readonly revoked_remotely: boolean;
+  readonly revoke_disclosure?: string;
+}
+
+export interface OAuthScopesView {
+  readonly connection_id: string;
+  readonly scopes: readonly string[];
 }
 
 export const integrationDeferredCapabilities = [
   {
-    capability: "oauth_flows",
+    capability: "oauth_flows_non_launch_connectors",
     status: "NOT_MET",
     reason:
-      "Engine contract has no integration authorize, callback, or connect endpoint.",
+      "Only GitHub and Google are built in this ticket. LinkedIn/X/Slack/HubSpot/Salesforce/Shopify/Zendesk/M365 deferred to a later ticket per product-owner scope decision 2026-08-04.",
   },
   {
-    capability: "connection_health_monitoring",
+    capability: "oauth_round_trip_verified",
     status: "NOT_MET",
     reason:
-      "Engine contract exposes one-shot connection testing only; no health-monitoring endpoint exists.",
-  },
-  {
-    capability: "scope_display_revocation",
-    status: "NOT_MET",
-    reason:
-      "Engine contract has no integration scope-display or revocation endpoint.",
-  },
-  {
-    capability: "per_workspace_binding",
-    status: "NOT_MET",
-    reason:
-      "Integration resources are opaque and contract declares no workspace-binding field or endpoint.",
+      "Real client_id/client_secret for GitHub and Google are not provisioned yet in this environment. authorize/callback/health/revoke code paths are real (no mocks), but unexercised against live provider sandboxes. Flip to MET once GITHUB_OAUTH_CLIENT_ID_SECRET_REF/GITHUB_OAUTH_CLIENT_SECRET_REF and GOOGLE_OAUTH_CLIENT_ID_SECRET_REF/GOOGLE_OAUTH_CLIENT_SECRET_REF resolve to real credentials and a live round-trip test is run.",
   },
 ] as const;

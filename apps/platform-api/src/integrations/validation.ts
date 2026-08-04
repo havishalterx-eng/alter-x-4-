@@ -1,63 +1,54 @@
 import { z } from "zod";
+import { isConnectorId } from "./connectors";
 import { IntegrationHttpError } from "./problem";
-import type {
-  IntegrationInput,
-  IntegrationPagination,
-} from "./types";
+import type { OAuthAuthorizeInput, OAuthCallbackInput } from "./types";
 
-const prefixedIdPattern =
-  /^[a-z]+_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const inputSchema: z.ZodType<IntegrationInput> = z.record(
-  z.string(),
-  z.json(),
-);
-
-const paginationSchema = z
+const authorizeSchema: z.ZodType<OAuthAuthorizeInput> = z
   .object({
-    cursor: z.string().min(1).optional(),
-    limit: z.coerce.number().int().min(1).max(200).optional(),
+    redirect_uri: z.url(),
   })
   .strict();
 
-export function parseIntegrationInput(
+const callbackSchema: z.ZodType<OAuthCallbackInput> = z
+  .object({
+    code: z.string().min(1),
+    state: z.string().min(1),
+  })
+  .strict();
+
+export function parseConnectorId(value: string, instance: string): string {
+  if (!isConnectorId(value)) {
+    throw validationError(instance, [
+      { field: "connector", message: `Unsupported connector: ${value}` },
+    ]);
+  }
+  return value;
+}
+
+export function parseConnectionId(value: string, instance: string): string {
+  if (!uuidPattern.test(value)) {
+    throw validationError(instance, [
+      { field: "connectionId", message: "Invalid connectionId" },
+    ]);
+  }
+  return value;
+}
+
+export function parseOAuthAuthorizeInput(
   value: unknown,
   instance: string,
-): IntegrationInput {
-  return parse(inputSchema, value === undefined ? {} : value, instance);
+): OAuthAuthorizeInput {
+  return parse(authorizeSchema, value, instance);
 }
 
-export function parseIntegrationPagination(
-  cursor: string | undefined,
-  limit: string | undefined,
+export function parseOAuthCallbackInput(
+  value: unknown,
   instance: string,
-): IntegrationPagination {
-  return parse(paginationSchema, { cursor, limit }, instance);
-}
-
-export function parseIntegrationId(
-  value: string,
-  instance: string,
-): string {
-  if (!prefixedIdPattern.test(value)) {
-    throw validationError(instance, [
-      { field: "integrationId", message: "Invalid integrationId" },
-    ]);
-  }
-  return value;
-}
-
-export function parseTraceparent(
-  value: string | undefined,
-  instance: string,
-): string | undefined {
-  if (value === undefined) return undefined;
-  if (!/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/i.test(value)) {
-    throw validationError(instance, [
-      { field: "traceparent", message: "Invalid traceparent" },
-    ]);
-  }
-  return value;
+): OAuthCallbackInput {
+  return parse(callbackSchema, value, instance);
 }
 
 function parse<T>(schema: z.ZodType<T>, value: unknown, instance: string): T {

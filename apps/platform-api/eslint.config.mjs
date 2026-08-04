@@ -17,7 +17,8 @@ export const noRawEngineHttpRule = {
     const filename = context.getFilename().replaceAll("\\", "/");
     if (
       filename.includes("/src/engine/") ||
-      filename.includes("/src/identity/adapters/auth0/")
+      filename.includes("/src/identity/adapters/auth0/") ||
+      filename.includes("/src/integrations/adapters/oauth/")
     ) {
       return {};
     }

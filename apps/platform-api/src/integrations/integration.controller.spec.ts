@@ -1,10 +1,10 @@
-import { APP_FILTER } from "@nestjs/core";
 import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import type { FastifyRequest } from "fastify";
+import { createMockMutableSecretsProvider } from "@alterx/shared-clients";
 import {
   afterAll,
   beforeAll,
@@ -12,17 +12,7 @@ import {
   describe,
   expect,
   it,
-  vi,
 } from "vitest";
-import {
-  EngineClient,
-  EngineExceptionFilter,
-  EngineProblemError,
-  type EngineCallerContext,
-  type EnginePath,
-  type EngineRequestBody,
-  type EngineResponse,
-} from "../engine";
 import {
   IdempotencyExceptionFilter,
   IdempotencyHttpError,
@@ -31,19 +21,27 @@ import {
   type IdempotencyExecution,
   type StoredHttpResponse,
 } from "../idempotency";
-import {
-  RbacModule,
-  type ActorContextType,
-  type RbacRequest,
-} from "../rbac";
+import { RbacModule, type ActorContextType, type RbacRequest } from "../rbac";
+import type { OAuthHttpClient } from "./adapters/oauth/oauth-http-client";
 import { IntegrationController } from "./integration.controller";
 import { IntegrationExceptionFilter } from "./integration-exception.filter";
 import { IntegrationModule } from "./integration.module";
+import type {
+  CreateOAuthConnectionInput,
+  CreateOAuthStateInput,
+} from "./integration.repository";
+import { IntegrationRepository } from "./integration.repository";
 import { IntegrationService } from "./integration.service";
+import {
+  INTEGRATION_CONNECTOR_RUNTIME_CONFIG,
+  INTEGRATION_OAUTH_HTTP_CLIENT,
+  INTEGRATION_SECRETS_PROVIDER,
+} from "./tokens";
 import { integrationDeferredCapabilities } from "./types";
+import type { OAuthConnectionRecord, OAuthStateRecord } from "./types";
 
 const uuid = "018f47a5-7b2c-7d10-8f11-123456789abc";
-const integrationId = `int_${uuid}`;
+const connectionId = uuid;
 const actor: ActorContextType = {
   user_id: `usr_${uuid}`,
   tenant_id: `ten_${uuid}`,
@@ -54,28 +52,201 @@ const actor: ActorContextType = {
   permissions: ["integrations:read", "integrations:write"],
 };
 
-describe("Integration catalog routes", () => {
+class FakeIntegrationRepository {
+  states = new Map<string, OAuthStateRecord>();
+  connections = new Map<string, OAuthConnectionRecord>();
+
+  reset(): void {
+    this.states.clear();
+    this.connections.clear();
+  }
+
+  async createState(
+    tenantId: string,
+    input: CreateOAuthStateInput,
+  ): Promise<OAuthStateRecord> {
+    const record: OAuthStateRecord = {
+      tenantId,
+      id: input.id,
+      workspaceId: input.workspaceId,
+      connector: input.connector,
+      codeVerifier: input.codeVerifier,
+      redirectUri: input.redirectUri,
+      createdBy: input.createdBy,
+      createdAt: new Date(),
+      expiresAt: input.expiresAt,
+    };
+    this.states.set(`${tenantId}:${input.id}`, record);
+    return record;
+  }
+
+  async findState(tenantId: string, id: string) {
+    return this.states.get(`${tenantId}:${id}`);
+  }
+
+  async deleteState(tenantId: string, id: string) {
+    this.states.delete(`${tenantId}:${id}`);
+  }
+
+  async createConnection(
+    tenantId: string,
+    input: CreateOAuthConnectionInput,
+  ): Promise<OAuthConnectionRecord> {
+    const now = new Date();
+    const record: OAuthConnectionRecord = {
+      tenantId,
+      ...input,
+      status: "connected" as const,
+      lastHealthStatus: null,
+      lastHealthCheckedAt: null,
+      revokedAt: null,
+      useAuditPtr: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.connections.set(`${tenantId}:${input.workspaceId}:${input.id}`, record);
+    return record;
+  }
+
+  async listConnections(tenantId: string, workspaceId: string) {
+    return [...this.connections.values()].filter(
+      (r) => r.tenantId === tenantId && r.workspaceId === workspaceId,
+    );
+  }
+
+  async findConnection(tenantId: string, workspaceId: string, id: string) {
+    return this.connections.get(`${tenantId}:${workspaceId}:${id}`);
+  }
+
+  async updateHealth(
+    tenantId: string,
+    workspaceId: string,
+    id: string,
+    status: string,
+    checkedAt: Date,
+  ) {
+    const key = `${tenantId}:${workspaceId}:${id}`;
+    const record = this.connections.get(key);
+    if (!record) return undefined;
+    const updated = {
+      ...record,
+      lastHealthStatus: status,
+      lastHealthCheckedAt: checkedAt,
+      updatedAt: new Date(),
+    };
+    this.connections.set(key, updated);
+    return updated;
+  }
+
+  async revokeConnection(tenantId: string, workspaceId: string, id: string) {
+    const key = `${tenantId}:${workspaceId}:${id}`;
+    const record = this.connections.get(key);
+    if (!record) return undefined;
+    const updated: OAuthConnectionRecord = {
+      ...record,
+      status: "revoked" as const,
+      revokedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.connections.set(key, updated);
+    return updated;
+  }
+
+  async recordUse(): Promise<string> {
+    return "audit-id";
+  }
+
+  async onModuleDestroy(): Promise<void> {}
+}
+
+class FakeOAuthHttpClient implements OAuthHttpClient {
+  failExchange = false;
+
+  async exchangeCode() {
+    if (this.failExchange) throw new Error("token exchange failed");
+    return {
+      accessToken: "fake-access-token",
+      refreshToken: "fake-refresh-token",
+      tokenType: "bearer",
+      expiresAt: null,
+      grantedScopes: "read:user repo",
+    };
+  }
+
+  async fetchAccountId() {
+    return "fake-account-id";
+  }
+
+  async revoke() {
+    return { revokedRemotely: true };
+  }
+}
+
+describe("Integration OAuth Hub routes", () => {
   let app: NestFastifyApplication;
-  const engine = new IntegrationEngine();
+  let repository: FakeIntegrationRepository;
+  let httpClient: FakeOAuthHttpClient;
+  let secrets: ReturnType<typeof createMockMutableSecretsProvider>;
   const store = new MemoryIdempotencyStore();
 
   beforeAll(async () => {
+    repository = new FakeIntegrationRepository();
+    httpClient = new FakeOAuthHttpClient();
+    secrets = createMockMutableSecretsProvider({
+      secrets: {
+        "/alter/integrations/github/client-id": "github-client-id",
+        "/alter/integrations/github/client-secret": "github-client-secret",
+      },
+    });
+
     const moduleRef = await Test.createTestingModule({
       imports: [RbacModule],
       controllers: [IntegrationController],
       providers: [
         {
           provide: IntegrationService,
-          inject: [EngineClient],
-          useFactory: (client: EngineClient) =>
-            new IntegrationService(client),
+          inject: [
+            IntegrationRepository,
+            INTEGRATION_SECRETS_PROVIDER,
+            INTEGRATION_OAUTH_HTTP_CLIENT,
+            INTEGRATION_CONNECTOR_RUNTIME_CONFIG,
+          ],
+          useFactory: (
+            repo: IntegrationRepository,
+            secretsProvider: typeof secrets,
+            http: OAuthHttpClient,
+            connectorConfig: unknown,
+          ) =>
+            new IntegrationService(
+              repo,
+              secretsProvider,
+              http,
+              connectorConfig as never,
+              300,
+            ),
         },
         IntegrationExceptionFilter,
         IdempotencyInterceptor,
         IdempotencyExceptionFilter,
-        { provide: EngineClient, useValue: engine },
+        { provide: IntegrationRepository, useValue: repository },
+        { provide: INTEGRATION_SECRETS_PROVIDER, useValue: secrets },
+        { provide: INTEGRATION_OAUTH_HTTP_CLIENT, useValue: httpClient },
+        {
+          provide: INTEGRATION_CONNECTOR_RUNTIME_CONFIG,
+          useValue: {
+            github: {
+              clientIdSecretRef: "/alter/integrations/github/client-id",
+              clientSecretSecretRef: "/alter/integrations/github/client-secret",
+              configured: true,
+            },
+            google: {
+              clientIdSecretRef: "/alter/integrations/google/client-id",
+              clientSecretSecretRef: "/alter/integrations/google/client-secret",
+              configured: false,
+            },
+          },
+        },
         { provide: PgIdempotencyStore, useValue: store },
-        { provide: APP_FILTER, useClass: EngineExceptionFilter },
       ],
     }).compile();
 
@@ -102,281 +273,315 @@ describe("Integration catalog routes", () => {
   });
 
   beforeEach(() => {
-    engine.reset();
+    repository.reset();
     store.clear();
+    httpClient.failExchange = false;
   });
 
   afterAll(async () => app.close());
 
-  it("relays capability-declared catalog unchanged with pagination", async () => {
+  it("returns connector catalog with configured flags per connector", async () => {
     const response = await request({
       method: "GET",
-      url: "/api/v1/integrations?cursor=next%2Fpage&limit=25",
+      url: "/api/v1/integrations",
       actor,
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(engine.catalog);
-    expect(engine.get).toHaveBeenCalledWith(
-      "/api/v1/integrations?cursor=next%2Fpage&limit=25",
-      expect.objectContaining({
-        tenantId: actor.tenant_id,
-        workspaceId: actor.workspace_id,
-        userId: actor.user_id,
-        roles: actor.roles,
-        permissions: actor.permissions,
-      }),
-    );
+    expect(response.json()).toEqual([
+      expect.objectContaining({ id: "github", configured: true }),
+      expect.objectContaining({ id: "google", configured: false }),
+    ]);
   });
 
-  it("creates integration once and replays stored response", async () => {
-    const body = {
-      connector: "engine-owned",
-      capabilities: ["read", "write"],
-      opaque_settings: { whitespace: " preserve\n" },
-    };
-    const options = {
-      method: "POST",
-      url: "/api/v1/integrations",
-      body,
-      actor,
-      headers: { "idempotency-key": "create-integration" },
-    };
-    const first = await request(options);
-    const replay = await request(options);
-    expect(first.statusCode).toBe(201);
-    expect(first.json()).toEqual(engine.created);
-    expect(replay.statusCode).toBe(201);
-    expect(replay.json()).toEqual(engine.created);
-    expect(replay.headers["idempotency-replayed"]).toBe("true");
-    expect(engine.post).toHaveBeenCalledTimes(1);
-    expect(engine.post).toHaveBeenCalledWith(
-      "/api/v1/integrations",
-      body,
-      expect.any(Object),
-      { idempotencyKey: "create-integration" },
-    );
-  });
-
-  it("relays one-shot connection test and idempotently replays", async () => {
-    const body = { probe: { engine_extension: true } };
-    const options = {
-      method: "POST",
-      url: `/api/v1/integrations/${integrationId}/actions/test`,
-      body,
-      actor,
-      headers: { "idempotency-key": "test-integration" },
-    };
-    const first = await request(options);
-    const replay = await request(options);
-    expect(first.statusCode).toBe(200);
-    expect(first.json()).toEqual(engine.testResult);
-    expect(replay.headers["idempotency-replayed"]).toBe("true");
-    expect(engine.post).toHaveBeenCalledTimes(1);
-    expect(engine.post).toHaveBeenCalledWith(
-      `/api/v1/integrations/${integrationId}/actions/test`,
-      body,
-      expect.any(Object),
-      { idempotencyKey: "test-integration" },
-    );
-  });
-
-  it.each([
-    ["GET", "/api/v1/integrations", undefined],
-    ["POST", "/api/v1/integrations", {}],
-    [
-      "POST",
-      `/api/v1/integrations/${integrationId}/actions/test`,
-      {},
-    ],
-  ])("scope-gates %s %s before Engine", async (method, url, body) => {
+  it("authorizes github, persists state, and builds a real authorize_url", async () => {
     const response = await request({
-      method,
-      url,
-      body,
-      actor: { ...actor, permissions: [] },
-      headers:
-        method === "POST" ? { "idempotency-key": "denied" } : undefined,
+      method: "POST",
+      url: "/api/v1/integrations/github/actions/authorize",
+      body: { redirect_uri: "https://app.alter.ai/integrations/callback" },
+      actor,
+      headers: { "idempotency-key": "authorize-github" },
     });
-    expectProblem(response, 403, "RBAC_PERMISSION_DENIED");
-    expect(engine.get).not.toHaveBeenCalled();
-    expect(engine.post).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { authorize_url: string; state: string };
+    expect(body.authorize_url).toContain("https://github.com/login/oauth/authorize");
+    expect(body.authorize_url).toContain(`state=${body.state}`);
+    expect(repository.states.size).toBe(1);
   });
 
-  it("requires privileged role for create and connection test", async () => {
-    for (const url of [
-      "/api/v1/integrations",
-      `/api/v1/integrations/${integrationId}/actions/test`,
-    ]) {
-      const response = await request({
-        method: "POST",
-        url,
-        body: {},
-        actor: { ...actor, roles: ["viewer"] },
-        headers: { "idempotency-key": `viewer-${url}` },
-      });
-      expectProblem(response, 403, "RBAC_ROLE_DENIED");
-    }
-    expect(engine.post).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["GET", "/api/v1/integrations?limit=0", undefined],
-    ["GET", "/api/v1/integrations?limit=201", undefined],
-    ["GET", "/api/v1/integrations?cursor=", undefined],
-    ["POST", "/api/v1/integrations", []],
-    ["POST", "/api/v1/integrations/bad/actions/test", {}],
-    [
-      "POST",
-      `/api/v1/integrations/${integrationId}/actions/test`,
-      [],
-    ],
-  ])("returns problem+json validation for %s %s", async (method, url, body) => {
+  it("409s authorize for an unconfigured connector", async () => {
     const response = await request({
-      method,
-      url,
-      body,
+      method: "POST",
+      url: "/api/v1/integrations/google/actions/authorize",
+      body: { redirect_uri: "https://app.alter.ai/integrations/callback" },
       actor,
-      headers:
-        method === "POST"
-          ? { "idempotency-key": `invalid-${url}` }
-          : undefined,
+      headers: { "idempotency-key": "authorize-google" },
+    });
+    expectProblem(response, 409, "INTEGRATION_CONNECTOR_NOT_CONFIGURED");
+  });
+
+  it("completes callback end-to-end and lists the resulting connection", async () => {
+    const authorize = await request({
+      method: "POST",
+      url: "/api/v1/integrations/github/actions/authorize",
+      body: { redirect_uri: "https://app.alter.ai/integrations/callback" },
+      actor,
+      headers: { "idempotency-key": "authorize-flow" },
+    });
+    const { state } = authorize.json() as { state: string };
+
+    const callback = await request({
+      method: "POST",
+      url: "/api/v1/integrations/github/actions/callback",
+      body: { code: "real-looking-code", state },
+      actor,
+      headers: { "idempotency-key": "callback-flow" },
+    });
+    expect(callback.statusCode).toBe(200);
+    const connection = callback.json() as { id: string; connector: string };
+    expect(connection.connector).toBe("github");
+    expect(repository.states.size).toBe(0);
+
+    const list = await request({
+      method: "GET",
+      url: "/api/v1/integrations/connections",
+      actor,
+    });
+    expect(list.json()).toEqual([
+      expect.objectContaining({ id: connection.id, connector: "github" }),
+    ]);
+
+    const scopes = await request({
+      method: "GET",
+      url: `/api/v1/integrations/connections/${connection.id}/scopes`,
+      actor,
+    });
+    expect(scopes.statusCode).toBe(200);
+    expect(scopes.json()).toEqual({
+      connection_id: connection.id,
+      scopes: ["read:user", "repo"],
+    });
+
+    const health = await request({
+      method: "POST",
+      url: `/api/v1/integrations/connections/${connection.id}/actions/health`,
+      body: {},
+      actor,
+      headers: { "idempotency-key": "health-flow" },
+    });
+    expect(health.statusCode).toBe(200);
+    expect(health.json()).toMatchObject({ last_health_status: "healthy" });
+
+    const revoke = await request({
+      method: "POST",
+      url: `/api/v1/integrations/connections/${connection.id}/actions/revoke`,
+      body: {},
+      actor,
+      headers: { "idempotency-key": "revoke-flow" },
+    });
+    expect(revoke.statusCode).toBe(200);
+    expect(revoke.json()).toMatchObject({
+      status: "revoked",
+      revoked_remotely: true,
+    });
+  });
+
+  it("discloses health and revoke failures when the stored token secret is missing", async () => {
+    const authorize = await request({
+      method: "POST",
+      url: "/api/v1/integrations/github/actions/authorize",
+      body: { redirect_uri: "https://app.alter.ai/integrations/callback" },
+      actor,
+      headers: { "idempotency-key": "authorize-missing-secret" },
+    });
+    const { state } = authorize.json() as { state: string };
+    const callback = await request({
+      method: "POST",
+      url: "/api/v1/integrations/github/actions/callback",
+      body: { code: "code", state },
+      actor,
+      headers: { "idempotency-key": "callback-missing-secret" },
+    });
+    const connection = callback.json() as { id: string };
+    await secrets.deleteSecret(
+      `/alter/integrations/${actor.tenant_id}/${actor.workspace_id}/${connection.id}`,
+    );
+
+    const health = await request({
+      method: "POST",
+      url: `/api/v1/integrations/connections/${connection.id}/actions/health`,
+      body: {},
+      actor,
+      headers: { "idempotency-key": "health-missing-secret" },
+    });
+    expect(health.statusCode).toBe(200);
+    expect(health.json()).toMatchObject({ last_health_status: "unhealthy" });
+
+    const revoke = await request({
+      method: "POST",
+      url: `/api/v1/integrations/connections/${connection.id}/actions/revoke`,
+      body: {},
+      actor,
+      headers: { "idempotency-key": "revoke-missing-secret" },
+    });
+    expect(revoke.statusCode).toBe(200);
+    expect(revoke.json()).toMatchObject({
+      status: "revoked",
+      revoked_remotely: false,
+    });
+    expect((revoke.json() as { revoke_disclosure: string }).revoke_disclosure).toMatch(
+      /remote revoke failed/,
+    );
+  });
+
+  it("rejects callback with a mismatched or expired state", async () => {
+    const response = await request({
+      method: "POST",
+      url: "/api/v1/integrations/github/actions/callback",
+      body: { code: "any-code", state: "unknown-state" },
+      actor,
+      headers: { "idempotency-key": "callback-invalid-state" },
+    });
+    expectProblem(response, 400, "INTEGRATION_STATE_INVALID");
+  });
+
+  it("surfaces provider failure as a 502 problem", async () => {
+    httpClient.failExchange = true;
+    const authorize = await request({
+      method: "POST",
+      url: "/api/v1/integrations/github/actions/authorize",
+      body: { redirect_uri: "https://app.alter.ai/integrations/callback" },
+      actor,
+      headers: { "idempotency-key": "authorize-fail" },
+    });
+    const { state } = authorize.json() as { state: string };
+    const response = await request({
+      method: "POST",
+      url: "/api/v1/integrations/github/actions/callback",
+      body: { code: "code", state },
+      actor,
+      headers: { "idempotency-key": "callback-fail" },
+    });
+    expectProblem(response, 502, "INTEGRATION_PROVIDER_ERROR");
+  });
+
+  it("404s connection routes for unknown connection ids", async () => {
+    const response = await request({
+      method: "GET",
+      url: `/api/v1/integrations/connections/${connectionId}`,
+      actor,
+    });
+    expectProblem(response, 404, "INTEGRATION_CONNECTION_NOT_FOUND");
+  });
+
+  it("rejects a malformed connectionId with a validation problem", async () => {
+    const response = await request({
+      method: "GET",
+      url: "/api/v1/integrations/connections/not-a-uuid",
+      actor,
+    });
+    expectProblem(response, 400, "INTEGRATION_VALIDATION_FAILED");
+  });
+
+  it("rejects an authorize body missing redirect_uri", async () => {
+    const response = await request({
+      method: "POST",
+      url: "/api/v1/integrations/github/actions/authorize",
+      body: {},
+      actor,
+      headers: { "idempotency-key": "authorize-missing-redirect" },
+    });
+    expectProblem(response, 400, "INTEGRATION_VALIDATION_FAILED");
+  });
+
+  it("rejects a callback body missing code or state", async () => {
+    const response = await request({
+      method: "POST",
+      url: "/api/v1/integrations/github/actions/callback",
+      body: { code: "" },
+      actor,
+      headers: { "idempotency-key": "callback-missing-state" },
     });
     expectProblem(response, 400, "INTEGRATION_VALIDATION_FAILED");
   });
 
   it.each([
-    ["GET", "/api/v1/integrations", undefined, "/api/v1/integrations"],
-    ["POST", "/api/v1/integrations", {}, "/api/v1/integrations"],
+    ["GET", "/api/v1/integrations", undefined],
     [
       "POST",
-      `/api/v1/integrations/${integrationId}/actions/test`,
-      {},
-      `/api/v1/integrations/${integrationId}/actions/test`,
+      "/api/v1/integrations/github/actions/authorize",
+      { redirect_uri: "https://app.alter.ai/cb" },
     ],
-  ])(
-    "passes Engine problem through for %s %s",
-    async (method, url, body, enginePath) => {
-      engine.failNext(method, enginePath);
-      const response = await request({
-        method,
-        url,
-        body,
-        actor,
-        headers:
-          method === "POST"
-            ? { "idempotency-key": `failure-${url}` }
-            : undefined,
-      });
-      expectProblem(response, 503, "ENGINE_INTEGRATION_UNAVAILABLE");
-    },
-  );
-
-  it("requires Idempotency-Key on create and test", async () => {
-    for (const url of [
-      "/api/v1/integrations",
-      `/api/v1/integrations/${integrationId}/actions/test`,
-    ]) {
-      const response = await request({
-        method: "POST",
-        url,
-        body: {},
-        actor,
-      });
-      expectProblem(response, 400, "IDEMPOTENCY_KEY_REQUIRED");
-    }
-    expect(engine.post).not.toHaveBeenCalled();
+  ])("scope-gates %s %s", async (method, url, body) => {
+    const response = await request({
+      method,
+      url,
+      body,
+      actor: { ...actor, permissions: [] },
+      headers: method === "POST" ? { "idempotency-key": "denied" } : undefined,
+    });
+    expectProblem(response, 403, "RBAC_PERMISSION_DENIED");
   });
 
-  it("flags deferred capabilities and leaves fake routes absent", async () => {
-    expect(integrationDeferredCapabilities).toEqual([
-      expect.objectContaining({
-        capability: "oauth_flows",
-        status: "NOT_MET",
-      }),
-      expect.objectContaining({
-        capability: "connection_health_monitoring",
-        status: "NOT_MET",
-      }),
-      expect.objectContaining({
-        capability: "scope_display_revocation",
-        status: "NOT_MET",
-      }),
-      expect.objectContaining({
-        capability: "per_workspace_binding",
-        status: "NOT_MET",
-      }),
-    ]);
-
-    for (const [method, url] of [
-      ["GET", "/api/v1/integrations/oauth/authorize"],
-      ["GET", "/api/v1/integrations/oauth/callback"],
-      ["POST", `/api/v1/integrations/${integrationId}/actions/connect`],
-      ["GET", `/api/v1/integrations/${integrationId}/health`],
-      ["GET", `/api/v1/integrations/${integrationId}/scopes`],
-      ["POST", `/api/v1/integrations/${integrationId}/actions/revoke`],
-      ["GET", `/api/v1/integrations/${integrationId}/workspace-binding`],
-    ] as const) {
-      expect((await request({ method, url, body: {}, actor })).statusCode).toBe(
-        404,
-      );
-    }
+  it("requires privileged role for authorize", async () => {
+    const response = await request({
+      method: "POST",
+      url: "/api/v1/integrations/github/actions/authorize",
+      body: { redirect_uri: "https://app.alter.ai/cb" },
+      actor: { ...actor, roles: ["viewer"] },
+      headers: { "idempotency-key": "viewer-authorize" },
+    });
+    expectProblem(response, 403, "RBAC_ROLE_DENIED");
   });
 
-  it("default-denies absent actor and workspace context", async () => {
+  it("rejects unsupported connector ids with validation problem", async () => {
+    const response = await request({
+      method: "POST",
+      url: "/api/v1/integrations/not-a-connector/actions/authorize",
+      body: { redirect_uri: "https://app.alter.ai/cb" },
+      actor,
+      headers: { "idempotency-key": "bad-connector" },
+    });
+    expectProblem(response, 400, "INTEGRATION_VALIDATION_FAILED");
+  });
+
+  it("default-denies absent actor and missing workspace context", async () => {
     const noActor = await request({
       method: "GET",
       url: "/api/v1/integrations",
     });
     expectProblem(noActor, 403, "RBAC_ROLE_DENIED");
 
-    const controller = new IntegrationController({
-      catalog: vi.fn(),
-    } as unknown as IntegrationService);
-    await expect(
-      controller.catalog(
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        {} as never,
-      ),
-    ).rejects.toMatchObject({
-      status: 401,
-      response: { error_code: "AUTHENTICATION_REQUIRED" },
-    });
-
     const { workspace_id: _workspaceId, ...withoutWorkspace } = actor;
     void _workspaceId;
     const noWorkspace = await request({
       method: "GET",
-      url: "/api/v1/integrations",
+      url: "/api/v1/integrations/connections",
       actor: withoutWorkspace,
     });
     expectProblem(noWorkspace, 403, "INTEGRATION_WORKSPACE_REQUIRED");
   });
 
-  it("validates trace context and wires production module", async () => {
-    const invalid = await request({
-      method: "GET",
-      url: "/api/v1/integrations",
-      actor,
-      headers: { traceparent: "invalid" },
+  it("controller itself rejects a missing actor at the method level", async () => {
+    const controller = new IntegrationController({} as IntegrationService);
+    await expect(async () =>
+      controller.listConnections(undefined),
+    ).rejects.toMatchObject({
+      status: 401,
+      response: { error_code: "AUTHENTICATION_REQUIRED" },
     });
-    expectProblem(invalid, 400, "INTEGRATION_VALIDATION_FAILED");
+  });
 
-    const validTrace =
-      "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01";
-    const valid = await request({
-      method: "GET",
-      url: "/api/v1/integrations",
-      actor,
-      headers: { traceparent: validTrace },
-    });
-    expect(valid.statusCode).toBe(200);
-    expect(engine.get).toHaveBeenLastCalledWith(
-      "/api/v1/integrations",
-      expect.objectContaining({ traceparent: validTrace }),
-    );
+  it("flags real remaining gaps and wires production module", () => {
+    expect(integrationDeferredCapabilities).toEqual([
+      expect.objectContaining({
+        capability: "oauth_flows_non_launch_connectors",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified",
+        status: "NOT_MET",
+      }),
+    ]);
     expect(IntegrationModule).toBeDefined();
   });
 
@@ -394,82 +599,6 @@ describe("Integration catalog routes", () => {
     } as never) as Promise<TestResponse>;
   }
 });
-
-class IntegrationEngine {
-  readonly catalog = {
-    data: [
-      {
-        connector: "engine-owned",
-        capabilities: ["opaque", { nested: true }],
-        untouched: null,
-      },
-    ],
-    page: { next_cursor: "engine-next", has_more: true },
-  };
-  readonly created = {
-    id: integrationId,
-    engine_owned: { status: "created", nested: ["opaque"] },
-  };
-  readonly testResult = {
-    id: integrationId,
-    engine_owned: { probe: "complete", healthy: true },
-  };
-  readonly get = vi.fn(this.getResponse.bind(this));
-  readonly post = vi.fn(this.postResponse.bind(this));
-  private failure: { method: string; path: string } | undefined;
-
-  reset(): void {
-    this.get.mockClear();
-    this.post.mockClear();
-    this.failure = undefined;
-  }
-
-  failNext(method: string, path: string): void {
-    this.failure = { method, path };
-  }
-
-  private async getResponse(
-    path: EnginePath,
-    context: EngineCallerContext,
-  ): Promise<EngineResponse<unknown>> {
-    void context;
-    this.throwIfFailed("GET", path);
-    return { status: 200, body: this.catalog };
-  }
-
-  private async postResponse(
-    path: EnginePath,
-    body: EngineRequestBody,
-    context: EngineCallerContext,
-    options: { idempotencyKey: string },
-  ): Promise<EngineResponse<unknown>> {
-    void body;
-    void context;
-    void options;
-    this.throwIfFailed("POST", path);
-    return path.endsWith("/actions/test")
-      ? { status: 200, body: this.testResult }
-      : { status: 201, body: this.created };
-  }
-
-  private throwIfFailed(method: string, path: string): void {
-    if (this.failure?.method !== method || this.failure.path !== path) return;
-    this.failure = undefined;
-    throw new EngineProblemError({
-      type: "https://errors.alter.ai/engine-integration-unavailable",
-      title: "ENGINE_INTEGRATION_UNAVAILABLE",
-      status: 503,
-      detail: "Engine integration unavailable",
-      instance: path,
-      error_code: "ENGINE_INTEGRATION_UNAVAILABLE",
-      trace_id: "trc_engine",
-      request_id: "req_engine",
-      retryable: true,
-      field_errors: [],
-      documentation_key: "engine.integration.unavailable",
-    });
-  }
-}
 
 class MemoryIdempotencyStore {
   private readonly responses = new Map<

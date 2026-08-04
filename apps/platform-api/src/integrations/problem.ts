@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ProblemDetails } from "@alterx/contracts";
 import { HttpException } from "@nestjs/common";
 
@@ -11,17 +12,17 @@ export class IntegrationHttpError extends HttpException {
   ) {
     super(
       {
-        type: `https://errors.alter.ai/${errorCode.toLowerCase()}`,
+        type: `https://errors.alter.ai/${errorCode.toLowerCase().replaceAll("_", "-")}`,
         title: errorCode,
         status,
         detail,
         instance,
         error_code: errorCode,
-        trace_id: "trace-unavailable",
-        request_id: "request-unavailable",
-        retryable: false,
+        trace_id: `trc_${randomUUID()}`,
+        request_id: `req_${randomUUID()}`,
+        retryable: status >= 500,
         field_errors: fieldErrors,
-        documentation_key: errorCode,
+        documentation_key: errorCode.toLowerCase().replaceAll("_", "."),
       } satisfies ProblemDetails,
       status,
     );

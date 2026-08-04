@@ -259,6 +259,9 @@ describe("platform_db migration", () => {
       "env_var_use_audits",
       "env_vars",
       "idempotency_keys",
+      "oauth_connection_use_audits",
+      "oauth_connections",
+      "oauth_states",
       "onboarding_states",
       "tenant_members",
       "tenants",
@@ -436,7 +439,7 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
-    expect(rows[0]?.count).toBe("18");
+    expect(rows[0]?.count).toBe("21");
   });
 
   it("prevents tenant_id mutation on tenant-owned rows", async () => {

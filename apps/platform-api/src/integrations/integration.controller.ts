@@ -2,15 +2,11 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
+  HttpCode,
   Param,
   Post,
-  Query,
-  Res,
   UseFilters,
 } from "@nestjs/common";
-import type { FastifyReply } from "fastify";
-import type { EngineResponse } from "../engine";
 import { Idempotent } from "../idempotency";
 import {
   ActorContext,
@@ -21,10 +17,18 @@ import type { ActorContextType } from "../rbac";
 import { IntegrationExceptionFilter } from "./integration-exception.filter";
 import { IntegrationService } from "./integration.service";
 import { IntegrationHttpError } from "./problem";
-import type { IntegrationPage, IntegrationResource } from "./types";
+import type {
+  ConnectorCatalogEntry,
+  OAuthAuthorizeView,
+  OAuthConnectionView,
+  OAuthRevokeView,
+  OAuthScopesView,
+} from "./types";
 import {
-  parseIntegrationInput,
-  parseIntegrationPagination,
+  parseConnectionId,
+  parseConnectorId,
+  parseOAuthAuthorizeInput,
+  parseOAuthCallbackInput,
 } from "./validation";
 
 const readRoles = ["admin", "editor", "operator", "approver", "viewer"] as const;
@@ -38,78 +42,135 @@ export class IntegrationController {
   @Get()
   @RequireWorkspaceRole(...readRoles)
   @RequirePermission("integrations:read")
-  async catalog(
-    @Query("cursor") cursor: string | undefined,
-    @Query("limit") limit: string | undefined,
-    @ActorContext() actor: ActorContextType | undefined,
-    @Headers("traceparent") traceparent: string | undefined,
-    @Res({ passthrough: true }) reply: FastifyReply,
-  ): Promise<IntegrationPage> {
-    const instance = "/api/v1/integrations";
-    return project(
-      await this.integrations.catalog(
-        parseIntegrationPagination(cursor, limit, instance),
-        requireActor(actor, instance),
-        traceparent,
-      ),
-      reply,
-    );
+  catalog(): ConnectorCatalogEntry[] {
+    return this.integrations.catalog();
   }
 
-  @Post()
+  @Get("connections")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("integrations:read")
+  listConnections(
+    @ActorContext() actor: ActorContextType | undefined,
+  ): Promise<OAuthConnectionView[]> {
+    const context = requireWorkspaceActor(actor, "/api/v1/integrations/connections");
+    return this.integrations.listConnections(context.tenant_id, context.workspace_id);
+  }
+
+  @Get("connections/:connectionId")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("integrations:read")
+  getConnection(
+    @Param("connectionId") connectionId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+  ): Promise<OAuthConnectionView> {
+    const instance = `/api/v1/integrations/connections/${connectionId}`;
+    const context = requireWorkspaceActor(actor, instance);
+    const id = parseConnectionId(connectionId, instance);
+    return this.integrations.getConnection(context.tenant_id, context.workspace_id, id);
+  }
+
+  @Get("connections/:connectionId/scopes")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("integrations:read")
+  scopes(
+    @Param("connectionId") connectionId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+  ): Promise<OAuthScopesView> {
+    const instance = `/api/v1/integrations/connections/${connectionId}/scopes`;
+    const context = requireWorkspaceActor(actor, instance);
+    const id = parseConnectionId(connectionId, instance);
+    return this.integrations.scopes(context.tenant_id, context.workspace_id, id);
+  }
+
+  @Post(":connector/actions/authorize")
+  @HttpCode(200)
   @RequireWorkspaceRole(...privilegedRoles)
   @RequirePermission("integrations:write")
   @Idempotent()
-  async create(
+  authorize(
+    @Param("connector") connector: string,
     @Body() body: unknown,
     @ActorContext() actor: ActorContextType | undefined,
-    @Headers("traceparent") traceparent: string | undefined,
-    @Headers("idempotency-key") idempotencyKey: string | undefined,
-    @Res({ passthrough: true }) reply: FastifyReply,
-  ): Promise<IntegrationResource> {
-    const instance = "/api/v1/integrations";
-    return project(
-      await this.integrations.create(
-        parseIntegrationInput(body, instance),
-        requireActor(actor, instance),
-        traceparent,
-        idempotencyKey!,
-      ),
-      reply,
+  ): Promise<OAuthAuthorizeView> {
+    const instance = `/api/v1/integrations/${connector}/actions/authorize`;
+    const context = requireWorkspaceActor(actor, instance);
+    const connectorId = parseConnectorId(connector, instance);
+    return this.integrations.authorize(
+      context.tenant_id,
+      context.workspace_id,
+      context.user_id,
+      connectorId,
+      parseOAuthAuthorizeInput(body, instance),
     );
   }
 
-  @Post(":integrationId/actions/test")
+  @Post(":connector/actions/callback")
+  @HttpCode(200)
   @RequireWorkspaceRole(...privilegedRoles)
   @RequirePermission("integrations:write")
   @Idempotent()
-  async test(
-    @Param("integrationId") integrationId: string,
+  callback(
+    @Param("connector") connector: string,
     @Body() body: unknown,
     @ActorContext() actor: ActorContextType | undefined,
-    @Headers("traceparent") traceparent: string | undefined,
-    @Headers("idempotency-key") idempotencyKey: string | undefined,
-    @Res({ passthrough: true }) reply: FastifyReply,
-  ): Promise<IntegrationResource> {
-    const instance =
-      `/api/v1/integrations/${integrationId}/actions/test`;
-    return project(
-      await this.integrations.test(
-        integrationId,
-        parseIntegrationInput(body, instance),
-        requireActor(actor, instance),
-        traceparent,
-        idempotencyKey!,
-      ),
-      reply,
+  ): Promise<OAuthConnectionView> {
+    const instance = `/api/v1/integrations/${connector}/actions/callback`;
+    const context = requireWorkspaceActor(actor, instance);
+    const connectorId = parseConnectorId(connector, instance);
+    return this.integrations.callback(
+      context.tenant_id,
+      context.workspace_id,
+      context.user_id,
+      connectorId,
+      parseOAuthCallbackInput(body, instance),
+    );
+  }
+
+  @Post("connections/:connectionId/actions/health")
+  @HttpCode(200)
+  @RequireWorkspaceRole(...privilegedRoles)
+  @RequirePermission("integrations:write")
+  @Idempotent()
+  health(
+    @Param("connectionId") connectionId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+  ): Promise<OAuthConnectionView> {
+    const instance = `/api/v1/integrations/connections/${connectionId}/actions/health`;
+    const context = requireWorkspaceActor(actor, instance);
+    const id = parseConnectionId(connectionId, instance);
+    return this.integrations.health(
+      context.tenant_id,
+      context.workspace_id,
+      id,
+      context.user_id,
+    );
+  }
+
+  @Post("connections/:connectionId/actions/revoke")
+  @HttpCode(200)
+  @RequireWorkspaceRole(...privilegedRoles)
+  @RequirePermission("integrations:write")
+  @Idempotent()
+  revoke(
+    @Param("connectionId") connectionId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+  ): Promise<OAuthRevokeView> {
+    const instance = `/api/v1/integrations/connections/${connectionId}/actions/revoke`;
+    const context = requireWorkspaceActor(actor, instance);
+    const id = parseConnectionId(connectionId, instance);
+    return this.integrations.revoke(
+      context.tenant_id,
+      context.workspace_id,
+      id,
+      context.user_id,
     );
   }
 }
 
-function requireActor(
+function requireWorkspaceActor(
   actor: ActorContextType | undefined,
   instance: string,
-): ActorContextType {
+): ActorContextType & { workspace_id: string } {
   if (!actor) {
     throw new IntegrationHttpError(
       401,
@@ -118,13 +179,13 @@ function requireActor(
       instance,
     );
   }
-  return actor;
-}
-
-function project<T>(response: EngineResponse<T>, reply: FastifyReply): T {
-  reply.status(response.status);
-  if (response.location) reply.header("Location", response.location);
-  if (response.requestId) reply.header("request_id", response.requestId);
-  if (response.traceId) reply.header("trace_id", response.traceId);
-  return response.body;
+  if (!actor.workspace_id) {
+    throw new IntegrationHttpError(
+      403,
+      "INTEGRATION_WORKSPACE_REQUIRED",
+      "Workspace actor context required",
+      instance,
+    );
+  }
+  return actor as ActorContextType & { workspace_id: string };
 }

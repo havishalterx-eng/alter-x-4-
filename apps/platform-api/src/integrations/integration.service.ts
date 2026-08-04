@@ -1,110 +1,437 @@
-import { randomBytes } from "node:crypto";
-import type {
-  EngineCallerContext,
-  EngineClient,
-  EngineRequestBody,
-  EngineResponse,
-} from "../engine";
-import type { ActorContext } from "../rbac/types";
-import { IntegrationHttpError } from "./problem";
-import type {
-  IntegrationInput,
-  IntegrationPage,
-  IntegrationPagination,
-  IntegrationResource,
-} from "./types";
+import { randomUUID } from "node:crypto";
+import { Inject, Injectable } from "@nestjs/common";
+import type { MutableSecretsProvider } from "@alterx/shared-clients";
 import {
-  parseIntegrationId,
-  parseTraceparent,
-} from "./validation";
+  CONNECTOR_CATALOG,
+  findConnector,
+  type ConnectorDefinition,
+  type ConnectorId,
+} from "./connectors";
+import { generatePkcePair, generateState } from "./adapters/oauth/oauth-http-client";
+import type { OAuthHttpClient } from "./adapters/oauth/oauth-http-client";
+import { IntegrationRepository } from "./integration.repository";
+import { IntegrationHttpError } from "./problem";
+import {
+  INTEGRATION_CONNECTOR_RUNTIME_CONFIG,
+  INTEGRATION_OAUTH_HTTP_CLIENT,
+  INTEGRATION_SECRETS_PROVIDER,
+} from "./tokens";
+import type {
+  ConnectorCatalogEntry,
+  OAuthAuthorizeInput,
+  OAuthAuthorizeView,
+  OAuthCallbackInput,
+  OAuthConnectionRecord,
+  OAuthConnectionView,
+  OAuthRevokeView,
+  OAuthScopesView,
+} from "./types";
 
+export interface ConnectorRuntimeConfig {
+  readonly clientIdSecretRef: string;
+  readonly clientSecretSecretRef: string;
+  readonly configured: boolean;
+}
+
+export type ConnectorRuntimeConfigMap = Readonly<
+  Record<ConnectorId, ConnectorRuntimeConfig>
+>;
+
+const DEFAULT_STATE_TTL_SECONDS = 300;
+
+@Injectable()
 export class IntegrationService {
-  constructor(private readonly engine: EngineClient) {}
+  constructor(
+    private readonly repository: IntegrationRepository,
+    @Inject(INTEGRATION_SECRETS_PROVIDER)
+    private readonly secrets: MutableSecretsProvider,
+    @Inject(INTEGRATION_OAUTH_HTTP_CLIENT)
+    private readonly http: OAuthHttpClient,
+    @Inject(INTEGRATION_CONNECTOR_RUNTIME_CONFIG)
+    private readonly connectorConfig: ConnectorRuntimeConfigMap,
+    private readonly stateTtlSeconds: number = DEFAULT_STATE_TTL_SECONDS,
+  ) {}
 
-  catalog(
-    pagination: IntegrationPagination,
-    actor: ActorContext,
-    traceparent: string | undefined,
-  ): Promise<EngineResponse<IntegrationPage>> {
-    const instance = "/api/v1/integrations";
-    return this.engine.get(
-      withPagination(instance, pagination),
-      callerContext(actor, traceparent, instance),
+  catalog(): ConnectorCatalogEntry[] {
+    return CONNECTOR_CATALOG.map((connector) => ({
+      id: connector.id,
+      display_name: connector.displayName,
+      scopes: connector.scopes,
+      pkce: connector.pkce,
+      configured: this.connectorConfig[connector.id]?.configured ?? false,
+    }));
+  }
+
+  async authorize(
+    tenantId: string,
+    workspaceId: string,
+    actorId: string,
+    connectorId: string,
+    input: OAuthAuthorizeInput,
+  ): Promise<OAuthAuthorizeView> {
+    const instance = `/api/v1/integrations/${connectorId}/actions/authorize`;
+    const definition = this.requireConnector(connectorId, instance);
+    const runtime = this.requireConfigured(definition.id, instance);
+    const clientId = await this.secrets.getSecret(runtime.clientIdSecretRef);
+
+    const state = generateState();
+    const pkce = definition.pkce ? generatePkcePair() : null;
+    const expiresAt = new Date(Date.now() + this.stateTtlSeconds * 1_000);
+
+    await this.repository.createState(tenantId, {
+      id: state,
+      workspaceId,
+      connector: definition.id,
+      codeVerifier: pkce?.verifier ?? null,
+      redirectUri: input.redirect_uri,
+      createdBy: actorId,
+      expiresAt,
+    });
+
+    const url = new URL(definition.authorizeUrl);
+    url.searchParams.set("client_id", clientId);
+    url.searchParams.set("redirect_uri", input.redirect_uri);
+    url.searchParams.set("response_type", "code");
+    url.searchParams.set("scope", definition.scopes.join(" "));
+    url.searchParams.set("state", state);
+    if (pkce) {
+      url.searchParams.set("code_challenge", pkce.challenge);
+      url.searchParams.set("code_challenge_method", "S256");
+    }
+
+    return {
+      authorize_url: url.toString(),
+      state,
+      expires_at: expiresAt.toISOString(),
+    };
+  }
+
+  async callback(
+    tenantId: string,
+    workspaceId: string,
+    actorId: string,
+    connectorId: string,
+    input: OAuthCallbackInput,
+  ): Promise<OAuthConnectionView> {
+    const instance = `/api/v1/integrations/${connectorId}/actions/callback`;
+    const definition = this.requireConnector(connectorId, instance);
+    const runtime = this.requireConfigured(definition.id, instance);
+
+    const stateRecord = await this.repository.findState(tenantId, input.state);
+    if (
+      !stateRecord ||
+      stateRecord.workspaceId !== workspaceId ||
+      stateRecord.connector !== definition.id ||
+      stateRecord.expiresAt.getTime() < Date.now()
+    ) {
+      throw new IntegrationHttpError(
+        400,
+        "INTEGRATION_STATE_INVALID",
+        "OAuth state is missing, mismatched, or expired",
+        instance,
+      );
+    }
+
+    const [clientId, clientSecret] = await Promise.all([
+      this.secrets.getSecret(runtime.clientIdSecretRef),
+      this.secrets.getSecret(runtime.clientSecretSecretRef),
+    ]);
+
+    let tokenResult;
+    let accountId: string;
+    try {
+      tokenResult = await this.http.exchangeCode({
+        connector: definition.id,
+        definition,
+        code: input.code,
+        codeVerifier: stateRecord.codeVerifier,
+        redirectUri: stateRecord.redirectUri,
+        clientId,
+        clientSecret,
+      });
+      accountId = await this.http.fetchAccountId(
+        definition.id,
+        definition.userInfoUrl,
+        tokenResult.accessToken,
+      );
+    } catch (error) {
+      throw providerFailure(error, instance);
+    }
+
+    const id = randomUUID();
+    const secretReference = tokenReference(tenantId, workspaceId, id);
+    try {
+      await this.secrets.putSecret(
+        secretReference,
+        JSON.stringify({
+          access_token: tokenResult.accessToken,
+          refresh_token: tokenResult.refreshToken,
+          token_type: tokenResult.tokenType,
+          expires_at: tokenResult.expiresAt,
+        }),
+      );
+      const record = await this.repository.createConnection(tenantId, {
+        id,
+        workspaceId,
+        connector: definition.id,
+        externalAccountId: accountId,
+        scopes: tokenResult.grantedScopes ?? definition.scopes.join(" "),
+      });
+      await this.repository.deleteState(tenantId, input.state);
+      return project(record);
+    } catch (error) {
+      await bestEffortDelete(this.secrets, secretReference);
+      throw providerFailure(error, instance);
+    }
+  }
+
+  async listConnections(
+    tenantId: string,
+    workspaceId: string,
+  ): Promise<OAuthConnectionView[]> {
+    return (await this.repository.listConnections(tenantId, workspaceId)).map(
+      project,
     );
   }
 
-  create(
-    input: IntegrationInput,
-    actor: ActorContext,
-    traceparent: string | undefined,
-    idempotencyKey: string,
-  ): Promise<EngineResponse<IntegrationResource>> {
-    const instance = "/api/v1/integrations";
-    return this.engine.post(
+  async getConnection(
+    tenantId: string,
+    workspaceId: string,
+    id: string,
+  ): Promise<OAuthConnectionView> {
+    const instance = `/api/v1/integrations/connections/${id}`;
+    return project(
+      await this.requireConnection(tenantId, workspaceId, id, instance),
+    );
+  }
+
+  async scopes(
+    tenantId: string,
+    workspaceId: string,
+    id: string,
+  ): Promise<OAuthScopesView> {
+    const instance = `/api/v1/integrations/connections/${id}/scopes`;
+    const record = await this.requireConnection(
+      tenantId,
+      workspaceId,
+      id,
       instance,
-      input as EngineRequestBody,
-      callerContext(actor, traceparent, instance),
-      { idempotencyKey },
     );
+    return { connection_id: record.id, scopes: splitScopes(record.scopes) };
   }
 
-  test(
-    integrationId: string,
-    input: IntegrationInput,
-    actor: ActorContext,
-    traceparent: string | undefined,
-    idempotencyKey: string,
-  ): Promise<EngineResponse<IntegrationResource>> {
-    const instance =
-      `/api/v1/integrations/${integrationId}/actions/test`;
-    const id = parseIntegrationId(integrationId, instance);
-    return this.engine.post(
-      `/api/v1/integrations/${encodeURIComponent(id)}/actions/test`,
-      input as EngineRequestBody,
-      callerContext(actor, traceparent, instance),
-      { idempotencyKey },
+  async health(
+    tenantId: string,
+    workspaceId: string,
+    id: string,
+    actorId: string,
+  ): Promise<OAuthConnectionView> {
+    const instance = `/api/v1/integrations/connections/${id}/actions/health`;
+    const record = await this.requireConnection(
+      tenantId,
+      workspaceId,
+      id,
+      instance,
     );
+    const definition = this.requireConnector(record.connector, instance);
+
+    let status: string;
+    try {
+      const token = await this.readToken(tenantId, workspaceId, id, instance);
+      await this.http.fetchAccountId(
+        definition.id,
+        definition.userInfoUrl,
+        token.access_token,
+      );
+      status = "healthy";
+    } catch {
+      status = "unhealthy";
+    }
+
+    await this.repository.recordUse(tenantId, id, actorId, "health_check");
+    const updated = await this.repository.updateHealth(
+      tenantId,
+      workspaceId,
+      id,
+      status,
+      new Date(),
+    );
+    if (!updated) throw notFound(instance);
+    return project(updated);
+  }
+
+  async revoke(
+    tenantId: string,
+    workspaceId: string,
+    id: string,
+    actorId: string,
+  ): Promise<OAuthRevokeView> {
+    const instance = `/api/v1/integrations/connections/${id}/actions/revoke`;
+    const record = await this.requireConnection(
+      tenantId,
+      workspaceId,
+      id,
+      instance,
+    );
+    const definition = this.requireConnector(record.connector, instance);
+    const runtime = this.connectorConfig[definition.id];
+    const secretReference = tokenReference(tenantId, workspaceId, id);
+
+    let revokedRemotely = false;
+    let reason: string | undefined;
+    try {
+      if (!runtime?.configured) {
+        reason = `${definition.id} client credentials not configured; local invalidation only`;
+      } else {
+        const token = await this.readToken(tenantId, workspaceId, id, instance);
+        const [clientId, clientSecret] = await Promise.all([
+          this.secrets.getSecret(runtime.clientIdSecretRef),
+          this.secrets.getSecret(runtime.clientSecretSecretRef),
+        ]);
+        const result = await this.http.revoke({
+          connector: definition.id,
+          definition,
+          accessToken: token.access_token,
+          clientId,
+          clientSecret,
+        });
+        revokedRemotely = result.revokedRemotely;
+        reason = result.reason;
+      }
+    } catch (error) {
+      reason = `remote revoke failed: ${error instanceof Error ? error.message : "unknown error"}`;
+    }
+
+    await bestEffortDelete(this.secrets, secretReference);
+    await this.repository.recordUse(tenantId, id, actorId, "revoke");
+    const updated = await this.repository.revokeConnection(
+      tenantId,
+      workspaceId,
+      id,
+    );
+    if (!updated) throw notFound(instance);
+    return {
+      ...project(updated),
+      revoked_remotely: revokedRemotely,
+      ...(reason ? { revoke_disclosure: reason } : {}),
+    };
+  }
+
+  private async readToken(
+    tenantId: string,
+    workspaceId: string,
+    id: string,
+    instance: string,
+  ): Promise<{ access_token: string; refresh_token: string | null }> {
+    const secretReference = tokenReference(tenantId, workspaceId, id);
+    try {
+      const raw = await this.secrets.getSecret(secretReference);
+      return JSON.parse(raw) as { access_token: string; refresh_token: string | null };
+    } catch (error) {
+      throw providerFailure(error, instance);
+    }
+  }
+
+  private requireConnector(
+    id: string,
+    instance: string,
+  ): ConnectorDefinition {
+    const definition = findConnector(id);
+    if (!definition) {
+      throw new IntegrationHttpError(
+        400,
+        "INTEGRATION_CONNECTOR_UNKNOWN",
+        `Unsupported connector: ${id}`,
+        instance,
+      );
+    }
+    return definition;
+  }
+
+  private requireConfigured(
+    connectorId: ConnectorId,
+    instance: string,
+  ): ConnectorRuntimeConfig {
+    const runtime = this.connectorConfig[connectorId];
+    if (!runtime?.configured) {
+      throw new IntegrationHttpError(
+        409,
+        "INTEGRATION_CONNECTOR_NOT_CONFIGURED",
+        `Connector ${connectorId} has no client credentials configured`,
+        instance,
+      );
+    }
+    return runtime;
+  }
+
+  private async requireConnection(
+    tenantId: string,
+    workspaceId: string,
+    id: string,
+    instance: string,
+  ): Promise<OAuthConnectionRecord> {
+    const record = await this.repository.findConnection(
+      tenantId,
+      workspaceId,
+      id,
+    );
+    if (!record) throw notFound(instance);
+    return record;
   }
 }
 
-function callerContext(
-  actor: ActorContext,
-  traceparent: string | undefined,
-  instance: string,
-): EngineCallerContext {
-  if (!actor.workspace_id) {
-    throw new IntegrationHttpError(
-      403,
-      "INTEGRATION_WORKSPACE_REQUIRED",
-      "Workspace actor context required",
-      instance,
-    );
-  }
+export function tokenReference(
+  tenantId: string,
+  workspaceId: string,
+  connectionId: string,
+): string {
+  return `/alter/integrations/${tenantId}/${workspaceId}/${connectionId}`;
+}
+
+function splitScopes(scopes: string): string[] {
+  return scopes.split(" ").filter((scope) => scope.length > 0);
+}
+
+function project(record: OAuthConnectionRecord): OAuthConnectionView {
   return {
-    userId: actor.user_id,
-    tenantId: actor.tenant_id,
-    workspaceId: actor.workspace_id,
-    sessionId: actor.session_id,
-    authTime: actor.auth_time ?? Math.floor(Date.now() / 1_000),
-    roles: actor.roles,
-    permissions: actor.permissions,
-    traceparent: parseTraceparent(traceparent, instance) ?? newTraceparent(),
+    id: record.id,
+    connector: record.connector,
+    external_account_id: record.externalAccountId,
+    scopes: splitScopes(record.scopes),
+    status: record.status,
+    last_health_status: record.lastHealthStatus,
+    last_health_checked_at: record.lastHealthCheckedAt?.toISOString() ?? null,
+    created_at: record.createdAt.toISOString(),
+    version: record.updatedAt.toISOString(),
   };
 }
 
-function withPagination(
-  path: `/api/v1/${string}`,
-  pagination: IntegrationPagination,
-): `/api/v1/${string}` {
-  const query = new URLSearchParams();
-  if (pagination.cursor) query.set("cursor", pagination.cursor);
-  if (pagination.limit !== undefined) {
-    query.set("limit", pagination.limit.toString());
-  }
-  const suffix = query.toString();
-  return suffix ? `${path}?${suffix}` : path;
+function notFound(instance: string): IntegrationHttpError {
+  return new IntegrationHttpError(
+    404,
+    "INTEGRATION_CONNECTION_NOT_FOUND",
+    "Integration connection not found",
+    instance,
+  );
 }
 
-function newTraceparent(): string {
-  return `00-${randomBytes(16).toString("hex")}-${randomBytes(8).toString("hex")}-01`;
+function providerFailure(error: unknown, instance: string): IntegrationHttpError {
+  if (error instanceof IntegrationHttpError) return error;
+  return new IntegrationHttpError(
+    502,
+    "INTEGRATION_PROVIDER_ERROR",
+    error instanceof Error ? error.message : "Integration provider operation failed",
+    instance,
+  );
+}
+
+async function bestEffortDelete(
+  provider: MutableSecretsProvider,
+  reference: string,
+): Promise<void> {
+  try {
+    await provider.deleteSecret(reference);
+  } catch {
+    // Preserve the original provider failure; deletion is best-effort cleanup.
+  }
 }

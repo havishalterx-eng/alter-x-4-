@@ -31,6 +31,11 @@ export const platformApiEnvSchema = z
     RAZORPAY_KEY_ID_SECRET_REF: z.string().min(1).optional(),
     RAZORPAY_KEY_SECRET_SECRET_REF: z.string().min(1).optional(),
     RAZORPAY_WEBHOOK_SECRET_REF: z.string().min(1).optional(),
+    GITHUB_OAUTH_CLIENT_ID_SECRET_REF: z.string().min(1).optional(),
+    GITHUB_OAUTH_CLIENT_SECRET_REF: z.string().min(1).optional(),
+    GOOGLE_OAUTH_CLIENT_ID_SECRET_REF: z.string().min(1).optional(),
+    GOOGLE_OAUTH_CLIENT_SECRET_REF: z.string().min(1).optional(),
+    OAUTH_STATE_TTL_SECONDS: z.string().regex(/^[1-9]\d*$/).optional(),
     AWS_REGION: z.string().min(1).optional(),
   })
   .superRefine((env, context) => {
