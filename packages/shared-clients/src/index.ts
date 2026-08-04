@@ -65,6 +65,12 @@ export {
   type BillingEvent,
   type BillingPlan,
   type BillingProvider,
+  type KycDocumentRef,
+  type KycProvider,
+  type KycSubmission,
+  type MarketplacePayoutProvider,
+  type PayoutSplitResult,
+  type PayoutStatus,
   type BrowserProvider,
   type BrowserInspectionRequest,
   type BrowserInspectionResult,
@@ -163,6 +169,16 @@ export {
   createMockBillingProvider,
   type MockBillingProviderOptions,
 } from "./mocks/billing-provider";
+export {
+  MOCK_KYC_CAPABILITIES,
+  createMockKycProvider,
+  type MockKycProviderOptions,
+} from "./mocks/kyc-provider";
+export {
+  MOCK_MARKETPLACE_PAYOUT_CAPABILITIES,
+  createMockMarketplacePayoutProvider,
+  type MockMarketplacePayoutProviderOptions,
+} from "./mocks/marketplace-payout-provider";
 export {
   MOCK_AUDIT_STORE_CAPABILITIES,
   createMockAuditStoreProvider,

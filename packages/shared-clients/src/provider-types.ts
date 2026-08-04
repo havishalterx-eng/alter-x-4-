@@ -29,6 +29,8 @@ export const CANONICAL_PROVIDER_INTERFACES = [
   "SecretsProvider",
   "ParameterStoreProvider",
   "BillingProvider",
+  "KycProvider",
+  "MarketplacePayoutProvider",
   "ObservabilityProvider",
   "SandboxProvider",
   "RepositoryProvider",
@@ -190,6 +192,55 @@ export interface BillingProvider extends BaseProvider<"BillingProvider"> {
     secret: string,
   ): boolean;
   parseWebhookEvent(rawBody: Uint8Array): BillingEvent;
+}
+
+export interface KycDocumentRef {
+  readonly type: "tax_id" | "bank_proof";
+  readonly objectRef: string;
+}
+
+export interface KycSubmission {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly documents: readonly KycDocumentRef[];
+  readonly status: "pending_review" | "approved" | "rejected";
+  readonly rejectionReason: string | null;
+  readonly submittedAt: string;
+  readonly reviewedAt: string | null;
+}
+
+/** Identity-document verification has no selected vendor; manual review is the current adapter. */
+export interface KycProvider extends BaseProvider<"KycProvider"> {
+  submitVerification(
+    tenantId: string,
+    documents: readonly KycDocumentRef[],
+  ): Promise<KycSubmission>;
+  getVerificationStatus(tenantId: string): Promise<KycSubmission | null>;
+}
+
+export interface PayoutSplitResult {
+  readonly payoutId: string;
+  readonly orderRef: string;
+  readonly sellerShareMinor: string;
+  readonly platformShareMinor: string;
+  readonly status: "created" | "pending" | "processed" | "failed";
+}
+
+export interface PayoutStatus {
+  readonly payoutId: string;
+  readonly status: "created" | "pending" | "processed" | "failed";
+  readonly processedAt: string | null;
+}
+
+export interface MarketplacePayoutProvider
+  extends BaseProvider<"MarketplacePayoutProvider"> {
+  createSplitOrder(
+    orderId: string,
+    sellerAccountRef: string,
+    totalMinor: string,
+    sellerShareBps: number,
+  ): Promise<PayoutSplitResult>;
+  getPayoutStatus(payoutId: string): Promise<PayoutStatus>;
 }
 
 export interface VoiceNumberBindingRequest {

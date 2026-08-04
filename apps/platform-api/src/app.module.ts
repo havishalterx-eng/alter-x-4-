@@ -27,6 +27,7 @@ import { EnvVarModule } from "./env-vars";
 import { CostsModule } from "./costs/costs.module";
 import { WhatsappModule } from "./channels/whatsapp/whatsapp.module";
 import { MarketplaceModule } from "./marketplace";
+import { PublisherModule } from "./publisher";
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { MarketplaceModule } from "./marketplace";
     EnvVarModule,
     WhatsappModule,
     MarketplaceModule,
+    PublisherModule,
   ],
   controllers: [HealthController],
 })

@@ -11,6 +11,12 @@ export {
   type RazorpayHttpResponse,
 } from "./razorpay/razorpay-billing-provider";
 export {
+  RAZORPAY_MARKETPLACE_PAYOUT_CAPABILITIES,
+  RazorpayMarketplacePayoutError,
+  RazorpayMarketplacePayoutProvider,
+  type RazorpayMarketplacePayoutProviderConfig,
+} from "./razorpay/razorpay-marketplace-payout-provider";
+export {
   STRIPE_BILLING_FEATURE_FLAG,
   StripeBillingNotActivatedError,
   StripeBillingProvider,
