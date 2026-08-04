@@ -64,20 +64,9 @@ export const adsDeferredCapabilities = [
       "Upload returns opaque Resource; only the ingestion-job Location header is declared, so signed-URL and job-id body fields cannot be asserted by the BFF.",
   },
   {
-    capability: "retention_config",
-    status: "NOT_MET",
-    reason: "Engine contract has no ADS retention configuration endpoint.",
-  },
-  {
     capability: "source_permissions",
     status: "NOT_MET",
     reason:
       "Engine contract has no source-permission endpoint or declared permission fields.",
-  },
-  {
-    capability: "deletion_certificate",
-    status: "NOT_MET",
-    reason:
-      "Document deletion exists, but its opaque Resource response declares no deletion-certificate surface.",
   },
 ] as const;

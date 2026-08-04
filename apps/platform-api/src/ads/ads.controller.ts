@@ -13,11 +13,16 @@ import {
   UseFilters,
 } from "@nestjs/common";
 import type { FastifyReply } from "fastify";
+import type {
+  RetentionSweepResult,
+  VerificationResult,
+} from "@alterx/contracts";
 import type { EngineResponse } from "../engine";
 import { Idempotent } from "../idempotency";
 import {
   ActorContext,
   RequirePermission,
+  RequireTenantRole,
   RequireWorkspaceRole,
 } from "../rbac";
 import type { ActorContextType } from "../rbac";
@@ -45,6 +50,48 @@ const deleteRoles = ["admin"] as const;
 @UseFilters(AdsExceptionFilter)
 export class AdsController {
   constructor(private readonly ads: AdsService) {}
+
+  @Post("deletion-requests")
+  @RequireTenantRole("owner")
+  @RequirePermission("knowledge:delete")
+  @Idempotent()
+  async requestDeletion(
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<VerificationResult> {
+    const instance = "/api/v1/ads/deletion-requests";
+    return project(
+      await this.ads.requestDeletion(
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+
+  @Post("deletion-requests/retention")
+  @RequireTenantRole("admin")
+  @RequirePermission("knowledge:admin")
+  @Idempotent()
+  async applyRetention(
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<RetentionSweepResult> {
+    const instance = "/api/v1/ads/deletion-requests/retention";
+    return project(
+      await this.ads.applyRetention(
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
 
   @Post("query")
   @RequireWorkspaceRole(...readRoles)
