@@ -86,6 +86,7 @@ import {
   ORCHESTRATION_DELETION_TOKEN_HASH,
 } from "./deletion/deletion.controller";
 import { OrchestrationDeletionService } from "./deletion/deletion.service";
+import { DeletionRequestController } from "./deletion/deletion-request.controller";
 import { ArtifactsController } from "./artifacts/artifacts.controller";
 import { ArtifactsService } from "./artifacts/artifacts.service";
 
@@ -111,6 +112,7 @@ import { ArtifactsService } from "./artifacts/artifacts.service";
     ArtifactsController,
     WhatsappWebhookController,
     DeletionController,
+    DeletionRequestController,
   ],
   providers: [
     {
