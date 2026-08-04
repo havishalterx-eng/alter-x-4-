@@ -10084,6 +10084,116 @@
         }
       }
     },
+    "/api/v1/ads/documents/{id}/actions/reindex": {
+      "post": {
+        "operationId": "post_ads_documents_id_actions_reindex",
+        "summary": "Reindex ADS document",
+        "tags": [
+          "ADS"
+        ],
+        "security": [
+          {
+            "M2MAuth": [],
+            "ActorToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z]+_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "traceparent",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "description": "Typed resource or action input",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Resource"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/ads/knowledge": {
       "post": {
         "operationId": "post_ads_knowledge",

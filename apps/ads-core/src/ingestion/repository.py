@@ -31,6 +31,10 @@ class DocumentNotFoundError(LookupError):
     pass
 
 
+class ReindexConflictError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class StoredIngestionJob:
     ingestion_job_id: str
@@ -51,6 +55,25 @@ class EmbeddedChunk:
     embedding_provider: str
     embedding_model: str
     embedding_version: str
+
+
+@dataclass(frozen=True)
+class StoredDocumentContent:
+    document_id: str
+    scope_id: str
+    document_version: int
+    content_ref: str
+    normalized_ref: str | None
+    content_type: str
+
+
+@dataclass(frozen=True)
+class StoredReindex:
+    document_id: str
+    previous_document_version: int
+    document_version: int
+    embedding_version: str
+    chunk_count: int
 
 
 class IngestionRepository(Protocol):
@@ -120,6 +143,19 @@ class IngestionRepository(Protocol):
         document_version: int,
         chunks: Sequence[EmbeddedChunk],
     ) -> StoredIngestionJob: ...
+
+    def get_current_document_content(
+        self, *, tenant_uuid: str, document_id: str
+    ) -> StoredDocumentContent: ...
+
+    def activate_reindex(
+        self,
+        *,
+        tenant_uuid: str,
+        document_id: str,
+        expected_document_version: int,
+        chunks: Sequence[EmbeddedChunk],
+    ) -> StoredReindex: ...
 
 
 class SqlAlchemyIngestionRepository:
@@ -453,6 +489,126 @@ class SqlAlchemyIngestionRepository:
             job.completed_at = datetime.now(UTC)
             session.flush()
             return self._stored(job)
+
+    def get_current_document_content(
+        self, *, tenant_uuid: str, document_id: str
+    ) -> StoredDocumentContent:
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            row = session.execute(
+                select(Document, DocumentVersion)
+                .join(
+                    DocumentVersion,
+                    (DocumentVersion.document_id == Document.id)
+                    & (DocumentVersion.version == Document.current_version),
+                )
+                .where(
+                    Document.tenant_id == tenant_uuid,
+                    Document.id == document_id,
+                    Document.status == "active",
+                )
+            ).one_or_none()
+            if row is None:
+                raise DocumentNotFoundError("Document does not exist for requesting tenant")
+            document, version = row
+            provenance = dict(version.provenance or {})
+            content_type = provenance.get("content_type")
+            if not isinstance(content_type, str) or not content_type:
+                raise ValueError("Current document version has no content type")
+            return StoredDocumentContent(
+                document_id=document.id,
+                scope_id=document.scope_id,
+                document_version=document.current_version,
+                content_ref=version.content_ref,
+                normalized_ref=version.normalized_ref,
+                content_type=content_type,
+            )
+
+    def activate_reindex(
+        self,
+        *,
+        tenant_uuid: str,
+        document_id: str,
+        expected_document_version: int,
+        chunks: Sequence[EmbeddedChunk],
+    ) -> StoredReindex:
+        if not chunks:
+            raise ValueError("Reindex produced no chunks")
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            document = session.scalar(
+                select(Document)
+                .where(
+                    Document.tenant_id == tenant_uuid,
+                    Document.id == document_id,
+                    Document.status == "active",
+                )
+                .with_for_update()
+            )
+            if document is None:
+                raise DocumentNotFoundError("Document does not exist for requesting tenant")
+            if document.current_version != expected_document_version:
+                raise ReindexConflictError("Document changed during reindex")
+
+            previous = session.scalar(
+                select(DocumentVersion).where(
+                    DocumentVersion.document_id == document_id,
+                    DocumentVersion.version == expected_document_version,
+                )
+            )
+            if previous is None:
+                raise DocumentNotFoundError("Current document version does not exist")
+
+            next_version = expected_document_version + 1
+            provenance = dict(previous.provenance or {})
+            provenance["reindex"] = {
+                "from_document_version": expected_document_version,
+                "embedding_version": chunks[0].embedding_version,
+            }
+            session.add(
+                DocumentVersion(
+                    document_id=document_id,
+                    version=next_version,
+                    content_ref=previous.content_ref,
+                    content_hash=previous.content_hash,
+                    normalized_ref=previous.normalized_ref,
+                    freshness_at=previous.freshness_at,
+                    provenance=provenance,
+                    ingestion_job_id=previous.ingestion_job_id,
+                )
+            )
+            session.flush()
+            for chunk in chunks:
+                session.add(
+                    Chunk(
+                        id=chunk.chunk_id,
+                        tenant_id=tenant_uuid,
+                        scope_id=document.scope_id,
+                        document_id=document_id,
+                        document_version=next_version,
+                        seq=chunk.seq,
+                        text_content=chunk.text,
+                        embedding=list(chunk.embedding),
+                        embedding_provider=chunk.embedding_provider,
+                        embedding_model=chunk.embedding_model,
+                        embedding_version=chunk.embedding_version,
+                    )
+                )
+
+            # Explicit flush order matters because these mappings do not
+            # declare ORM relationships: version FK target first, then all
+            # chunks, then active pointer. One transaction keeps swap atomic.
+            session.flush()
+            document.current_version = next_version
+            document.updated_at = datetime.now(UTC)
+            session.flush()
+            return StoredReindex(
+                document_id=document_id,
+                previous_document_version=expected_document_version,
+                document_version=next_version,
+                embedding_version=chunks[0].embedding_version,
+                chunk_count=len(chunks),
+            )
 
     @staticmethod
     def _set_tenant(session: Session, tenant_uuid: str) -> None:

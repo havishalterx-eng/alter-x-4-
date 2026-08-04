@@ -20,7 +20,7 @@ from src.ingestion import router as router_module
 from src.ingestion.chunking import ParagraphAwareChunkSplitter
 from src.ingestion.embedding_client import EmbeddingDimensions, EmbeddingResult
 from src.ingestion.router import router
-from src.storage.object_storage import InMemoryObjectStorageProvider
+from src.storage.object_storage import InMemoryObjectStorageProvider, S3ObjectStorageProvider
 
 SERVICE_ROOT = Path(__file__).parent.parent
 PGVECTOR_IMAGE = "pgvector/pgvector:pg16"
@@ -120,6 +120,7 @@ def client(database: DatabaseHarness) -> Generator[TestClient, None, None]:
     from src.ingestion.validation import PayloadValidator
 
     repository = SqlAlchemyIngestionRepository(sessions)
+    storage = InMemoryObjectStorageProvider()
     router_module._default_repository = repository
     router_module._default_pipeline = IngestionPipeline(
         repository=repository,
@@ -131,8 +132,9 @@ def client(database: DatabaseHarness) -> Generator[TestClient, None, None]:
         normalizer=TextAwareNormalizer(),
         chunk_splitter=ParagraphAwareChunkSplitter(),
         embedding_client=_FakeEmbeddingClient(),
+        object_storage=storage,
+        max_content_bytes=settings.ads_ingestion_max_content_bytes,
     )
-    storage = InMemoryObjectStorageProvider()
     router_module._default_storage = storage
     router_module._default_settings = settings
 
@@ -355,3 +357,54 @@ def test_get_ingestion_job_404s_across_tenants(
         headers={"X-Alter-Tenant-Id": other_tenant},
     )
     assert response.status_code == 404
+
+
+class _StoredBody:
+    def __init__(self, content: bytes) -> None:
+        self._content = content
+
+    def read(self) -> bytes:
+        return self._content
+
+
+class _RecordingS3Client:
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+        self.deleted: list[str] = []
+
+    def put_object(self, **kwargs: object) -> None:
+        body = kwargs["Body"]
+        assert isinstance(body, bytes)
+        self.objects[str(kwargs["Key"])] = body
+
+    def head_object(self, **kwargs: object) -> dict[str, object]:
+        content = self.objects[str(kwargs["Key"])]
+        return {"ContentLength": len(content), "ContentType": "text/plain"}
+
+    def get_object(self, **kwargs: object) -> dict[str, object]:
+        return {"Body": _StoredBody(self.objects[str(kwargs["Key"])])}
+
+    def delete_object(self, **kwargs: object) -> None:
+        key = str(kwargs["Key"])
+        self.deleted.append(key)
+        self.objects.pop(key, None)
+
+
+def test_s3_durable_write_returns_deletion_visible_reference() -> None:
+    client = _RecordingS3Client()
+    storage = S3ObjectStorageProvider.__new__(S3ObjectStorageProvider)
+    storage.bucket = "alter-ads"
+    storage.endpoint_url = None
+    storage.region = "ap-south-1"
+    storage._client = client
+
+    reference = storage.put_object_bytes(
+        key="tenants/tenant/documents/doc/versions/1/raw",
+        content=b"stored bytes",
+        content_type="text/plain",
+    )
+
+    assert reference == "s3://alter-ads/tenants/tenant/documents/doc/versions/1/raw"
+    assert storage.get_object_bytes(key=reference, max_bytes=1024) == b"stored bytes"
+    storage.delete_object(key=reference)
+    assert client.deleted == ["tenants/tenant/documents/doc/versions/1/raw"]

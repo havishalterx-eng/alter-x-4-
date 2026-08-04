@@ -223,6 +223,29 @@ export class AdsController {
     );
   }
 
+  @Post("documents/:documentId/actions/reindex")
+  @RequireWorkspaceRole(...adminRoles)
+  @RequirePermission("knowledge:admin")
+  @Idempotent()
+  async reindexDocument(
+    @Param("documentId") documentId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<AdsResource> {
+    const instance = `/api/v1/ads/documents/${documentId}/actions/reindex`;
+    return project(
+      await this.ads.reindexDocument(
+        documentId,
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+
   @Delete("documents/:documentId")
   @RequireWorkspaceRole(...deleteRoles)
   @RequirePermission("knowledge:delete")

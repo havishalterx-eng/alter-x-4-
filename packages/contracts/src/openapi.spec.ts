@@ -41,7 +41,7 @@ describe("OpenAPI generation", () => {
       0,
     );
     expect(operationCount).toBe(V1_ROUTE_SPECS.length);
-    expect(operationCount).toBe(90);
+    expect(operationCount).toBe(91);
   });
 
   it("documents both auth headers, problem responses, and idempotency", () => {

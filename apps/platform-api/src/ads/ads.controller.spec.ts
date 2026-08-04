@@ -234,6 +234,27 @@ describe("ADS administration routes", () => {
     );
   });
 
+  it("relays per-document reindex through Engine with tenant actor context", async () => {
+    const result = await request({
+      method: "POST",
+      url: `/api/v1/ads/documents/${documentId}/actions/reindex`,
+      actor,
+      headers: { "idempotency-key": "reindex-document" },
+    });
+
+    expect(result.statusCode).toBe(200);
+    expect(result.json()).toEqual(engine.reindexResource);
+    expect(engine.post).toHaveBeenCalledWith(
+      `/api/v1/ads/documents/${documentId}/actions/reindex`,
+      {},
+      expect.objectContaining({
+        tenantId: actor.tenant_id,
+        workspaceId: actor.workspace_id,
+      }),
+      { idempotencyKey: "reindex-document" },
+    );
+  });
+
   it("passes source, sync, and knowledge bodies to Engine unchanged", async () => {
     const createBody = { connector: "drive", settings: { folder: " a/b\n" } };
     const source = await request({
@@ -387,7 +408,6 @@ describe("ADS administration routes", () => {
         capability: "retrieval_provenance_confidence",
         status: "NOT_MET",
       }),
-      expect.objectContaining({ capability: "reindex", status: "NOT_MET" }),
       expect.objectContaining({
         capability: "retention_config",
         status: "NOT_MET",
@@ -501,6 +521,13 @@ class AdsEngine {
     deleted: true,
     engine_receipt: { opaque: "value" },
   };
+  readonly reindexResource = {
+    document_id: documentId,
+    previous_document_version: 1,
+    document_version: 2,
+    embedding_version: "v2",
+    chunk_count: 3,
+  };
   readonly permissionsResource = {
     visibility: "tenant",
     shared_with: ["team_legal"],
@@ -582,6 +609,9 @@ class AdsEngine {
     }
     if (path.endsWith("/actions/sync")) {
       return { status: 202, body: { id: sourceId, state: "syncing" } };
+    }
+    if (path.endsWith("/actions/reindex")) {
+      return { status: 200, body: this.reindexResource };
     }
     return {
       status: 201,
@@ -683,6 +713,12 @@ function mutationCases() {
     ],
     ["DELETE", `/api/v1/ads/documents/${documentId}`, undefined, 200],
     [
+      "POST",
+      `/api/v1/ads/documents/${documentId}/actions/reindex`,
+      undefined,
+      200,
+    ],
+    [
       "PATCH",
       `/api/v1/ads/documents/${documentId}/permissions`,
       { shared_with: ["team_legal"] },
@@ -708,6 +744,11 @@ function routeCases(): ReadonlyArray<
       { filename: "policy.pdf" },
     ],
     ["DELETE", `/api/v1/ads/documents/${documentId}`, undefined],
+    [
+      "POST",
+      `/api/v1/ads/documents/${documentId}/actions/reindex`,
+      undefined,
+    ],
     ["POST", "/api/v1/ads/knowledge", { title: "Policy" }],
     ["GET", `/api/v1/ads/ingestion/jobs/${jobId}`, undefined],
     ["GET", "/api/v1/ads/documents", undefined],
@@ -771,6 +812,12 @@ function engineErrorCases() {
       `/api/v1/ads/documents/${documentId}/permissions`,
       { shared_with: ["team_legal"] },
       `/api/v1/ads/documents/${documentId}/permissions`,
+    ],
+    [
+      "POST",
+      `/api/v1/ads/documents/${documentId}/actions/reindex`,
+      undefined,
+      `/api/v1/ads/documents/${documentId}/actions/reindex`,
     ],
     [
       "POST",

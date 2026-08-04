@@ -4,10 +4,12 @@ import hashlib
 import json
 import uuid
 from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+import grpc
 import pytest
 import sqlalchemy as sa
 from alembic.config import Config as AlembicConfig
@@ -17,20 +19,31 @@ from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from alter.modelgw.v1 import modelgw_pb2, modelgw_pb2_grpc
 from src.db.ids import new_prefixed_id
 from src.ingestion.chunking import ChunkSplitter, ParagraphAwareChunkSplitter
-from src.ingestion.embedding_client import EmbeddingClient, EmbeddingDimensions, EmbeddingResult
+from src.ingestion.embedding_client import (
+    EmbeddingClient,
+    EmbeddingDimensions,
+    EmbeddingResult,
+    GrpcEmbeddingClient,
+)
 from src.ingestion.models import IngestionPayload, ScanResult
 from src.ingestion.normalization import ContentNormalizer, TextAwareNormalizer
 from src.ingestion.pipeline import IngestionPipeline
 from src.ingestion.repository import (
     IngestionRepository,
     SqlAlchemyIngestionRepository,
+    StoredDocumentContent,
     StoredIngestionJob,
+    StoredReindex,
 )
 from src.ingestion.router import get_ingestion_pipeline, router
 from src.ingestion.scanner import ContentScanner, DisclosedStubScanner
 from src.ingestion.validation import PayloadValidator
+from src.query.models import RetrievalRequest
+from src.query.repository import SqlAlchemyRetrievalRepository
+from src.storage.object_storage import InMemoryObjectStorageProvider, ObjectStorageProvider
 
 SERVICE_ROOT = Path(__file__).parent.parent
 PGVECTOR_IMAGE = "pgvector/pgvector:pg16"
@@ -77,7 +90,7 @@ def database() -> Generator[DatabaseHarness, None, None]:
                 )
             )
             connection.execute(
-                sa.text(f"GRANT SELECT, INSERT ON documents TO {RUNTIME_ROLE}")
+                sa.text(f"GRANT SELECT, INSERT, UPDATE ON documents TO {RUNTIME_ROLE}")
             )
             connection.execute(
                 sa.text(f"GRANT SELECT, INSERT ON document_versions TO {RUNTIME_ROLE}")
@@ -85,6 +98,7 @@ def database() -> Generator[DatabaseHarness, None, None]:
             connection.execute(
                 sa.text(f"GRANT SELECT, INSERT ON chunks TO {RUNTIME_ROLE}")
             )
+            connection.execute(sa.text(f"GRANT SELECT ON scopes TO {RUNTIME_ROLE}"))
 
         runtime_url = sa.engine.make_url(admin_url).set(
             username=RUNTIME_ROLE,
@@ -156,6 +170,23 @@ class FakeEmbeddingClient:
         return EmbeddingResult(vector=vector, model_id=FAKE_MODEL_ID)
 
 
+class _EmbeddingServicer(modelgw_pb2_grpc.ModelgwServiceServicer):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, int]] = []
+
+    def Embed(  # noqa: N802 -- generated gRPC method name
+        self,
+        request: modelgw_pb2.EmbedRequest,
+        context: grpc.ServicerContext,
+    ) -> modelgw_pb2.EmbedResponse:
+        del context
+        self.calls.append((request.tenant_id, request.text, request.dimensions))
+        return modelgw_pb2.EmbedResponse(
+            embedding=[0.5 for _ in range(request.dimensions)],
+            model_id=FAKE_MODEL_ID,
+        )
+
+
 def _pipeline(
     database: DatabaseHarness,
     *,
@@ -165,6 +196,8 @@ def _pipeline(
     normalizer: ContentNormalizer | None = None,
     chunk_splitter: ChunkSplitter | None = None,
     embedding_client: EmbeddingClient | None = None,
+    object_storage: ObjectStorageProvider | None = None,
+    embedding_pipeline_version: str = "v1",
 ) -> IngestionPipeline:
     return IngestionPipeline(
         repository=repository or SqlAlchemyIngestionRepository(database.sessions),
@@ -176,6 +209,9 @@ def _pipeline(
         ),
         scanner=scanner or DisclosedStubScanner((KNOWN_BAD,)),
         normalizer=normalizer or TextAwareNormalizer(),
+        object_storage=object_storage or InMemoryObjectStorageProvider(),
+        max_content_bytes=max_content_bytes,
+        embedding_pipeline_version=embedding_pipeline_version,
     )
 
 
@@ -223,6 +259,12 @@ class RecordingRepository:
         job = self._delegate.create_chunks_and_index(**kwargs)  # type: ignore[arg-type]
         self._record(str(kwargs["tenant_uuid"]), job.ingestion_job_id)
         return job
+
+    def get_current_document_content(self, **kwargs: object) -> StoredDocumentContent:
+        return self._delegate.get_current_document_content(**kwargs)  # type: ignore[arg-type]
+
+    def activate_reindex(self, **kwargs: object) -> StoredReindex:
+        return self._delegate.activate_reindex(**kwargs)  # type: ignore[arg-type]
 
     def _record(self, tenant_uuid: str, ingestion_job_id: str) -> None:
         with self._sessions.begin() as session:
@@ -686,3 +728,196 @@ def test_long_text_splits_into_multiple_chunks_without_cutting_a_paragraph(
     # Neither paragraph was cut mid-string across chunk boundaries.
     assert any(paragraph_a.strip() in row["text_content"] for row in chunks)
     assert any(paragraph_b.strip() in row["text_content"] for row in chunks)
+
+
+def test_reindex_reads_stored_content_and_atomically_activates_new_chunks(
+    database: DatabaseHarness,
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    storage = InMemoryObjectStorageProvider()
+    content = b"stored paragraph for a real reindex"
+    initial = _pipeline(
+        database,
+        object_storage=storage,
+        embedding_pipeline_version="v0",
+    ).ingest(IngestionPayload(tenant_id, source_id, "text/plain", content))
+    document_id = str(_dedup_stats(initial.stats)["document_id"])
+
+    with _tenant_scoped(database, tenant_uuid) as connection:
+        refs = (
+            connection.execute(
+                sa.text(
+                    "SELECT content_ref, normalized_ref FROM document_versions "
+                    "WHERE document_id = :document AND version = 1"
+                ),
+                {"document": document_id},
+            )
+            .mappings()
+            .one()
+        )
+    assert storage.get_object_bytes(key=refs["content_ref"], max_bytes=1024) == content
+    assert storage.get_object_bytes(key=refs["normalized_ref"], max_bytes=1024) == content
+
+    servicer = _EmbeddingServicer()
+    grpc_server = grpc.server(ThreadPoolExecutor(max_workers=1))
+    modelgw_pb2_grpc.add_ModelgwServiceServicer_to_server(  # type: ignore[no-untyped-call]
+        servicer, grpc_server
+    )
+    port = grpc_server.add_insecure_port("127.0.0.1:0")
+    grpc_server.start()
+    embedding_client = GrpcEmbeddingClient(f"127.0.0.1:{port}")
+    try:
+        pipeline = _pipeline(
+            database,
+            object_storage=storage,
+            embedding_client=embedding_client,
+            embedding_pipeline_version="v1",
+        )
+        application = FastAPI()
+        application.include_router(router)
+        application.dependency_overrides[get_ingestion_pipeline] = lambda: pipeline
+
+        response = TestClient(application).post(
+            f"/ads/documents/{document_id}/actions/reindex",
+            headers={"X-Alter-Tenant-Id": tenant_id},
+        )
+    finally:
+        embedding_client.close()
+        grpc_server.stop(0).wait()
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "document_id": document_id,
+        "previous_document_version": 1,
+        "document_version": 2,
+        "embedding_version": "v1",
+        "chunk_count": 1,
+    }
+    assert servicer.calls == [(tenant_id, content.decode(), 1024)]
+
+    with _tenant_scoped(database, tenant_uuid) as connection:
+        current_version = connection.scalar(
+            sa.text("SELECT current_version FROM documents WHERE id = :document"),
+            {"document": document_id},
+        )
+        generation_rows = connection.execute(
+            sa.text(
+                "SELECT document_version, embedding_version FROM chunks "
+                "WHERE document_id = :document ORDER BY document_version"
+            ),
+            {"document": document_id},
+        ).all()
+        scope = connection.execute(
+            sa.text(
+                "SELECT s.id, s.workspace_id::text FROM scopes s "
+                "JOIN documents d ON d.scope_id = s.id AND d.tenant_id = s.tenant_id "
+                "WHERE d.id = :document"
+            ),
+            {"document": document_id},
+        ).one()
+    assert current_version == 2
+    assert [(row[0], row[1]) for row in generation_rows] == [(1, "v0"), (2, "v1")]
+
+    retrieved = SqlAlchemyRetrievalRepository(database.sessions).retrieve(
+        RetrievalRequest(
+            tenant_id=tenant_id,
+            workspace_id=f"ws_{scope[1]}",
+            requester="reindex-test",
+            query="stored paragraph",
+            scope_ids=(str(scope[0]),),
+        ),
+        tuple(0.5 for _ in range(1024)),
+    )
+    assert len(retrieved.hits) == 1
+    assert retrieved.hits[0].document_id == document_id
+    assert retrieved.hits[0].provenance["document"]["version"] == 2  # type: ignore[index]
+
+
+def test_reindex_is_tenant_scoped_and_cross_tenant_request_is_hidden(
+    database: DatabaseHarness,
+) -> None:
+    tenant_a, tenant_a_uuid = _new_tenant()
+    tenant_b, _ = _new_tenant()
+    source_id = _seed_source(database, tenant_a_uuid)
+    storage = InMemoryObjectStorageProvider()
+    pipeline = _pipeline(database, object_storage=storage)
+    initial = pipeline.ingest(IngestionPayload(tenant_a, source_id, "text/plain", b"tenant A only"))
+    document_id = str(_dedup_stats(initial.stats)["document_id"])
+    application = FastAPI()
+    application.include_router(router)
+    application.dependency_overrides[get_ingestion_pipeline] = lambda: pipeline
+
+    response = TestClient(application).post(
+        f"/ads/documents/{document_id}/actions/reindex",
+        headers={"X-Alter-Tenant-Id": tenant_b},
+    )
+
+    assert response.status_code == 404
+    with _tenant_scoped(database, tenant_a_uuid) as connection:
+        assert (
+            connection.scalar(
+                sa.text("SELECT current_version FROM documents WHERE id = :document"),
+                {"document": document_id},
+            )
+            == 1
+        )
+        assert (
+            connection.scalar(
+                sa.text("SELECT count(*) FROM chunks WHERE document_id = :document"),
+                {"document": document_id},
+            )
+            == 1
+        )
+
+
+class _FailingEmbeddingClient:
+    def embed(
+        self, *, tenant_id: str, text: str, dimensions: EmbeddingDimensions
+    ) -> EmbeddingResult:
+        del tenant_id, text, dimensions
+        raise RuntimeError("embedding unavailable")
+
+
+def test_reindex_failure_keeps_previous_chunk_generation_active(
+    database: DatabaseHarness,
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    storage = InMemoryObjectStorageProvider()
+    initial = _pipeline(database, object_storage=storage).ingest(
+        IngestionPayload(tenant_id, source_id, "text/plain", b"durable old generation")
+    )
+    document_id = str(_dedup_stats(initial.stats)["document_id"])
+    failing = _pipeline(
+        database,
+        object_storage=storage,
+        embedding_client=_FailingEmbeddingClient(),
+        embedding_pipeline_version="v2",
+    )
+
+    with pytest.raises(RuntimeError, match="embedding unavailable"):
+        failing.reindex(tenant_id=tenant_id, document_id=document_id)
+
+    with _tenant_scoped(database, tenant_uuid) as connection:
+        assert (
+            connection.scalar(
+                sa.text("SELECT current_version FROM documents WHERE id = :document"),
+                {"document": document_id},
+            )
+            == 1
+        )
+        assert (
+            connection.scalar(
+                sa.text("SELECT count(*) FROM document_versions WHERE document_id = :document"),
+                {"document": document_id},
+            )
+            == 1
+        )
+        assert (
+            connection.scalar(
+                sa.text("SELECT count(*) FROM chunks WHERE document_id = :document"),
+                {"document": document_id},
+            )
+            == 1
+        )

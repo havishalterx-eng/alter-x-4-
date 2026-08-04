@@ -51,6 +51,8 @@ class ObjectStorageProvider(Protocol):
 
     def get_object_bytes(self, *, key: str, max_bytes: int) -> bytes: ...
 
+    def put_object_bytes(self, *, key: str, content: bytes, content_type: str) -> str: ...
+
     def delete_object(self, *, key: str) -> None: ...
 
 
@@ -102,6 +104,11 @@ class InMemoryObjectStorageProvider:
         if len(content) > max_bytes:
             raise ValueError(f"Object at key {key!r} exceeds {max_bytes}-byte limit")
         return content
+
+    def put_object_bytes(self, *, key: str, content: bytes, content_type: str) -> str:
+        self._objects[key] = content
+        self._content_types[key] = content_type
+        return key
 
     def delete_object(self, *, key: str) -> None:
         self._objects.pop(key, None)
@@ -164,7 +171,9 @@ class S3ObjectStorageProvider:
         from botocore.exceptions import ClientError  # local import
 
         try:
-            response = self._client.head_object(Bucket=self.bucket, Key=key)  # type: ignore[attr-defined]
+            response = self._client.head_object(  # type: ignore[attr-defined]
+                Bucket=self.bucket, Key=self._key(key)
+            )
         except ClientError as exc:
             error_code = exc.response.get("Error", {}).get("Code")
             if error_code in {"404", "NoSuchKey", "NotFound"}:
@@ -182,8 +191,27 @@ class S3ObjectStorageProvider:
             raise ObjectNotFoundError(f"No object at key {key!r}")
         if head.size_bytes > max_bytes:
             raise ValueError(f"Object at key {key!r} exceeds {max_bytes}-byte limit")
-        response = self._client.get_object(Bucket=self.bucket, Key=key)  # type: ignore[attr-defined]
+        response = self._client.get_object(  # type: ignore[attr-defined]
+            Bucket=self.bucket, Key=self._key(key)
+        )
         return response["Body"].read()  # type: ignore[no-any-return]
 
+    def put_object_bytes(self, *, key: str, content: bytes, content_type: str) -> str:
+        self._client.put_object(  # type: ignore[attr-defined]
+            Bucket=self.bucket,
+            Key=self._key(key),
+            Body=content,
+            ContentType=content_type,
+        )
+        return f"s3://{self.bucket}/{self._key(key)}"
+
     def delete_object(self, *, key: str) -> None:
-        self._client.delete_object(Bucket=self.bucket, Key=key)  # type: ignore[attr-defined]
+        self._client.delete_object(  # type: ignore[attr-defined]
+            Bucket=self.bucket, Key=self._key(key)
+        )
+
+    def _key(self, key_or_reference: str) -> str:
+        prefix = f"s3://{self.bucket}/"
+        if key_or_reference.startswith("s3://") and not key_or_reference.startswith(prefix):
+            raise ValueError("Object reference belongs to a different bucket")
+        return key_or_reference.removeprefix(prefix)

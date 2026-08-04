@@ -32,6 +32,7 @@ WITH candidates AS (
   WHERE c.tenant_id = CAST(:tenant_id AS uuid)
     AND s.workspace_id = CAST(:workspace_id AS uuid)
     AND d.status = 'active'
+    AND c.document_version = d.current_version
     AND (
       cardinality(CAST(:scope_ids AS text[])) = 0
       OR c.scope_id = ANY(CAST(:scope_ids AS text[]))

@@ -232,6 +232,7 @@ export const V1_ROUTE_SPECS: readonly V1RouteSpec[] = [
   { method: "post", path: "/ads/sources/{id}/actions/sync", summary: "Sync ADS source", tag: "ADS", successStatus: 202 },
   { method: "get", path: "/ads/documents", summary: "List ADS documents", tag: "ADS", collection: true },
   { method: "get", path: "/ads/documents/{id}", summary: "Get ADS document", tag: "ADS" },
+  { method: "post", path: "/ads/documents/{id}/actions/reindex", summary: "Reindex ADS document", tag: "ADS" },
   { method: "post", path: "/ads/knowledge", summary: "Create ADS knowledge", tag: "ADS", successStatus: 201 },
   { method: "delete", path: "/ads/documents/{id}", summary: "Delete ADS document", tag: "ADS" },
 

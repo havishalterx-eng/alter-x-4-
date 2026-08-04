@@ -136,6 +136,23 @@ export class AdsService {
     );
   }
 
+  reindexDocument(
+    documentId: string,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<AdsResource>> {
+    const instance = `/api/v1/ads/documents/${documentId}/actions/reindex`;
+    const id = parseAdsId(documentId, "documentId", instance);
+    return this.post(
+      `/api/v1/ads/documents/${encodeURIComponent(id)}/actions/reindex`,
+      {},
+      actor,
+      traceparent,
+      idempotencyKey,
+    );
+  }
+
   deleteDocument(
     documentId: string,
     actor: ActorContext,

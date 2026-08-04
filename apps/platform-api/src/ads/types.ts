@@ -45,11 +45,6 @@ export const adsDeferredCapabilities = [
       "Engine contract declares no retrieval result, provenance, or confidence shape.",
   },
   {
-    capability: "reindex",
-    status: "NOT_MET",
-    reason: "Engine contract has no ADS re-index endpoint.",
-  },
-  {
     capability: "retention_config",
     status: "NOT_MET",
     reason: "Engine contract has no ADS retention configuration endpoint.",

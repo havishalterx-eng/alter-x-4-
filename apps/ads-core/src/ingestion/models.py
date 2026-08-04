@@ -37,6 +37,14 @@ class IngestionJobResponse(_StrictFrozenModel):
     completed_at: datetime | None
 
 
+class ReindexResponse(_StrictFrozenModel):
+    document_id: str
+    previous_document_version: int
+    document_version: int
+    embedding_version: str
+    chunk_count: int
+
+
 @dataclass(frozen=True)
 class IngestionPayload:
     tenant_id: str

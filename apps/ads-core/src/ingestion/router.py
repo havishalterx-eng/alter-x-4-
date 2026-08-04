@@ -38,6 +38,7 @@ from .models import (
     IngestionPayload,
     PresignUploadRequest,
     PresignUploadResponse,
+    ReindexResponse,
 )
 from .normalization import TextAwareNormalizer
 from .permissions import DocumentPermissions, DocumentPermissionsPatch
@@ -45,6 +46,7 @@ from .pipeline import IngestionPipeline
 from .repository import (
     DocumentNotFoundError,
     IngestionJobNotFoundError,
+    ReindexConflictError,
     SourceNotFoundError,
     SqlAlchemyIngestionRepository,
 )
@@ -92,6 +94,7 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     repository = SqlAlchemyIngestionRepository(sessions)
     _default_repository = repository
+    _default_storage = _build_object_storage(settings)
     _default_embedding_client = GrpcEmbeddingClient(settings.model_gateway_grpc_target)
     _default_pipeline = IngestionPipeline(
         repository=repository,
@@ -103,6 +106,8 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
         normalizer=TextAwareNormalizer(),
         chunk_splitter=ParagraphAwareChunkSplitter(),
         embedding_client=_default_embedding_client,
+        object_storage=_default_storage,
+        max_content_bytes=settings.ads_ingestion_max_content_bytes,
     )
     configure_connector_service(
         ConnectorSyncService(
@@ -116,7 +121,6 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
             ),
         )
     )
-    _default_storage = _build_object_storage(settings)
     configure_retrieval_service(
         RetrievalService(
             repository=SqlAlchemyRetrievalRepository(sessions),
@@ -462,3 +466,29 @@ async def get_ingestion_job(
         created_at=job.created_at,
         completed_at=job.completed_at,
     )
+
+
+@router.post(
+    "/documents/{document_id}/actions/reindex",
+    response_model=ReindexResponse,
+)
+async def reindex_document(
+    document_id: str,
+    pipeline: PipelineDep,
+    tenant_id: Annotated[str, Header(alias="X-Alter-Tenant-Id")],
+) -> ReindexResponse:
+    try:
+        return await run_in_threadpool(
+            pipeline.reindex,
+            tenant_id=tenant_id,
+            document_id=document_id,
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (ObjectNotFoundError, ReindexConflictError) as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
