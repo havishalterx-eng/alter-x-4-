@@ -18,6 +18,7 @@ import {
   PlannerClient,
   PolicyStoreClient,
   SandboxServiceClient,
+  S3ObjectStorageProvider,
   NodeexecGrpcController,
   PostgresOrchestrationStoreProvider,
   RedisCacheProvider,
@@ -85,6 +86,8 @@ import {
   ORCHESTRATION_DELETION_TOKEN_HASH,
 } from "./deletion/deletion.controller";
 import { OrchestrationDeletionService } from "./deletion/deletion.service";
+import { ArtifactsController } from "./artifacts/artifacts.controller";
+import { ArtifactsService } from "./artifacts/artifacts.service";
 
 @Module({
   controllers: [
@@ -105,6 +108,7 @@ import { OrchestrationDeletionService } from "./deletion/deletion.service";
     TriggerRegistryController,
     WorkflowReadController,
     ProjectReadController,
+    ArtifactsController,
     WhatsappWebhookController,
     DeletionController,
   ],
@@ -255,6 +259,22 @@ import { OrchestrationDeletionService } from "./deletion/deletion.service";
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
         return new ProjectReadService(store);
+      },
+    },
+    {
+      provide: ArtifactsService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        return new ArtifactsService(store, new S3ObjectStorageProvider({ region: dbConfig.awsRegion }));
       },
     },
     {

@@ -383,6 +383,7 @@ export interface ObjectStorageProvider
   extends BaseProvider<"ObjectStorageProvider"> {
   deleteObject(reference: string): Promise<void>;
   objectExists(reference: string): Promise<boolean>;
+  createPresignedDownloadUrl(reference: string, expiresInSeconds: number): Promise<string>;
 }
 export interface QueueProvider extends BaseProvider<"QueueProvider"> {
   publish(queueName: string, message: JsonValue): Promise<void>;

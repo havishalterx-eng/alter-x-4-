@@ -34,6 +34,7 @@ describe("orchestration migration files", () => {
       "0017_allow_pending_recovery_policy.sql",
       "0018_add_blocked_pending_recovery_status.sql",
       "0019_create_projects.sql",
+      "0020_create_artifacts.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -60,6 +61,7 @@ describe("orchestration migration files", () => {
       "0017_require_recovery_policy.sql",
       "0018_remove_blocked_pending_recovery_status.sql",
       "0019_drop_projects.sql",
+      "0020_drop_artifacts.sql",
     ]);
   });
 
@@ -82,7 +84,7 @@ describe("orchestration migration files", () => {
     expect(allSql.match(/CREATE OR REPLACE FUNCTION reject_tenant_id_change/g))
       .toHaveLength(1);
     expect(allSql.match(/EXECUTE FUNCTION reject_tenant_id_change\(\)/g))
-      .toHaveLength(17);
+      .toHaveLength(18);
   });
 
   it("persists a bounded traffic percentage only for canary versions", () => {
@@ -200,6 +202,9 @@ describe("orchestration migration files", () => {
     );
     expect(allSql).toContain(
       `CONSTRAINT "approvals_status_check" CHECK ("status" IN ('pending', 'approved', 'rejected', 'expired'))`,
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "artifacts_run_tenant_fk" FOREIGN KEY ("tenant_id", "run_id") REFERENCES "runs"("tenant_id", "id") ON DELETE CASCADE',
     );
   });
 

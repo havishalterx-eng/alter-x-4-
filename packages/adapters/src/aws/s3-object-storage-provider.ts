@@ -1,10 +1,12 @@
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   NotFound,
   S3Client,
   type S3ClientConfig,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { ProviderCapabilities } from "@alterx/contracts";
 import type {
   ObjectStorageProvider,
@@ -21,6 +23,7 @@ export interface S3ObjectStorageProviderConfig {
   readonly endpoint?: string;
   readonly forcePathStyle?: boolean;
   readonly client?: S3CommandClient;
+  readonly presignGet?: (bucket: string, key: string, expiresInSeconds: number) => Promise<string>;
 }
 
 const CAPABILITIES: ProviderCapabilities = {
@@ -64,6 +67,7 @@ export class S3ObjectStorageProvider implements ObjectStorageProvider {
   };
   readonly capabilities = CAPABILITIES;
   readonly #client: S3CommandClient;
+  readonly #presignGet: (bucket: string, key: string, expiresInSeconds: number) => Promise<string>;
 
   constructor(config: S3ObjectStorageProviderConfig) {
     if (config.region.trim().length === 0) throw new Error("region is required");
@@ -74,7 +78,10 @@ export class S3ObjectStorageProvider implements ObjectStorageProvider {
         ? {}
         : { forcePathStyle: config.forcePathStyle }),
     };
-    this.#client = config.client ?? new S3Client(sdkConfig);
+    const s3Client = new S3Client(sdkConfig);
+    this.#client = config.client ?? s3Client;
+    this.#presignGet = config.presignGet ?? ((bucket, key, expiresInSeconds) =>
+      getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: expiresInSeconds }));
   }
 
   async deleteObject(reference: string): Promise<void> {
@@ -93,6 +100,14 @@ export class S3ObjectStorageProvider implements ObjectStorageProvider {
       }
       throw error;
     }
+  }
+
+  async createPresignedDownloadUrl(reference: string, expiresInSeconds: number): Promise<string> {
+    if (!Number.isInteger(expiresInSeconds) || expiresInSeconds < 1 || expiresInSeconds > 604_800) {
+      throw new Error("expiresInSeconds must be an integer from 1 to 604800");
+    }
+    const { bucket, key } = parseReference(reference);
+    return this.#presignGet(bucket, key, expiresInSeconds);
   }
 
   async healthCheck(): Promise<ProviderHealth> {

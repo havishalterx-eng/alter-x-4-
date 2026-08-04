@@ -23,6 +23,8 @@ export function createMockObjectStorageProvider(
         deletedReferences.push(reference);
       },
       objectExists: async (reference) => objects.has(reference),
+      createPresignedDownloadUrl: async (reference, expiresInSeconds) =>
+        `https://object-storage.invalid/download?reference=${encodeURIComponent(reference)}&expires=${expiresInSeconds}`,
       deletedReferences,
       put: (reference) => objects.add(reference),
     },

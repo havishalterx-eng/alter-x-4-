@@ -48,6 +48,22 @@ describe("S3ObjectStorageProvider", () => {
     await expect(provider.deleteObject("https://example.test/object")).rejects.toThrow("s3://");
   });
 
+  it("creates a bounded presigned download URL for an S3 reference", async () => {
+    const presignGet = vi.fn().mockResolvedValue("https://signed.example.test/object");
+    const provider = new S3ObjectStorageProvider({
+      region: "ap-south-1",
+      presignGet,
+    });
+
+    await expect(
+      provider.createPresignedDownloadUrl("s3://tenant-bucket/path/raw.json", 900),
+    ).resolves.toBe("https://signed.example.test/object");
+    expect(presignGet).toHaveBeenCalledWith("tenant-bucket", "path/raw.json", 900);
+    await expect(
+      provider.createPresignedDownloadUrl("s3://tenant-bucket/path/raw.json", 0),
+    ).rejects.toThrow("expiresInSeconds");
+  });
+
   it("treats a 404 head response as verified absent and propagates other failures", async () => {
     const missing = new S3ObjectStorageProvider({
       region: "ap-south-1",
