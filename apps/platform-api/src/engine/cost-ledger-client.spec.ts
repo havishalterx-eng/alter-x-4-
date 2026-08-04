@@ -100,6 +100,52 @@ describe("CostLedgerClient", () => {
       problem: { status: 502 },
     });
   });
+
+  it("gets summary through existing HTTP client with actor scope and dimensions", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, {
+      rollups_json: "{\"groups\":[]}",
+    }));
+    const client = new CostLedgerClient(config, authProvider(), fetchImpl);
+
+    await expect(client.getSummary({
+      startAt: "2026-01-01T00:00:00.000Z",
+      endAt: "2026-02-01T00:00:00.000Z",
+      dimensions: ["mode", "provider"],
+    }, context)).resolves.toBe("{\"groups\":[]}");
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      `https://costs.test/costs/summary?tenantId=${context.tenantId}&workspaceId=${context.workspaceId}&startAt=2026-01-01T00%3A00%3A00.000Z&endAt=2026-02-01T00%3A00%3A00.000Z&dimensions=mode&dimensions=provider`,
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("relays estimate with bare upstream tenant ID and fails closed for malformed data", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, estimateResponse()));
+    const client = new CostLedgerClient(config, authProvider(), fetchImpl);
+    await expect(client.estimate({
+      mode: "workflow",
+      lineItems: [{
+        source: "model_gateway",
+        provider: "bedrock",
+        resource: "claude",
+        expectedQuantity: 2,
+      }],
+    }, context)).resolves.toMatchObject({ currency: "INR" });
+    const request = fetchImpl.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      tenantId: context.tenantId.slice(4),
+      mode: "workflow",
+    });
+
+    const malformed = new CostLedgerClient(
+      config,
+      authProvider(),
+      vi.fn().mockResolvedValue(jsonResponse(200, { currency: "USD" })),
+    );
+    await expect(malformed.estimate({ mode: "workflow", lineItems: [] }, context)).rejects.toMatchObject({
+      problem: { status: 502, error_code: "UPSTREAM_SERVICE_ERROR" },
+    });
+  });
 });
 
 function authProvider(): EngineAuthProvider {
@@ -116,4 +162,25 @@ function jsonResponse(status: number, body: unknown): Response {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+function estimateResponse(): unknown {
+  return {
+    currency: "INR",
+    lineItems: [{
+      source: "model_gateway",
+      provider: "bedrock",
+      resource: "claude",
+      expectedQuantity: 2,
+      confidence: "tenant_historical",
+      sampleSize: 3,
+      historicalUnitCostMinor: "4",
+      estimatedBaseCostMinor: "8",
+      historicalRetryRate: 0,
+      estimatedRetryCostMinor: "0",
+      estimatedTotalCostMinor: "8",
+    }],
+    totalEstimatedInternalCostMinor: "8",
+    hasUnestimatedLineItems: false,
+  };
 }
