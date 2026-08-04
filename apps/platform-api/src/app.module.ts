@@ -24,6 +24,7 @@ import { IntegrationModule } from "./integrations";
 import { TriggerModule } from "./triggers";
 import { BillingModule } from "./billing";
 import { EnvVarModule } from "./env-vars";
+import { CostsModule } from "./costs/costs.module";
 import { WhatsappModule } from "./channels/whatsapp/whatsapp.module";
 
 @Module({
@@ -51,6 +52,7 @@ import { WhatsappModule } from "./channels/whatsapp/whatsapp.module";
     IntegrationModule,
     TriggerModule,
     BillingModule,
+    CostsModule,
     EnvVarModule,
     WhatsappModule,
   ],

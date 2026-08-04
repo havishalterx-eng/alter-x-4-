@@ -11,6 +11,7 @@ import { COST_STORE_PROVIDER, type CostStoreProvider } from "./database/cost-sto
 import { CostStoreLifecycle } from "./database/store.lifecycle";
 import { CostIngestService, type CostEventStore } from "./ingest/cost-ingest.service";
 import { CostRollupService, type RollupStore } from "./rollup/cost-rollup.service";
+import { CostSummaryController } from "./rollup/cost-summary.controller";
 import { EstimationController } from "./estimation/estimation.controller";
 import { EstimationService } from "./estimation/estimation.service";
 import { HealthController } from "./health/health.controller";
@@ -33,24 +34,30 @@ export class AppModule {
         HealthController,
         EstimationController,
         NodeCostsController,
+        CostSummaryController,
       ],
       providers: [
         { provide: COST_STORE_PROVIDER, useValue: store },
         EstimationService,
         NodeCostsService,
+        {
+          provide: CostRollupService,
+          useFactory: () =>
+            new CostRollupService(
+              store as unknown as RollupStore,
+              marginRate,
+              pseudonymKey,
+            ),
+        },
         CostStoreLifecycle,
         {
           provide: COST_HANDLER,
-          useFactory: (): CostHandler => {
+          inject: [CostRollupService],
+          useFactory: (rollup: CostRollupService): CostHandler => {
             const ingest = new CostIngestService(
               store as unknown as CostEventStore,
               runsClient,
               usdToInrRate,
-            );
-            const rollup = new CostRollupService(
-              store as unknown as RollupStore,
-              marginRate,
-              pseudonymKey,
             );
             return {
               ingestCostEvent: (request) => ingest.ingestCostEvent(request),
