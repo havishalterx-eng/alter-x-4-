@@ -211,6 +211,71 @@
         ],
         "additionalProperties": false
       },
+      "CreateVoiceNumberBindingRequest": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^ws_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "exotel",
+              "twilio"
+            ]
+          },
+          "phone_number": {
+            "type": "string",
+            "pattern": "^\\+[1-9]\\d{1,14}$"
+          },
+          "credential_reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "Opaque external reference. It is never an Alter primary key and must not contain a credential value."
+          },
+          "call_handling": {
+            "type": "object",
+            "properties": {
+              "inbound_calls_enabled": {
+                "type": "boolean"
+              },
+              "voice_style": {
+                "type": "object",
+                "properties": {
+                  "language_tag": {
+                    "type": "string",
+                    "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"
+                  },
+                  "voice_style": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "language_tag"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "inbound_calls_enabled",
+              "voice_style"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "workspace_id",
+          "provider",
+          "phone_number",
+          "credential_reference",
+          "call_handling"
+        ],
+        "additionalProperties": false
+      },
       "CursorPage": {
         "type": "object",
         "properties": {
@@ -233,6 +298,24 @@
           "next_cursor",
           "has_more",
           "limit"
+        ],
+        "additionalProperties": false
+      },
+      "InitiateVoiceCallRequest": {
+        "type": "object",
+        "properties": {
+          "voice_account_id": {
+            "type": "string",
+            "pattern": "^voc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          },
+          "to_phone_number": {
+            "type": "string",
+            "pattern": "^\\+[1-9]\\d{1,14}$"
+          }
+        },
+        "required": [
+          "voice_account_id",
+          "to_phone_number"
         ],
         "additionalProperties": false
       },
@@ -1843,6 +1926,383 @@
           "config",
           "status",
           "nextFireAt"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateVoiceCallHandlingRequest": {
+        "type": "object",
+        "properties": {
+          "call_handling": {
+            "type": "object",
+            "properties": {
+              "inbound_calls_enabled": {
+                "type": "boolean"
+              },
+              "voice_style": {
+                "type": "object",
+                "properties": {
+                  "language_tag": {
+                    "type": "string",
+                    "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"
+                  },
+                  "voice_style": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "language_tag"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "inbound_calls_enabled",
+              "voice_style"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "call_handling"
+        ],
+        "additionalProperties": false
+      },
+      "VoiceAccountHealth": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "unhealthy"
+            ]
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "status",
+          "checked_at",
+          "latency_ms"
+        ],
+        "additionalProperties": false
+      },
+      "VoiceCall": {
+        "type": "object",
+        "properties": {
+          "provider_call_reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "Opaque external reference. It is never an Alter primary key and must not contain a credential value."
+          },
+          "voice_account_id": {
+            "type": "string",
+            "pattern": "^voc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "initiated",
+              "ringing",
+              "in_progress",
+              "completed",
+              "busy",
+              "failed",
+              "no_answer",
+              "cancelled"
+            ]
+          },
+          "from_phone_number": {
+            "type": "string",
+            "pattern": "^\\+[1-9]\\d{1,14}$"
+          },
+          "to_phone_number": {
+            "type": "string",
+            "pattern": "^\\+[1-9]\\d{1,14}$"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "provider_call_reference",
+          "voice_account_id",
+          "direction",
+          "status",
+          "from_phone_number",
+          "to_phone_number",
+          "started_at",
+          "ended_at"
+        ],
+        "additionalProperties": false
+      },
+      "VoiceCapabilities": {
+        "type": "object",
+        "properties": {
+          "supports_inbound_calls": {
+            "type": "boolean"
+          },
+          "supports_outbound_calls": {
+            "type": "boolean"
+          },
+          "supports_status_callbacks": {
+            "type": "boolean"
+          },
+          "supported_languages": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"
+            }
+          },
+          "supported_voice_styles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "required": [
+          "supports_inbound_calls",
+          "supports_outbound_calls",
+          "supports_status_callbacks",
+          "supported_languages",
+          "supported_voice_styles"
+        ],
+        "additionalProperties": false
+      },
+      "VoiceNumberBinding": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^voc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          },
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^ws_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "exotel",
+              "twilio"
+            ]
+          },
+          "phone_number": {
+            "type": "string",
+            "pattern": "^\\+[1-9]\\d{1,14}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active",
+              "suspended",
+              "failed"
+            ]
+          },
+          "call_handling": {
+            "type": "object",
+            "properties": {
+              "inbound_calls_enabled": {
+                "type": "boolean"
+              },
+              "voice_style": {
+                "type": "object",
+                "properties": {
+                  "language_tag": {
+                    "type": "string",
+                    "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"
+                  },
+                  "voice_style": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "language_tag"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "inbound_calls_enabled",
+              "voice_style"
+            ],
+            "additionalProperties": false
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "provider",
+          "phone_number",
+          "status",
+          "call_handling",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "VoiceNumberBindingList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^voc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "workspace_id": {
+                  "type": "string",
+                  "pattern": "^ws_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "provider": {
+                  "type": "string",
+                  "enum": [
+                    "exotel",
+                    "twilio"
+                  ]
+                },
+                "phone_number": {
+                  "type": "string",
+                  "pattern": "^\\+[1-9]\\d{1,14}$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "active",
+                    "suspended",
+                    "failed"
+                  ]
+                },
+                "call_handling": {
+                  "type": "object",
+                  "properties": {
+                    "inbound_calls_enabled": {
+                      "type": "boolean"
+                    },
+                    "voice_style": {
+                      "type": "object",
+                      "properties": {
+                        "language_tag": {
+                          "type": "string",
+                          "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"
+                        },
+                        "voice_style": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
+                        }
+                      },
+                      "required": [
+                        "language_tag"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "inbound_calls_enabled",
+                    "voice_style"
+                  ],
+                  "additionalProperties": false
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "workspace_id",
+                "provider",
+                "phone_number",
+                "status",
+                "call_handling",
+                "created_at",
+                "updated_at"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "page": {
+            "type": "object",
+            "properties": {
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "has_more": {
+                "type": "boolean"
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200
+              }
+            },
+            "required": [
+              "next_cursor",
+              "has_more",
+              "limit"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "data",
+          "page"
         ],
         "additionalProperties": false
       },
@@ -9163,6 +9623,606 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Resource"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/voice/numbers": {
+      "post": {
+        "operationId": "post_channels_voice_numbers",
+        "summary": "Bind voice number",
+        "tags": [
+          "Voice channels"
+        ],
+        "security": [
+          {
+            "M2MAuth": [],
+            "ActorToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "traceparent",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "description": "Typed resource or action input",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateVoiceNumberBindingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceNumberBinding"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "get_channels_voice_numbers",
+        "summary": "List voice number bindings",
+        "tags": [
+          "Voice channels"
+        ],
+        "security": [
+          {
+            "M2MAuth": [],
+            "ActorToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "traceparent",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceNumberBindingList"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/voice/numbers/{id}/call-handling": {
+      "patch": {
+        "operationId": "patch_channels_voice_numbers_id_call_handling",
+        "summary": "Configure voice call handling",
+        "tags": [
+          "Voice channels"
+        ],
+        "security": [
+          {
+            "M2MAuth": [],
+            "ActorToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z]+_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "traceparent",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "Idempotency-Key",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "If-Match",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "description": "Typed resource or action input",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateVoiceCallHandlingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceNumberBinding"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/voice/calls": {
+      "post": {
+        "operationId": "post_channels_voice_calls",
+        "summary": "Initiate voice call",
+        "tags": [
+          "Voice channels"
+        ],
+        "security": [
+          {
+            "M2MAuth": [],
+            "ActorToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "traceparent",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "description": "Typed resource or action input",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InitiateVoiceCallRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceCall"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/voice/numbers/{id}/health": {
+      "get": {
+        "operationId": "get_channels_voice_numbers_id_health",
+        "summary": "Get voice number health",
+        "tags": [
+          "Voice channels"
+        ],
+        "security": [
+          {
+            "M2MAuth": [],
+            "ActorToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z]+_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "traceparent",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceAccountHealth"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "RFC 9457 problem response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/voice/numbers/{id}/capabilities": {
+      "get": {
+        "operationId": "get_channels_voice_numbers_id_capabilities",
+        "summary": "Get voice number capabilities",
+        "tags": [
+          "Voice channels"
+        ],
+        "security": [
+          {
+            "M2MAuth": [],
+            "ActorToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z]+_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "traceparent",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "headers": {
+              "request_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^req_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              },
+              "trace_id": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^trc_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceCapabilities"
                 }
               }
             }

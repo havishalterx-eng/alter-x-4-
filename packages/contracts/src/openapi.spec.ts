@@ -41,7 +41,33 @@ describe("OpenAPI generation", () => {
       0,
     );
     expect(operationCount).toBe(V1_ROUTE_SPECS.length);
-    expect(operationCount).toBe(91);
+    expect(operationCount).toBe(97);
+  });
+
+  it("documents typed, secret-safe voice channel management DTOs", () => {
+    const document = createOpenApiDocument();
+    const bindNumber = document.paths?.["/api/v1/channels/voice/numbers"]?.post;
+    const configure =
+      document.paths?.["/api/v1/channels/voice/numbers/{id}/call-handling"]
+        ?.patch;
+
+    expect(bindNumber?.requestBody).toMatchObject({
+      content: {
+        "application/json": {
+          schema: { $ref: "#/components/schemas/CreateVoiceNumberBindingRequest" },
+        },
+      },
+    });
+    expect(configure?.requestBody).toMatchObject({
+      content: {
+        "application/json": {
+          schema: { $ref: "#/components/schemas/UpdateVoiceCallHandlingRequest" },
+        },
+      },
+    });
+    expect(
+      document.components?.schemas?.VoiceNumberBinding,
+    ).not.toHaveProperty("properties.credential_reference");
   });
 
   it("documents both auth headers, problem responses, and idempotency", () => {

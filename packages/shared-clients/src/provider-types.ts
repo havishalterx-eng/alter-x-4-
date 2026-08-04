@@ -3,6 +3,12 @@ import type {
   ModelAlias,
   ModelAliasBinding,
   ProviderCapabilities,
+  VoiceAccountHealth,
+  VoiceCall,
+  VoiceCallHandlingConfiguration,
+  VoiceCapabilities,
+  VoiceNumberBinding,
+  VoiceProviderKind,
 } from "@alterx/contracts";
 
 export const CANONICAL_PROVIDER_INTERFACES = [
@@ -30,6 +36,7 @@ export const CANONICAL_PROVIDER_INTERFACES = [
   "GPUComputeProvider",
   "NetworkConnectivityProvider",
   "AuditStoreProvider",
+  "VoiceProvider",
 ] as const;
 
 export type CanonicalProviderInterfaceName =
@@ -174,6 +181,77 @@ export interface BillingProvider extends BaseProvider<"BillingProvider"> {
     secret: string,
   ): boolean;
   parseWebhookEvent(rawBody: Uint8Array): BillingEvent;
+}
+
+export interface VoiceNumberBindingRequest {
+  readonly tenantId: string;
+  readonly workspaceId: string;
+  readonly provider: VoiceProviderKind;
+  readonly phoneNumber: string;
+  readonly credentialReference: SecretReferenceId;
+  readonly callHandling: VoiceCallHandlingConfiguration;
+}
+
+export interface VoiceCallHandlingRequest {
+  readonly tenantId: string;
+  readonly voiceAccountId: string;
+  readonly callHandling: VoiceCallHandlingConfiguration;
+  // URLs are Engine-owned endpoints derived by the caller; Platform clients
+  // never supply them through the public management contract.
+  readonly inboundWebhookUrl: string;
+  readonly statusCallbackUrl: string;
+}
+
+export interface VoiceCallInitiationRequest {
+  readonly tenantId: string;
+  readonly voiceAccountId: string;
+  readonly toPhoneNumber: string;
+  readonly idempotencyKey: string;
+}
+
+export interface VoiceAccountHealthRequest {
+  readonly tenantId: string;
+  readonly voiceAccountId: string;
+}
+
+export interface VoiceCapabilitiesRequest {
+  readonly tenantId: string;
+  readonly voiceAccountId: string;
+}
+
+export interface VoiceWebhookRequest {
+  readonly requestUrl: string;
+  readonly headers: Readonly<Record<string, string | undefined>>;
+  readonly rawBody: Uint8Array;
+}
+
+export interface VoiceInboundCallEvent {
+  readonly providerCallReference: string;
+  readonly provider: VoiceProviderKind;
+  readonly direction: "inbound" | "outbound";
+  readonly status: VoiceCall["status"];
+  readonly toPhoneNumber: string;
+  readonly fromPhoneNumber: string;
+  readonly occurredAt: string;
+  readonly payload: JsonValue;
+}
+
+// Voice provider adapters own webhook authentication and parsing because the
+// signing algorithm and wire format are provider-specific.
+export interface VoiceProvider extends BaseProvider<"VoiceProvider"> {
+  bindNumber(request: VoiceNumberBindingRequest): Promise<VoiceNumberBinding>;
+  configureCallHandling(
+    request: VoiceCallHandlingRequest,
+  ): Promise<VoiceNumberBinding>;
+  initiateCall(request: VoiceCallInitiationRequest): Promise<VoiceCall>;
+  getAccountHealth(
+    request: VoiceAccountHealthRequest,
+  ): Promise<VoiceAccountHealth>;
+  getVoiceCapabilities(
+    request: VoiceCapabilitiesRequest,
+  ): Promise<VoiceCapabilities>;
+  verifyWebhookSignature(request: VoiceWebhookRequest): boolean;
+  parseWebhookEvent(request: VoiceWebhookRequest): VoiceInboundCallEvent;
 }
 
 export interface TraceSpan {

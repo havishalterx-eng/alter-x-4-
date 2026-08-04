@@ -23,6 +23,7 @@ import {
   type SandboxProvider,
   type SearchProvider,
   type VectorStoreProvider,
+  type VoiceProvider,
 } from "./provider-types";
 
 type MarkerProviders =
@@ -45,10 +46,11 @@ type MarkerProviders =
   | RepositoryProvider
   | SandboxProvider
   | SearchProvider
-  | VectorStoreProvider;
+  | VectorStoreProvider
+  | VoiceProvider;
 
 describe("canonical provider interface surface", () => {
-  it("locks all 23 CEO-reconciled interface names exactly once", () => {
+  it("locks all 25 canonical interface names exactly once", () => {
     expect(CANONICAL_PROVIDER_INTERFACES).toEqual([
       "DurableExecutionProvider",
       "ComputeProvider",
@@ -74,8 +76,9 @@ describe("canonical provider interface surface", () => {
       "GPUComputeProvider",
       "NetworkConnectivityProvider",
       "AuditStoreProvider",
+      "VoiceProvider",
     ]);
-    expect(new Set(CANONICAL_PROVIDER_INTERFACES)).toHaveLength(24);
+    expect(new Set(CANONICAL_PROVIDER_INTERFACES)).toHaveLength(25);
     expectTypeOf<MarkerProviders>().toMatchTypeOf<BaseProvider>();
   });
 

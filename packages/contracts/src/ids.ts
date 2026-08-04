@@ -39,6 +39,10 @@ export const EnvironmentIdSchema = prefixedUuidV7("env");
 export const ApprovalIdSchema = prefixedUuidV7("apr");
 export const ConversationIdSchema = prefixedUuidV7("cnv");
 export const MemoryIdSchema = prefixedUuidV7("mem");
+// Voice accounts own a tenant/workspace phone-number binding. The binding is
+// deliberately distinct from a provider account reference, which remains an
+// opaque external identifier held through SecretsProvider.
+export const VoiceAccountIdSchema = prefixedUuidV7("voc");
 
 export const VerificationResultIdSchema = prefixedUuidV7("ver");
 export const RecoveryActionIdSchema = prefixedUuidV7("rec");

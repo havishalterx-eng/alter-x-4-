@@ -35,6 +35,16 @@ import {
   WorkflowDagCompiledSchema,
   WorkflowDagDraftSchema,
 } from "./workflow-dag";
+import {
+  CreateVoiceNumberBindingRequestSchema,
+  InitiateVoiceCallRequestSchema,
+  UpdateVoiceCallHandlingRequestSchema,
+  VoiceAccountHealthSchema,
+  VoiceCapabilitiesSchema,
+  VoiceCallSchema,
+  VoiceNumberBindingListSchema,
+  VoiceNumberBindingSchema,
+} from "./voice";
 import { z } from "./zod";
 
 type HttpMethod = "get" | "post" | "patch" | "delete";
@@ -55,6 +65,10 @@ export interface V1RouteSpec {
   // and looked up by raw-schema identity, since the same schema object is
   // often reused across several routes.
   readonly responseSchema?: z.ZodTypeAny;
+  // Explicit management DTOs are only added when an operation has a real
+  // contract. Generic Resource is retained for legacy routes still awaiting
+  // their implementation tickets.
+  readonly requestBodySchema?: z.ZodTypeAny;
   // Query params for a route that isn't a cursor-paginated `collection`
   // (Trigger Registry's real list route accepts an optional workflowId
   // filter but has no pagination at all -- see TriggerListResultSchema).
@@ -223,6 +237,54 @@ export const V1_ROUTE_SPECS: readonly V1RouteSpec[] = [
   { method: "get", path: "/integrations", summary: "List integrations", tag: "Resources", collection: true },
   { method: "post", path: "/integrations", summary: "Create integration", tag: "Resources", successStatus: 201 },
   { method: "post", path: "/integrations/{id}/actions/test", summary: "Test integration", tag: "Resources" },
+  {
+    method: "post",
+    path: "/channels/voice/numbers",
+    summary: "Bind voice number",
+    tag: "Voice channels",
+    successStatus: 201,
+    requestBodySchema: CreateVoiceNumberBindingRequestSchema,
+    responseSchema: VoiceNumberBindingSchema,
+  },
+  {
+    method: "get",
+    path: "/channels/voice/numbers",
+    summary: "List voice number bindings",
+    tag: "Voice channels",
+    collection: true,
+    responseSchema: VoiceNumberBindingListSchema,
+  },
+  {
+    method: "patch",
+    path: "/channels/voice/numbers/{id}/call-handling",
+    summary: "Configure voice call handling",
+    tag: "Voice channels",
+    requestBodySchema: UpdateVoiceCallHandlingRequestSchema,
+    responseSchema: VoiceNumberBindingSchema,
+  },
+  {
+    method: "post",
+    path: "/channels/voice/calls",
+    summary: "Initiate voice call",
+    tag: "Voice channels",
+    successStatus: 202,
+    requestBodySchema: InitiateVoiceCallRequestSchema,
+    responseSchema: VoiceCallSchema,
+  },
+  {
+    method: "get",
+    path: "/channels/voice/numbers/{id}/health",
+    summary: "Get voice number health",
+    tag: "Voice channels",
+    responseSchema: VoiceAccountHealthSchema,
+  },
+  {
+    method: "get",
+    path: "/channels/voice/numbers/{id}/capabilities",
+    summary: "Get voice number capabilities",
+    tag: "Voice channels",
+    responseSchema: VoiceCapabilitiesSchema,
+  },
   { method: "get", path: "/artifacts/{id}", summary: "Get artifact metadata", tag: "Resources" },
   { method: "get", path: "/deployments/{id}", summary: "Get deployment", tag: "Resources" },
 
@@ -376,6 +438,43 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
       registry.register("RollbackVersionResult", RollbackVersionResultSchema),
     ],
     [SignedReferenceSchema, registry.register("SignedReference", SignedReferenceSchema)],
+    [
+      VoiceNumberBindingSchema,
+      registry.register("VoiceNumberBinding", VoiceNumberBindingSchema),
+    ],
+    [
+      VoiceNumberBindingListSchema,
+      registry.register("VoiceNumberBindingList", VoiceNumberBindingListSchema),
+    ],
+    [VoiceCallSchema, registry.register("VoiceCall", VoiceCallSchema)],
+    [
+      VoiceAccountHealthSchema,
+      registry.register("VoiceAccountHealth", VoiceAccountHealthSchema),
+    ],
+    [
+      VoiceCapabilitiesSchema,
+      registry.register("VoiceCapabilities", VoiceCapabilitiesSchema),
+    ],
+  ]);
+  const requestBodySchemaByRaw = new Map<z.ZodTypeAny, z.ZodTypeAny>([
+    [
+      CreateVoiceNumberBindingRequestSchema,
+      registry.register(
+        "CreateVoiceNumberBindingRequest",
+        CreateVoiceNumberBindingRequestSchema,
+      ),
+    ],
+    [
+      UpdateVoiceCallHandlingRequestSchema,
+      registry.register(
+        "UpdateVoiceCallHandlingRequest",
+        UpdateVoiceCallHandlingRequestSchema,
+      ),
+    ],
+    [
+      InitiateVoiceCallRequestSchema,
+      registry.register("InitiateVoiceCallRequest", InitiateVoiceCallRequestSchema),
+    ],
   ]);
 
   const page = registry.register(
@@ -444,7 +543,10 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
         description: "Typed resource or action input",
         content: {
           "application/json": {
-            schema: MutationBodySchema,
+            schema: route.requestBodySchema
+              ? (requestBodySchemaByRaw.get(route.requestBodySchema) ??
+                route.requestBodySchema)
+              : MutationBodySchema,
           },
         },
       };

@@ -26,6 +26,7 @@ export {
   TenantIdSchema,
   WorkflowIdSchema,
   WorkflowVersionIdSchema,
+  VoiceAccountIdSchema,
 } from "./ids";
 export {
   ProviderCapabilitiesSchema,
@@ -180,6 +181,40 @@ export type {
   VerificationResult,
 } from "./deletion";
 export {
+  Bcp47LanguageTagSchema,
+  CreateVoiceNumberBindingRequestSchema,
+  E164PhoneNumberSchema,
+  InitiateVoiceCallRequestSchema,
+  UpdateVoiceCallHandlingRequestSchema,
+  VoiceAccountHealthSchema,
+  VoiceAccountStatusSchema,
+  VoiceCallDirectionSchema,
+  VoiceCallHandlingConfigurationSchema,
+  VoiceCallSchema,
+  VoiceCallStatusSchema,
+  VoiceCapabilitiesSchema,
+  VoiceNumberBindingListSchema,
+  VoiceNumberBindingSchema,
+  VoiceProviderKindSchema,
+  VoiceStyleRequirementSchema,
+  type Bcp47LanguageTag,
+  type CreateVoiceNumberBindingRequest,
+  type E164PhoneNumber,
+  type InitiateVoiceCallRequest,
+  type UpdateVoiceCallHandlingRequest,
+  type VoiceAccountHealth,
+  type VoiceAccountStatus,
+  type VoiceCall,
+  type VoiceCallDirection,
+  type VoiceCallHandlingConfiguration,
+  type VoiceCallStatus,
+  type VoiceCapabilities,
+  type VoiceNumberBinding,
+  type VoiceNumberBindingList,
+  type VoiceProviderKind,
+  type VoiceStyleRequirement,
+} from "./voice";
+export {
   FailureClassSchema,
   FailureObservationSchema,
   RootCauseEstimateSchema,
@@ -202,6 +237,18 @@ export type {
   QueryRollupsRequest as CostQueryRollupsRequest,
   QueryRollupsResponse as CostQueryRollupsResponse,
 } from "./generated/alter/cost/v1/cost";
+export type {
+  BindNumberRequest as VoiceBindNumberRequest,
+  BindNumberResponse as VoiceBindNumberResponse,
+  ConfigureCallHandlingRequest as VoiceConfigureCallHandlingRequest,
+  ConfigureCallHandlingResponse as VoiceConfigureCallHandlingResponse,
+  GetAccountHealthRequest as VoiceGetAccountHealthRequest,
+  GetAccountHealthResponse as VoiceGetAccountHealthResponse,
+  GetCapabilitiesRequest as VoiceGetCapabilitiesRequest,
+  GetCapabilitiesResponse as VoiceGetCapabilitiesResponse,
+  InitiateCallRequest as VoiceInitiateCallRequest,
+  InitiateCallResponse as VoiceInitiateCallResponse,
+} from "./generated/alter/voice/v1/voice";
 export type {
   GetRunWorkspaceRequest as RunsGetRunWorkspaceRequest,
   GetRunWorkspaceResponse as RunsGetRunWorkspaceResponse,

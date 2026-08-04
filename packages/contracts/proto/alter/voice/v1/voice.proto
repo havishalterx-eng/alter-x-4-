@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package alter.voice.v1;
+
+// Management contract between Platform API and the Engine voice boundary.
+// Credential references are opaque SecretsProvider references; raw credentials
+// never cross this interface.
+service VoiceService {
+  rpc BindNumber(BindNumberRequest) returns (BindNumberResponse);
+  rpc ConfigureCallHandling(ConfigureCallHandlingRequest) returns (ConfigureCallHandlingResponse);
+  rpc InitiateCall(InitiateCallRequest) returns (InitiateCallResponse);
+  rpc GetAccountHealth(GetAccountHealthRequest) returns (GetAccountHealthResponse);
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+}
+
+message BindNumberRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workspace_id = 2; // ws_ prefixed UUIDv7
+  string provider = 3; // exotel | twilio
+  string phone_number = 4; // E.164
+  string credential_reference = 5; // opaque SecretsProvider reference
+  bool inbound_calls_enabled = 6;
+  string language_tag = 7; // BCP 47, e.g. en-IN
+  string voice_style = 8; // optional vendor-neutral capability requirement
+}
+
+message BindNumberResponse {
+  reserved 100 to 199;
+
+  string voice_account_id = 1; // voc_ prefixed UUIDv7
+  string phone_number = 2; // E.164
+  string provider = 3;
+  string status = 4; // pending | active | suspended | failed
+}
+
+message ConfigureCallHandlingRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string voice_account_id = 2; // voc_ prefixed UUIDv7
+  bool inbound_calls_enabled = 3;
+  string language_tag = 4; // BCP 47
+  string voice_style = 5; // optional vendor-neutral capability requirement
+}
+
+message ConfigureCallHandlingResponse {
+  reserved 100 to 199;
+
+  string voice_account_id = 1;
+  bool inbound_calls_enabled = 2;
+  string language_tag = 3;
+  string voice_style = 4;
+}
+
+message InitiateCallRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string voice_account_id = 2; // voc_ prefixed UUIDv7
+  string to_phone_number = 3; // E.164
+  string idempotency_key = 4;
+}
+
+message InitiateCallResponse {
+  reserved 100 to 199;
+
+  string provider_call_reference = 1; // opaque external reference
+  string status = 2; // queued | initiated | ringing | in_progress | completed | busy | failed | no_answer | cancelled
+}
+
+message GetAccountHealthRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string voice_account_id = 2; // voc_ prefixed UUIDv7
+}
+
+message GetAccountHealthResponse {
+  reserved 100 to 199;
+
+  string status = 1; // healthy | degraded | unhealthy
+  string checked_at = 2; // ISO 8601 timestamp
+  uint32 latency_ms = 3;
+}
+
+message GetCapabilitiesRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string voice_account_id = 2; // voc_ prefixed UUIDv7
+}
+
+message GetCapabilitiesResponse {
+  reserved 100 to 199;
+
+  bool supports_inbound_calls = 1;
+  bool supports_outbound_calls = 2;
+  bool supports_status_callbacks = 3;
+  repeated string supported_languages = 4; // BCP 47 tags
+  repeated string supported_voice_styles = 5;
+}
