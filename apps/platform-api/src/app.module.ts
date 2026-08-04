@@ -24,6 +24,7 @@ import { IntegrationModule } from "./integrations";
 import { TriggerModule } from "./triggers";
 import { BillingModule } from "./billing";
 import { EnvVarModule } from "./env-vars";
+import { WhatsappModule } from "./channels/whatsapp/whatsapp.module";
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { EnvVarModule } from "./env-vars";
     TriggerModule,
     BillingModule,
     EnvVarModule,
+    WhatsappModule,
   ],
   controllers: [HealthController],
 })

@@ -81,6 +81,8 @@ import { TOOLGW_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
 import { ConversationDispatchService } from "./webhooks/conversation-dispatch.service";
 import { WhatsappWebhookController } from "./webhooks/whatsapp-webhook.controller";
 import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
+import { WhatsappAccountRegistryService } from "./webhooks/whatsapp-account-registry.service";
+import { WhatsappAccountsController } from "./webhooks/whatsapp-accounts.controller";
 import {
   DeletionController,
   ORCHESTRATION_DELETION_TOKEN_HASH,
@@ -111,10 +113,22 @@ import { ArtifactsService } from "./artifacts/artifacts.service";
     ProjectReadController,
     ArtifactsController,
     WhatsappWebhookController,
+    WhatsappAccountsController,
     DeletionController,
     DeletionRequestController,
   ],
   providers: [
+    {
+      provide: WhatsappAccountRegistryService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        return new WhatsappAccountRegistryService(new PostgresOrchestrationStoreProvider({
+          authentication: "iam", host: dbConfig.databaseHost, port: dbConfig.databasePort,
+          database: dbConfig.databaseName, user: dbConfig.databaseUser, region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        }));
+      },
+    },
     {
       provide: ORCHESTRATION_DELETION_TOKEN_HASH,
       useFactory: () => requireSha256Fingerprint(
@@ -562,7 +576,12 @@ import { ArtifactsService } from "./artifacts/artifacts.service";
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
         const whatsappConfig = loadWhatsappWebhookEnvironment(process.env);
-        return new WhatsappWebhookService(store, whatsappConfig);
+        return new WhatsappWebhookService(
+          store,
+          whatsappConfig,
+          undefined,
+          new WhatsappAccountRegistryService(store),
+        );
       },
     },
     {

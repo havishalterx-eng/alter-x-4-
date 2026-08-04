@@ -13,6 +13,7 @@ import type { FastifyReply } from "fastify";
 import { Public } from "@alterx/auth";
 import type { ProblemDetails } from "@alterx/contracts";
 import { ConversationDispatchService } from "./conversation-dispatch.service";
+import { WhatsappAccountNotFoundError } from "./whatsapp-account-registry.service";
 import {
   WhatsappPayloadValidationError,
   WhatsappReplayError,
@@ -69,12 +70,28 @@ export class WhatsappWebhookController {
 
     if (result.messages.length > 0) {
       try {
-        await this.dispatchService.dispatchInboundMessages(
-          this.service.tenantId,
-          this.service.workspaceId,
-          "whatsapp",
-          result.messages,
-        );
+        const grouped = new Map<string, typeof result.messages>();
+        for (const message of result.messages) {
+          const tenantId = message.tenantId ?? this.service.tenantId;
+          const workspaceId = message.workspaceId ?? this.service.workspaceId;
+          if (!tenantId || !workspaceId) throw new Error("Inbound WhatsApp routing is missing");
+          const key = `${tenantId}:${workspaceId}`;
+          grouped.set(key, [...(grouped.get(key) ?? []), message]);
+        }
+        for (const messages of grouped.values()) {
+          const first = messages[0];
+          if (first) {
+            const tenantId = first.tenantId ?? this.service.tenantId;
+            const workspaceId = first.workspaceId ?? this.service.workspaceId;
+            if (!tenantId || !workspaceId) throw new Error("Inbound WhatsApp routing is missing");
+            await this.dispatchService.dispatchInboundMessages(
+              tenantId,
+              workspaceId,
+              "whatsapp",
+              messages,
+            );
+          }
+        }
       } catch (error: unknown) {
         // The event row is already durably persisted (or was already a
         // duplicate) at this point -- only dispatch failed. Fail closed
@@ -117,6 +134,9 @@ function mapWebhookError(
       payloadValidationProblem(requestUrl, error.message),
       400,
     );
+  }
+  if (error instanceof WhatsappAccountNotFoundError) {
+    return new HttpException(payloadValidationProblem(requestUrl, error.message), 400);
   }
   if (error instanceof HttpException) {
     return error;
