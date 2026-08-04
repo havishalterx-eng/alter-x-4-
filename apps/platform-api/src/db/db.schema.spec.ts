@@ -10,6 +10,8 @@ import {
   billingEvents,
   credentialRefs,
   credentialUseAudits,
+  envVars,
+  envVarUseAudits,
   entitlements,
   idempotencyKeys,
   onboardingStates,
@@ -34,6 +36,8 @@ describe("platform database schema", () => {
         entitlements,
         credentialRefs,
         credentialUseAudits,
+        envVars,
+        envVarUseAudits,
         idempotencyKeys,
         onboardingStates,
         tenantMembers,
@@ -52,6 +56,8 @@ describe("platform database schema", () => {
       "entitlements",
       "credential_refs",
       "credential_use_audits",
+      "env_vars",
+      "env_var_use_audits",
       "idempotency_keys",
       "onboarding_states",
       "tenant_members",
@@ -75,6 +81,8 @@ describe("platform database schema", () => {
       entitlements,
       credentialRefs,
       credentialUseAudits,
+      envVars,
+      envVarUseAudits,
       idempotencyKeys,
       tenantMembers,
       workspaceMembers,
@@ -88,10 +96,12 @@ describe("platform database schema", () => {
       );
     }
 
-    expect(foreignKeyNames).toHaveLength(16);
+    expect(foreignKeyNames).toHaveLength(19);
     expect(getTableConfig(idempotencyKeys).indexes).toHaveLength(2);
     expect(getTableColumns(credentialRefs)).not.toHaveProperty("value");
     expect(getTableColumns(credentialRefs)).not.toHaveProperty("secret");
+    expect(getTableColumns(envVars)).not.toHaveProperty("value");
+    expect(getTableColumns(envVars)).not.toHaveProperty("secret");
     expect(getTableColumns(billingPaymentMethodRefs)).not.toHaveProperty(
       "cardNumber",
     );

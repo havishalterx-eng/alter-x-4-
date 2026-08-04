@@ -12,6 +12,7 @@ export default defineConfig({
       "apps/platform-api/src/signup/**/*.integration.spec.ts",
       "apps/platform-api/src/idempotency/**/*.integration.spec.ts",
       "apps/platform-api/src/credentials/**/*.integration.spec.ts",
+      "apps/platform-api/src/env-vars/**/*.integration.spec.ts",
       "apps/platform-api/src/billing/**/*.integration.spec.ts",
     ],
     coverage: {
@@ -38,6 +39,7 @@ export default defineConfig({
         "apps/platform-api/src/runs/**/*.ts",
         "apps/platform-api/src/action-centre/**/*.ts",
         "apps/platform-api/src/credentials/**/*.ts",
+        "apps/platform-api/src/env-vars/**/*.ts",
         "apps/platform-api/src/ads/**/*.ts",
         "apps/platform-api/src/integrations/**/*.ts",
         "apps/platform-api/src/triggers/**/*.ts",
@@ -64,6 +66,7 @@ export default defineConfig({
         "apps/platform-api/src/runs/**/*.spec.ts",
         "apps/platform-api/src/action-centre/**/*.spec.ts",
         "apps/platform-api/src/credentials/**/*.spec.ts",
+        "apps/platform-api/src/env-vars/**/*.spec.ts",
         "apps/platform-api/src/ads/**/*.spec.ts",
         "apps/platform-api/src/integrations/**/*.spec.ts",
         "apps/platform-api/src/triggers/**/*.spec.ts",
@@ -167,6 +170,14 @@ export default defineConfig({
           branches: 80
         },
         "apps/platform-api/src/credentials/{credential.service,credential.repository}.ts": {
+          lines: 90,
+          branches: 90
+        },
+        "apps/platform-api/src/env-vars/**/*.ts": {
+          lines: 85,
+          branches: 80
+        },
+        "apps/platform-api/src/env-vars/{env-var.controller,env-var.service,env-var.repository}.ts": {
           lines: 90,
           branches: 90
         },

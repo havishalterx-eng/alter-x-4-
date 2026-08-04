@@ -242,6 +242,63 @@ export const credentialUseAudits = pgTable(
   ],
 );
 
+export const envVars = pgTable(
+  "env_vars",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    id: uuid("id").primaryKey(),
+    projectId: text("project_id").notNull(),
+    environment: text("environment").notNull(),
+    key: text("key").notNull(),
+    last4: text("last4").notNull(),
+    useAuditPtr: uuid("use_audit_ptr"),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("env_vars_tenant_id_id_unique").on(table.tenantId, table.id),
+    uniqueIndex("env_vars_tenant_project_environment_key_unique").on(
+      table.tenantId,
+      table.projectId,
+      table.environment,
+      table.key,
+    ),
+    index("env_vars_tenant_project_created_at_idx").on(
+      table.tenantId,
+      table.projectId,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const envVarUseAudits = pgTable(
+  "env_var_use_audits",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    id: uuid("id").primaryKey(),
+    envVarId: uuid("env_var_id").notNull(),
+    usedBy: text("used_by").notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("env_var_use_audits_tenant_env_var_idx").on(
+      table.tenantId,
+      table.envVarId,
+    ),
+    foreignKey({
+      columns: [table.tenantId, table.envVarId],
+      foreignColumns: [envVars.tenantId, envVars.id],
+      name: "env_var_use_audits_tenant_env_var_fk",
+    }),
+  ],
+);
+
 export const billingProfiles = pgTable(
   "billing_profiles",
   {

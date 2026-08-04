@@ -305,9 +305,8 @@ describe("ProjectOperationsController routes", () => {
     },
   );
 
-  it("keeps env-var masking and maintenance absent when contracts are missing", async () => {
+  it("keeps Engine-owned environment metadata and maintenance absent", async () => {
     const paths = [
-      `/api/v1/projects/${projectId}/environment-variables`,
       `/api/v1/projects/${projectId}/maintenance`,
       "/api/v1/environments",
     ];

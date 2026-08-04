@@ -23,6 +23,7 @@ import { AdsModule } from "./ads";
 import { IntegrationModule } from "./integrations";
 import { TriggerModule } from "./triggers";
 import { BillingModule } from "./billing";
+import { EnvVarModule } from "./env-vars";
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { BillingModule } from "./billing";
     IntegrationModule,
     TriggerModule,
     BillingModule,
+    EnvVarModule,
   ],
   controllers: [HealthController],
 })
