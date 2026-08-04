@@ -8,10 +8,12 @@ import { ENTITLEMENT_PROVIDER } from "./entitlement-provider.interface";
 import { PostgresEntitlementStore } from "./entitlement-store";
 import { InternalEntitlementProvider } from "./internal-entitlement-provider";
 import { EntitlementAccessGuard } from "./entitlement-access.guard";
+import { EntitlementsController } from "./entitlements.controller";
 
 const ENTITLEMENT_STORE = Symbol("ENTITLEMENT_STORE");
 
 @Module({
+  controllers: [EntitlementsController],
   providers: [
     {
       provide: CONFIG_PROVIDER,
