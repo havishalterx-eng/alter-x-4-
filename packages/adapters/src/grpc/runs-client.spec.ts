@@ -31,7 +31,10 @@ describe("RunsClient", () => {
   it("resolves with the Run Lookup Service's real response", async () => {
     const grpcClient = fakeGrpcClient(() => ({
       error: null,
-      response: { workspace_id: "ws_018f47a2-7b11-7b11-8a11-1234567890ab" },
+      response: {
+        workspace_id: "ws_018f47a2-7b11-7b11-8a11-1234567890ab",
+        workflow_id: "wf_018f47a2-7b11-7b11-8a11-1234567890ab",
+      },
     }));
     const client = new RunsClient(
       { address: "localhost:1234", protoPath: "unused" },
@@ -41,6 +44,7 @@ describe("RunsClient", () => {
     const response = await client.getRunWorkspace(REQUEST);
 
     expect(response.workspace_id).toBe("ws_018f47a2-7b11-7b11-8a11-1234567890ab");
+    expect(response.workflow_id).toBe("wf_018f47a2-7b11-7b11-8a11-1234567890ab");
     expect(grpcClient.getRunWorkspace).toHaveBeenCalledWith(
       REQUEST,
       expect.objectContaining({ deadline: expect.any(Date) }),

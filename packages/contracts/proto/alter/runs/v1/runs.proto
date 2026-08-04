@@ -26,6 +26,9 @@ message GetRunWorkspaceResponse {
   reserved 100 to 199;
 
   string workspace_id = 1; // ws_ prefixed UUIDv7
+  // Present for every current run. Project Mode has no project-backed runs yet,
+  // so project_id is intentionally not fabricated here.
+  string workflow_id = 2; // wf_ prefixed UUIDv7
 }
 
 message GetNodeExecutionRecoveryInfoRequest {

@@ -431,9 +431,10 @@ import { ArtifactsService } from "./artifacts/artifacts.service";
         });
         const lookup = new RunWorkspaceLookupService(store);
         return {
-          getRunWorkspace: async (request: { tenant_id: string; run_id: string }) => ({
-            workspace_id: await lookup.getWorkspaceId(request.tenant_id, request.run_id),
-          }),
+          getRunWorkspace: async (request: { tenant_id: string; run_id: string }) => {
+            const run = await lookup.getRunWorkspace(request.tenant_id, request.run_id);
+            return { workspace_id: run.workspaceId, workflow_id: run.workflowId };
+          },
           getNodeExecutionRecoveryInfo: async (request: {
             tenant_id: string;
             run_id: string;

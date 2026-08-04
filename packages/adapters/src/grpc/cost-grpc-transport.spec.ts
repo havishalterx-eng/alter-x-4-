@@ -21,6 +21,8 @@ const ROLLUP_REQUEST: CostQueryRollupsRequest = {
   start_at: "2026-07-01T00:00:00.000Z",
   end_at: "2026-07-31T00:00:00.000Z",
   dimensions: ["mode"],
+  parent_id: "",
+  currency: "INR",
 };
 
 class NamedCostError extends Error {

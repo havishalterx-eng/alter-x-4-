@@ -4,6 +4,7 @@ import {
   NodeExecutionIdSchema,
   RunIdSchema,
   TenantIdSchema,
+  WorkflowIdSchema,
   type CostIngestCostEventRequest,
   type CostIngestCostEventResponse,
 } from "@alterx/contracts";
@@ -69,7 +70,12 @@ export class CostIngestService {
   constructor(
     private readonly store: CostEventStore,
     private readonly runsClient: RunsHandlerClient,
-  ) {}
+    private readonly usdToInrRate: number,
+  ) {
+    if (!Number.isFinite(usdToInrRate) || usdToInrRate <= 0) {
+      throw new CostValidationError("usdToInrRate must be a positive number");
+    }
+  }
 
   async ingestCostEvent(
     request: CostIngestCostEventRequest,
@@ -87,12 +93,18 @@ export class CostIngestService {
       throw new CostUnrecognizedSourceError(request.source);
     }
     const usage = deriveUsage(request.source, request.usage_json);
-    const internalCostMinor = deriveInternalCostMinorUsd(request.amount_json);
+    const internalCostMinor = deriveInternalCostMinorInr(
+      request.amount_json,
+      this.usdToInrRate,
+    );
 
-    const { workspace_id: workspaceId } = await this.runsClient.getRunWorkspace({
-      tenant_id: tenantId,
-      run_id: runId,
-    });
+    const { workspace_id: workspaceId, workflow_id: workflowId } = await this.runsClient.getRunWorkspace(
+      {
+        tenant_id: tenantId,
+        run_id: runId,
+      },
+    );
+    const parentId = requireSchema(WorkflowIdSchema, workflowId, "workflow_id");
     // OUT-5: real is_retry/is_recovery, derived from the node execution's
     // real attempt counter + whether a recovery_actions row exists for it
     // -- previously always hardcoded false (no signal existed at all).
@@ -110,13 +122,14 @@ export class CostIngestService {
            source, provider, resource, quantity, unit, internal_cost_minor, currency,
            is_retry, is_recovery, occurred_at
          )
-         SELECT $1, $2, $3, 'workflow', NULL, $4, $5, $6, $7, $8, $9, $10, $11, 'USD',
-                $13, $14, $12
+         SELECT $1, $2, $3, 'workflow', $4, $5, $6, $7, $8, $9, $10, $11, $12, 'INR',
+                $14, $15, $13
          WHERE NOT EXISTS (SELECT 1 FROM cost_events WHERE id = $1)`,
         [
           bareCostEventUuid(costEventId),
           bareTenantUuid(tenantId),
           bareWorkspaceUuid(workspaceId),
+          bareWorkflowUuid(parentId),
           bareRunUuid(runId),
           bareNodeExecutionUuid(nodeExecutionId),
           request.source,
@@ -176,11 +189,10 @@ function deriveUsage(source: string, usageJson: string): DerivedUsage {
 
 /**
  * amount_json.usd is a USD float (see model-gateway's ESTIMATED_USD_PER_TOKEN
- * comment: not billing-accurate). internal_cost_minor is stored in USD cents
- * with currency='USD' explicitly -- no fabricated USD->INR conversion rate;
- * a real FX-rate provider is a disclosed follow-up, not invented here.
+ * comment: not billing-accurate). New rows store INR paise using the configured
+ * placeholder rate. Existing USD rows are immutable and remain USD.
  */
-function deriveInternalCostMinorUsd(amountJson: string): string {
+function deriveInternalCostMinorInr(amountJson: string, usdToInrRate: number): string {
   let parsed: unknown;
   try {
     parsed = JSON.parse(amountJson);
@@ -194,7 +206,7 @@ function deriveInternalCostMinorUsd(amountJson: string): string {
   if (typeof usd !== "number" || usd < 0) {
     throw new CostValidationError("amount_json.usd must be a non-negative number");
   }
-  return String(Math.round(usd * 100));
+  return String(Math.round(usd * usdToInrRate * 100));
 }
 
 function requireSchema(
@@ -226,6 +238,10 @@ function bareWorkspaceUuid(workspaceId: string): string {
 
 function bareRunUuid(runId: string): string {
   return runId.slice("run_".length);
+}
+
+function bareWorkflowUuid(workflowId: string): string {
+  return workflowId.slice("wf_".length);
 }
 
 function bareNodeExecutionUuid(nodeExecutionId: string): string {

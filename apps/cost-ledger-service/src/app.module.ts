@@ -23,6 +23,7 @@ export class AppModule {
     store: CostStoreProvider,
     runsClient: RunsHandlerClient,
     marginRate: number,
+    usdToInrRate: number,
     pseudonymKey: string,
   ): DynamicModule {
     return {
@@ -41,7 +42,11 @@ export class AppModule {
         {
           provide: COST_HANDLER,
           useFactory: (): CostHandler => {
-            const ingest = new CostIngestService(store as unknown as CostEventStore, runsClient);
+            const ingest = new CostIngestService(
+              store as unknown as CostEventStore,
+              runsClient,
+              usdToInrRate,
+            );
             const rollup = new CostRollupService(
               store as unknown as RollupStore,
               marginRate,

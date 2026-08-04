@@ -11,6 +11,11 @@ export interface NodeExecutionRecoveryInfo {
   readonly isRecovery: boolean;
 }
 
+export interface RunWorkspaceLookup {
+  readonly workspaceId: string;
+  readonly workflowId: string;
+}
+
 export class NodeExecutionNotFoundError extends Error {
   constructor(nodeExecutionId: string) {
     super(`Node execution ${nodeExecutionId} was not found`);
@@ -31,16 +36,29 @@ export class RunWorkspaceLookupService {
   constructor(private readonly store: OrchestrationTenantStore) {}
 
   async getWorkspaceId(tenantIdInput: string, runIdInput: string): Promise<string> {
+    return (await this.getRunWorkspace(tenantIdInput, runIdInput)).workspaceId;
+  }
+
+  async getRunWorkspace(
+    tenantIdInput: string,
+    runIdInput: string,
+  ): Promise<RunWorkspaceLookup> {
     const tenantId = bareTenantUuid(tenantIdInput);
     const runId = validatedRunId(runIdInput);
     return this.store.withTenant(tenantId, async (tx) => {
-      const result = await tx.query<{ readonly workspace_id: string }>(
-        "SELECT workspace_id FROM runs WHERE tenant_id = $1 AND id = $2",
+      const result = await tx.query<{
+        readonly workspace_id: string;
+        readonly workflow_id: string;
+      }>(
+        "SELECT workspace_id, workflow_id FROM runs WHERE tenant_id = $1 AND id = $2",
         [tenantId, runId],
       );
       const row = result.rows[0];
       if (row === undefined) throw new RunNotFoundError(runId);
-      return row.workspace_id;
+      if (row.workflow_id === null || row.workflow_id === "") {
+        throw new RunNotFoundError(runId);
+      }
+      return { workspaceId: row.workspace_id, workflowId: row.workflow_id };
     });
   }
 

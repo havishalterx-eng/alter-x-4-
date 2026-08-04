@@ -14,6 +14,9 @@ interface CostLedgerEnvironmentBase {
   // rate -- disclosed placeholder pending real pricing input, changeable
   // without a redeploy via env/AppConfig.
   readonly costMarginRate: number;
+  // Deliberately configurable placeholder until a real FX provider exists.
+  // Used only for new ingestion; historic USD rows remain immutable USD.
+  readonly costUsdToInrRate: number;
   // OUT-5: secret reference (never a value) for billing_rollups.tenant_pseudonym
   // -- same real HMAC-SHA256 scheme audit-service's deletion-orchestrator
   // already establishes (doc 04 SS1: "pseudonymized survivors only in
@@ -101,6 +104,17 @@ function parseMarginRate(value: string | undefined): number {
   return rate;
 }
 
+function parseUsdToInrRate(value: string | undefined): number {
+  const rate = Number(value ?? "83");
+  if (!Number.isFinite(rate) || rate <= 0) {
+    throw new CostLedgerConfigurationError(
+      "COST_USD_TO_INR_RATE",
+      "must be a positive number",
+    );
+  }
+  return rate;
+}
+
 export function loadCostLedgerEnvironment(
   environment: NodeJS.ProcessEnv,
 ): CostLedgerEnvironment {
@@ -131,6 +145,7 @@ export function loadCostLedgerEnvironment(
     grpcBindAddress: parseGrpcAddress(environment.COST_GRPC_BIND_ADDRESS),
     runsServiceAddress: environment.RUNS_SERVICE_ADDRESS?.trim() ?? "localhost:50059",
     costMarginRate: parseMarginRate(environment.COST_MARGIN_RATE),
+    costUsdToInrRate: parseUsdToInrRate(environment.COST_USD_TO_INR_RATE),
     pseudonymKeyReference: requireValue(environment, "COST_PSEUDONYM_KEY_REF"),
   };
 

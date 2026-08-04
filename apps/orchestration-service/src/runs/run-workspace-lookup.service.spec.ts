@@ -8,6 +8,7 @@ const BARE_TENANT = "018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const RUN = "run_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const NODE_EXECUTION = "node_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const WORKSPACE = "018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef";
+const WORKFLOW = "wf_018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef";
 
 function fakeRecoveryStore(
   attempt: number | undefined,
@@ -39,7 +40,10 @@ function fakeStore(workspaceId: string | undefined): {
 } {
   const query = vi.fn(async () => ({
     rowCount: workspaceId === undefined ? 0 : 1,
-    rows: workspaceId === undefined ? [] : [{ workspace_id: workspaceId }],
+    rows:
+      workspaceId === undefined
+        ? []
+        : [{ workspace_id: workspaceId, workflow_id: WORKFLOW }],
   }));
   return {
     query,
@@ -59,9 +63,19 @@ describe("RunWorkspaceLookupService", () => {
 
     await expect(service.getWorkspaceId(TENANT, RUN)).resolves.toBe(WORKSPACE);
     expect(query).toHaveBeenCalledWith(
-      "SELECT workspace_id FROM runs WHERE tenant_id = $1 AND id = $2",
+      "SELECT workspace_id, workflow_id FROM runs WHERE tenant_id = $1 AND id = $2",
       [BARE_TENANT, RUN],
     );
+  });
+
+  it("returns the existing run workflow_id with its workspace", async () => {
+    const { store } = fakeStore(WORKSPACE);
+    const service = new RunWorkspaceLookupService(store);
+
+    await expect(service.getRunWorkspace(TENANT, RUN)).resolves.toEqual({
+      workspaceId: WORKSPACE,
+      workflowId: WORKFLOW,
+    });
   });
 
   it("raises RunNotFoundError for a run this tenant cannot see", async () => {

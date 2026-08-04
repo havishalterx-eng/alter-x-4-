@@ -54,7 +54,13 @@ async function bootstrap(): Promise<void> {
     const pseudonymKey = await secretsProvider.getSecret(environment.pseudonymKeyReference);
 
     const app = await NestFactory.create<NestFastifyApplication>(
-      AppModule.register(store, runsClient, environment.costMarginRate, pseudonymKey),
+      AppModule.register(
+        store,
+        runsClient,
+        environment.costMarginRate,
+        environment.costUsdToInrRate,
+        pseudonymKey,
+      ),
       new FastifyAdapter(),
     );
     await startCostGrpcTransport(app, {

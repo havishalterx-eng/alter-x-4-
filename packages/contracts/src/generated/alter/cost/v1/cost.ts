@@ -41,6 +41,10 @@ export interface QueryRollupsRequest {
   /** ISO 8601 timestamp */
   end_at: string;
   dimensions: string[];
+  /** Optional wf_/prj_ prefixed parent id. Empty means all parents. */
+  parent_id: string;
+  /** ISO 4217 currency. Empty preserves legacy USD rollup behavior. */
+  currency: string;
 }
 
 export interface QueryRollupsResponse {
