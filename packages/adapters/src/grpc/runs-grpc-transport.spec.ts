@@ -28,6 +28,7 @@ function handler(): RunsHandler {
   return {
     getRunWorkspace: vi.fn(async () => ({
       workspace_id: "ws_018f47a5-7b2c-7d10-8f11-123456789abc",
+      workflow_id: "wf_018f47a5-7b2c-7d10-8f11-123456789abc",
     })),
     getNodeExecutionRecoveryInfo: vi.fn(async () => ({
       is_retry: false,
@@ -42,6 +43,7 @@ describe("RunsGrpcController", () => {
     const controller = new RunsGrpcController(runsHandler);
     await expect(controller.getRunWorkspace(REQUEST)).resolves.toEqual({
       workspace_id: "ws_018f47a5-7b2c-7d10-8f11-123456789abc",
+      workflow_id: "wf_018f47a5-7b2c-7d10-8f11-123456789abc",
     });
     expect(runsHandler.getRunWorkspace).toHaveBeenCalledWith(REQUEST);
   });

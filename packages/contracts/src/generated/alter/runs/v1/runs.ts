@@ -18,6 +18,11 @@ export interface GetRunWorkspaceRequest {
 export interface GetRunWorkspaceResponse {
   /** ws_ prefixed UUIDv7 */
   workspace_id: string;
+  /**
+   * Present for every current run. Project Mode has no project-backed runs yet,
+   * so project_id is intentionally not fabricated here.
+   */
+  workflow_id: string;
 }
 
 export interface GetNodeExecutionRecoveryInfoRequest {

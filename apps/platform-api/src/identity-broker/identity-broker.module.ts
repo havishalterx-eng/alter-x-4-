@@ -35,6 +35,6 @@ export const secretsProviderToken = Symbol("SecretsProvider");
       },
     },
   ],
-  exports: [IdentityBrokerService],
+  exports: [IdentityBrokerService, secretsProviderToken],
 })
 export class IdentityBrokerModule {}

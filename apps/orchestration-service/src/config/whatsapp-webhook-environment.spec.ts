@@ -5,15 +5,10 @@ import {
   loadWhatsappWebhookEnvironment,
 } from "./whatsapp-webhook-environment";
 
-const TENANT_ID = "00000000-0000-7000-8000-000000000001";
-const WORKSPACE_ID = "00000000-0000-7000-8000-000000000011";
-
 function environment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
     WHATSAPP_APP_SECRET: "app-secret-value",
     WHATSAPP_VERIFY_TOKEN: "verify-token-value",
-    WHATSAPP_TENANT_ID: TENANT_ID,
-    WHATSAPP_WORKSPACE_ID: WORKSPACE_ID,
     ...overrides,
   };
 }
@@ -23,8 +18,21 @@ describe("loadWhatsappWebhookEnvironment", () => {
     expect(loadWhatsappWebhookEnvironment(environment())).toEqual({
       appSecret: "app-secret-value",
       verifyToken: "verify-token-value",
-      tenantId: TENANT_ID,
-      workspaceId: WORKSPACE_ID,
+      timestampSkewSeconds: 300,
+    });
+  });
+
+  it("does not use legacy static tenancy values for webhook routing", () => {
+    expect(
+      loadWhatsappWebhookEnvironment(
+        environment({
+          WHATSAPP_TENANT_ID: "not-a-uuid",
+          WHATSAPP_WORKSPACE_ID: "not-a-uuid",
+        }),
+      ),
+    ).toEqual({
+      appSecret: "app-secret-value",
+      verifyToken: "verify-token-value",
       timestampSkewSeconds: 300,
     });
   });
@@ -40,8 +48,6 @@ describe("loadWhatsappWebhookEnvironment", () => {
   it.each([
     ["WHATSAPP_APP_SECRET", { WHATSAPP_APP_SECRET: "" }],
     ["WHATSAPP_VERIFY_TOKEN", { WHATSAPP_VERIFY_TOKEN: "" }],
-    ["WHATSAPP_TENANT_ID", { WHATSAPP_TENANT_ID: "not-a-uuid" }],
-    ["WHATSAPP_WORKSPACE_ID", { WHATSAPP_WORKSPACE_ID: "not-a-uuid" }],
     [
       "WHATSAPP_TIMESTAMP_SKEW_SECONDS",
       { WHATSAPP_TIMESTAMP_SKEW_SECONDS: "-5" },

@@ -31,6 +31,7 @@ export const billingRollups = pgTable(
     periodStart: date("period_start").notNull(),
     periodEnd: date("period_end").notNull(),
     mode: text("mode").notNull(),
+    currency: text("currency").notNull().default("USD"),
     internalCostMinor: bigint("internal_cost_minor", {
       mode: "bigint",
     }).notNull(),
@@ -51,11 +52,12 @@ export const billingRollups = pgTable(
       "billing_rollups_period_check",
       sql`${table.periodEnd} >= ${table.periodStart}`,
     ),
-    unique("billing_rollups_tenant_pseudonym_period_mode_unique").on(
+    unique("billing_rollups_tenant_pseudonym_period_mode_currency_unique").on(
       table.tenantPseudonym,
       table.periodStart,
       table.periodEnd,
       table.mode,
+      table.currency,
     ),
     index("idx_billing_rollups_tenant_period").on(
       table.tenantId,

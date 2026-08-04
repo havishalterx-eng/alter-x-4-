@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 
 import { verifyWhatsappSignature } from "./whatsapp-signature";
+import type { WhatsappAccountRegistryService } from "./whatsapp-account-registry.service";
 
 export class WhatsappSignatureInvalidError extends Error {
   constructor() {
@@ -49,8 +50,11 @@ export interface OrchestrationTenantStore {
 export interface WhatsappWebhookConfig {
   readonly appSecret: string;
   readonly verifyToken: string;
-  readonly tenantId: string;
-  readonly workspaceId: string;
+  // Retained only for legacy unit fixtures. Runtime configuration no longer
+  // supplies these values; production always resolves a signed inbound
+  // phone_number_id through WhatsappAccountRegistryService.
+  readonly tenantId?: string;
+  readonly workspaceId?: string;
   readonly timestampSkewSeconds: number;
 }
 
@@ -60,6 +64,8 @@ export interface WhatsappWebhookConfig {
 // conversation workflow's own messageId dedup make re-dispatch safe, so
 // dispatch is attempted for every inbound message in this delivery.
 export interface DispatchableInboundMessage {
+  readonly tenantId?: string;
+  readonly workspaceId?: string;
   readonly idempotencyKey: string;
   readonly subjectId: string;
   readonly occurredAt: string;
@@ -183,15 +189,11 @@ export class WhatsappWebhookService {
     private readonly store: OrchestrationTenantStore,
     private readonly config: WhatsappWebhookConfig,
     private readonly now: () => Date = () => new Date(),
+    private readonly registry?: WhatsappAccountRegistryService,
   ) {}
 
-  get tenantId(): string {
-    return this.config.tenantId;
-  }
-
-  get workspaceId(): string {
-    return this.config.workspaceId;
-  }
+  get tenantId(): string { return this.config.tenantId ?? ""; }
+  get workspaceId(): string { return this.config.workspaceId ?? ""; }
 
   // Meta's GET verification handshake: hub.mode must be "subscribe" and
   // hub.verify_token must match the configured token (constant-time
@@ -243,8 +245,14 @@ export class WhatsappWebhookService {
 
     let persisted = 0;
     let duplicates = 0;
-    await this.store.withTenant(this.config.tenantId, async (tx) => {
-      for (const inbound of messages) {
+    const routed = await Promise.all(messages.map(async (inbound) => ({
+      inbound,
+      routing: this.registry
+        ? await this.registry.resolveInbound(inbound.phoneNumberId)
+        : this.legacyRouting(inbound.phoneNumberId),
+    })));
+    for (const { inbound, routing } of routed) {
+      await this.store.withTenant(routing.tenantId, async (tx) => {
         const result = await tx.query(
           `INSERT INTO events (
              event_id, event_type, schema_version, tenant_id, workspace_id,
@@ -256,8 +264,8 @@ export class WhatsappWebhookService {
             prefixedUuidV7("evt"),
             "whatsapp.message.received",
             "1.0.0",
-            this.config.tenantId,
-            this.config.workspaceId,
+            routing.tenantId,
+            routing.workspaceId,
             "whatsapp",
             inbound.phoneNumberId ?? null,
             inbound.from,
@@ -272,19 +280,40 @@ export class WhatsappWebhookService {
         } else {
           duplicates += 1;
         }
-      }
-    });
+      });
+    }
 
     return {
       received: messages.length,
       persisted,
       duplicates,
-      messages: messages.map((inbound) => ({
-        idempotencyKey: inbound.id,
-        subjectId: inbound.from,
-        occurredAt: new Date(inbound.timestampSeconds * 1000).toISOString(),
-        payload: inbound.message,
-      })),
+      messages: routed.map(({ inbound, routing }) => dispatchableMessage(inbound, routing)),
     };
   }
+
+  private legacyRouting(phoneNumberId: string | undefined) {
+    if (!this.config.tenantId || !this.config.workspaceId) {
+      throw new Error(`No WhatsApp registry is configured for phone number ${phoneNumberId ?? "unknown"}`);
+    }
+    return { accountId: "legacy-test-account", tenantId: this.config.tenantId, workspaceId: this.config.workspaceId };
+  }
+}
+
+function dispatchableMessage(
+  inbound: InboundMessage,
+  routing: { readonly tenantId: string; readonly workspaceId: string },
+): DispatchableInboundMessage {
+  const message: DispatchableInboundMessage = {
+    idempotencyKey: inbound.id,
+    subjectId: inbound.from,
+    occurredAt: new Date(inbound.timestampSeconds * 1000).toISOString(),
+    payload: inbound.message,
+  };
+  // Routing is internal dispatch metadata, not part of the webhook response
+  // contract. Non-enumerability preserves the established response shape.
+  Object.defineProperties(message, {
+    tenantId: { value: routing.tenantId, enumerable: false },
+    workspaceId: { value: routing.workspaceId, enumerable: false },
+  });
+  return message;
 }

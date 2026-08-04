@@ -55,6 +55,10 @@ const actor: ActorContextType = {
   roles: ["admin"],
   permissions: ["knowledge:read", "knowledge:admin", "knowledge:delete"],
 };
+const ownerActor: ActorContextType = {
+  ...actor,
+  roles: ["owner", "admin"],
+};
 
 describe("ADS administration routes", () => {
   let app: NestFastifyApplication;
@@ -195,6 +199,58 @@ describe("ADS administration routes", () => {
     expect(removed.statusCode).toBe(200);
     expect(removed.json()).toEqual(engine.deletedResource);
     expect(removed.json()).not.toHaveProperty("deletion_certificate");
+  });
+
+  it("relays a real deletion certificate unchanged and ignores forged tenant input", async () => {
+    const options = {
+      method: "POST",
+      url: "/api/v1/ads/deletion-requests",
+      body: { tenantId: `ten_018f4d6e-2b4a-7a3e-8c1a-1234567890b1` },
+      actor: ownerActor,
+      headers: { "idempotency-key": "tenant-deletion" },
+    };
+
+    const first = await request(options);
+    const replay = await request(options);
+
+    expect(first.statusCode).toBe(201);
+    expect(first.json()).toEqual(engine.deletionCertificate);
+    expect(replay.json()).toEqual(engine.deletionCertificate);
+    expect(replay.headers["idempotency-replayed"]).toBe("true");
+    expect(engine.post).toHaveBeenCalledExactlyOnceWith(
+      "/api/v1/deletion-requests",
+      {},
+      expect.objectContaining({
+        tenantId: ownerActor.tenant_id,
+        workspaceId: ownerActor.workspace_id,
+      }),
+      { idempotencyKey: "tenant-deletion" },
+    );
+    expect(JSON.stringify(engine.post.mock.calls)).not.toContain(
+      "1234567890b1",
+    );
+  });
+
+  it("relays actor-scoped retention unchanged and idempotently", async () => {
+    const options = {
+      method: "POST",
+      url: "/api/v1/ads/deletion-requests/retention",
+      actor,
+      headers: { "idempotency-key": "tenant-retention" },
+    };
+
+    const first = await request(options);
+    const replay = await request(options);
+
+    expect(first.statusCode).toBe(201);
+    expect(first.json()).toEqual(engine.retentionResult);
+    expect(replay.headers["idempotency-replayed"]).toBe("true");
+    expect(engine.post).toHaveBeenCalledExactlyOnceWith(
+      "/api/v1/deletion-requests/retention",
+      {},
+      expect.objectContaining({ tenantId: actor.tenant_id }),
+      { idempotencyKey: "tenant-retention" },
+    );
   });
 
   it("relays real document permission reads and validated updates", async () => {
@@ -399,6 +455,22 @@ describe("ADS administration routes", () => {
   );
 
   it("requires admin role for writes and privileged admin role for deletion", async () => {
+    const adminTenantDeletion = await request({
+      method: "POST",
+      url: "/api/v1/ads/deletion-requests",
+      actor,
+      headers: { "idempotency-key": "admin-tenant-deletion" },
+    });
+    expectProblem(adminTenantDeletion, 403, "RBAC_ROLE_DENIED");
+
+    const ownerWithoutPermission = await request({
+      method: "POST",
+      url: "/api/v1/ads/deletion-requests",
+      actor: { ...ownerActor, permissions: [] },
+      headers: { "idempotency-key": "owner-without-delete" },
+    });
+    expectProblem(ownerWithoutPermission, 403, "RBAC_PERMISSION_DENIED");
+
     const editorDelete = await request({
       method: "DELETE",
       url: `/api/v1/ads/documents/${documentId}`,
@@ -462,12 +534,33 @@ describe("ADS administration routes", () => {
     },
   );
 
+  it("passes deletion Engine problems through for an authorized owner", async () => {
+    engine.failNext("POST", "/api/v1/deletion-requests");
+    const response = await request({
+      method: "POST",
+      url: "/api/v1/ads/deletion-requests",
+      actor: ownerActor,
+      headers: { "idempotency-key": "failure-tenant-deletion" },
+    });
+    expectProblem(response, 503, "ENGINE_ADS_UNAVAILABLE");
+  });
+
   it("requires Idempotency-Key for every mutation", async () => {
     for (const [method, url, body] of mutationCases()) {
       const response = await request({ method, url, body, actor });
       expectProblem(response, 400, "IDEMPOTENCY_KEY_REQUIRED");
     }
     expect(engine.mutationCount()).toBe(0);
+  });
+
+  it("requires Idempotency-Key for owner deletion", async () => {
+    const response = await request({
+      method: "POST",
+      url: "/api/v1/ads/deletion-requests",
+      actor: ownerActor,
+    });
+    expectProblem(response, 400, "IDEMPOTENCY_KEY_REQUIRED");
+    expect(engine.post).not.toHaveBeenCalled();
   });
 
   it("flags every deferred surface and leaves fabricated routes absent", async () => {
@@ -477,15 +570,7 @@ describe("ADS administration routes", () => {
         status: "NOT_MET",
       }),
       expect.objectContaining({
-        capability: "retention_config",
-        status: "NOT_MET",
-      }),
-      expect.objectContaining({
         capability: "source_permissions",
-        status: "NOT_MET",
-      }),
-      expect.objectContaining({
-        capability: "deletion_certificate",
         status: "NOT_MET",
       }),
     ]);
@@ -493,7 +578,6 @@ describe("ADS administration routes", () => {
     for (const [method, url] of [
       ["POST", "/api/v1/ads/retrieval"],
       ["POST", `/api/v1/ads/sources/${sourceId}/actions/reindex`],
-      ["GET", "/api/v1/ads/retention"],
       ["GET", `/api/v1/ads/sources/${sourceId}/permissions`],
       ["GET", `/api/v1/ads/documents/${documentId}/deletion-certificate`],
     ] as const) {
@@ -623,6 +707,18 @@ class AdsEngine {
     ],
     audited_at: "2026-08-04T08:00:01Z",
   };
+  readonly deletionCertificate = {
+    store: "orchestration-service",
+    manifestId: "del_018f4d6e-2b4a-7a3e-8c1a-1234567890d1",
+    deleted: true,
+    remaining: [],
+  };
+  readonly retentionResult = {
+    store: "orchestration-service",
+    deletedRows: 4,
+    deletedObjects: 0,
+    sweptAt: "2026-08-04T08:00:02.000Z",
+  };
   readonly get = vi.fn(this.getResponse.bind(this));
   readonly post = vi.fn(this.postResponse.bind(this));
   readonly patch = vi.fn(this.patchResponse.bind(this));
@@ -738,6 +834,12 @@ class AdsEngine {
     if (path.endsWith("/actions/reindex")) {
       return { status: 200, body: this.reindexResource };
     }
+    if (path === "/api/v1/deletion-requests") {
+      return { status: 201, body: this.deletionCertificate };
+    }
+    if (path === "/api/v1/deletion-requests/retention") {
+      return { status: 201, body: this.retentionResult };
+    }
     return {
       status: 201,
       body: path.endsWith("/sources")
@@ -823,6 +925,12 @@ function response<T>(body: T): EngineResponse<T> {
 
 function mutationCases() {
   return [
+    [
+      "POST",
+      "/api/v1/ads/deletion-requests/retention",
+      undefined,
+      201,
+    ],
     ["POST", "/api/v1/ads/sources", { connector: "drive" }, 201],
     [
       "POST",
@@ -857,6 +965,7 @@ function routeCases(): ReadonlyArray<
   readonly [method: string, url: string, body: unknown]
 > {
   return [
+    ["POST", "/api/v1/ads/deletion-requests/retention", undefined],
     ["POST", "/api/v1/ads/sources", { connector: "drive" }],
     [
       "POST",
@@ -890,6 +999,12 @@ function routeCases(): ReadonlyArray<
 
 function engineErrorCases() {
   return [
+    [
+      "POST",
+      "/api/v1/ads/deletion-requests/retention",
+      undefined,
+      "/api/v1/deletion-requests/retention",
+    ],
     [
       "POST",
       "/api/v1/ads/sources",

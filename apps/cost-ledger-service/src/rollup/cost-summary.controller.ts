@@ -26,6 +26,8 @@ export class CostSummaryController {
         start_at: requireString(query.startAt, "startAt"),
         end_at: requireString(query.endAt, "endAt"),
         dimensions: parseDimensions(query.dimensions),
+        parent_id: "",
+        currency: "INR",
       });
     } catch (error: unknown) {
       if (error instanceof RollupValidationError || error instanceof SummaryQueryError) {

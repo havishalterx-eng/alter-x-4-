@@ -35,6 +35,10 @@ message QueryRollupsRequest {
   string start_at = 3; // ISO 8601 timestamp
   string end_at = 4; // ISO 8601 timestamp
   repeated string dimensions = 5;
+  // Optional wf_/prj_ prefixed parent id. Empty means all parents.
+  string parent_id = 6;
+  // ISO 4217 currency. Empty preserves legacy USD rollup behavior.
+  string currency = 7;
 }
 
 message QueryRollupsResponse {

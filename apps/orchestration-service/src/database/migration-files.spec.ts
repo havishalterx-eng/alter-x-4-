@@ -35,6 +35,7 @@ describe("orchestration migration files", () => {
       "0018_add_blocked_pending_recovery_status.sql",
       "0019_create_projects.sql",
       "0020_create_artifacts.sql",
+      "0021_create_whatsapp_accounts.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -62,6 +63,7 @@ describe("orchestration migration files", () => {
       "0018_remove_blocked_pending_recovery_status.sql",
       "0019_drop_projects.sql",
       "0020_drop_artifacts.sql",
+      "0021_drop_whatsapp_accounts.sql",
     ]);
   });
 
@@ -78,13 +80,13 @@ describe("orchestration migration files", () => {
     },
   );
 
-  it("defines immutability function once and reuses it seventeen times", () => {
+  it("defines immutability function once and reuses it nineteen times", () => {
     const allSql = migrationSql.map(({ sql }) => sql).join("\n");
 
     expect(allSql.match(/CREATE OR REPLACE FUNCTION reject_tenant_id_change/g))
       .toHaveLength(1);
     expect(allSql.match(/EXECUTE FUNCTION reject_tenant_id_change\(\)/g))
-      .toHaveLength(18);
+      .toHaveLength(19);
   });
 
   it("persists a bounded traffic percentage only for canary versions", () => {

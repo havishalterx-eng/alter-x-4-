@@ -16,12 +16,17 @@ describe("cost_db migration files", () => {
     expect(migrationFiles).toEqual([
       "0000_create_cost_events.sql",
       "0001_create_billing_rollups.sql",
+      "0002_billing_rollup_currency.sql",
     ]);
     expect(
       readdirSync(resolve(COST_MIGRATIONS_PATH, "rollback"))
         .filter((file) => file.endsWith(".sql"))
         .sort(),
-    ).toEqual(["0000_drop_cost_events.sql", "0001_drop_billing_rollups.sql"]);
+    ).toEqual([
+      "0000_drop_cost_events.sql",
+      "0001_drop_billing_rollups.sql",
+      "0002_drop_billing_rollup_currency.sql",
+    ]);
   });
 
   it.each(migrationSql.filter(({ sql }) => sql.includes("CREATE TABLE")))(
@@ -97,7 +102,10 @@ describe("cost_db migration files", () => {
       'CREATE INDEX "idx_cost_events_tenant_occurred" ON "cost_events" ("tenant_id", "occurred_at")',
     );
     expect(allSql).toContain(
-      'CONSTRAINT "billing_rollups_tenant_pseudonym_period_mode_unique" UNIQUE ("tenant_pseudonym", "period_start", "period_end", "mode")',
+      'CONSTRAINT "billing_rollups_tenant_pseudonym_period_mode_currency_unique"',
+    );
+    expect(allSql).toContain(
+      'CHECK ("currency" IN (\'USD\', \'INR\'))',
     );
     expect(allSql).toContain(
       'CONSTRAINT "billing_rollups_period_check" CHECK ("period_end" >= "period_start")',

@@ -15,6 +15,8 @@ const COST_EVENT = "cst_018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef";
 const RUN = "run_018f4d6e-2b4a-7a3e-8c1a-1111abcd1111";
 const NODE = "node_018f4d6e-2b4a-7a3e-8c1a-2222abcd2222";
 const WORKSPACE = "ws_018f4d6e-2b4a-7a3e-8c1a-3333abcd3333";
+const WORKFLOW = "wf_018f4d6e-2b4a-7a3e-8c1a-4444abcd4444";
+const USD_TO_INR_RATE = 83;
 
 function baseRequest(overrides: Partial<CostIngestCostEventRequest> = {}): CostIngestCostEventRequest {
   return {
@@ -47,7 +49,10 @@ function fakeStore(): { store: CostEventStore; query: ReturnType<typeof vi.fn> }
 
 function fakeRunsClient() {
   return {
-    getRunWorkspace: vi.fn(async () => ({ workspace_id: WORKSPACE })),
+    getRunWorkspace: vi.fn(async () => ({
+      workspace_id: WORKSPACE,
+      workflow_id: WORKFLOW,
+    })),
     getNodeExecutionRecoveryInfo: vi.fn(async () => ({
       is_retry: false,
       is_recovery: false,
@@ -59,7 +64,7 @@ describe("CostIngestService.ingestCostEvent", () => {
   it("resolves workspace_id via the Runs client and inserts a real bare-uuid row", async () => {
     const { store, query } = fakeStore();
     const runsClient = fakeRunsClient();
-    const service = new CostIngestService(store, runsClient);
+    const service = new CostIngestService(store, runsClient, USD_TO_INR_RATE);
 
     await expect(service.ingestCostEvent(baseRequest())).resolves.toEqual({
       accepted: true,
@@ -75,6 +80,7 @@ describe("CostIngestService.ingestCostEvent", () => {
       "018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef",
       BARE_TENANT,
       "018f4d6e-2b4a-7a3e-8c1a-3333abcd3333",
+      "018f4d6e-2b4a-7a3e-8c1a-4444abcd4444",
       "018f4d6e-2b4a-7a3e-8c1a-1111abcd1111",
       "018f4d6e-2b4a-7a3e-8c1a-2222abcd2222",
       "model_gateway",
@@ -82,7 +88,7 @@ describe("CostIngestService.ingestCostEvent", () => {
       "tokens",
       "15",
       "tokens",
-      "0", // round(0.0015 * 100) = 0.15 -> 0
+      "12", // round(0.0015 * 83 * 100) = 12.45 -> 12
       "2026-07-31T00:00:00.000Z",
       false,
       false,
@@ -92,13 +98,16 @@ describe("CostIngestService.ingestCostEvent", () => {
   it("writes real is_retry/is_recovery from the Runs client, not hardcoded false", async () => {
     const { store, query } = fakeStore();
     const runsClient = {
-      getRunWorkspace: vi.fn(async () => ({ workspace_id: WORKSPACE })),
+      getRunWorkspace: vi.fn(async () => ({
+        workspace_id: WORKSPACE,
+        workflow_id: WORKFLOW,
+      })),
       getNodeExecutionRecoveryInfo: vi.fn(async () => ({
         is_retry: true,
         is_recovery: true,
       })),
     };
-    const service = new CostIngestService(store, runsClient);
+    const service = new CostIngestService(store, runsClient, USD_TO_INR_RATE);
 
     await service.ingestCostEvent(baseRequest());
 
@@ -114,7 +123,7 @@ describe("CostIngestService.ingestCostEvent", () => {
 
   it("derives sandbox usage_json into resource/quantity/unit correctly", async () => {
     const { store, query } = fakeStore();
-    const service = new CostIngestService(store, fakeRunsClient());
+    const service = new CostIngestService(store, fakeRunsClient(), USD_TO_INR_RATE);
 
     await service.ingestCostEvent(
       baseRequest({
@@ -129,11 +138,19 @@ describe("CostIngestService.ingestCostEvent", () => {
     );
 
     const [, values] = query.mock.calls[0] as [string, unknown[]];
-    expect(values.slice(7, 10)).toEqual(["sandbox.calculator.compute", "1", "invocations"]);
+    expect(values.slice(8, 11)).toEqual([
+      "sandbox.calculator.compute",
+      "1",
+      "invocations",
+    ]);
   });
 
   it("rejects a source with no known ingestion rule", async () => {
-    const service = new CostIngestService(fakeStore().store, fakeRunsClient());
+    const service = new CostIngestService(
+      fakeStore().store,
+      fakeRunsClient(),
+      USD_TO_INR_RATE,
+    );
 
     await expect(
       service.ingestCostEvent(baseRequest({ source: "storage" })),
@@ -142,7 +159,11 @@ describe("CostIngestService.ingestCostEvent", () => {
 
   it("rejects a malformed tenant_id before calling the Runs client", async () => {
     const runsClient = fakeRunsClient();
-    const service = new CostIngestService(fakeStore().store, runsClient);
+    const service = new CostIngestService(
+      fakeStore().store,
+      runsClient,
+      USD_TO_INR_RATE,
+    );
 
     await expect(
       service.ingestCostEvent(baseRequest({ tenant_id: "not-a-tenant" })),
@@ -151,7 +172,11 @@ describe("CostIngestService.ingestCostEvent", () => {
   });
 
   it("rejects non-numeric model_gateway usage_json fields", async () => {
-    const service = new CostIngestService(fakeStore().store, fakeRunsClient());
+    const service = new CostIngestService(
+      fakeStore().store,
+      fakeRunsClient(),
+      USD_TO_INR_RATE,
+    );
 
     await expect(
       service.ingestCostEvent(
@@ -161,7 +186,11 @@ describe("CostIngestService.ingestCostEvent", () => {
   });
 
   it("rejects a negative amount_json.usd", async () => {
-    const service = new CostIngestService(fakeStore().store, fakeRunsClient());
+    const service = new CostIngestService(
+      fakeStore().store,
+      fakeRunsClient(),
+      USD_TO_INR_RATE,
+    );
 
     await expect(
       service.ingestCostEvent(
@@ -172,7 +201,7 @@ describe("CostIngestService.ingestCostEvent", () => {
 
   it("relies on the real idempotent INSERT WHERE NOT EXISTS clause for SQS at-least-once redelivery", async () => {
     const { store, query } = fakeStore();
-    const service = new CostIngestService(store, fakeRunsClient());
+    const service = new CostIngestService(store, fakeRunsClient(), USD_TO_INR_RATE);
 
     await service.ingestCostEvent(baseRequest());
 

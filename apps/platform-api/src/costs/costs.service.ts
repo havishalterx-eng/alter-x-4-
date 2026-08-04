@@ -97,6 +97,7 @@ function parseSummary(value: string, instance: string): CostSummary {
   return {
     startAt: parsed.start_at,
     endAt: parsed.end_at,
+    currency: parsed.currency,
     dimensions: parsed.dimensions,
     groups: parsed.groups.map((group) => ({
       dimensions: group.dimensions,
@@ -141,6 +142,7 @@ function callerContext(
 function isRollupResponse(value: unknown): value is {
   start_at: string;
   end_at: string;
+  currency: "INR" | "USD";
   dimensions: string[];
   groups: Array<{
     dimensions: Record<string, string>;
@@ -157,6 +159,7 @@ function isRollupResponse(value: unknown): value is {
     isRecord(value) &&
     typeof value.start_at === "string" &&
     typeof value.end_at === "string" &&
+    (value.currency === "INR" || value.currency === "USD") &&
     Array.isArray(value.dimensions) && value.dimensions.every(isDimension) &&
     Array.isArray(value.groups) && value.groups.every(isRollupGroup) &&
     isRollupTotals(value.totals)

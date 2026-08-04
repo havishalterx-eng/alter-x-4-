@@ -1,4 +1,8 @@
 import { randomBytes } from "node:crypto";
+import type {
+  RetentionSweepResult,
+  VerificationResult,
+} from "@alterx/contracts";
 import {
   EngineClient,
   EngineProblemError,
@@ -22,6 +26,34 @@ import { parseAdsId, parseTraceparent } from "./validation";
 
 export class AdsService {
   constructor(private readonly engine: EngineClient) {}
+
+  requestDeletion(
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<VerificationResult>> {
+    const instance = "/api/v1/ads/deletion-requests";
+    return this.engine.post(
+      "/api/v1/deletion-requests",
+      {},
+      callerContext(actor, traceparent, instance),
+      { idempotencyKey },
+    );
+  }
+
+  applyRetention(
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<RetentionSweepResult>> {
+    const instance = "/api/v1/ads/deletion-requests/retention";
+    return this.engine.post(
+      "/api/v1/deletion-requests/retention",
+      {},
+      callerContext(actor, traceparent, instance),
+      { idempotencyKey },
+    );
+  }
 
   createSource(
     input: AdsInput,

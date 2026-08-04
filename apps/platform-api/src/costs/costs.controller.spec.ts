@@ -101,6 +101,7 @@ interface TestResponse { statusCode: number; headers: Record<string, string | st
 function emptyRollup(): string {
   return JSON.stringify({
     start_at: "2026-01-01T00:00:00.000Z", end_at: "2026-02-01T00:00:00.000Z",
+    currency: "INR",
     dimensions: [], groups: [],
     totals: { internal_cost_minor: "0", billable_minor: "0", margin_minor: "0" },
   });

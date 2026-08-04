@@ -35,6 +35,8 @@ describe("CostSummaryController", () => {
       start_at: "2026-01-01T00:00:00.000Z",
       end_at: "2026-02-01T00:00:00.000Z",
       dimensions: ["mode", "provider"],
+      parent_id: "",
+      currency: "INR",
     });
   });
 

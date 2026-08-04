@@ -15,6 +15,13 @@
       "when": 1785561001000,
       "tag": "0001_create_billing_rollups",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785561002000,
+      "tag": "0002_billing_rollup_currency",
+      "breakpoints": true
     }
   ]
 }

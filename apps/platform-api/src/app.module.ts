@@ -25,6 +25,7 @@ import { TriggerModule } from "./triggers";
 import { BillingModule } from "./billing";
 import { EnvVarModule } from "./env-vars";
 import { CostsModule } from "./costs/costs.module";
+import { WhatsappModule } from "./channels/whatsapp/whatsapp.module";
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { CostsModule } from "./costs/costs.module";
     BillingModule,
     CostsModule,
     EnvVarModule,
+    WhatsappModule,
   ],
   controllers: [HealthController],
 })

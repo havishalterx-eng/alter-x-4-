@@ -61,6 +61,11 @@ interface DimensionGroup {
   readonly eventCount: number;
 }
 
+interface ParentFilter {
+  readonly id: string;
+  readonly mode: "workflow" | "project";
+}
+
 /**
  * Real implementation of cost.proto's CostService.QueryRollups (OUT-5) --
  * previously declared but unimplemented (grpc-js auto-returns UNIMPLEMENTED
@@ -99,10 +104,18 @@ export class CostRollupService {
       throw new RollupValidationError("end_at must be after start_at");
     }
     const dimensions = validateDimensions(request.dimensions);
+    const parent = parseParentFilter(request.parent_id);
+    const currency = parseCurrency(request.currency);
 
     const rows = await this.store.withTenant(tenantId, async (tx) => {
       const selectColumns = dimensions.map((d) => `${DIMENSION_COLUMNS[d]} AS ${d}`);
       const groupByColumns = dimensions.map((d) => DIMENSION_COLUMNS[d]);
+      const parentClause = parent === undefined ? "" : "AND parent_id = $5";
+      const currencyPlaceholder = parent === undefined ? "$5" : "$6";
+      const values =
+        parent === undefined
+          ? [tenantId, workspaceId, startAt, endAt, currency]
+          : [tenantId, workspaceId, startAt, endAt, parent.id, currency];
       const result = await tx.query<GroupRow>(
         `SELECT
            ${selectColumns.length > 0 ? selectColumns.join(", ") + "," : ""}
@@ -113,8 +126,10 @@ export class CostRollupService {
          FROM cost_events
          WHERE tenant_id = $1 AND workspace_id = $2
            AND occurred_at >= $3 AND occurred_at < $4
+           ${parentClause}
+           AND currency = ${currencyPlaceholder}
          ${groupByColumns.length > 0 ? `GROUP BY ${groupByColumns.join(", ")}` : ""}`,
-        [tenantId, workspaceId, startAt, endAt],
+        values,
       );
       return result.rows;
     });
@@ -128,6 +143,8 @@ export class CostRollupService {
       tenantId,
       startAt,
       endAt,
+      currency,
+      mode: parent?.mode ?? "workflow",
       groups,
       totalInternalMinor,
       totalBillableMinor,
@@ -138,6 +155,7 @@ export class CostRollupService {
       rollups_json: JSON.stringify({
         start_at: startAt,
         end_at: endAt,
+        currency,
         dimensions,
         groups: groups.map((g) => ({
           dimensions: g.dimensions,
@@ -180,28 +198,22 @@ export class CostRollupService {
     readonly tenantId: string;
     readonly startAt: string;
     readonly endAt: string;
+    readonly currency: "INR" | "USD";
+    readonly mode: "workflow" | "project";
     readonly groups: readonly DimensionGroup[];
     readonly totalInternalMinor: bigint;
     readonly totalBillableMinor: bigint;
     readonly totalMarginMinor: bigint;
   }): Promise<void> {
-    // Real cost_events.mode CHECK only allows 'workflow' | 'project' --
-    // billing_rollups requires exactly one mode per row (NOT NULL, part of
-    // its unique key), so a range spanning both would need two rows. Every
-    // real cost_events row today is 'workflow' (OUT-4: hardcoded at
-    // ingest, Project Mode never wired to Cost Ledger yet, disclosed
-    // upstream) -- default to 'workflow' when the query found zero rows to
-    // infer a mode from, rather than leaving the rollup unwritten.
-    const mode = "workflow";
     const pseudonym = this.pseudonym(input.tenantId);
     await this.store.withProvisioner(async (tx) => {
       await tx.query(
         `INSERT INTO billing_rollups
-           (id, tenant_pseudonym, tenant_id, period_start, period_end, mode,
+           (id, tenant_pseudonym, tenant_id, period_start, period_end, mode, currency,
             internal_cost_minor, billable_minor, margin_minor, detail, finalized)
-         VALUES (gen_random_uuid(), $1, $2, $3::timestamptz::date, $4::timestamptz::date, $5,
-                 $6, $7, $8, $9::jsonb, false)
-         ON CONFLICT (tenant_pseudonym, period_start, period_end, mode)
+         VALUES (gen_random_uuid(), $1, $2, $3::timestamptz::date, $4::timestamptz::date, $5, $6,
+                 $7, $8, $9, $10::jsonb, false)
+         ON CONFLICT (tenant_pseudonym, period_start, period_end, mode, currency)
          DO UPDATE SET
            internal_cost_minor = EXCLUDED.internal_cost_minor,
            billable_minor = EXCLUDED.billable_minor,
@@ -213,7 +225,8 @@ export class CostRollupService {
           input.tenantId,
           input.startAt,
           input.endAt,
-          mode,
+          input.mode,
+          input.currency,
           input.totalInternalMinor.toString(),
           input.totalBillableMinor.toString(),
           input.totalMarginMinor.toString(),
@@ -271,4 +284,23 @@ function validateDimensions(dimensions: readonly string[]): readonly string[] {
     }
   }
   return dimensions;
+}
+
+function parseParentFilter(value: string): ParentFilter | undefined {
+  if (value.length === 0) return undefined;
+  if (value.startsWith("wf_")) {
+    return { id: requireUuidPrefixed(value, "wf", "parent_id"), mode: "workflow" };
+  }
+  if (value.startsWith("prj_")) {
+    return { id: requireUuidPrefixed(value, "prj", "parent_id"), mode: "project" };
+  }
+  throw new RollupValidationError("parent_id must be a wf_ or prj_ prefixed UUID");
+}
+
+function parseCurrency(value: string): "INR" | "USD" {
+  const currency = value.length === 0 ? "USD" : value;
+  if (currency !== "INR" && currency !== "USD") {
+    throw new RollupValidationError("currency must be INR or USD");
+  }
+  return currency;
 }

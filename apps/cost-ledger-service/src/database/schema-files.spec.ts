@@ -11,6 +11,10 @@ const schemas = [
   ["billing_rollups.ts", "billing_rollups"],
 ] as const;
 
+function readSchema(file: (typeof schemas)[number][0]): string {
+  return readFileSync(resolve(schemaRoot, file), "utf8").replaceAll("\r\n", "\n");
+}
+
 describe("cost_db Drizzle schemas", () => {
   it("loads both executable Drizzle table definitions", () => {
     for (const table of [costEvents, billingRollups]) {
@@ -19,31 +23,28 @@ describe("cost_db Drizzle schemas", () => {
   });
 
   it.each(schemas)("%s defines %s", (file, table) => {
-    const source = readFileSync(resolve(schemaRoot, file), "utf8");
+    const source = readSchema(file);
 
     expect(source).toContain(`pgTable(\n  "${table}"`);
   });
 
   it("keeps tenant ownership on cost_events, nullable on billing_rollups", () => {
-    const costEventsSource = readFileSync(
-      resolve(schemaRoot, "cost_events.ts"),
-      "utf8",
-    );
-    const billingRollupsSource = readFileSync(
-      resolve(schemaRoot, "billing_rollups.ts"),
-      "utf8",
-    );
+    const costEventsSource = readSchema("cost_events.ts");
+    const billingRollupsSource = readSchema("billing_rollups.ts");
 
     expect(costEventsSource).toContain('uuid("tenant_id").notNull()');
     expect(billingRollupsSource).toContain('tenantId: uuid("tenant_id"),');
     expect(billingRollupsSource).not.toContain(
       'uuid("tenant_id").notNull()',
     );
+    expect(billingRollupsSource).toContain(
+      'currency: text("currency").notNull().default("USD")',
+    );
   });
 
   it("keeps required checks, uniques and indexes in schema definitions", () => {
     const allSources = schemas
-      .map(([file]) => readFileSync(resolve(schemaRoot, file), "utf8"))
+      .map(([file]) => readSchema(file))
       .join("\n");
 
     for (const expected of [
@@ -53,7 +54,7 @@ describe("cost_db Drizzle schemas", () => {
       'index("idx_cost_events_tenant_run")',
       'index("idx_cost_events_tenant_parent")',
       'index("idx_cost_events_tenant_mode_source")',
-      'unique("billing_rollups_tenant_pseudonym_period_mode_unique")',
+      'unique("billing_rollups_tenant_pseudonym_period_mode_currency_unique")',
       'index("idx_billing_rollups_tenant_period")',
       'index("idx_billing_rollups_pseudonym_period")',
       'check(\n      "billing_rollups_period_check"',

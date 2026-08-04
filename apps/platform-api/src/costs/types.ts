@@ -3,6 +3,7 @@ import type { CostSource, EstimateCostResponse } from "../engine";
 export interface CostSummary {
   readonly startAt: string;
   readonly endAt: string;
+  readonly currency: "INR" | "USD";
   readonly dimensions: readonly string[];
   readonly groups: readonly CostSummaryGroup[];
   readonly totals: CostSummaryTotals;
