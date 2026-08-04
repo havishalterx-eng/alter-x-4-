@@ -14,6 +14,8 @@ import { CostRollupService, type RollupStore } from "./rollup/cost-rollup.servic
 import { EstimationController } from "./estimation/estimation.controller";
 import { EstimationService } from "./estimation/estimation.service";
 import { HealthController } from "./health/health.controller";
+import { NodeCostsController } from "./node-costs/node-costs.controller";
+import { NodeCostsService } from "./node-costs/node-costs.service";
 
 @Module({})
 export class AppModule {
@@ -25,10 +27,16 @@ export class AppModule {
   ): DynamicModule {
     return {
       module: AppModule,
-      controllers: [CostGrpcController, HealthController, EstimationController],
+      controllers: [
+        CostGrpcController,
+        HealthController,
+        EstimationController,
+        NodeCostsController,
+      ],
       providers: [
         { provide: COST_STORE_PROVIDER, useValue: store },
         EstimationService,
+        NodeCostsService,
         CostStoreLifecycle,
         {
           provide: COST_HANDLER,
