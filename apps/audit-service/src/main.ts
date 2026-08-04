@@ -5,6 +5,7 @@ import { NestFactory } from "@nestjs/core";
 
 import {
   AwsSecretsManagerProvider,
+  AwsSsmParameterProvider,
   PostgresAuditStoreProvider,
   S3ObjectStorageProvider,
   startAuditGrpcTransport,
@@ -19,10 +20,14 @@ import { resolveDeletionSecrets } from "./deletion/resolve-deletion-secrets";
 
 async function bootstrap(): Promise<void> {
   const environment = loadAuditEnvironment(process.env);
+  const parameterStore = new AwsSsmParameterProvider({ region: environment.region });
   let secretsProvider: AwsSecretsManagerProvider | undefined;
   let store: PostgresAuditStoreProvider | undefined;
 
   try {
+    // Resolve the configured bucket parameter during startup; deletion paths
+    // currently receive object references from the ledger rather than build keys.
+    await parameterStore.getParameter(environment.auditArchiveBucketParameter);
     if (environment.databaseAuthentication === "iam") {
       secretsProvider = new AwsSecretsManagerProvider({ region: environment.region });
       store = new PostgresAuditStoreProvider({
@@ -76,6 +81,7 @@ async function bootstrap(): Promise<void> {
     throw error;
   } finally {
     secretsProvider?.close();
+    parameterStore.close();
   }
 }
 

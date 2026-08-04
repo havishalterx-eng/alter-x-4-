@@ -8,6 +8,7 @@ import type {
   EmbeddingProvider,
   ModelProvider,
   ObjectStorageProvider,
+  ParameterStoreProvider,
   ObservabilityProvider,
   PIIRedactionProvider,
   SearchProvider,
@@ -106,6 +107,20 @@ export const objectStorageProviderContract: ProviderContractSuite<ObjectStorageP
         ensure(!(await provider.objectExists(reference)), "Deleted object must verify absent");
         await provider.deleteObject(reference);
         return { deleted: true, exists: await provider.objectExists(reference) };
+      },
+    },
+  ],
+};
+
+export const parameterStoreProviderContract: ProviderContractSuite<ParameterStoreProvider> = {
+  name: "ParameterStoreProvider",
+  cases: [
+    {
+      name: "resolves a known parameter and rejects a missing parameter",
+      assert: async (provider) => {
+        ensure(await provider.getParameter("/contract/parameter") === "contract-value", "Known parameter must resolve deterministically");
+        ensure(await rejects(() => provider.getParameter("/contract/missing")), "Unknown parameter must be rejected");
+        return { resolved: true };
       },
     },
   ],

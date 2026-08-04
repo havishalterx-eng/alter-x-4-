@@ -2,6 +2,7 @@ import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fa
 import { Test } from "@nestjs/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../app.module";
+import { ArtifactsService } from "../artifacts/artifacts.service";
 
 describe("GET /health", () => {
   let app: NestFastifyApplication;
@@ -24,6 +25,7 @@ describe("GET /health", () => {
       DELETION_SERVICE_TOKEN_SHA256: "a".repeat(64),
       AWS_REGION: "ap-south-1",
       ALTER_ENV: "prod",
+      ALTER_ARTIFACTS_BUCKET_PARAM: "/alter/prod/orchestration/artifacts-bucket",
       MODEL_GATEWAY_ADDRESS: "127.0.0.1:50051",
       TOOL_GATEWAY_ADDRESS: "127.0.0.1:50053",
       SANDBOX_SERVICE_ADDRESS: "127.0.0.1:50057",
@@ -41,7 +43,11 @@ describe("GET /health", () => {
     }
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      // Health does not use artifact storage; avoid resolving AWS credentials.
+      .overrideProvider(ArtifactsService)
+      .useValue({})
+      .compile();
 
     app = moduleRef.createNestApplication<NestFastifyApplication>(
       new FastifyAdapter(),

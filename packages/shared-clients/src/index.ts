@@ -54,6 +54,7 @@ export {
   cacheProviderContract,
   observabilityProviderContract,
   objectStorageProviderContract,
+  parameterStoreProviderContract,
   piiRedactionProviderContract,
   searchProviderContract,
   secretsProviderContract,
@@ -104,6 +105,7 @@ export {
   type ModelProvider,
   type NetworkConnectivityProvider,
   type ObjectStorageProvider,
+  type ParameterStoreProvider,
   type ObservabilityProvider,
   type Page,
   type PaymentMethodRef,
@@ -266,3 +268,7 @@ export {
   createMockObjectStorageProvider,
   type MockObjectStorageProvider,
 } from "./mocks/object-storage-provider";
+export {
+  createMockParameterStoreProvider,
+  type MockParameterStoreProviderOptions,
+} from "./mocks/parameter-store-provider";

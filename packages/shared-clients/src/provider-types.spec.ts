@@ -17,6 +17,7 @@ import {
   type ModelProvider,
   type NetworkConnectivityProvider,
   type ObjectStorageProvider,
+  type ParameterStoreProvider,
   type PIIRedactionProvider,
   type QueueProvider,
   type RelationalDatabaseProvider,
@@ -44,6 +45,7 @@ type MarkerProviders =
   | ModelProvider
   | NetworkConnectivityProvider
   | ObjectStorageProvider
+  | ParameterStoreProvider
   | PIIRedactionProvider
   | QueueProvider
   | RelationalDatabaseProvider
@@ -56,7 +58,7 @@ type MarkerProviders =
   | VoiceProvider;
 
 describe("canonical provider interface surface", () => {
-  it("locks all 28 CEO-reconciled interface names exactly once", () => {
+  it("locks all 29 CEO-reconciled interface names exactly once", () => {
     expect(CANONICAL_PROVIDER_INTERFACES).toEqual([
       "DurableExecutionProvider",
       "ComputeProvider",
@@ -73,6 +75,7 @@ describe("canonical provider interface surface", () => {
       "ObjectStorageProvider",
       "QueueProvider",
       "SecretsProvider",
+      "ParameterStoreProvider",
       "BillingProvider",
       "ObservabilityProvider",
       "SandboxProvider",
@@ -87,7 +90,7 @@ describe("canonical provider interface surface", () => {
       "AuditStoreProvider",
       "VoiceProvider",
     ]);
-    expect(new Set(CANONICAL_PROVIDER_INTERFACES)).toHaveLength(28);
+    expect(new Set(CANONICAL_PROVIDER_INTERFACES)).toHaveLength(29);
     expectTypeOf<MarkerProviders>().toMatchTypeOf<BaseProvider>();
   });
 

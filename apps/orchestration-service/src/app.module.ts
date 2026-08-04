@@ -18,6 +18,7 @@ import {
   PlannerClient,
   PolicyStoreClient,
   SandboxServiceClient,
+  AwsSsmParameterProvider,
   S3ObjectStorageProvider,
   NodeexecGrpcController,
   PostgresOrchestrationStoreProvider,
@@ -279,7 +280,7 @@ import { ArtifactsService } from "./artifacts/artifacts.service";
     },
     {
       provide: ArtifactsService,
-      useFactory: () => {
+      useFactory: async () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
         const store = new PostgresOrchestrationStoreProvider({
           authentication: "iam",
@@ -290,7 +291,13 @@ import { ArtifactsService } from "./artifacts/artifacts.service";
           region: dbConfig.awsRegion,
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
-        return new ArtifactsService(store, new S3ObjectStorageProvider({ region: dbConfig.awsRegion }));
+        const parameterStore = new AwsSsmParameterProvider({ region: dbConfig.awsRegion });
+        try {
+          const bucketName = await parameterStore.getParameter(dbConfig.artifactsBucketParameter);
+          return new ArtifactsService(store, new S3ObjectStorageProvider({ region: dbConfig.awsRegion }), bucketName);
+        } finally {
+          parameterStore.close();
+        }
       },
     },
     {
@@ -632,6 +639,7 @@ interface SessionGatewayEnvironment {
   readonly databaseName: string;
   readonly databaseUser: string;
   readonly awsRegion: string;
+  readonly artifactsBucketParameter: string;
 }
 
 /**
@@ -748,6 +756,7 @@ function sessionGatewayEnvironment(
     databaseName: requiredEnvironment(env, "ORCHESTRATION_DATABASE_NAME"),
     databaseUser: requiredEnvironment(env, "ORCHESTRATION_DATABASE_USER"),
     awsRegion: requiredEnvironment(env, "AWS_REGION"),
+    artifactsBucketParameter: requiredEnvironment(env, "ALTER_ARTIFACTS_BUCKET_PARAM"),
   };
 }
 

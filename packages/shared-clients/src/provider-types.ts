@@ -27,6 +27,7 @@ export const CANONICAL_PROVIDER_INTERFACES = [
   "ObjectStorageProvider",
   "QueueProvider",
   "SecretsProvider",
+  "ParameterStoreProvider",
   "BillingProvider",
   "ObservabilityProvider",
   "SandboxProvider",
@@ -97,6 +98,11 @@ export interface SecretsProvider extends BaseProvider<"SecretsProvider"> {
 export interface MutableSecretsProvider extends SecretsProvider {
   putSecret(referenceId: SecretReferenceId, value: string): Promise<void>;
   deleteSecret(referenceId: SecretReferenceId): Promise<void>;
+}
+
+/** Resolves non-secret runtime configuration from a named parameter store. */
+export interface ParameterStoreProvider extends BaseProvider<"ParameterStoreProvider"> {
+  getParameter(name: string): Promise<string>;
 }
 
 export interface Page<T> {

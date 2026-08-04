@@ -35,6 +35,7 @@ const VALID_CONFIG = {
   ORCHESTRATION_DATABASE_NAME: "orchestration_db",
   ORCHESTRATION_DATABASE_USER: "orchestration_service",
   AWS_REGION: "ap-south-1",
+  ALTER_ARTIFACTS_BUCKET_PARAM: "/alter/local/orchestration/artifacts-bucket",
 } as const;
 
 function stubConfig(overrides: Record<string, string> = {}): void {

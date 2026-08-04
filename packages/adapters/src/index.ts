@@ -377,3 +377,8 @@ export {
   type S3ObjectStorageProviderConfig,
 } from "./aws/s3-object-storage-provider";
 export { MetaCloudApiWhatsappProvider, MetaCloudApiWhatsappError, type WhatsappProviderAccount, type WhatsappTemplate } from "./meta/meta-cloud-api-whatsapp-provider";
+export {
+  AwsSsmParameterProvider,
+  type AwsSsmParameterProviderConfig,
+  type SsmParameterCommandClient,
+} from "./aws/ssm-parameter-provider";

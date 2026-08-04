@@ -1,4 +1,5 @@
-import { TenantIdSchema } from "@alterx/contracts";
+import { RunIdSchema, TenantIdSchema } from "@alterx/contracts";
+import { randomUUID } from "node:crypto";
 import type { ObjectStorageProvider } from "@alterx/shared-clients";
 
 export class ArtifactNotFoundError extends Error {
@@ -44,6 +45,12 @@ export interface Artifact {
   readonly createdAt: string;
 }
 
+export interface CreateArtifactInput {
+  readonly runId: string;
+  readonly contentType: string;
+  readonly bytes: Uint8Array;
+}
+
 function bareTenantUuid(tenantId: string): string {
   const parsed = TenantIdSchema.safeParse(tenantId);
   if (!parsed.success) throw new ArtifactValidationError("tenantId must be a ten_ prefixed UUIDv7");
@@ -53,6 +60,11 @@ function bareTenantUuid(tenantId: string): string {
 function requireValue(name: string, value: string | undefined): string {
   if (value === undefined || value.trim().length === 0) throw new ArtifactValidationError(`${name} is required`);
   return value;
+}
+
+function newArtifactId(): string {
+  const id = randomUUID();
+  return `art_${id.slice(0, 14)}7${id.slice(15)}`;
 }
 
 function fromRow(row: ArtifactRow): Artifact {
@@ -69,7 +81,41 @@ export class ArtifactsService {
   constructor(
     private readonly store: ArtifactTenantStore,
     private readonly objects: ObjectStorageProvider,
+    private readonly bucketName: string,
   ) {}
+
+  async create(tenantId: string, input: CreateArtifactInput): Promise<Artifact> {
+    const tenant = bareTenantUuid(requireValue("tenantId", tenantId));
+    if (!RunIdSchema.safeParse(input.runId).success) {
+      throw new ArtifactValidationError("runId must be a run_ prefixed UUIDv7");
+    }
+    if (input.contentType.trim().length === 0) throw new ArtifactValidationError("contentType is required");
+    if (this.bucketName.trim().length === 0) throw new ArtifactValidationError("artifact bucket is required");
+
+    const artifactId = newArtifactId();
+    const storageReference = `s3://${this.bucketName}/tenants/${tenant}/runs/${input.runId}/artifacts/${artifactId}`;
+    await this.objects.putObject(
+      storageReference,
+      Buffer.from(input.bytes),
+      input.contentType,
+    );
+    try {
+      return await this.store.withTenant(tenant, async (tx) => {
+        const result = await tx.query<ArtifactRow>(
+          `INSERT INTO artifacts (id, tenant_id, run_id, storage_reference, content_type, size_bytes)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id, tenant_id, run_id, storage_reference, content_type, size_bytes, created_at::text`,
+          [artifactId, tenant, input.runId, storageReference, input.contentType, input.bytes.byteLength],
+        );
+        const row = result.rows[0];
+        if (row === undefined) throw new Error("artifact insert returned no row");
+        return fromRow(row);
+      });
+    } catch (error: unknown) {
+      try { await this.objects.deleteObject(storageReference); } catch { /* Preserve the database failure. */ }
+      throw error;
+    }
+  }
 
   async list(tenantId: string, runId: string): Promise<readonly Artifact[]> {
     const tenant = bareTenantUuid(requireValue("tenantId", tenantId));
@@ -97,6 +143,11 @@ export class ArtifactsService {
       signed_url: signedUrl,
       expires_at: new Date(Date.now() + expiresInSeconds * 1000).toISOString(),
     };
+  }
+
+  async read(tenantId: string, artifactId: string): Promise<Uint8Array> {
+    const { row } = await this.find(tenantId, artifactId);
+    return new Uint8Array(await this.objects.getObject(row.storage_reference));
   }
 
   private async find(tenantId: string, artifactId: string): Promise<{ readonly row: ArtifactRow }> {
