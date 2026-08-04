@@ -7,6 +7,7 @@ export default defineConfig({
       "tests/integration/rbac/**/*.spec.ts",
     ],
     exclude: [
+      "apps/platform-api/src/marketplace/**/*.integration.spec.ts",
       "apps/platform-api/src/db/db.migration.spec.ts",
       "apps/platform-api/src/identity/**/*.integration.spec.ts",
       "apps/platform-api/src/signup/**/*.integration.spec.ts",
@@ -18,7 +19,8 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       all: true,
-      include: [
+    include: [
+      "apps/platform-api/src/marketplace/**/*.ts",
         "apps/platform-api/src/db/**/*.ts",
         "apps/platform-api/src/identity/**/*.ts",
         "apps/platform-api/src/rbac/**/*.ts",

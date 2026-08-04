@@ -51,6 +51,8 @@ describe("IdentityBrokerModule", () => {
 function configureBaseEnvironment(): void {
   process.env.DATABASE_URL =
     "postgres://platform_api:platform_api_local@localhost:5432/platform_db";
+  process.env.MARKETPLACE_DATABASE_URL =
+    "postgres://platform_api:platform_api_local@localhost:5432/marketplace_db";
   process.env.SIGNING_KEY_PROVIDER = "secrets";
 }
 

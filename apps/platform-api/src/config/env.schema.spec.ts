@@ -12,17 +12,22 @@ describe("platformApiEnvSchema", () => {
     expect(
       validatePlatformApiEnv({
         DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
+        MARKETPLACE_DATABASE_URL:
+          "postgres://platform_api:platform_api_local@localhost:5432/marketplace_db",
         ACTOR_TOKEN_SIGNING_KEY_REF: "env:ACTOR_TOKEN_PRIVATE_KEY",
         REDIS_ENDPOINT_PARAM: "/alter/dev/platform-api/redis-endpoint",
         ALTER_CONFIG_SOURCE: "local-file",
       }),
     ).toEqual({
       DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
+      MARKETPLACE_DATABASE_URL:
+        "postgres://platform_api:platform_api_local@localhost:5432/marketplace_db",
       ACTOR_TOKEN_SIGNING_KEY_REF: "env:ACTOR_TOKEN_PRIVATE_KEY",
       IDENTITY_PROVIDER: "mock",
       REDIS_ENDPOINT_PARAM: "/alter/dev/platform-api/redis-endpoint",
       SIGNING_KEY_PROVIDER: "secrets",
       ALTER_CONFIG_SOURCE: "local-file",
+      MARKETPLACE_OBJECT_STORAGE_PROVIDER: "mock",
     });
   });
 
@@ -30,6 +35,8 @@ describe("platformApiEnvSchema", () => {
     expect(() =>
       validatePlatformApiEnv({
         DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
+        MARKETPLACE_DATABASE_URL:
+          "postgres://platform_api:platform_api_local@localhost:5432/marketplace_db",
         ACTOR_TOKEN_SIGNING_KEY_REF: "env:ACTOR_TOKEN_PRIVATE_KEY",
         IDENTITY_PROVIDER: "auth0",
       }),
@@ -40,6 +47,8 @@ describe("platformApiEnvSchema", () => {
     expect(
       validatePlatformApiEnv({
         DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
+        MARKETPLACE_DATABASE_URL:
+          "postgres://platform_api:platform_api_local@localhost:5432/marketplace_db",
         SIGNING_KEY_PROVIDER: "mock",
       }),
     ).toMatchObject({ SIGNING_KEY_PROVIDER: "mock" });
@@ -49,8 +58,17 @@ describe("platformApiEnvSchema", () => {
     expect(() =>
       validatePlatformApiEnv({
         DATABASE_URL: "postgres://localhost/platform_db",
+        MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db",
         ALTER_CONFIG_SOURCE: "appconfig",
       }),
     ).toThrow("APPCONFIG_APP_ID required");
+  });
+
+  it("selects marketplace object storage explicitly", () => {
+    const base = { DATABASE_URL: "postgres://localhost/platform_db", MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db", SIGNING_KEY_PROVIDER: "mock" };
+    expect(validatePlatformApiEnv(base).MARKETPLACE_OBJECT_STORAGE_PROVIDER).toBe("mock");
+    expect(validatePlatformApiEnv({ ...base, MARKETPLACE_OBJECT_STORAGE_PROVIDER: "s3", AWS_REGION: "ap-south-1" }).MARKETPLACE_OBJECT_STORAGE_PROVIDER).toBe("s3");
+    expect(() => validatePlatformApiEnv({ ...base, MARKETPLACE_OBJECT_STORAGE_PROVIDER: "gcs" })).toThrow("Invalid platform-api environment");
+    expect(() => validatePlatformApiEnv({ ...base, MARKETPLACE_OBJECT_STORAGE_PROVIDER: "s3" })).toThrow("AWS_REGION required when MARKETPLACE_OBJECT_STORAGE_PROVIDER=s3");
   });
 });

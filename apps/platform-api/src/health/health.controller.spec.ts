@@ -10,6 +10,8 @@ describe("GET /health", () => {
   beforeEach(async () => {
     process.env.DATABASE_URL =
       "postgres://platform_api:platform_api_local@localhost:5432/platform_db";
+    process.env.MARKETPLACE_DATABASE_URL =
+      "postgres://platform_api:platform_api_local@localhost:5432/marketplace_db";
     process.env.NODE_ENV = "test";
     process.env.SIGNING_KEY_PROVIDER = "mock";
     process.env.ENGINE_BASE_URL = "http://engine.test";

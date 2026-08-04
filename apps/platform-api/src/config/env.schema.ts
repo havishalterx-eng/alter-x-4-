@@ -3,6 +3,7 @@ import { z } from "zod";
 export const platformApiEnvSchema = z
   .object({
     DATABASE_URL: z.string().url(),
+    MARKETPLACE_DATABASE_URL: z.string().url(),
     // Reserved for platform cache wiring in a later ticket.
     REDIS_ENDPOINT_PARAM: z.string().optional(),
     // Production DB wiring resolves through SecretsProvider in a later ticket.
@@ -38,6 +39,7 @@ export const platformApiEnvSchema = z
     GOOGLE_OAUTH_CLIENT_SECRET_REF: z.string().min(1).optional(),
     OAUTH_STATE_TTL_SECONDS: z.string().regex(/^[1-9]\d*$/).optional(),
     AWS_REGION: z.string().min(1).optional(),
+    MARKETPLACE_OBJECT_STORAGE_PROVIDER: z.enum(["s3", "mock"]).default("mock"),
   })
   .superRefine((env, context) => {
     if (env.SIGNING_KEY_PROVIDER === "secrets" && !env.ACTOR_TOKEN_SIGNING_KEY_REF) {
@@ -71,6 +73,9 @@ export const platformApiEnvSchema = z
         ["APPCONFIG_APP_ID", "APPCONFIG_ENV_ID", "APPCONFIG_PROFILE_ID"],
         "ALTER_CONFIG_SOURCE=appconfig",
       );
+    }
+    if (env.MARKETPLACE_OBJECT_STORAGE_PROVIDER === "s3" && !env.AWS_REGION) {
+      context.addIssue({ code: "custom", path: ["AWS_REGION"], message: "AWS_REGION required when MARKETPLACE_OBJECT_STORAGE_PROVIDER=s3" });
     }
   });
 
