@@ -87,6 +87,17 @@ export const objectStorageProviderContract: ProviderContractSuite<ObjectStorageP
       },
     },
     {
+      name: "writes and reads opaque binary data",
+      assert: async (provider) => {
+        const reference = "s3://contract-bucket/regulated/bytes";
+        const body = Buffer.from([0, 1, 2, 255]);
+        await provider.putObject(reference, body, "application/octet-stream");
+        const read = await provider.getObject(reference);
+        ensure(Buffer.compare(read, body) === 0, "Read object must match written bytes");
+        return { reference, byteLength: read.length };
+      },
+    },
+    {
       name: "deletes an object idempotently and verifies absence",
       assert: async (provider) => {
         const reference = "s3://contract-bucket/regulated/object";

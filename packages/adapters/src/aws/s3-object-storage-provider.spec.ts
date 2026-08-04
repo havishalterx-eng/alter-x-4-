@@ -1,4 +1,9 @@
-import { DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 import {
   createMockObjectStorageProvider,
   objectStorageProviderContract,
@@ -10,13 +15,21 @@ import { S3ObjectStorageProvider } from "./s3-object-storage-provider";
 describe("S3ObjectStorageProvider", () => {
   it("passes the shared contract in cross-adapter parity with the mock", async () => {
     const reference = "s3://contract-bucket/regulated/object";
-    const objects = new Set([reference]);
+    const objects = new Map([[reference, Buffer.alloc(0)]]);
     const real = new S3ObjectStorageProvider({
       region: "ap-south-1",
       client: {
         send: vi.fn(async (command) => {
           const input = command.input as { Bucket?: string; Key?: string };
           const current = `s3://${input.Bucket}/${input.Key}`;
+          if (command instanceof PutObjectCommand) {
+            objects.set(current, Buffer.from(command.input.Body as Buffer));
+          }
+          if (command instanceof GetObjectCommand) {
+            const body = objects.get(current);
+            if (body === undefined) throw { $metadata: { httpStatusCode: 404 } };
+            return { Body: body };
+          }
           if (command instanceof DeleteObjectCommand) objects.delete(current);
           if (command instanceof HeadObjectCommand && !objects.has(current)) {
             throw { $metadata: { httpStatusCode: 404 } };
@@ -41,6 +54,30 @@ describe("S3ObjectStorageProvider", () => {
     expect(send.mock.calls[0]?.[0]).toBeInstanceOf(DeleteObjectCommand);
     expect(send.mock.calls[1]?.[0]).toBeInstanceOf(HeadObjectCommand);
     expect(send.mock.calls[0]?.[0].input).toEqual({ Bucket: "tenant-bucket", Key: "path/raw.json" });
+  });
+
+  it("maps opaque references to PutObject and GetObject byte round-trips", async () => {
+    const body = Buffer.from([0, 1, 2, 255]);
+    const send = vi.fn(async (command) => {
+      if (command instanceof GetObjectCommand) return { Body: body };
+      return {};
+    });
+    const provider = new S3ObjectStorageProvider({
+      region: "ap-south-1",
+      client: { send },
+    });
+
+    await provider.putObject("s3://tenant-bucket/path/audio.wav", body, "audio/wav");
+    await expect(provider.getObject("s3://tenant-bucket/path/audio.wav")).resolves.toEqual(body);
+
+    expect(send.mock.calls[0]?.[0]).toBeInstanceOf(PutObjectCommand);
+    expect(send.mock.calls[0]?.[0].input).toEqual({
+      Bucket: "tenant-bucket",
+      Key: "path/audio.wav",
+      Body: body,
+      ContentType: "audio/wav",
+    });
+    expect(send.mock.calls[1]?.[0]).toBeInstanceOf(GetObjectCommand);
   });
 
   it("rejects non-S3 references", async () => {

@@ -3,6 +3,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   NotFound,
+  PutObjectCommand,
   S3Client,
   type S3ClientConfig,
 } from "@aws-sdk/client-s3";
@@ -15,7 +16,13 @@ import type {
 } from "@alterx/shared-clients";
 
 export interface S3CommandClient {
-  send(command: DeleteObjectCommand | HeadObjectCommand): Promise<unknown>;
+  send(
+    command:
+      | DeleteObjectCommand
+      | GetObjectCommand
+      | HeadObjectCommand
+      | PutObjectCommand,
+  ): Promise<unknown>;
 }
 
 export interface S3ObjectStorageProviderConfig {
@@ -89,6 +96,33 @@ export class S3ObjectStorageProvider implements ObjectStorageProvider {
     await this.#client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
   }
 
+  async putObject(
+    reference: string,
+    body: Buffer,
+    contentType: string,
+  ): Promise<void> {
+    if (contentType.trim().length === 0) {
+      throw new Error("contentType is required");
+    }
+    const { bucket, key } = parseReference(reference);
+    await this.#client.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+      }),
+    );
+  }
+
+  async getObject(reference: string): Promise<Buffer> {
+    const { bucket, key } = parseReference(reference);
+    const response = (await this.#client.send(
+      new GetObjectCommand({ Bucket: bucket, Key: key }),
+    )) as { readonly Body?: unknown };
+    return toBuffer(response.Body);
+  }
+
   async objectExists(reference: string): Promise<boolean> {
     const { bucket, key } = parseReference(reference);
     try {
@@ -117,4 +151,20 @@ export class S3ObjectStorageProvider implements ObjectStorageProvider {
 
 function isAwsError(value: unknown): value is { $metadata?: { httpStatusCode?: number } } {
   return typeof value === "object" && value !== null;
+}
+
+async function toBuffer(body: unknown): Promise<Buffer> {
+  if (body instanceof Uint8Array) {
+    return Buffer.from(body);
+  }
+  if (
+    typeof body === "object" &&
+    body !== null &&
+    "transformToByteArray" in body &&
+    typeof body.transformToByteArray === "function"
+  ) {
+    const bytes = await body.transformToByteArray();
+    return Buffer.from(bytes);
+  }
+  throw new Error("S3 GetObject response body is empty or unsupported");
 }

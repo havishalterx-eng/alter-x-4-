@@ -17,6 +17,9 @@ export const CANONICAL_PROVIDER_INTERFACES = [
   "IdentityProvider",
   "ModelProvider",
   "EmbeddingProvider",
+  "ImageGenProvider",
+  "TextToSpeechProvider",
+  "SpeechToTextProvider",
   "PIIRedactionProvider",
   "SearchProvider",
   "BrowserProvider",
@@ -398,6 +401,72 @@ export interface EmbeddingResult {
 export interface EmbeddingProvider extends BaseProvider<"EmbeddingProvider"> {
   embed(request: EmbeddingRequest): Promise<EmbeddingResult>;
 }
+
+export interface ImageGenerationRequest {
+  readonly tenantId: string;
+  readonly runId: string;
+  readonly nodeExecutionId: string;
+  readonly prompt: string;
+  readonly options: Readonly<Record<string, JsonValue>>;
+}
+
+export interface ImageGenerationResult {
+  /** Opaque ObjectStorageProvider reference (an S3 key in the AWS adapter). */
+  readonly reference: string;
+  readonly mimeType: string;
+  readonly width: number;
+  readonly height: number;
+  /** The adapter that wrote this exact object; never the preferred provider. */
+  readonly servedBy: string;
+}
+
+export interface ImageGenProvider extends BaseProvider<"ImageGenProvider"> {
+  generateImage(
+    request: ImageGenerationRequest,
+  ): Promise<ImageGenerationResult>;
+}
+
+export interface SpeechSynthesisRequest {
+  readonly tenantId: string;
+  readonly runId: string;
+  readonly nodeExecutionId: string;
+  readonly text: string;
+  readonly voiceConfig: Readonly<Record<string, JsonValue>>;
+}
+
+export interface SpeechSynthesisResult {
+  /** Opaque ObjectStorageProvider reference (an S3 key in the AWS adapter). */
+  readonly reference: string;
+  readonly mimeType: string;
+  readonly durationMs: number;
+}
+
+export interface TextToSpeechProvider
+  extends BaseProvider<"TextToSpeechProvider"> {
+  synthesizeSpeech(
+    request: SpeechSynthesisRequest,
+  ): Promise<SpeechSynthesisResult>;
+}
+
+export interface SpeechTranscriptionRequest {
+  readonly tenantId: string;
+  readonly runId: string;
+  readonly nodeExecutionId: string;
+  /** Opaque ObjectStorageProvider reference; audio bytes never cross the RPC. */
+  readonly audioRef: string;
+}
+
+export interface SpeechTranscriptionResult {
+  readonly transcript: string;
+  readonly confidence: number;
+}
+
+export interface SpeechToTextProvider
+  extends BaseProvider<"SpeechToTextProvider"> {
+  transcribe(
+    request: SpeechTranscriptionRequest,
+  ): Promise<SpeechTranscriptionResult>;
+}
 export interface PIIDetectedEntity {
   readonly entityType: string;
   readonly start: number;
@@ -459,6 +528,12 @@ export interface DeploymentProvider
   extends BaseProvider<"DeploymentProvider"> {}
 export interface ObjectStorageProvider
   extends BaseProvider<"ObjectStorageProvider"> {
+  putObject(
+    reference: string,
+    body: Buffer,
+    contentType: string,
+  ): Promise<void>;
+  getObject(reference: string): Promise<Buffer>;
   deleteObject(reference: string): Promise<void>;
   objectExists(reference: string): Promise<boolean>;
   createPresignedDownloadUrl(reference: string, expiresInSeconds: number): Promise<string>;

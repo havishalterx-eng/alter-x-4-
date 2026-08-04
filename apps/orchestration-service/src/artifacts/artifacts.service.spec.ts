@@ -65,6 +65,9 @@ describe("ArtifactsService", () => {
       metadata: base.metadata,
       capabilities: base.capabilities,
       healthCheck: () => base.healthCheck(),
+      putObject: (reference, body, contentType) =>
+        base.putObject(reference, body, contentType),
+      getObject: (reference) => base.getObject(reference),
       deleteObject: (reference) => base.deleteObject(reference),
       objectExists: (reference) => base.objectExists(reference),
       createPresignedDownloadUrl: sign,

@@ -13,4 +13,13 @@ describe("createMockObjectStorageProvider", () => {
     expect(provider.metadata.interfaceName).toBe("ObjectStorageProvider");
     await expect(provider.healthCheck()).resolves.toMatchObject({ status: "healthy" });
   });
+
+  it("round-trips opaque binary objects without exposing storage internals", async () => {
+    const reference = "s3://fixture-bucket/path/audio.wav";
+    const body = Buffer.from([0, 1, 2, 255]);
+    const provider = createMockObjectStorageProvider();
+
+    await provider.putObject(reference, body, "audio/wav");
+    await expect(provider.getObject(reference)).resolves.toEqual(body);
+  });
 });
