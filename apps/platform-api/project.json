@@ -46,7 +46,7 @@
     "test-db-integration": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "vitest run apps/platform-api/src/db/db.migration.spec.ts apps/platform-api/src/identity/session-store.integration.spec.ts apps/platform-api/src/signup/platform-db.integration.spec.ts apps/platform-api/src/idempotency/idempotency-store.integration.spec.ts apps/platform-api/src/credentials/credential.repository.integration.spec.ts apps/platform-api/src/billing/billing.repository.integration.spec.ts apps/platform-api/src/billing/billing-webhook.integration.spec.ts"
+        "command": "vitest run apps/platform-api/src/db/db.migration.spec.ts apps/platform-api/src/identity/session-store.integration.spec.ts apps/platform-api/src/signup/platform-db.integration.spec.ts apps/platform-api/src/idempotency/idempotency-store.integration.spec.ts apps/platform-api/src/credentials/credential.repository.integration.spec.ts apps/platform-api/src/env-vars/env-var.repository.integration.spec.ts apps/platform-api/src/billing/billing.repository.integration.spec.ts apps/platform-api/src/billing/billing-webhook.integration.spec.ts"
       }
     }
   },

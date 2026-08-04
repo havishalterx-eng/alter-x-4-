@@ -46,6 +46,8 @@ async function seedRows(client: pg.Client): Promise<void> {
   const credentialB = randomUUID();
   const billingProfileA = randomUUID();
   const billingProfileB = randomUUID();
+  const envVarA = randomUUID();
+  const envVarB = randomUUID();
   await client.query(
     `INSERT INTO tenants (id, name, status)
      VALUES ($1, 'Tenant A', 'active'), ($2, 'Tenant B', 'active')`,
@@ -106,6 +108,28 @@ async function seedRows(client: pg.Client): Promise<void> {
       tenantB,
       randomUUID(),
       credentialB,
+      userB,
+    ],
+  );
+  await client.query(
+    `INSERT INTO env_vars
+       (tenant_id, id, project_id, environment, key, last4)
+     VALUES ($1, $2, 'prj_a', 'production', 'DATABASE_URL', '1111'),
+            ($3, $4, 'prj_b', 'production', 'DATABASE_URL', '2222')`,
+    [tenantA, envVarA, tenantB, envVarB],
+  );
+  await client.query(
+    `INSERT INTO env_var_use_audits
+       (tenant_id, id, env_var_id, used_by)
+     VALUES ($1, $2, $3, $4), ($5, $6, $7, $8)`,
+    [
+      tenantA,
+      randomUUID(),
+      envVarA,
+      userA,
+      tenantB,
+      randomUUID(),
+      envVarB,
       userB,
     ],
   );
@@ -232,6 +256,8 @@ describe("platform_db migration", () => {
       "credential_refs",
       "credential_use_audits",
       "entitlements",
+      "env_var_use_audits",
+      "env_vars",
       "idempotency_keys",
       "onboarding_states",
       "tenant_members",
@@ -263,6 +289,13 @@ describe("platform_db migration", () => {
       columns.some(
         (column) =>
           column.table_name === "credential_refs" &&
+          ["value", "secret", "plaintext"].includes(column.column_name),
+      ),
+    ).toBe(false);
+    expect(
+      columns.some(
+        (column) =>
+          column.table_name === "env_vars" &&
           ["value", "secret", "plaintext"].includes(column.column_name),
       ),
     ).toBe(false);
@@ -370,6 +403,8 @@ describe("platform_db migration", () => {
         "idempotency_keys",
         "credential_refs",
         "credential_use_audits",
+        "env_vars",
+        "env_var_use_audits",
         "billing_profiles",
         "billing_payment_method_refs",
         "billing_events",
@@ -401,7 +436,7 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
-    expect(rows[0]?.count).toBe("16");
+    expect(rows[0]?.count).toBe("18");
   });
 
   it("prevents tenant_id mutation on tenant-owned rows", async () => {
@@ -417,6 +452,13 @@ describe("platform_db migration", () => {
     await expect(
       adminClient.query(
         `UPDATE credential_refs SET tenant_id = $1 WHERE tenant_id = $2`,
+        [tenantB, tenantA],
+      ),
+    ).rejects.toThrow("tenant_id is immutable");
+
+    await expect(
+      adminClient.query(
+        `UPDATE env_vars SET tenant_id = $1 WHERE tenant_id = $2`,
         [tenantB, tenantA],
       ),
     ).rejects.toThrow("tenant_id is immutable");
