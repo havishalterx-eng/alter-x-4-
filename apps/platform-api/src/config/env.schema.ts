@@ -40,6 +40,7 @@ export const platformApiEnvSchema = z
     OAUTH_STATE_TTL_SECONDS: z.string().regex(/^[1-9]\d*$/).optional(),
     AWS_REGION: z.string().min(1).optional(),
     MARKETPLACE_OBJECT_STORAGE_PROVIDER: z.enum(["s3", "mock"]).default("mock"),
+    REGISTRY_SCAN_PROVIDER: z.enum(["sandbox", "mock"]).default("mock"),
   })
   .superRefine((env, context) => {
     if (env.SIGNING_KEY_PROVIDER === "secrets" && !env.ACTOR_TOKEN_SIGNING_KEY_REF) {
@@ -76,6 +77,9 @@ export const platformApiEnvSchema = z
     }
     if (env.MARKETPLACE_OBJECT_STORAGE_PROVIDER === "s3" && !env.AWS_REGION) {
       context.addIssue({ code: "custom", path: ["AWS_REGION"], message: "AWS_REGION required when MARKETPLACE_OBJECT_STORAGE_PROVIDER=s3" });
+    }
+    if (env.REGISTRY_SCAN_PROVIDER === "sandbox") {
+      context.addIssue({ code: "custom", path: ["REGISTRY_SCAN_PROVIDER"], message: "REGISTRY_SCAN_PROVIDER=sandbox is unavailable until SCAN-1" });
     }
   });
 

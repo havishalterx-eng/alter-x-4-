@@ -1,0 +1,18 @@
+DROP POLICY IF EXISTS "tool_revocations_tenant_isolation" ON "tool_revocations";
+DROP POLICY IF EXISTS "tool_scan_reports_tenant_isolation" ON "tool_scan_reports";
+DROP POLICY IF EXISTS "tool_versions_tenant_owner" ON "tool_versions";
+DROP POLICY IF EXISTS "tool_versions_catalogue_select" ON "tool_versions";
+DROP POLICY IF EXISTS "tool_manifests_tenant_owner" ON "tool_manifests";
+DROP POLICY IF EXISTS "tool_manifests_catalogue_select" ON "tool_manifests";
+DROP TRIGGER IF EXISTS tool_revocations_tenant_id_immutable ON "tool_revocations";
+DROP TRIGGER IF EXISTS tool_scan_reports_tenant_id_immutable ON "tool_scan_reports";
+DROP TRIGGER IF EXISTS tool_manifests_tenant_id_immutable ON "tool_manifests";
+DROP FUNCTION IF EXISTS reject_registry_tenant_id_change();
+DROP INDEX IF EXISTS "tool_revocations_tenant_manifest_idx";
+DROP INDEX IF EXISTS "tool_scan_reports_tenant_version_idx";
+DROP INDEX IF EXISTS "tool_manifests_publisher_id_idx";
+DROP INDEX IF EXISTS "tool_versions_manifest_id_idx";
+DROP TABLE IF EXISTS "tool_revocations";
+DROP TABLE IF EXISTS "tool_scan_reports";
+DROP TABLE IF EXISTS "tool_versions";
+DROP TABLE IF EXISTS "tool_manifests";

@@ -9,6 +9,7 @@ export default defineConfig({
     exclude: [
       "apps/platform-api/src/marketplace/**/*.integration.spec.ts",
       "apps/platform-api/src/publisher/**/*.integration.spec.ts",
+      "apps/platform-api/src/registry/**/*.integration.spec.ts",
       "apps/platform-api/src/db/db.migration.spec.ts",
       "apps/platform-api/src/identity/**/*.integration.spec.ts",
       "apps/platform-api/src/signup/**/*.integration.spec.ts",
@@ -23,6 +24,7 @@ export default defineConfig({
     include: [
         "apps/platform-api/src/marketplace/**/*.ts",
         "apps/platform-api/src/publisher/**/*.ts",
+        "apps/platform-api/src/registry/**/*.ts",
         "apps/platform-api/src/db/**/*.ts",
         "apps/platform-api/src/identity/**/*.ts",
         "apps/platform-api/src/rbac/**/*.ts",

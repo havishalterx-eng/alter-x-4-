@@ -1,0 +1,18 @@
+import { describe, expect, it, vi } from "vitest";
+import { RegistryService } from "./registry.service";
+const tenantId = "ten_1";
+const manifest = { id: "tlm_00000000-0000-7000-8000-000000000001", tenantId, name: "Tool", ecosystem: "npm" as const, description: null, trustLevel: "community_reviewed" as const, status: "draft" as const, publisherId: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" };
+const version = { id: "tlv_00000000-0000-7000-8000-000000000001", manifestId: manifest.id, version: "1.0.0", artifactRef: "s3://bucket/tool.tgz", capabilities: [], permissions: [], pinned: true, status: "draft" as const, publishedAt: null };
+function harness(report: { verdict: "clean" | "findings" | "blocked" | "errored"; findings: readonly { severity: "info" | "low" | "medium" | "high" | "critical"; rule: string; locator: string; detail: string }[] }) {
+  const repository = { get: vi.fn(async () => manifest), getVersion: vi.fn(async () => version), setVersionStatus: vi.fn(async (_tenant: string, _id: string, status: string) => ({ ...version, status })), setManifestStatus: vi.fn(async () => ({ ...manifest, status: "published" })), report: vi.fn(async () => ({ id: "scn_00000000-0000-7000-8000-000000000001", toolVersionId: version.id, ...report, scannerVersion: "test", durationMs: 1, scannedAt: "2026-01-01T00:00:00.000Z" })), createManifest: vi.fn(), createVersion: vi.fn(), list: vi.fn(), versions: vi.fn(), latestReport: vi.fn(), revoke: vi.fn() };
+  const publishers = { getPublisher: vi.fn(async () => undefined) };
+  const scanner = { scanPackage: vi.fn(async () => ({ ...report, scannerVersion: "test", scannedAt: "2026-01-01T00:00:00.000Z", durationMs: 1 })) };
+  return { service: new RegistryService(repository as never, publishers as never, scanner), repository, publishers };
+}
+describe("RegistryService", () => {
+  it("publishes only clean report", async () => { const h = harness({ verdict: "clean", findings: [] }); await expect(h.service.scan(tenantId, manifest.id, version.id)).resolves.toMatchObject({ status: "published" }); expect(h.repository.report).toHaveBeenCalledOnce(); expect(h.repository.setManifestStatus).toHaveBeenCalledWith(tenantId, manifest.id, "published"); });
+  it("fails critical finding and persists report", async () => { const h = harness({ verdict: "findings", findings: [{ severity: "critical", rule: "malware", locator: "x", detail: "x" }] }); await expect(h.service.scan(tenantId, manifest.id, version.id)).resolves.toMatchObject({ status: "scan_failed" }); expect(h.repository.report).toHaveBeenCalledOnce(); });
+  it("never publishes errored scan", async () => { const h = harness({ verdict: "errored", findings: [] }); await expect(h.service.scan(tenantId, manifest.id, version.id)).resolves.toMatchObject({ status: "scan_failed" }); });
+  it("rejects unverified publisher trust", async () => { const h = harness({ verdict: "clean", findings: [] }); await expect(h.service.create(tenantId, { name: "Tool", ecosystem: "npm", trust_level: "verified_publisher" })).rejects.toMatchObject({ response: expect.objectContaining({ error_code: "REGISTRY_PUBLISHER_VERIFICATION_REQUIRED" }) }); });
+  it("rejects alter verified tenant manifest", async () => { const h = harness({ verdict: "clean", findings: [] }); await expect(h.service.create(tenantId, { name: "Tool", ecosystem: "npm", trust_level: "alter_verified" })).rejects.toMatchObject({ response: expect.objectContaining({ error_code: "REGISTRY_ALTER_VERIFIED_FIRST_PARTY_ONLY" }) }); });
+});

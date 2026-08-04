@@ -28,6 +28,7 @@ describe("platformApiEnvSchema", () => {
       SIGNING_KEY_PROVIDER: "secrets",
       ALTER_CONFIG_SOURCE: "local-file",
       MARKETPLACE_OBJECT_STORAGE_PROVIDER: "mock",
+      REGISTRY_SCAN_PROVIDER: "mock",
     });
   });
 
@@ -70,5 +71,12 @@ describe("platformApiEnvSchema", () => {
     expect(validatePlatformApiEnv({ ...base, MARKETPLACE_OBJECT_STORAGE_PROVIDER: "s3", AWS_REGION: "ap-south-1" }).MARKETPLACE_OBJECT_STORAGE_PROVIDER).toBe("s3");
     expect(() => validatePlatformApiEnv({ ...base, MARKETPLACE_OBJECT_STORAGE_PROVIDER: "gcs" })).toThrow("Invalid platform-api environment");
     expect(() => validatePlatformApiEnv({ ...base, MARKETPLACE_OBJECT_STORAGE_PROVIDER: "s3" })).toThrow("AWS_REGION required when MARKETPLACE_OBJECT_STORAGE_PROVIDER=s3");
+  });
+
+  it("fails loudly until SCAN-1 when sandbox scanning is selected", () => {
+    const base = { DATABASE_URL: "postgres://localhost/platform_db", MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db", SIGNING_KEY_PROVIDER: "mock" };
+    expect(validatePlatformApiEnv(base).REGISTRY_SCAN_PROVIDER).toBe("mock");
+    expect(() => validatePlatformApiEnv({ ...base, REGISTRY_SCAN_PROVIDER: "sandbox" })).toThrow("SCAN-1");
+    expect(() => validatePlatformApiEnv({ ...base, REGISTRY_SCAN_PROVIDER: "other" })).toThrow("Invalid platform-api environment");
   });
 });

@@ -1,0 +1,1 @@
+export const PACKAGE_SCAN_PROVIDER = Symbol("PACKAGE_SCAN_PROVIDER");

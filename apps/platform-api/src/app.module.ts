@@ -28,6 +28,7 @@ import { CostsModule } from "./costs/costs.module";
 import { WhatsappModule } from "./channels/whatsapp/whatsapp.module";
 import { MarketplaceModule } from "./marketplace";
 import { PublisherModule } from "./publisher";
+import { RegistryModule } from "./registry";
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { PublisherModule } from "./publisher";
     WhatsappModule,
     MarketplaceModule,
     PublisherModule,
+    RegistryModule,
   ],
   controllers: [HealthController],
 })
