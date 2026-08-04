@@ -12,6 +12,8 @@ import type {
   AdsPage,
   AdsPagination,
   AdsResource,
+  DocumentPermissions,
+  DocumentPermissionsPatch,
 } from "./types";
 import { parseAdsId, parseTraceparent } from "./validation";
 
@@ -101,6 +103,36 @@ export class AdsService {
     return this.engine.get(
       `/api/v1/ads/documents/${encodeURIComponent(id)}`,
       callerContext(actor, traceparent, instance),
+    );
+  }
+
+  documentPermissions(
+    documentId: string,
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<EngineResponse<DocumentPermissions | null>> {
+    const instance = `/api/v1/ads/documents/${documentId}/permissions`;
+    const id = parseAdsId(documentId, "documentId", instance);
+    return this.engine.get(
+      `/api/v1/ads/documents/${encodeURIComponent(id)}/permissions`,
+      callerContext(actor, traceparent, instance),
+    );
+  }
+
+  updateDocumentPermissions(
+    documentId: string,
+    input: DocumentPermissionsPatch,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<DocumentPermissions>> {
+    const instance = `/api/v1/ads/documents/${documentId}/permissions`;
+    const id = parseAdsId(documentId, "documentId", instance);
+    return this.engine.patch(
+      `/api/v1/ads/documents/${encodeURIComponent(id)}/permissions`,
+      input as EngineRequestBody,
+      callerContext(actor, traceparent, instance),
+      { idempotencyKey, ifMatch: "*" },
     );
   }
 

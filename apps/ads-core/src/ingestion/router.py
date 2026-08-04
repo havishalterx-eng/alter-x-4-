@@ -40,8 +40,10 @@ from .models import (
     PresignUploadResponse,
 )
 from .normalization import TextAwareNormalizer
+from .permissions import DocumentPermissions, DocumentPermissionsPatch
 from .pipeline import IngestionPipeline
 from .repository import (
+    DocumentNotFoundError,
     IngestionJobNotFoundError,
     SourceNotFoundError,
     SqlAlchemyIngestionRepository,
@@ -167,6 +169,73 @@ SettingsDep = Annotated[Settings, Depends(get_ingestion_settings)]
 RepositoryDep = Annotated[SqlAlchemyIngestionRepository, Depends(get_ingestion_repository)]
 
 router = APIRouter(prefix="/ads", tags=["ads-ingestion"])
+
+
+def _tenant_uuid(tenant_id: str) -> str:
+    try:
+        validate_prefixed_id("ten", tenant_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    return tenant_id.removeprefix("ten_")
+
+
+def _document_id(document_id: str) -> str:
+    try:
+        return validate_prefixed_id("doc", document_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/documents/{document_id}/permissions",
+    response_model=DocumentPermissions | None,
+)
+async def get_document_permissions(
+    document_id: str,
+    repository: RepositoryDep,
+    tenant_id: Annotated[str, Header(alias="X-Alter-Tenant-Id")],
+) -> DocumentPermissions | None:
+    try:
+        return await run_in_threadpool(
+            repository.get_document_permissions,
+            tenant_uuid=_tenant_uuid(tenant_id),
+            document_id=_document_id(document_id),
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.patch(
+    "/documents/{document_id}/permissions",
+    response_model=DocumentPermissions,
+)
+async def patch_document_permissions(
+    document_id: str,
+    body: DocumentPermissionsPatch,
+    repository: RepositoryDep,
+    tenant_id: Annotated[str, Header(alias="X-Alter-Tenant-Id")],
+) -> DocumentPermissions:
+    try:
+        return await run_in_threadpool(
+            repository.update_document_permissions,
+            tenant_uuid=_tenant_uuid(tenant_id),
+            document_id=_document_id(document_id),
+            patch=body,
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post(

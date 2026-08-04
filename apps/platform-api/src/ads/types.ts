@@ -16,6 +16,16 @@ export interface AdsPagination {
   limit?: number | undefined;
 }
 
+export interface DocumentPermissions {
+  visibility: "tenant";
+  shared_with: string[];
+}
+
+export interface DocumentPermissionsPatch {
+  visibility?: "tenant" | undefined;
+  shared_with?: string[] | undefined;
+}
+
 export const adsDeferredCapabilities = [
   {
     capability: "upload_signed_url_job_shape",

@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { AdsHttpError } from "./problem";
-import type { AdsInput, AdsPagination } from "./types";
+import type {
+  AdsInput,
+  AdsPagination,
+  DocumentPermissionsPatch,
+} from "./types";
 
 const prefixedIdPattern =
   /^[a-z]+_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -14,6 +18,16 @@ const paginationSchema = z
   })
   .strict();
 
+const documentPermissionsPatchSchema: z.ZodType<DocumentPermissionsPatch> = z
+  .object({
+    visibility: z.literal("tenant").optional(),
+    shared_with: z.array(z.string().min(1)).optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one permission field must be provided",
+  });
+
 export function parseAdsInput(value: unknown, instance: string): AdsInput {
   return parse(inputSchema, value === undefined ? {} : value, instance);
 }
@@ -24,6 +38,13 @@ export function parseAdsPagination(
   instance: string,
 ): AdsPagination {
   return parse(paginationSchema, { cursor, limit }, instance);
+}
+
+export function parseDocumentPermissionsPatch(
+  value: unknown,
+  instance: string,
+): DocumentPermissionsPatch {
+  return parse(documentPermissionsPatchSchema, value, instance);
 }
 
 export function parseAdsId(

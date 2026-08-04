@@ -197,6 +197,43 @@ describe("ADS administration routes", () => {
     expect(removed.json()).not.toHaveProperty("deletion_certificate");
   });
 
+  it("relays real document permission reads and validated updates", async () => {
+    const read = await request({
+      method: "GET",
+      url: `/api/v1/ads/documents/${documentId}/permissions`,
+      actor,
+    });
+    expect(read.statusCode).toBe(200);
+    expect(read.json()).toEqual(engine.permissionsResource);
+    expect(engine.get).toHaveBeenCalledWith(
+      `/api/v1/ads/documents/${documentId}/permissions`,
+      expect.objectContaining({
+        tenantId: actor.tenant_id,
+        workspaceId: actor.workspace_id,
+      }),
+    );
+
+    const update = { shared_with: ["team_legal"] };
+    const changed = await request({
+      method: "PATCH",
+      url: `/api/v1/ads/documents/${documentId}/permissions`,
+      body: update,
+      actor,
+      headers: { "idempotency-key": "permissions-update" },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json()).toEqual(engine.permissionsResource);
+    expect(engine.patch).toHaveBeenCalledWith(
+      `/api/v1/ads/documents/${documentId}/permissions`,
+      update,
+      expect.objectContaining({
+        tenantId: actor.tenant_id,
+        workspaceId: actor.workspace_id,
+      }),
+      { idempotencyKey: "permissions-update", ifMatch: "*" },
+    );
+  });
+
   it("passes source, sync, and knowledge bodies to Engine unchanged", async () => {
     const createBody = { connector: "drive", settings: { folder: " a/b\n" } };
     const source = await request({
@@ -261,6 +298,7 @@ describe("ADS administration routes", () => {
       expectProblem(response, 403, "RBAC_PERMISSION_DENIED");
       expect(engine.get).not.toHaveBeenCalled();
       expect(engine.post).not.toHaveBeenCalled();
+      expect(engine.patch).not.toHaveBeenCalled();
       expect(engine.delete).not.toHaveBeenCalled();
     },
   );
@@ -291,6 +329,12 @@ describe("ADS administration routes", () => {
     ["GET", "/api/v1/ads/ingestion/jobs/bad", undefined],
     ["POST", `/api/v1/ads/sources/${sourceId}/actions/sync`, []],
     ["POST", "/api/v1/ads/knowledge", []],
+    [
+      "PATCH",
+      `/api/v1/ads/documents/${documentId}/permissions`,
+      { visibility: "public" },
+    ],
+    ["PATCH", `/api/v1/ads/documents/${documentId}/permissions`, {}],
   ])("returns problem+json validation for %s %s", async (method, url, body) => {
     const response = await request({
       method,
@@ -457,20 +501,30 @@ class AdsEngine {
     deleted: true,
     engine_receipt: { opaque: "value" },
   };
+  readonly permissionsResource = {
+    visibility: "tenant",
+    shared_with: ["team_legal"],
+  };
   readonly get = vi.fn(this.getResponse.bind(this));
   readonly post = vi.fn(this.postResponse.bind(this));
+  readonly patch = vi.fn(this.patchResponse.bind(this));
   readonly delete = vi.fn(this.deleteResponse.bind(this));
   private failure: { method: string; path: string } | undefined;
 
   reset(): void {
     this.get.mockClear();
     this.post.mockClear();
+    this.patch.mockClear();
     this.delete.mockClear();
     this.failure = undefined;
   }
 
   mutationCount(): number {
-    return this.post.mock.calls.length + this.delete.mock.calls.length;
+    return (
+      this.post.mock.calls.length +
+      this.patch.mock.calls.length +
+      this.delete.mock.calls.length
+    );
   }
 
   failNext(method: string, path: string): void {
@@ -490,7 +544,23 @@ class AdsEngine {
     if (pathname === "/api/v1/ads/documents") {
       return response(this.documentPage);
     }
+    if (pathname.endsWith("/permissions")) {
+      return response(this.permissionsResource);
+    }
     return response(this.documentResource);
+  }
+
+  private async patchResponse(
+    path: EnginePath,
+    _body: EngineRequestBody,
+    _context: EngineCallerContext,
+    _options: { idempotencyKey: string; ifMatch: string },
+  ): Promise<EngineResponse<unknown>> {
+    void _body;
+    void _context;
+    void _options;
+    this.throwIfFailed("PATCH", path);
+    return response(this.permissionsResource);
   }
 
   private async postResponse(
@@ -612,6 +682,12 @@ function mutationCases() {
       202,
     ],
     ["DELETE", `/api/v1/ads/documents/${documentId}`, undefined, 200],
+    [
+      "PATCH",
+      `/api/v1/ads/documents/${documentId}/permissions`,
+      { shared_with: ["team_legal"] },
+      200,
+    ],
     ["POST", "/api/v1/ads/knowledge", { title: "Policy" }, 201],
   ] as const;
 }
@@ -636,6 +712,12 @@ function routeCases(): ReadonlyArray<
     ["GET", `/api/v1/ads/ingestion/jobs/${jobId}`, undefined],
     ["GET", "/api/v1/ads/documents", undefined],
     ["GET", `/api/v1/ads/documents/${documentId}`, undefined],
+    [
+      "PATCH",
+      `/api/v1/ads/documents/${documentId}/permissions`,
+      { shared_with: ["team_legal"] },
+    ],
+    ["GET", `/api/v1/ads/documents/${documentId}/permissions`, undefined],
   ];
 }
 
@@ -677,6 +759,18 @@ function engineErrorCases() {
       `/api/v1/ads/documents/${documentId}`,
       undefined,
       `/api/v1/ads/documents/${documentId}`,
+    ],
+    [
+      "GET",
+      `/api/v1/ads/documents/${documentId}/permissions`,
+      undefined,
+      `/api/v1/ads/documents/${documentId}/permissions`,
+    ],
+    [
+      "PATCH",
+      `/api/v1/ads/documents/${documentId}/permissions`,
+      { shared_with: ["team_legal"] },
+      `/api/v1/ads/documents/${documentId}/permissions`,
     ],
     [
       "POST",

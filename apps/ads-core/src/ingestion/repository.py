@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.db.models import Chunk, Document, DocumentVersion, IngestionJob, Source
 
 from .models import IngestionStage
+from .permissions import DocumentPermissions, DocumentPermissionsPatch
 
 _SET_TENANT = text("SELECT set_config('app.current_tenant_id', :tenant_id, true)")
 _LOCK_CONTENT = text(
@@ -23,6 +24,10 @@ class SourceNotFoundError(LookupError):
 
 
 class IngestionJobNotFoundError(LookupError):
+    pass
+
+
+class DocumentNotFoundError(LookupError):
     pass
 
 
@@ -325,6 +330,52 @@ class SqlAlchemyIngestionRepository:
             job = self._get(session, tenant_uuid, ingestion_job_id, for_update=False)
             return self._stored(job)
 
+    def get_document_permissions(
+        self,
+        *,
+        tenant_uuid: str,
+        document_id: str,
+    ) -> DocumentPermissions | None:
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            document = self._get_document(session, tenant_uuid, document_id)
+            if document.permissions is None:
+                return None
+            return DocumentPermissions.model_validate(document.permissions)
+
+    def update_document_permissions(
+        self,
+        *,
+        tenant_uuid: str,
+        document_id: str,
+        patch: DocumentPermissionsPatch,
+    ) -> DocumentPermissions:
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            document = self._get_document(
+                session,
+                tenant_uuid,
+                document_id,
+                for_update=True,
+            )
+            current = (
+                {}
+                if document.permissions is None
+                else DocumentPermissions.model_validate(document.permissions).model_dump(
+                    mode="json"
+                )
+            )
+            updated = DocumentPermissions.model_validate(
+                {
+                    **current,
+                    **patch.model_dump(mode="json", exclude_none=True),
+                }
+            )
+            document.permissions = updated.model_dump(mode="json")
+            document.updated_at = datetime.now(UTC)
+            session.flush()
+            return updated
+
     def mark_indexed_as_duplicate(
         self, *, tenant_uuid: str, ingestion_job_id: str
     ) -> StoredIngestionJob:
@@ -425,6 +476,27 @@ class SqlAlchemyIngestionRepository:
         if job is None:
             raise IngestionJobNotFoundError("Ingestion job does not exist for requesting tenant")
         return job
+
+    @staticmethod
+    def _get_document(
+        session: Session,
+        tenant_uuid: str,
+        document_id: str,
+        *,
+        for_update: bool = False,
+    ) -> Document:
+        statement = select(Document).where(
+            Document.tenant_id == tenant_uuid,
+            Document.id == document_id,
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        document = session.scalar(statement)
+        if document is None:
+            raise DocumentNotFoundError(
+                "Document does not exist for requesting tenant"
+            )
+        return document
 
     @staticmethod
     def _stored(job: IngestionJob) -> StoredIngestionJob:

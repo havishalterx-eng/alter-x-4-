@@ -6,6 +6,7 @@ import {
   Headers,
   HttpCode,
   Param,
+  Patch,
   Post,
   Query,
   Res,
@@ -23,8 +24,16 @@ import type { ActorContextType } from "../rbac";
 import { AdsExceptionFilter } from "./ads-exception.filter";
 import { AdsService } from "./ads.service";
 import { AdsHttpError } from "./problem";
-import type { AdsPage, AdsResource } from "./types";
-import { parseAdsInput, parseAdsPagination } from "./validation";
+import type {
+  AdsPage,
+  AdsResource,
+  DocumentPermissions,
+} from "./types";
+import {
+  parseAdsInput,
+  parseAdsPagination,
+  parseDocumentPermissionsPatch,
+} from "./validation";
 
 const readRoles = ["admin", "editor", "operator", "approver", "viewer"] as const;
 const adminRoles = ["admin", "editor"] as const;
@@ -164,6 +173,51 @@ export class AdsController {
         documentId,
         requireActor(actor, instance),
         traceparent,
+      ),
+      reply,
+    );
+  }
+
+  @Get("documents/:documentId/permissions")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("knowledge:read")
+  async documentPermissions(
+    @Param("documentId") documentId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<DocumentPermissions | null> {
+    const instance = `/api/v1/ads/documents/${documentId}/permissions`;
+    return project(
+      await this.ads.documentPermissions(
+        documentId,
+        requireActor(actor, instance),
+        traceparent,
+      ),
+      reply,
+    );
+  }
+
+  @Patch("documents/:documentId/permissions")
+  @RequireWorkspaceRole(...adminRoles)
+  @RequirePermission("knowledge:admin")
+  @Idempotent()
+  async updateDocumentPermissions(
+    @Param("documentId") documentId: string,
+    @Body() body: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<DocumentPermissions> {
+    const instance = `/api/v1/ads/documents/${documentId}/permissions`;
+    return project(
+      await this.ads.updateDocumentPermissions(
+        documentId,
+        parseDocumentPermissionsPatch(body, instance),
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
       ),
       reply,
     );
