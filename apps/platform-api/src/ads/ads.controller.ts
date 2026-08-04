@@ -27,11 +27,13 @@ import { AdsHttpError } from "./problem";
 import type {
   AdsPage,
   AdsResource,
+  AdsRetrievalResponse,
   DocumentPermissions,
 } from "./types";
 import {
   parseAdsInput,
   parseAdsPagination,
+  parseAdsRetrievalQuery,
   parseDocumentPermissionsPatch,
 } from "./validation";
 
@@ -43,6 +45,26 @@ const deleteRoles = ["admin"] as const;
 @UseFilters(AdsExceptionFilter)
 export class AdsController {
   constructor(private readonly ads: AdsService) {}
+
+  @Post("query")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("knowledge:read")
+  async query(
+    @Body() body: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<AdsRetrievalResponse> {
+    const instance = "/api/v1/ads/query";
+    return project(
+      await this.ads.query(
+        parseAdsRetrievalQuery(body, instance),
+        requireActor(actor, instance),
+        traceparent,
+      ),
+      reply,
+    );
+  }
 
   @Post("sources")
   @RequireWorkspaceRole(...adminRoles)

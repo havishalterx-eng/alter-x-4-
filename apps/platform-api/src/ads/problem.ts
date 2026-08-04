@@ -8,6 +8,7 @@ export class AdsHttpError extends HttpException {
     detail: string,
     instance: string,
     fieldErrors: ProblemDetails["field_errors"] = [],
+    retryable = false,
   ) {
     super(
       {
@@ -19,7 +20,7 @@ export class AdsHttpError extends HttpException {
         error_code: errorCode,
         trace_id: "trace-unavailable",
         request_id: "request-unavailable",
-        retryable: false,
+        retryable,
         field_errors: fieldErrors,
         documentation_key: errorCode,
       } satisfies ProblemDetails,

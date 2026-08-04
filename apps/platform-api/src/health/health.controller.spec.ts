@@ -13,6 +13,7 @@ describe("GET /health", () => {
     process.env.NODE_ENV = "test";
     process.env.SIGNING_KEY_PROVIDER = "mock";
     process.env.ENGINE_BASE_URL = "http://engine.test";
+    process.env.ADS_CORE_BASE_URL = "http://ads.test";
     process.env.COST_LEDGER_BASE_URL = "http://cost-ledger.test";
     process.env.ENGINE_M2M_TOKEN_URL = "https://identity.test/oauth/token";
     process.env.ENGINE_M2M_AUDIENCE = "https://engine.test";

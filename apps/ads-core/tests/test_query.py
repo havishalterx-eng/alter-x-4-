@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 from alembic.config import Config as AlembicConfig
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
@@ -15,6 +17,8 @@ from src.db.ids import new_prefixed_id
 from src.ingestion.embedding_client import EmbeddingDimensions, EmbeddingResult
 from src.query.models import RetrievalRequest
 from src.query.repository import ScopeViolationError, SqlAlchemyRetrievalRepository
+from src.query.router import get_retrieval_service
+from src.query.router import router as query_router
 from src.query.service import RetrievalBackpressureError, RetrievalService
 
 SERVICE_ROOT = Path(__file__).parent.parent
@@ -214,6 +218,41 @@ def test_hybrid_query_filters_metadata_scopes_and_audits(
             )
             == "rejected"
         )
+
+
+def test_query_route_returns_real_seeded_provenance_and_confidence(
+    retrieval_service: tuple[RetrievalService, sa.Engine],
+) -> None:
+    service, admin = retrieval_service
+    tenant, workspace, scope, document, _ = _seed(admin)
+    application = FastAPI()
+    application.include_router(query_router)
+    application.dependency_overrides[get_retrieval_service] = lambda: service
+    client = TestClient(application)
+
+    response = client.post(
+        "/ads/query",
+        headers={
+            "X-Alter-Tenant-Id": tenant,
+            "X-Alter-Workspace-Id": workspace,
+            "X-Alter-Requester": "usr_retrieval_test",
+        },
+        json={
+            "tenant_id": tenant,
+            "workspace_id": workspace,
+            "requester": "usr_retrieval_test",
+            "query": "refund policy",
+            "scope_ids": [scope],
+            "metadata_filter": {"department": "support"},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [hit["document_id"] for hit in body["hits"]] == [document]
+    assert isinstance(body["hits"][0]["confidence"], float)
+    assert body["hits"][0]["provenance"]["ingestion"] == {"origin": "test"}
+    assert body["audited_at"] is not None
 
 
 def test_retrieval_backpressure_is_audited(

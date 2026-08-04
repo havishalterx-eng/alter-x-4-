@@ -10,6 +10,7 @@ import type { EngineCallerContext, EnginePath } from "./types";
 
 const config: EngineConfig = {
   baseUrl: "https://engine.test",
+  adsCoreBaseUrl: "https://ads.test",
   costLedgerBaseUrl: "https://costs.test",
   m2mTokenUrl: "https://identity.test/oauth/token",
   m2mAudience: "https://engine.test",
@@ -125,6 +126,95 @@ describe("EngineClient", () => {
       location: "/api/v1/runs/1",
     });
     expect(deleted).toEqual({ status: 204, body: undefined });
+  });
+
+  it("posts ADS queries to ads-core with trusted caller identity and no retry", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(200, { hits: [], audited_at: null }),
+    );
+    const client = new EngineClient(config, authProvider, fetchImpl, noDelay);
+
+    await expect(
+      client.queryAds(
+        { query: "refund", top_k: 5, tenant_id: "ten_untrusted" },
+        context,
+      ),
+    ).resolves.toEqual({
+      status: 200,
+      body: { hits: [], audited_at: null },
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://ads.test/ads/query",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer m2m-token",
+          "X-Alter-Actor-Token": "actor-token",
+          "X-Alter-Tenant-Id": context.tenantId,
+          "X-Alter-Workspace-Id": context.workspaceId,
+          "X-Alter-Requester": context.userId,
+        }),
+        body: JSON.stringify({
+          query: "refund",
+          top_k: 5,
+          tenant_id: context.tenantId,
+          workspace_id: context.workspaceId,
+          requester: context.userId,
+        }),
+      }),
+    );
+
+    const failureFetch = vi.fn().mockResolvedValue(
+      jsonResponse(429, { detail: "internal queue depth 99" }),
+    );
+    await expect(
+      new EngineClient(config, authProvider, failureFetch, noDelay).queryAds(
+        { query: "refund" },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      problem: {
+        status: 429,
+        error_code: "UPSTREAM_SERVICE_ERROR",
+        detail: "Upstream service request failed.",
+      },
+    });
+    expect(failureFetch).toHaveBeenCalledOnce();
+  });
+
+  it("maps ADS query auth, network, and timeout failures without leaking detail", async () => {
+    const fetchImpl = vi.fn();
+    await expect(
+      new EngineClient(
+        config,
+        { authorize: vi.fn().mockRejectedValue(new Error("secret")) },
+        fetchImpl,
+        noDelay,
+      ).queryAds({ query: "refund" }, context),
+    ).rejects.toMatchObject({ problem: { status: 502 } });
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    await expect(
+      new EngineClient(
+        config,
+        authProvider,
+        vi.fn().mockRejectedValue(new Error("socket secret")),
+        noDelay,
+      ).queryAds({ query: "refund" }, context),
+    ).rejects.toMatchObject({
+      problem: { status: 502, detail: "Upstream service request failed." },
+    });
+
+    const abort = new Error("timeout");
+    abort.name = "AbortError";
+    await expect(
+      new EngineClient(
+        config,
+        authProvider,
+        vi.fn().mockRejectedValue(abort),
+        noDelay,
+      ).queryAds({ query: "refund" }, context),
+    ).rejects.toMatchObject({ problem: { status: 504 } });
   });
 
   it("passes through valid Engine problem details", async () => {

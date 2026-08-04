@@ -75,6 +75,7 @@ describe.sequential("RunService per-node cost aggregation", () => {
     const costClient = new CostLedgerClient(
       {
         baseUrl: "http://engine.test",
+        adsCoreBaseUrl: "http://ads.test",
         costLedgerBaseUrl: `http://127.0.0.1:${address.port}`,
         m2mTokenUrl: "https://identity.test/oauth/token",
         m2mAudience: "https://engine.test",

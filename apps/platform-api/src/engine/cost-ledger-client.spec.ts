@@ -7,6 +7,7 @@ import type { EngineCallerContext } from "./types";
 
 const config: EngineConfig = {
   baseUrl: "https://engine.test",
+  adsCoreBaseUrl: "https://ads.test",
   costLedgerBaseUrl: "https://costs.test/",
   m2mTokenUrl: "https://identity.test/oauth/token",
   m2mAudience: "https://engine.test",

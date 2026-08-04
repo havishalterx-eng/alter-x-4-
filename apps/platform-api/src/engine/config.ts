@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const engineConfigSchema = z.object({
   ENGINE_BASE_URL: z.string().url(),
+  ADS_CORE_BASE_URL: z.string().url(),
   COST_LEDGER_BASE_URL: z.string().url(),
   ENGINE_M2M_TOKEN_URL: z.string().url(),
   ENGINE_M2M_AUDIENCE: z.string().min(1),
@@ -12,6 +13,7 @@ const engineConfigSchema = z.object({
 
 export interface EngineConfig {
   baseUrl: string;
+  adsCoreBaseUrl: string;
   costLedgerBaseUrl: string;
   m2mTokenUrl: string;
   m2mAudience: string;
@@ -33,6 +35,7 @@ export function engineConfigFromEnvironment(
 
   return {
     baseUrl: parsed.data.ENGINE_BASE_URL.replace(/\/+$/, ""),
+    adsCoreBaseUrl: parsed.data.ADS_CORE_BASE_URL.replace(/\/+$/, ""),
     costLedgerBaseUrl: parsed.data.COST_LEDGER_BASE_URL.replace(/\/+$/, ""),
     m2mTokenUrl: parsed.data.ENGINE_M2M_TOKEN_URL,
     m2mAudience: parsed.data.ENGINE_M2M_AUDIENCE,

@@ -26,23 +26,42 @@ export interface DocumentPermissionsPatch {
   shared_with?: string[] | undefined;
 }
 
+export interface AdsRetrievalQuery {
+  query: string;
+  top_k?: number | undefined;
+  scope_ids?: string[] | undefined;
+  project_id?: string | null | undefined;
+  workflow_id?: string | null | undefined;
+  metadata_filter?: Record<string, JsonValue> | undefined;
+}
+
+export interface AdsRetrievalHit {
+  document_id: string;
+  chunk_id: string;
+  source_id: string;
+  scope_id: string;
+  context: string;
+  reconstructed_context: string;
+  score: number;
+  confidence: number;
+  provenance: Record<string, JsonValue>;
+  freshness_at: string | null;
+  metadata: Record<string, JsonValue>;
+  semantic_score: number;
+  keyword_score: number;
+}
+
+export interface AdsRetrievalResponse {
+  hits: AdsRetrievalHit[];
+  audited_at: string | null;
+}
+
 export const adsDeferredCapabilities = [
   {
     capability: "upload_signed_url_job_shape",
     status: "NOT_MET",
     reason:
       "Upload returns opaque Resource; only the ingestion-job Location header is declared, so signed-URL and job-id body fields cannot be asserted by the BFF.",
-  },
-  {
-    capability: "retrieval_testing",
-    status: "NOT_MET",
-    reason: "Engine contract has no ADS retrieval endpoint.",
-  },
-  {
-    capability: "retrieval_provenance_confidence",
-    status: "NOT_MET",
-    reason:
-      "Engine contract declares no retrieval result, provenance, or confidence shape.",
   },
   {
     capability: "retention_config",

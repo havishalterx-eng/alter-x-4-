@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto";
-import type {
-  EngineCallerContext,
+import {
   EngineClient,
-  EngineRequestBody,
-  EngineResponse,
+  EngineProblemError,
+  type EngineCallerContext,
+  type EngineRequestBody,
+  type EngineResponse,
 } from "../engine";
 import type { ActorContext } from "../rbac/types";
 import { AdsHttpError } from "./problem";
@@ -12,6 +13,8 @@ import type {
   AdsPage,
   AdsPagination,
   AdsResource,
+  AdsRetrievalQuery,
+  AdsRetrievalResponse,
   DocumentPermissions,
   DocumentPermissionsPatch,
 } from "./types";
@@ -181,6 +184,52 @@ export class AdsService {
       traceparent,
       idempotencyKey,
     );
+  }
+
+  async query(
+    input: AdsRetrievalQuery,
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<EngineResponse<AdsRetrievalResponse>> {
+    const instance = "/api/v1/ads/query";
+    try {
+      return await this.engine.queryAds<
+        AdsRetrievalQuery,
+        AdsRetrievalResponse
+      >(
+        input,
+        callerContext(actor, traceparent, instance),
+      );
+    } catch (error) {
+      if (!(error instanceof EngineProblemError)) throw error;
+      if (error.problem.status === 403) {
+        throw new AdsHttpError(
+          403,
+          "ADS_SCOPE_VIOLATION",
+          "Requested ADS scope is unavailable",
+          instance,
+        );
+      }
+      if (error.problem.status === 429) {
+        throw new AdsHttpError(
+          429,
+          "ADS_RETRIEVAL_BACKPRESSURE",
+          "ADS retrieval is at capacity; retry shortly",
+          instance,
+          [],
+          true,
+        );
+      }
+      if (error.problem.status === 422) {
+        throw new AdsHttpError(
+          422,
+          "ADS_RETRIEVAL_INVALID",
+          "ADS retrieval request rejected",
+          instance,
+        );
+      }
+      throw error;
+    }
   }
 
   private post(

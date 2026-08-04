@@ -304,6 +304,79 @@ describe("ADS administration routes", () => {
     );
   });
 
+  it("relays a scoped retrieval query with real provenance fields unchanged", async () => {
+    const query = {
+      query: "refund policy",
+      top_k: 5,
+      scope_ids: [`scp_${uuid}`],
+      metadata_filter: { department: "support" },
+    };
+    const result = await request({
+      method: "POST",
+      url: "/api/v1/ads/query",
+      body: query,
+      actor,
+    });
+
+    expect(result.statusCode).toBe(200);
+    expect(result.json()).toEqual(engine.retrievalResponse);
+    expect(engine.queryAds).toHaveBeenCalledWith(
+      query,
+      expect.objectContaining({
+        userId: actor.user_id,
+        tenantId: actor.tenant_id,
+        workspaceId: actor.workspace_id,
+      }),
+    );
+    const body = result.json() as typeof engine.retrievalResponse;
+    expect(body.hits[0]).toEqual(
+      expect.objectContaining({
+        provenance: engine.retrievalResponse.hits[0]!.provenance,
+        confidence: 0.94,
+      }),
+    );
+  });
+
+  it("never accepts client-supplied retrieval identity", async () => {
+    const result = await request({
+      method: "POST",
+      url: "/api/v1/ads/query",
+      body: { query: "refund", tenant_id: "ten_foreign" },
+      actor,
+    });
+    expectProblem(result, 400, "ADS_VALIDATION_FAILED");
+    expect(engine.queryAds).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [403, "ADS_SCOPE_VIOLATION"],
+    [429, "ADS_RETRIEVAL_BACKPRESSURE"],
+    [422, "ADS_RETRIEVAL_INVALID"],
+  ])("maps ADS query upstream %i to problem+json %s", async (status, code) => {
+    engine.failQuery(status);
+    const result = await request({
+      method: "POST",
+      url: "/api/v1/ads/query",
+      body: { query: "refund" },
+      actor,
+    });
+    expectProblem(result, status, code);
+    if (status === 429) {
+      expect((result.json() as { retryable: boolean }).retryable).toBe(true);
+    }
+  });
+
+  it("passes non-domain ADS query failures through without remapping", async () => {
+    engine.failQuery(503);
+    const result = await request({
+      method: "POST",
+      url: "/api/v1/ads/query",
+      body: { query: "refund" },
+      actor,
+    });
+    expectProblem(result, 503, "UPSTREAM_SERVICE_ERROR");
+  });
+
   it.each(routeCases())(
     "scope-gates %s %s before Engine",
     async (method, url, body) => {
@@ -321,6 +394,7 @@ describe("ADS administration routes", () => {
       expect(engine.post).not.toHaveBeenCalled();
       expect(engine.patch).not.toHaveBeenCalled();
       expect(engine.delete).not.toHaveBeenCalled();
+      expect(engine.queryAds).not.toHaveBeenCalled();
     },
   );
 
@@ -350,6 +424,8 @@ describe("ADS administration routes", () => {
     ["GET", "/api/v1/ads/ingestion/jobs/bad", undefined],
     ["POST", `/api/v1/ads/sources/${sourceId}/actions/sync`, []],
     ["POST", "/api/v1/ads/knowledge", []],
+    ["POST", "/api/v1/ads/query", {}],
+    ["POST", "/api/v1/ads/query", { query: "   " }],
     [
       "PATCH",
       `/api/v1/ads/documents/${documentId}/permissions`,
@@ -398,14 +474,6 @@ describe("ADS administration routes", () => {
     expect(adsDeferredCapabilities).toEqual([
       expect.objectContaining({
         capability: "upload_signed_url_job_shape",
-        status: "NOT_MET",
-      }),
-      expect.objectContaining({
-        capability: "retrieval_testing",
-        status: "NOT_MET",
-      }),
-      expect.objectContaining({
-        capability: "retrieval_provenance_confidence",
         status: "NOT_MET",
       }),
       expect.objectContaining({
@@ -532,18 +600,45 @@ class AdsEngine {
     visibility: "tenant",
     shared_with: ["team_legal"],
   };
+  readonly retrievalResponse = {
+    hits: [
+      {
+        document_id: documentId,
+        chunk_id: `chk_${uuid}`,
+        source_id: sourceId,
+        scope_id: `scp_${uuid}`,
+        context: "refund policy allows returns",
+        reconstructed_context: "refund policy allows returns",
+        score: 0.98,
+        confidence: 0.94,
+        provenance: {
+          ingestion: { origin: "upload" },
+          document: { id: documentId },
+        },
+        freshness_at: "2026-08-04T08:00:00Z",
+        metadata: { department: "support" },
+        semantic_score: 1,
+        keyword_score: 0.96,
+      },
+    ],
+    audited_at: "2026-08-04T08:00:01Z",
+  };
   readonly get = vi.fn(this.getResponse.bind(this));
   readonly post = vi.fn(this.postResponse.bind(this));
   readonly patch = vi.fn(this.patchResponse.bind(this));
   readonly delete = vi.fn(this.deleteResponse.bind(this));
+  readonly queryAds = vi.fn(this.queryAdsResponse.bind(this));
   private failure: { method: string; path: string } | undefined;
+  private queryFailureStatus: number | undefined;
 
   reset(): void {
     this.get.mockClear();
     this.post.mockClear();
     this.patch.mockClear();
     this.delete.mockClear();
+    this.queryAds.mockClear();
     this.failure = undefined;
+    this.queryFailureStatus = undefined;
   }
 
   mutationCount(): number {
@@ -556,6 +651,36 @@ class AdsEngine {
 
   failNext(method: string, path: string): void {
     this.failure = { method, path };
+  }
+
+  failQuery(status: number): void {
+    this.queryFailureStatus = status;
+  }
+
+  private async queryAdsResponse(
+    _body: Readonly<Record<string, unknown>>,
+    _context: EngineCallerContext,
+  ): Promise<EngineResponse<unknown>> {
+    void _body;
+    void _context;
+    if (this.queryFailureStatus !== undefined) {
+      const status = this.queryFailureStatus;
+      this.queryFailureStatus = undefined;
+      throw new EngineProblemError({
+        type: "https://errors.alter.ai/upstream-service-error",
+        title: "Upstream service error",
+        status,
+        detail: "Upstream service request failed.",
+        instance: "/api/v1/ads/query",
+        error_code: "UPSTREAM_SERVICE_ERROR",
+        trace_id: "trc_ads",
+        request_id: "req_ads",
+        retryable: status === 429,
+        field_errors: [],
+        documentation_key: "upstream.service-error",
+      });
+    }
+    return response(this.retrievalResponse);
   }
 
   private async getResponse(
@@ -750,6 +875,7 @@ function routeCases(): ReadonlyArray<
       undefined,
     ],
     ["POST", "/api/v1/ads/knowledge", { title: "Policy" }],
+    ["POST", "/api/v1/ads/query", { query: "refund" }],
     ["GET", `/api/v1/ads/ingestion/jobs/${jobId}`, undefined],
     ["GET", "/api/v1/ads/documents", undefined],
     ["GET", `/api/v1/ads/documents/${documentId}`, undefined],

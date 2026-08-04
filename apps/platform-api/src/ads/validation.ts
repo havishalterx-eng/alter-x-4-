@@ -3,6 +3,7 @@ import { AdsHttpError } from "./problem";
 import type {
   AdsInput,
   AdsPagination,
+  AdsRetrievalQuery,
   DocumentPermissionsPatch,
 } from "./types";
 
@@ -28,6 +29,21 @@ const documentPermissionsPatchSchema: z.ZodType<DocumentPermissionsPatch> = z
     message: "At least one permission field must be provided",
   });
 
+const retrievalQuerySchema: z.ZodType<AdsRetrievalQuery> = z
+  .object({
+    query: z
+      .string()
+      .min(1)
+      .max(8_000)
+      .refine((value) => value.trim().length > 0, "Query cannot be blank"),
+    top_k: z.number().int().min(1).max(50).optional(),
+    scope_ids: z.array(z.string().min(1)).optional(),
+    project_id: z.string().min(1).nullable().optional(),
+    workflow_id: z.string().min(1).nullable().optional(),
+    metadata_filter: z.record(z.string(), z.json()).optional(),
+  })
+  .strict();
+
 export function parseAdsInput(value: unknown, instance: string): AdsInput {
   return parse(inputSchema, value === undefined ? {} : value, instance);
 }
@@ -45,6 +61,13 @@ export function parseDocumentPermissionsPatch(
   instance: string,
 ): DocumentPermissionsPatch {
   return parse(documentPermissionsPatchSchema, value, instance);
+}
+
+export function parseAdsRetrievalQuery(
+  value: unknown,
+  instance: string,
+): AdsRetrievalQuery {
+  return parse(retrievalQuerySchema, value, instance);
 }
 
 export function parseAdsId(

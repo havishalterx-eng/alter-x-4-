@@ -83,6 +83,58 @@ export class EngineClient {
     });
   }
 
+  async queryAds<TRequest extends object, TResponse>(
+    body: TRequest,
+    context: EngineCallerContext,
+  ): Promise<EngineResponse<TResponse>> {
+    const instance = "/api/v1/ads/query";
+    let authorization;
+    try {
+      authorization = await this.authProvider.authorize(context);
+    } catch {
+      throw new EngineProblemError(
+        upstreamProblem(502, instance, "UPSTREAM_SERVICE_ERROR"),
+      );
+    }
+
+    try {
+      const response = await this.fetchWithTimeout(
+        `${this.config.adsCoreBaseUrl}/ads/query`,
+        {
+          method: "POST",
+          headers: {
+            ...requestHeaders(context, authorization, {
+              body: body as EngineRequestBody,
+            }),
+            "X-Alter-Tenant-Id": context.tenantId,
+            "X-Alter-Workspace-Id": context.workspaceId,
+            "X-Alter-Requester": context.userId,
+          },
+          body: JSON.stringify({
+            ...body,
+            tenant_id: context.tenantId,
+            workspace_id: context.workspaceId,
+            requester: context.userId,
+          }),
+        },
+      );
+      if (response.ok) return responseBody<TResponse>(response);
+      throw new EngineProblemError(
+        await engineProblemFromResponse(response, instance),
+      );
+    } catch (error) {
+      if (error instanceof EngineProblemError) throw error;
+      const timeout = isAbortError(error);
+      throw new EngineProblemError(
+        upstreamProblem(
+          timeout ? 504 : 502,
+          instance,
+          timeout ? "UPSTREAM_TIMEOUT" : "UPSTREAM_SERVICE_ERROR",
+        ),
+      );
+    }
+  }
+
   async stream(
     path: EnginePath,
     context: EngineCallerContext,

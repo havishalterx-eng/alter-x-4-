@@ -21,6 +21,7 @@ export const platformApiEnvSchema = z
     APPCONFIG_ENV_ID: z.string().min(1).optional(),
     APPCONFIG_PROFILE_ID: z.string().min(1).optional(),
     ENGINE_BASE_URL: z.string().url().optional(),
+    ADS_CORE_BASE_URL: z.string().url().optional(),
     COST_LEDGER_BASE_URL: z.string().url().optional(),
     ENGINE_M2M_TOKEN_URL: z.string().url().optional(),
     ENGINE_M2M_AUDIENCE: z.string().min(1).optional(),
