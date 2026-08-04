@@ -10,6 +10,7 @@ import type { EngineCallerContext, EnginePath } from "./types";
 
 const config: EngineConfig = {
   baseUrl: "https://engine.test",
+  costLedgerBaseUrl: "https://costs.test",
   m2mTokenUrl: "https://identity.test/oauth/token",
   m2mAudience: "https://engine.test",
   m2mClientId: "platform-api",

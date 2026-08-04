@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import {
+  CostLedgerClient,
   EngineClient,
   type EngineCallerContext,
   type EnginePath,
@@ -25,7 +26,10 @@ const maximumAggregatePages = 100;
 
 @Injectable()
 export class RunService {
-  constructor(private readonly engine: EngineClient) {}
+  constructor(
+    private readonly engine: EngineClient,
+    private readonly costLedger: CostLedgerClient,
+  ) {}
 
   list(
     input: unknown,
@@ -49,7 +53,7 @@ export class RunService {
     const id = parseRunId(runId, instance);
     const context = callerContext(actor, traceparent, instance);
     const encodedId = encodeURIComponent(id);
-    const [run, executions, verification, recovery, qualityGates, outcome] =
+    const [run, executions, verification, recovery, qualityGates, outcome, nodeCosts] =
       await Promise.all([
         this.engine.get<EngineResource>(`/api/v1/runs/${encodedId}`, context),
         this.allPages(
@@ -76,13 +80,24 @@ export class RunService {
           `/api/v1/runs/${encodedId}/outcome`,
           context,
         ),
+        this.costLedger.getNodeCosts(id, context),
       ]);
+
+    const costsByNode = new Map(
+      nodeCosts.map((cost) => [cost.nodeExecutionId, cost.internalCostMinor]),
+    );
 
     return {
       ...run,
       body: {
         run: run.body,
-        node_executions: executions,
+        node_executions: executions.map((execution) => ({
+          ...execution,
+          node_cost_minor:
+            typeof execution.node_execution_id === "string"
+              ? (costsByNode.get(execution.node_execution_id) ?? "0")
+              : "0",
+        })),
         verification_results: verification,
         recovery_actions: recovery,
         quality_gates: qualityGates,

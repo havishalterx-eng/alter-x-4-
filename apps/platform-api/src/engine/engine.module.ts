@@ -12,6 +12,7 @@ import {
 } from "./auth";
 import { engineConfigFromEnvironment, type EngineConfig } from "./config";
 import { ENGINE_CONFIG, EngineClient } from "./engine-client";
+import { CostLedgerClient } from "./cost-ledger-client";
 import { EngineExceptionFilter } from "./engine-exception.filter";
 
 @Module({
@@ -50,10 +51,18 @@ import { EngineExceptionFilter } from "./engine-exception.filter";
       ) => new EngineClient(config, authProvider),
     },
     {
+      provide: CostLedgerClient,
+      inject: [ENGINE_CONFIG, ENGINE_AUTH_PROVIDER],
+      useFactory: (
+        config: EngineConfig,
+        authProvider: IdentityBrokerEngineAuthProvider,
+      ) => new CostLedgerClient(config, authProvider),
+    },
+    {
       provide: APP_FILTER,
       useClass: EngineExceptionFilter,
     },
   ],
-  exports: [EngineClient],
+  exports: [EngineClient, CostLedgerClient],
 })
 export class EngineModule {}

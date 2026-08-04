@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   EngineCallerContext,
   EngineClient,
+  CostLedgerClient,
   EnginePath,
   EngineResponse,
 } from "../engine";
@@ -30,7 +31,7 @@ describe("RunService", () => {
       { run_id: `${runId}-opaque`, parent_kind: "project" },
     ]);
     const engine = engineStub(async () => ({ status: 200, body: response }));
-    const service = new RunService(engine.value);
+    const service = new RunService(engine.value, costLedgerStub().value);
 
     const result = await service.list(
       {
@@ -53,11 +54,14 @@ describe("RunService", () => {
 
   it("aggregates all five real sub-resources without reshaping opaque items", async () => {
     const executionA = {
-      node_execution_id: "nex_1",
+      node_execution_id: "node_018f47a5-7b2c-7d10-8f11-123456789abc",
       result: { answer: 42 },
       engine_extension: "kept",
     };
-    const executionB = { node_execution_id: "nex_2", result: null };
+    const executionB = {
+      node_execution_id: "node_018f47a5-7b2c-7d10-8f11-123456789abd",
+      result: null,
+    };
     const verification = { verification_id: "ver_1", score: 0.98 };
     const recovery = { recovery_action_id: "rec_1", strategy: "retry" };
     const qualityGate = { quality_gate_id: "qg_1", status: "passed" };
@@ -89,20 +93,33 @@ describe("RunService", () => {
       }
       throw new Error(`Unexpected path ${path}`);
     });
-    const service = new RunService(engine.value);
+    const costs = costLedgerStub(async () => [
+      {
+        nodeExecutionId: "node_018f47a5-7b2c-7d10-8f11-123456789abc",
+        internalCostMinor: "37",
+        eventCount: 2,
+      },
+    ]);
+    const service = new RunService(engine.value, costs.value);
 
     const response = await service.detail(runId, actor, traceparent);
 
     expect(response.body).toEqual({
       run: { run_id: runId, status: "completed" },
-      node_executions: [executionA, executionB],
+      node_executions: [
+        { ...executionA, node_cost_minor: "37" },
+        { ...executionB, node_cost_minor: "0" },
+      ],
       verification_results: [verification],
       recovery_actions: [recovery],
       quality_gates: [qualityGate],
       outcome,
     });
-    expect(response.body).not.toHaveProperty("per_node_cost");
-    expect(response.body.node_executions[0]).toEqual(executionA);
+    expect(costs.getNodeCosts).toHaveBeenCalledWith(runId, expectedContext());
+    expect(response.body.node_executions[0]).toEqual({
+      ...executionA,
+      node_cost_minor: "37",
+    });
   });
 
   it("passes artifact metadata through unchanged", async () => {
@@ -112,7 +129,7 @@ describe("RunService", () => {
       engine_extension: { opaque: true },
     };
     const engine = engineStub(async () => ({ status: 200, body: metadata }));
-    const service = new RunService(engine.value);
+    const service = new RunService(engine.value, costLedgerStub().value);
 
     const response = await service.artifact(artifactId, actor, traceparent);
 
@@ -125,7 +142,7 @@ describe("RunService", () => {
 
   it("rejects invented filters, invalid ranges, ids, and trace context", async () => {
     const engine = engineStub(async () => ({ status: 200, body: page([]) }));
-    const service = new RunService(engine.value);
+    const service = new RunService(engine.value, costLedgerStub().value);
 
     expect(() =>
       service.list({ mode: "workflow" }, actor, traceparent),
@@ -154,7 +171,7 @@ describe("RunService", () => {
 
   it("requires workspace context and generates missing trace context", async () => {
     const engine = engineStub(async () => ({ status: 200, body: page([]) }));
-    const service = new RunService(engine.value);
+    const service = new RunService(engine.value, costLedgerStub().value);
     const { workspace_id: _workspace, ...withoutWorkspace } = actor;
     void _workspace;
 
@@ -190,7 +207,7 @@ describe("RunService", () => {
       }
       return { status: 200, body: page([], true, null) };
     });
-    const service = new RunService(engine.value);
+    const service = new RunService(engine.value, costLedgerStub().value);
 
     await expect(service.detail(runId, actor, traceparent)).rejects.toMatchObject({
       status: 502,
@@ -238,5 +255,18 @@ function engineStub(
   return {
     value: { get } as unknown as EngineClient,
     get,
+  };
+}
+
+function costLedgerStub(
+  implementation: (
+    run: string,
+    context: EngineCallerContext,
+  ) => Promise<readonly { nodeExecutionId: string; internalCostMinor: string; eventCount: number }[]> = async () => [],
+): { value: CostLedgerClient; getNodeCosts: ReturnType<typeof vi.fn> } {
+  const getNodeCosts = vi.fn(implementation);
+  return {
+    value: { getNodeCosts } as unknown as CostLedgerClient,
+    getNodeCosts,
   };
 }

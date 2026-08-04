@@ -11,6 +11,7 @@ export {
   type EngineConfig,
 } from "./config";
 export { ENGINE_CONFIG, EngineClient } from "./engine-client";
+export { CostLedgerClient, type NodeCost } from "./cost-ledger-client";
 export { EngineExceptionFilter } from "./engine-exception.filter";
 export { EngineModule } from "./engine.module";
 export { EngineProblemError } from "./problem";

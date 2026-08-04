@@ -16,6 +16,7 @@ import {
 } from "vitest";
 import {
   EngineClient,
+  CostLedgerClient,
   EngineExceptionFilter,
   EngineProblemError,
   type EngineCallerContext,
@@ -44,6 +45,7 @@ const noScope: ActorContextType = { ...actor, permissions: [] };
 describe("RunController routes", () => {
   let app: NestFastifyApplication;
   const engine = new RunEngine();
+  const costs = { getNodeCosts: vi.fn().mockResolvedValue([]) };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -53,6 +55,7 @@ describe("RunController routes", () => {
         RunService,
         RunExceptionFilter,
         { provide: EngineClient, useValue: engine },
+        { provide: CostLedgerClient, useValue: costs },
         { provide: APP_FILTER, useClass: EngineExceptionFilter },
       ],
     }).compile();
@@ -76,7 +79,10 @@ describe("RunController routes", () => {
     await app.getHttpAdapter().getInstance().ready();
   });
 
-  beforeEach(() => engine.reset());
+  beforeEach(() => {
+    engine.reset();
+    costs.getNodeCosts.mockClear();
+  });
 
   afterAll(async () => app.close());
 
@@ -98,19 +104,28 @@ describe("RunController routes", () => {
     );
   });
 
-  it("aggregates only five real run sub-resources", async () => {
+  it("aggregates real run sub-resources and side-effect-free per-node costs", async () => {
     const response = await request(`/api/v1/runs/${runId}`, actor);
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       run: engine.run,
-      node_executions: engine.nodeExecutions.data,
+      node_executions: engine.nodeExecutions.data.map((execution) => ({
+        ...execution,
+        node_cost_minor: "0",
+      })),
       verification_results: engine.verificationResults.data,
       recovery_actions: engine.recoveryActions.data,
       quality_gates: engine.qualityGates.data,
       outcome: engine.outcome,
     });
-    expect(response.json()).not.toHaveProperty("per_node_cost");
+    expect(costs.getNodeCosts).toHaveBeenCalledWith(
+      runId,
+      expect.objectContaining({
+        tenantId: actor.tenant_id,
+        workspaceId: actor.workspace_id,
+      }),
+    );
     expect(response.json()).not.toHaveProperty("artifacts");
   });
 

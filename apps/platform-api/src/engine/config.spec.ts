@@ -6,6 +6,7 @@ describe("engineConfigFromEnvironment", () => {
     expect(
       engineConfigFromEnvironment({
         ENGINE_BASE_URL: "https://engine.test/",
+        COST_LEDGER_BASE_URL: "https://costs.test/",
         ENGINE_M2M_TOKEN_URL: "https://identity.test/oauth/token",
         ENGINE_M2M_AUDIENCE: "https://engine.test",
         ENGINE_M2M_CLIENT_ID: "platform-api",
@@ -13,6 +14,7 @@ describe("engineConfigFromEnvironment", () => {
       }),
     ).toEqual({
       baseUrl: "https://engine.test",
+      costLedgerBaseUrl: "https://costs.test",
       m2mTokenUrl: "https://identity.test/oauth/token",
       m2mAudience: "https://engine.test",
       m2mClientId: "platform-api",
