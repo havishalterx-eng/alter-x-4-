@@ -45,7 +45,10 @@ class EvalGrpcService:
             summary = await asyncio.to_thread(
                 self._orchestrator.run,
                 request.golden_set_name,
-                "grpc",
+                # EvalRun.trigger is a persisted domain enum. gRPC is a
+                # transport, not a new trigger category, so use the existing
+                # manual trigger for caller-initiated evaluations.
+                "manual",
             )
         except GoldenSetNotFoundError as error:
             await _abort(context, grpc.StatusCode.NOT_FOUND, str(error))

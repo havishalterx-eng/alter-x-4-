@@ -11,7 +11,7 @@ import asyncio
 import json
 from collections.abc import Generator
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import grpc
 import pytest
@@ -25,7 +25,7 @@ from testcontainers.community.postgres import PostgresContainer
 from alembic import command
 from alter.eval.v1 import eval_pb2, eval_pb2_grpc
 from src.config import Settings
-from src.db.models import GoldenSet
+from src.db.models import EvalRun, GoldenSet
 from src.grpc_server import _build_service, _close_all
 
 
@@ -148,6 +148,11 @@ async def _round_trip(eval_db_url: str, golden_set_name: str) -> None:
             "passed": 0,
             "total_cases": 0,
         }
+        with engine.connect() as connection:
+            trigger = connection.scalar(
+                sa.select(EvalRun.trigger).where(EvalRun.id == UUID(evaluation.evaluation_run_id))
+            )
+        assert trigger == "manual"
 
         gate = await stub.CheckReleaseGate(
             eval_pb2.CheckReleaseGateRequest(
