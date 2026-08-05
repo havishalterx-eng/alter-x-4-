@@ -173,6 +173,16 @@ export class DiscoveryService {
   }
 }
 
+/**
+ * v1 scope, deliberate: single pattern ("reduce recurring human approval
+ * work"), gated on 4 real signal thresholds below. Doc 12 (Engagement
+ * Phase) describes "pattern analysis... -> ranked recommendations",
+ * which could imply multiple distinct recommendation types; this was
+ * reviewed and accepted as the real v1 exit bar rather than expanded,
+ * since every additional pattern needs its own real threshold logic
+ * over real signals (zero-mock law) -- not a shortcut, a scoping choice.
+ * Multi-pattern expansion is a legitimate, disclosed follow-up, not a bug.
+ */
 export function scoreRecommendations(signals: DiscoverySignals): readonly DiscoveryCandidate[] {
   if (
     signals.runs.length === 0 ||
