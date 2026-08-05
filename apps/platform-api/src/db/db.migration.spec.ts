@@ -440,7 +440,7 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
-    expect(rows[0]?.count).toBe("21");
+    expect(rows[0]?.count).toBe("22");
   });
 
   it("prevents tenant_id mutation on tenant-owned rows", async () => {
