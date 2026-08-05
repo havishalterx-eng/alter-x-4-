@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { isConnectorId } from "./connectors";
 import { IntegrationHttpError } from "./problem";
-import type { OAuthAuthorizeInput, OAuthCallbackInput } from "./types";
+import type {
+  IntegrationActivityQuery,
+  OAuthAuthorizeInput,
+  OAuthCallbackInput,
+} from "./types";
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -16,6 +20,13 @@ const callbackSchema: z.ZodType<OAuthCallbackInput> = z
   .object({
     code: z.string().min(1),
     state: z.string().min(1),
+  })
+  .strict();
+
+const activityQuerySchema: z.ZodType<IntegrationActivityQuery> = z
+  .object({
+    cursor: z.string().regex(uuidPattern, "Invalid activity cursor").optional(),
+    limit: z.coerce.number().int().min(1).max(200).optional(),
   })
   .strict();
 
@@ -49,6 +60,13 @@ export function parseOAuthCallbackInput(
   instance: string,
 ): OAuthCallbackInput {
   return parse(callbackSchema, value, instance);
+}
+
+export function parseActivityQuery(
+  value: unknown,
+  instance: string,
+): IntegrationActivityQuery {
+  return parse(activityQuerySchema, value, instance);
 }
 
 function parse<T>(schema: z.ZodType<T>, value: unknown, instance: string): T {

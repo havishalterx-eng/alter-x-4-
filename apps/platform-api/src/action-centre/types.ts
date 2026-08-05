@@ -12,6 +12,7 @@ export interface EnginePage<T> {
 }
 
 export type QueueSourceType = "approval" | "escalation";
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
 
 export interface ActionQueueItem {
   source_type: QueueSourceType;
@@ -32,7 +33,7 @@ export interface ActionQueueQuery {
   cursor?: string | undefined;
   limit?: number | undefined;
   type?: QueueSourceType | undefined;
-  status?: "pending" | undefined;
+  status?: ApprovalStatus | undefined;
 }
 
 export const humanActionCentreDeferred = [

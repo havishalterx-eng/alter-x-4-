@@ -205,6 +205,22 @@ describe("Human Action Centre routes", () => {
     expect(engine.get).toHaveBeenCalledTimes(1);
   });
 
+  it("returns retained historical approvals through Engine status filters", async () => {
+    const response = await request({
+      method: "GET",
+      url: "/api/v1/action-centre?type=approval&status=approved&limit=5",
+      actor,
+    });
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as QueueResponse).data).toEqual([
+      { source_type: "approval", item: engine.approvedApprovals[0] },
+    ]);
+    expect(engine.get).toHaveBeenCalledWith(
+      "/api/v1/approvals?limit=5&status=approved",
+      expect.objectContaining({ tenantId: actor.tenant_id }),
+    );
+  });
+
   it("rejects an invalid Engine page instead of looping its cursor", async () => {
     engine.invalidPage = true;
     const response = await request({
@@ -470,6 +486,14 @@ class StatefulActionEngine {
     { escalation_id: escalationId, severity: "high" },
     { escalation_id: `${escalationId}-2`, engine_extension: true },
   ];
+  readonly approvedApprovals: EngineResource[] = [
+    {
+      approval_id: `${approvalId}-approved`,
+      status: "approved",
+      mode: "workflow",
+      decided_at: "2026-08-05T00:00:00.000Z",
+    },
+  ];
   readonly get = vi.fn(this.getResponse.bind(this));
   readonly post = vi.fn(this.postResponse.bind(this));
   runStatus: "running" | "paused" = "running";
@@ -499,6 +523,12 @@ class StatefulActionEngine {
     const url = new URL(path, "https://engine.internal");
     const limit = Number(url.searchParams.get("limit"));
     if (url.pathname === "/api/v1/approvals") {
+      if (url.searchParams.get("status") === "approved") {
+        return {
+          status: 200,
+          body: page(this.approvedApprovals.slice(0, limit), null),
+        };
+      }
       const next = url.searchParams.get("cursor");
       const data = next === "approval-next"
         ? this.approvals.slice(2)

@@ -100,6 +100,28 @@ describe.skipIf(!databaseUrl)("IntegrationRepository PostgreSQL RLS", () => {
     expect(await repository.findState(tenantA, stateId)).toBeUndefined();
 
     await repository.recordUse(tenantA, connectionId, randomUUID(), "health_check");
+    await repository.recordUse(tenantA, connectionId, randomUUID(), "revoke");
+    const activity = await repository.listActivity(tenantA, connectionId, {
+      limit: 1,
+    });
+    expect(activity.data).toHaveLength(1);
+    expect(activity.data[0]).toMatchObject({ connectionId });
+    expect(activity.page.has_more).toBe(true);
+    const next = await repository.listActivity(tenantA, connectionId, {
+      limit: 1,
+      cursor: activity.page.next_cursor!,
+    });
+    expect(next.data).toHaveLength(1);
+    expect(next.page.has_more).toBe(false);
+    await expect(
+      repository.listActivity(tenantA, connectionId, {
+        limit: 1,
+        cursor: randomUUID(),
+      }),
+    ).rejects.toMatchObject({ name: "ActivityCursorNotFoundError" });
+    expect(
+      (await repository.listActivity(tenantB, connectionId, { limit: 1 })).data,
+    ).toHaveLength(0);
     const health = await repository.updateHealth(
       tenantA,
       workspaceA,

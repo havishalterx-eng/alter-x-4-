@@ -48,6 +48,11 @@ describe("action centre cursor", () => {
     });
   });
 
+  it("round-trips historical approval filters", () => {
+    const cursor = initialCursor({ type: "approval", status: "approved" });
+    expect(decodeCursor(encodeCursor(cursor), {}, "/queue")).toEqual(cursor);
+  });
+
   it.each([
     "not-base64-json",
     Buffer.from("{}").toString("base64url"),

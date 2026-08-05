@@ -75,6 +75,35 @@ export interface OAuthScopesView {
   readonly scopes: readonly string[];
 }
 
+export interface IntegrationActivityQuery {
+  readonly cursor?: string | undefined;
+  readonly limit?: number | undefined;
+}
+
+export interface OAuthConnectionActivityRecord {
+  readonly tenantId: string;
+  readonly id: string;
+  readonly connectionId: string;
+  readonly action: string;
+  readonly usedAt: Date;
+}
+
+export interface OAuthConnectionActivityView {
+  readonly id: string;
+  readonly connection_id: string;
+  readonly action: string;
+  readonly used_at: string;
+}
+
+export interface OAuthConnectionActivityPage {
+  readonly data: readonly OAuthConnectionActivityView[];
+  readonly page: {
+    readonly next_cursor: string | null;
+    readonly has_more: boolean;
+    readonly limit: number;
+  };
+}
+
 export const integrationDeferredCapabilities = [
   {
     capability: "oauth_flows_non_launch_connectors",

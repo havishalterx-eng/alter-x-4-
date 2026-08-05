@@ -18,6 +18,9 @@ describe("action centre validation", () => {
         "/queue",
       ),
     ).toEqual({ limit: 25, type: "approval", status: "pending" });
+    expect(parseQueueQuery({ status: "approved" }, "/queue")).toEqual({
+      status: "approved",
+    });
     const body = { answer: " Keep whitespace \n", extension: { value: 1 } };
     expect(parseActionBody(body, "/action")).toBe(body);
     expect(parseResourceId(id, "approvalId", "/action")).toBe(id);
@@ -30,7 +33,7 @@ describe("action centre validation", () => {
     [{ mode: "workflow" }],
     [{ limit: 0 }],
     [{ type: "clarification" }],
-    [{ status: "approved" }],
+    [{ status: "resolved" }],
     [{ type: "escalation", status: "pending" }],
   ])("rejects invalid queue query %j", (query) => {
     expect(() => parseQueueQuery(query, "/queue")).toThrowError(
