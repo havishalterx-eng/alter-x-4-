@@ -4,6 +4,7 @@ const engineConfigSchema = z.object({
   ENGINE_BASE_URL: z.string().url(),
   ADS_CORE_BASE_URL: z.string().url(),
   COST_LEDGER_BASE_URL: z.string().url(),
+  EVAL_SERVICE_GRPC_TARGET: z.string().min(1),
   ENGINE_M2M_TOKEN_URL: z.string().url(),
   ENGINE_M2M_AUDIENCE: z.string().min(1),
   ENGINE_M2M_CLIENT_ID: z.string().min(1),
@@ -15,6 +16,7 @@ export interface EngineConfig {
   baseUrl: string;
   adsCoreBaseUrl: string;
   costLedgerBaseUrl: string;
+  evalServiceGrpcTarget: string;
   m2mTokenUrl: string;
   m2mAudience: string;
   m2mClientId: string;
@@ -37,6 +39,7 @@ export function engineConfigFromEnvironment(
     baseUrl: parsed.data.ENGINE_BASE_URL.replace(/\/+$/, ""),
     adsCoreBaseUrl: parsed.data.ADS_CORE_BASE_URL.replace(/\/+$/, ""),
     costLedgerBaseUrl: parsed.data.COST_LEDGER_BASE_URL.replace(/\/+$/, ""),
+    evalServiceGrpcTarget: parsed.data.EVAL_SERVICE_GRPC_TARGET,
     m2mTokenUrl: parsed.data.ENGINE_M2M_TOKEN_URL,
     m2mAudience: parsed.data.ENGINE_M2M_AUDIENCE,
     m2mClientId: parsed.data.ENGINE_M2M_CLIENT_ID,

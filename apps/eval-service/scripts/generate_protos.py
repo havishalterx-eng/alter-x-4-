@@ -32,6 +32,7 @@ PROTO_FILES = (
     "alter/recovery/v1/recovery.proto",
     "alter/modelgw/v1/modelgw.proto",
     "alter/audit/v1/audit.proto",
+    "alter/eval/v1/eval.proto",
 )
 
 

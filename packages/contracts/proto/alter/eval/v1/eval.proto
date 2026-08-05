@@ -10,10 +10,9 @@ service EvalService {
 message RunEvaluationRequest {
   reserved 100 to 199;
 
-  string tenant_id = 1; // ten_ prefixed UUIDv7
-  string evaluation_run_id = 2; // evr_ prefixed UUIDv7
-  string golden_set_reference = 3;
-  string candidate_version = 4;
+  // Eval runs are global Engine release-evaluation records, not tenant-owned
+  // workload runs. EvalRunOrchestrator mints the returned evaluation_run_id.
+  string golden_set_name = 1;
 }
 
 message RunEvaluationResponse {
@@ -27,14 +26,15 @@ message RunEvaluationResponse {
 message CheckReleaseGateRequest {
   reserved 100 to 199;
 
-  string tenant_id = 1; // ten_ prefixed UUIDv7
-  string release_gate_key = 2;
-  string evaluation_run_id = 3; // evr_ prefixed UUIDv7
+  string release_gate_key = 1;
+  string evaluation_run_id = 2; // UUID minted by RunEvaluation
 }
 
 message CheckReleaseGateResponse {
   reserved 100 to 199;
 
   bool passed = 1;
+  // ReleaseGate stores an aggregate pass-rate decision only. It does not
+  // persist individual threshold failures, so this is currently empty.
   repeated string failed_thresholds = 2;
 }
