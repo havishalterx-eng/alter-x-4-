@@ -77,6 +77,7 @@ describe.sequential("RunService per-node cost aggregation", () => {
         baseUrl: "http://engine.test",
         adsCoreBaseUrl: "http://ads.test",
         costLedgerBaseUrl: `http://127.0.0.1:${address.port}`,
+        evalServiceGrpcTarget: "eval-service:50062",
         m2mTokenUrl: "https://identity.test/oauth/token",
         m2mAudience: "https://engine.test",
         m2mClientId: "platform-api",
