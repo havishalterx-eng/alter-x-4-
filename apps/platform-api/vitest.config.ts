@@ -50,6 +50,7 @@ export default defineConfig({
         "apps/platform-api/src/integrations/**/*.ts",
         "apps/platform-api/src/triggers/**/*.ts",
         "apps/platform-api/src/billing/**/*.ts",
+        "apps/platform-api/src/discovery/**/*.ts",
         "apps/platform-api/src/publisher/**/*.ts",
       ],
       exclude: [
@@ -78,6 +79,7 @@ export default defineConfig({
         "apps/platform-api/src/integrations/**/*.spec.ts",
         "apps/platform-api/src/triggers/**/*.spec.ts",
         "apps/platform-api/src/billing/**/*.spec.ts",
+        "apps/platform-api/src/discovery/**/*.spec.ts",
       ],
       thresholds: {
         lines: 90,
@@ -211,6 +213,10 @@ export default defineConfig({
         "apps/platform-api/src/billing/{billing.service,billing.repository}.ts": {
           lines: 90,
           branches: 90
+        },
+        "apps/platform-api/src/discovery/**/*.ts": {
+          lines: 80,
+          branches: 75,
         },
       },
     },

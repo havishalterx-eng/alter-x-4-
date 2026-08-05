@@ -95,5 +95,6 @@ function buildConnectorRuntimeConfig(): ConnectorRuntimeConfigMap {
     },
     IntegrationExceptionFilter,
   ],
+  exports: [IntegrationService],
 })
 export class IntegrationModule {}

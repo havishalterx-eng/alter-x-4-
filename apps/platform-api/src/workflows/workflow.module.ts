@@ -27,5 +27,6 @@ import { WorkflowService } from "./workflow.service";
     ConcurrencyExceptionFilter,
     WorkflowExceptionFilter,
   ],
+  exports: [WorkflowService],
 })
 export class WorkflowModule {}

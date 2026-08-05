@@ -16,5 +16,6 @@ import { AdsService } from "./ads.service";
     },
     AdsExceptionFilter,
   ],
+  exports: [AdsService],
 })
 export class AdsModule {}

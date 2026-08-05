@@ -8,5 +8,6 @@ import { RunService } from "./run.service";
   imports: [EngineModule],
   controllers: [RunController, ArtifactController],
   providers: [RunService, RunExceptionFilter],
+  exports: [RunService],
 })
 export class RunModule {}

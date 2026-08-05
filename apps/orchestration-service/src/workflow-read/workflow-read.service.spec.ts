@@ -41,6 +41,26 @@ function createFakeStore(seed: readonly WorkflowRow[] = []): {
             return { rowCount: 1, rows: [row] as unknown as readonly TRow[] };
           }
 
+          if (sql.startsWith("INSERT")) {
+            const [workflowId, tenantId, workspaceId, name] = values as [
+              string,
+              string,
+              string,
+              string,
+            ];
+            const row: WorkflowRow = {
+              id: workflowId,
+              tenant_id: tenantId,
+              workspace_id: workspaceId,
+              name,
+              status: "draft",
+              created_at: "created",
+              updated_at: "created",
+            };
+            workflows.set(workflowId, row);
+            return { rowCount: 1, rows: [row] as unknown as readonly TRow[] };
+          }
+
           if (sql.startsWith("UPDATE")) {
             const [queryTenantId, workflowId, name, status] = values as [
               string,
@@ -74,6 +94,7 @@ function createFakeStore(seed: readonly WorkflowRow[] = []): {
 const TENANT_A_BARE = "018f4d6e-aaaa-7aaa-8aaa-aaaaaaaaaaaa";
 const TENANT_A = `ten_${TENANT_A_BARE}`;
 const TENANT_B = "ten_018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb";
+const WORKSPACE_A = "ws_018f4d6e-aaaa-7aaa-8aaa-aaaaaaaaaaac";
 const WORKFLOW_A = "wf_018f4d6e-aaaa-7aaa-8aaa-aaaaaaaaaaab";
 
 function seedRow(): WorkflowRow {
@@ -89,6 +110,32 @@ function seedRow(): WorkflowRow {
 }
 
 describe("WorkflowReadService", () => {
+  it("creates a real draft workflow in the authenticated tenant and workspace", async () => {
+    const { store, workflows } = createFakeStore();
+    const service = new WorkflowReadService(store);
+
+    const workflow = await service.createWorkflow({
+      tenantId: TENANT_A,
+      workspaceId: WORKSPACE_A,
+      name: "Discovery follow-up",
+    });
+
+    expect(workflow.id).toMatch(/^wf_[0-9a-f-]{36}$/);
+    expect(workflow.status).toBe("draft");
+    expect(workflow.tenantId).toBe(TENANT_A_BARE);
+    expect(workflow.workspaceId).toBe(WORKSPACE_A.slice("ws_".length));
+    expect(workflows.get(workflow.id)).toMatchObject({ status: "draft", name: "Discovery follow-up" });
+  });
+
+  it("rejects a workspace outside the authenticated ID contract", async () => {
+    const { store } = createFakeStore();
+    const service = new WorkflowReadService(store);
+
+    await expect(
+      service.createWorkflow({ tenantId: TENANT_A, workspaceId: "bad", name: "Nope" }),
+    ).rejects.toBeInstanceOf(WorkflowValidationError);
+  });
+
   it("returns the real workflow row for its own tenant", async () => {
     const { store } = createFakeStore([seedRow()]);
     const service = new WorkflowReadService(store);

@@ -19,5 +19,6 @@ import { ActionCentreService } from "./action-centre.service";
     RunClarificationActionController,
   ],
   providers: [ActionCentreService, ActionCentreExceptionFilter],
+  exports: [ActionCentreService],
 })
 export class ActionCentreModule {}

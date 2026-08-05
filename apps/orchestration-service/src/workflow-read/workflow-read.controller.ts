@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Body, Controller, Get, HttpException, Param, Patch, Req } from "@nestjs/common";
+import { Body, Controller, Get, HttpException, Param, Patch, Post, Req } from "@nestjs/common";
 import type { SessionGatewayRequest } from "@alterx/auth";
 import type { ProblemDetails } from "@alterx/contracts";
 import {
@@ -14,6 +14,10 @@ interface UpdateWorkflowBody {
   readonly status?: WorkflowStatus;
 }
 
+interface CreateWorkflowBody {
+  readonly goal?: string;
+}
+
 function requiredTenantId(request: SessionGatewayRequest): string {
   const tenantId = request.actorContext?.tenant_id;
   if (tenantId === undefined) {
@@ -25,9 +29,35 @@ function requiredTenantId(request: SessionGatewayRequest): string {
   return tenantId;
 }
 
+function requiredWorkspaceId(request: SessionGatewayRequest): string {
+  const workspaceId = request.actorContext?.workspace_id;
+  if (workspaceId === null || workspaceId === undefined) {
+    throw new HttpException(
+      internalProblem(request.url, "Missing authenticated workspace context"),
+      500,
+    );
+  }
+  return workspaceId;
+}
+
 @Controller("api/v1/workflows")
 export class WorkflowReadController {
   constructor(private readonly service: WorkflowReadService) {}
+
+  @Post()
+  async create(@Req() request: SessionGatewayRequest, @Body() body: CreateWorkflowBody) {
+    const tenantId = requiredTenantId(request);
+    const workspaceId = requiredWorkspaceId(request);
+    try {
+      return await this.service.createWorkflow({
+        tenantId,
+        workspaceId,
+        name: body.goal ?? "",
+      });
+    } catch (error: unknown) {
+      throw mapWorkflowError(error, request.url);
+    }
+  }
 
   @Get(":id")
   async get(@Req() request: SessionGatewayRequest, @Param("id") workflowId: string) {

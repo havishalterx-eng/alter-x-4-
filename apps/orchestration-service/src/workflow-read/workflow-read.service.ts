@@ -1,4 +1,5 @@
 import { TenantIdSchema } from "@alterx/contracts";
+import { randomUUID } from "node:crypto";
 
 export class WorkflowNotFoundError extends Error {
   constructor(workflowId: string) {
@@ -31,6 +32,12 @@ export interface UpdateWorkflowRequest {
   readonly workflowId: string;
   readonly name?: string;
   readonly status?: WorkflowStatus;
+}
+
+export interface CreateWorkflowRequest {
+  readonly tenantId: string;
+  readonly workspaceId: string;
+  readonly name: string;
 }
 
 interface OrchestrationTransactionLike {
@@ -94,6 +101,18 @@ function bareTenantUuid(tenantId: string): string {
   return parsed.data.slice("ten_".length);
 }
 
+function bareWorkspaceUuid(workspaceId: string): string {
+  if (!/^ws_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(workspaceId)) {
+    throw new WorkflowValidationError("workspaceId must be a ws_ prefixed UUIDv7");
+  }
+  return workspaceId.slice("ws_".length);
+}
+
+function newWorkflowId(): `wf_${string}` {
+  const uuid = randomUUID();
+  return `wf_${uuid.slice(0, 14)}7${uuid.slice(15)}`;
+}
+
 /**
  * Real read/update surface over the real, RLS-scoped `workflows` table
  * (0000_create_workflows.sql -- ENABLE+FORCE RLS, `workflows_tenant_id_id_
@@ -115,6 +134,28 @@ function bareTenantUuid(tenantId: string): string {
  */
 export class WorkflowReadService {
   constructor(private readonly store: OrchestrationTenantStore) {}
+
+  async createWorkflow(request: CreateWorkflowRequest): Promise<Workflow> {
+    requireNonEmpty("tenantId", request.tenantId);
+    requireNonEmpty("workspaceId", request.workspaceId);
+    requireNonEmpty("name", request.name);
+    const bareTenant = bareTenantUuid(request.tenantId);
+    const bareWorkspace = bareWorkspaceUuid(request.workspaceId);
+    const workflowId = newWorkflowId();
+    return this.store.withTenant(bareTenant, async (tx) => {
+      const result = await tx.query<WorkflowRow>(
+        `INSERT INTO workflows (id, tenant_id, workspace_id, name, status)
+         VALUES ($1, $2, $3, $4, 'draft')
+         RETURNING id, tenant_id, workspace_id, name, status, created_at, updated_at`,
+        [workflowId, bareTenant, bareWorkspace, request.name.trim()],
+      );
+      const row = result.rows[0];
+      if (row === undefined) {
+        throw new WorkflowValidationError("workflow insert returned no row");
+      }
+      return fromRow(row);
+    });
+  }
 
   async getWorkflow(tenantId: string, workflowId: string): Promise<Workflow> {
     requireNonEmpty("tenantId", tenantId);
