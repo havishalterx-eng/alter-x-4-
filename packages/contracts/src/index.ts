@@ -162,6 +162,13 @@ export {
   type ModelMessageRole,
 } from "./model-invocation-payload";
 export {
+  GENERATED_FILES_OUTPUT_INSTRUCTION,
+  GeneratedFileSchema,
+  GeneratedFilesOutputSchema,
+  type GeneratedFile,
+  type GeneratedFilesOutput,
+} from "./generated-files";
+export {
   ApprovalRequestedDataSchema,
   ClarificationRequestedDataSchema,
   DeploymentStatusDataSchema,

@@ -190,7 +190,7 @@ describe.sequential("node executions durable ledger", () => {
     expect(rows[0]?.id).toMatch(/^node_[0-9a-f-]+$/i);
   }, 120_000);
 
-  it("finalizes the run as completed and records input_ref/output_ref (EXEC-14)", async () => {
+  it("finalizes the run as completed and records input_ref without a fabricated output_ref", async () => {
     const nodeexec = new NodeexecService(
       new NodeHandlerRegistry([new EchoMergeHandler()]),
       ledger,
@@ -230,9 +230,9 @@ describe.sequential("node executions durable ledger", () => {
     const nodeA = rows.find((row) => row.dag_node_id === "node_a");
     const nodeB = rows.find((row) => row.dag_node_id === "node_b");
     expect(nodeA?.input_ref ?? null).toBeNull();
-    expect(nodeA?.output_ref).toBe("node_a");
+    expect(nodeA?.output_ref ?? null).toBeNull();
     expect(nodeB?.input_ref).toBe("node_a");
-    expect(nodeB?.output_ref).toBe("node_b");
+    expect(nodeB?.output_ref ?? null).toBeNull();
   }, 120_000);
 
   it("records failed execution and retries same node execution as a new attempt", async () => {

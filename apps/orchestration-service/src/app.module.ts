@@ -100,6 +100,7 @@ import { DeletionRequestController } from "./deletion/deletion-request.controlle
 import { ArtifactsController } from "./artifacts/artifacts.controller";
 import { ArtifactsService } from "./artifacts/artifacts.service";
 import { ArtifactContentGrpcService } from "./artifacts/artifact-content-grpc.service";
+import { GeneratedFileMaterializer } from "./registry/generated-file-materializer";
 
 @Module({
   controllers: [
@@ -381,7 +382,7 @@ import { ArtifactContentGrpcService } from "./artifacts/artifact-content-grpc.se
     },
     {
       provide: NODEEXEC_HANDLER,
-      useFactory: () => {
+      useFactory: async (artifacts: ArtifactsService) => {
         const dbConfig = sessionGatewayEnvironment(process.env);
         const store = new PostgresOrchestrationStoreProvider({
           authentication: "iam",
@@ -457,8 +458,10 @@ import { ArtifactContentGrpcService } from "./artifacts/artifact-content-grpc.se
               protoPath: PROVISIONING_CLIENT_PROTO_PATH,
             }),
           ),
+          new GeneratedFileMaterializer(artifacts, sandboxService),
         );
       },
+      inject: [ArtifactsService],
     },
     {
       provide: RECOVERY_HANDLER,

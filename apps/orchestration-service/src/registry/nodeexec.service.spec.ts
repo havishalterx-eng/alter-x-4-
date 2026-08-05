@@ -8,6 +8,7 @@ import {
 import { MergeHandler } from "./handlers/merge.handler";
 import { NodeHandlerRegistry } from "./node-handler-registry";
 import { NodeexecService } from "./nodeexec.service";
+import type { GeneratedFileMaterializer } from "./generated-file-materializer";
 import { NodeExecutionLedgerService } from "../runs/node-execution-ledger.service";
 import { RunStreamEventService } from "../runs/run-stream-event.service";
 import type { RecoveryTriggerService } from "../recovery/recovery-trigger.service";
@@ -79,6 +80,71 @@ describe("NodeexecService.executeNode", () => {
     });
 
     expect(received?.sandbox_session_id).toBe("e2b_ses_123");
+  });
+
+  it("falls back to the durable project-run session for SandboxExec", async () => {
+    let received: NodeExecutionContext | undefined;
+    const handler: NodeHandler = {
+      nodeType: "SandboxExec",
+      async execute(context) {
+        received = context;
+        return { output: {} };
+      },
+    };
+    const provisioned = {
+      getSessionForRun: vi.fn().mockResolvedValue("e2b_ses_project"),
+    };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), fakeLedger(), undefined, undefined, undefined,
+      provisioned as never,
+    );
+
+    await nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_install_dependencies", node_type: "SandboxExec",
+      config_json: JSON.stringify({ command: "pnpm install" }), inputs_json: "{}",
+    });
+
+    expect(provisioned.getSessionForRun).toHaveBeenCalledWith(TENANT_ID, RUN_ID);
+    expect(received?.sandbox_session_id).toBe("e2b_ses_project");
+    expect(received?.config.sandbox_session_id).toBe("e2b_ses_project");
+  });
+
+  it("falls back to the project run session and materializes node_generate_code output", async () => {
+    let received: NodeExecutionContext | undefined;
+    const handler: NodeHandler = {
+      nodeType: "LLMTask",
+      async execute(context) {
+        received = context;
+        return { output: { files: [{ path: "src/index.ts", content: "export {};" }] } };
+      },
+    };
+    const ledger = fakeLedger();
+    const provisioned = {
+      getSessionForRun: vi.fn().mockResolvedValue("e2b_ses_project"),
+    };
+    const materializer = {
+      materialize: vi.fn().mockResolvedValue({ manifestArtifactId: "art_manifest", files: [] }),
+    } as unknown as GeneratedFileMaterializer;
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), ledger, undefined, undefined, undefined,
+      provisioned as never, materializer,
+    );
+
+    await nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_generate_code", node_type: "LLMTask",
+      config_json: JSON.stringify({ prompt: "Build app", model_alias: "ADVANCED" }), inputs_json: "{}",
+    });
+
+    expect(provisioned.getSessionForRun).toHaveBeenCalledWith(TENANT_ID, RUN_ID);
+    expect(received?.sandbox_session_id).toBe("e2b_ses_project");
+    expect(received?.config.prompt).toContain("Return only JSON matching");
+    expect(materializer.materialize).toHaveBeenCalledWith({
+      tenantId: TENANT_ID, runId: RUN_ID, sessionId: "e2b_ses_project",
+      output: { files: [{ path: "src/index.ts", content: "export {};" }] },
+    });
+    expect(ledger.recordSucceeded).toHaveBeenCalledWith(expect.objectContaining({ outputRef: "art_manifest" }));
   });
 
   it("rejects a blank node_key", async () => {
@@ -219,7 +285,7 @@ describe("NodeexecService.executeNode", () => {
     ).rejects.toThrow(NodeHandlerValidationError);
   });
 
-  it("records the predecessor keys read as input_ref and the node's own key as output_ref on success", async () => {
+  it("records predecessor keys as input_ref and leaves generic output_ref unset", async () => {
     const ledger = fakeLedger();
     await service(ledger).executeNode({
       tenant_id: TENANT_ID,
@@ -235,7 +301,7 @@ describe("NodeexecService.executeNode", () => {
       expect.objectContaining({ inputRef: "node_a,node_b" }),
     );
     expect(ledger.recordSucceeded).toHaveBeenCalledWith(
-      expect.objectContaining({ outputRef: "node_merge" }),
+      expect.not.objectContaining({ outputRef: expect.anything() }),
     );
   });
 

@@ -7,6 +7,7 @@ import type {
   NodeexecFinalizeRunResponse,
 } from "@alterx/contracts";
 import {
+  GENERATED_FILES_OUTPUT_INSTRUCTION,
   ModelAliasSchema,
   NodeTypeSchema,
   ProblemDetailsSchema,
@@ -20,6 +21,7 @@ import { RunStreamEventService } from "../runs/run-stream-event.service";
 import type { RecoveryTriggerService } from "../recovery/recovery-trigger.service";
 import type { RunOutcomeService } from "../runs/run-outcome.service";
 import type { ProjectRunProvisioningService } from "../runs/project-run-provisioning.service";
+import type { GeneratedFileMaterializer } from "./generated-file-materializer";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -49,6 +51,21 @@ function parseInputs(json: string): Record<string, Record<string, unknown>> {
   return inputs;
 }
 
+function isGeneratedFileNode(request: NodeexecExecuteNodeRequest): boolean {
+  return request.node_type === "LLMTask" && request.node_key === "node_generate_code";
+}
+
+function withGeneratedFileInstruction(
+  config: Record<string, unknown>,
+  generatedFileNode: boolean,
+): Record<string, unknown> {
+  if (!generatedFileNode || typeof config["prompt"] !== "string") return config;
+  return {
+    ...config,
+    prompt: `${config["prompt"]}\n\n${GENERATED_FILES_OUTPUT_INSTRUCTION}`,
+  };
+}
+
 /**
  * gRPC-facing NodeexecHandler. The Executor reaches every handler through
  * this boundary, so it owns the minimal durable node-executions ledger:
@@ -63,6 +80,7 @@ export class NodeexecService {
     private readonly recovery?: RecoveryTriggerService,
     private readonly runOutcomes?: RunOutcomeService,
     private readonly projectProvisioning?: ProjectRunProvisioningService,
+    private readonly generatedFileMaterializer?: GeneratedFileMaterializer,
   ) {}
 
   async executeNode(
@@ -104,9 +122,26 @@ export class NodeexecService {
     try {
       const config = parseJsonObject(request.config_json, "config_json");
       const inputs = parseInputs(request.inputs_json);
-      const sandboxSessionId = config["sandbox_session_id"];
+      const generatedFileNode = isGeneratedFileNode(request);
+      const configuredSandboxSessionId = config["sandbox_session_id"];
+      const sandboxSessionId =
+        typeof configuredSandboxSessionId === "string"
+          ? configuredSandboxSessionId
+          : configuredSandboxSessionId === undefined &&
+              (generatedFileNode || request.node_type === "SandboxExec")
+            ? await this.projectProvisioning?.getSessionForRun(
+                request.tenant_id,
+                request.run_id,
+              )
+            : undefined;
+      const executionConfig = withGeneratedFileInstruction(
+        sandboxSessionId !== undefined && configuredSandboxSessionId === undefined
+          ? { ...config, sandbox_session_id: sandboxSessionId }
+          : config,
+        generatedFileNode,
+      );
       const result = await this.registry.execute(request.node_type, {
-        config,
+        config: executionConfig,
         inputs,
         tenant_id: request.tenant_id,
         run_id: request.run_id,
@@ -172,11 +207,14 @@ export class NodeexecService {
           retryable: problem.data.retryable,
         }), request);
       } else {
+        const outputRef = generatedFileNode
+          ? await this.#materializeGeneratedFiles(request, sandboxSessionId, result.output)
+          : undefined;
         await this.ledger.recordSucceeded({
           tenantId: request.tenant_id,
           runId: request.run_id,
           nodeExecutionId: request.node_execution_id,
-          outputRef: request.node_key,
+          ...(outputRef === undefined ? {} : { outputRef }),
         });
         await this.#appendBestEffort({ event: "node.completed", data: {
           node_execution_id: request.node_execution_id, dag_node_key: request.node_key,
@@ -201,6 +239,23 @@ export class NodeexecService {
       await this.#triggerRecoveryForFailureBestEffort(request, failure);
       throw error;
     }
+  }
+
+  async #materializeGeneratedFiles(
+    request: NodeexecExecuteNodeRequest,
+    sessionId: string | undefined,
+    output: Record<string, unknown>,
+  ): Promise<string> {
+    if (this.generatedFileMaterializer === undefined) {
+      throw new NodeHandlerValidationError("Generated-file materializer is not configured");
+    }
+    const materialized = await this.generatedFileMaterializer.materialize({
+      tenantId: request.tenant_id,
+      runId: request.run_id,
+      sessionId,
+      output,
+    });
+    return materialized.manifestArtifactId;
   }
 
   async #appendBestEffort(

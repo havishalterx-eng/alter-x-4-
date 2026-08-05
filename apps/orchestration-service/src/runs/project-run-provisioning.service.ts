@@ -137,6 +137,29 @@ export class ProjectRunProvisioningService {
   }
 
   /**
+   * Node execution resolves this durable handoff when a project DAG's
+   * compiled node config has no session yet. Non-project runs intentionally
+   * return undefined rather than inventing a sandbox session.
+   */
+  async getSessionForRun(
+    tenantIdInput: string,
+    runId: string,
+  ): Promise<string | undefined> {
+    const tenantId = bareTenantUuid(tenantIdInput);
+    requireRunId(runId);
+    const row = await this.loadRun(tenantId, runId);
+    if (
+      row === undefined ||
+      row.project_id === null ||
+      row.provisioning_session_id === null ||
+      row.provisioning_session_id.trim().length === 0
+    ) {
+      return undefined;
+    }
+    return row.provisioning_session_id;
+  }
+
+  /**
    * Closing is idempotent: the provider is called before the durable marker
    * is written, so a process failure between those steps merely retries the
    * provider's own idempotent CloseCycle operation.
