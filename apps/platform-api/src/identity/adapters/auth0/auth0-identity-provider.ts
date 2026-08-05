@@ -1,6 +1,8 @@
 import type {
   AuthenticatedIdentity,
   CallbackRequest,
+  DeviceAuthorization,
+  DeviceTokenResult,
   IdentityProvider,
   LoginRedirectRequest,
   MfaChallenge,
@@ -97,6 +99,68 @@ export class Auth0IdentityProvider implements IdentityProvider {
     });
 
     return authenticatedIdentityFromProfile(profile);
+  }
+
+  async startDeviceAuthorization(): Promise<DeviceAuthorization> {
+    const response = await this.fetchImpl(`${this.issuer}/oauth/device/code`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: this.options.clientId,
+        scope: "openid profile email offline_access",
+      }).toString(),
+    });
+    if (!response.ok) {
+      throw new Error(`Auth0 request failed with status ${response.status}`);
+    }
+    const body = (await response.json()) as Auth0DeviceAuthorizationResponse;
+    if (
+      !body.device_code ||
+      !body.user_code ||
+      !body.verification_uri ||
+      !Number.isFinite(body.expires_in) ||
+      !Number.isFinite(body.interval)
+    ) {
+      throw new Error("Auth0 device authorization response was invalid");
+    }
+    return {
+      deviceCode: body.device_code,
+      userCode: body.user_code,
+      verificationUri: body.verification_uri,
+      ...(body.verification_uri_complete
+        ? { verificationUriComplete: body.verification_uri_complete }
+        : {}),
+      expiresIn: body.expires_in!,
+      interval: body.interval!,
+    };
+  }
+
+  async pollDeviceToken(deviceCode: string): Promise<DeviceTokenResult> {
+    const response = await this.fetchImpl(`${this.issuer}/oauth/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        device_code: deviceCode,
+        client_id: this.options.clientId,
+      }).toString(),
+    });
+    const body = (await response.json()) as Auth0DeviceTokenResponse;
+    if (!response.ok) {
+      if (isDeviceTokenError(body.error)) {
+        return { error: body.error };
+      }
+      throw new Error(`Auth0 request failed with status ${response.status}`);
+    }
+    if (!body.access_token || !Number.isFinite(body.expires_in)) {
+      throw new Error("Auth0 device token response was invalid");
+    }
+    return {
+      accessToken: body.access_token,
+      ...(body.refresh_token ? { refreshToken: body.refresh_token } : {}),
+      expiresIn: body.expires_in!,
+      tokenType: "Bearer",
+    };
   }
 
   async refreshSession(refreshToken: string): Promise<AuthenticatedIdentity> {
@@ -257,6 +321,33 @@ interface Auth0TokenResponse {
   access_token: string;
   id_token?: string;
   refresh_token?: string;
+}
+
+interface Auth0DeviceAuthorizationResponse {
+  device_code?: string;
+  user_code?: string;
+  verification_uri?: string;
+  verification_uri_complete?: string;
+  expires_in?: number;
+  interval?: number;
+}
+
+interface Auth0DeviceTokenResponse {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  error?: string;
+}
+
+function isDeviceTokenError(
+  error: string | undefined,
+): error is Extract<DeviceTokenResult, { error: string }>["error"] {
+  return (
+    error === "authorization_pending" ||
+    error === "slow_down" ||
+    error === "expired_token" ||
+    error === "access_denied"
+  );
 }
 
 interface Auth0ManagementTokenResponse {

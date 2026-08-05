@@ -255,6 +255,7 @@ describe("platform_db migration", () => {
       "billing_profiles",
       "credential_refs",
       "credential_use_audits",
+      "discovery_recommendations",
       "entitlements",
       "env_var_use_audits",
       "env_vars",
@@ -447,7 +448,7 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
-    expect(rows[0]?.count).toBe("29");
+    expect(rows[0]?.count).toBe("30");
   });
 
   it("prevents tenant_id mutation on tenant-owned rows", async () => {

@@ -221,6 +221,26 @@ describe("Auth0 management authentication", () => {
   });
 });
 
+describe("MockIdentityProvider device flow", () => {
+  it("returns pending, issued, and expired device states", async () => {
+    const provider = new MockIdentityProvider();
+    const authorization = await provider.startDeviceAuthorization();
+
+    await expect(provider.pollDeviceToken(authorization.deviceCode)).resolves.toEqual({
+      error: "authorization_pending",
+    });
+    await expect(provider.pollDeviceToken(authorization.deviceCode)).resolves.toMatchObject({
+      accessToken: `mock-access-${authorization.deviceCode}`,
+      refreshToken: `mock-refresh-${authorization.deviceCode}`,
+      expiresIn: 3600,
+      tokenType: "Bearer",
+    });
+    await expect(provider.pollDeviceToken("missing-device-code")).resolves.toEqual({
+      error: "expired_token",
+    });
+  });
+});
+
 function json(body: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,

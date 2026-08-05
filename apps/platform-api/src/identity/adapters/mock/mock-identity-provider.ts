@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type {
   AuthenticatedIdentity,
   CallbackRequest,
+  DeviceAuthorization,
+  DeviceTokenResult,
   IdentityProvider,
   LoginRedirectRequest,
   MfaChallenge,
@@ -19,6 +21,7 @@ import {
 export class MockIdentityProvider implements IdentityProvider {
   private readonly orgs = new Map<string, string>();
   private readonly identities = new Map<string, AuthenticatedIdentity>();
+  private readonly devicePolls = new Map<string, number>();
 
   constructor(
     private readonly sessionStore: SessionStore = new InMemorySessionStore(),
@@ -70,6 +73,34 @@ export class MockIdentityProvider implements IdentityProvider {
 
     this.identities.set(userId, identity);
     return identity;
+  }
+
+  async startDeviceAuthorization(): Promise<DeviceAuthorization> {
+    const deviceCode = `device_${randomUUID()}`;
+    this.devicePolls.set(deviceCode, 0);
+    return {
+      deviceCode,
+      userCode: "MOCK-CODE",
+      verificationUri: "https://mock.identity.local/activate",
+      verificationUriComplete: "https://mock.identity.local/activate?user_code=MOCK-CODE",
+      expiresIn: 600,
+      interval: 5,
+    };
+  }
+
+  async pollDeviceToken(deviceCode: string): Promise<DeviceTokenResult> {
+    const polls = this.devicePolls.get(deviceCode);
+    if (polls === undefined) return { error: "expired_token" };
+    if (polls === 0) {
+      this.devicePolls.set(deviceCode, 1);
+      return { error: "authorization_pending" };
+    }
+    return {
+      accessToken: `mock-access-${deviceCode}`,
+      refreshToken: `mock-refresh-${deviceCode}`,
+      expiresIn: 3600,
+      tokenType: "Bearer",
+    };
   }
 
   async refreshSession(_refreshToken: string): Promise<AuthenticatedIdentity> {

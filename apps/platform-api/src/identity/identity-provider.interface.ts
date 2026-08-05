@@ -27,6 +27,26 @@ export interface CallbackRequest {
   codeVerifier: string;
 }
 
+export interface DeviceAuthorization {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete?: string;
+  expiresIn: number;
+  interval: number;
+}
+
+export type DeviceTokenResult =
+  | {
+      accessToken: string;
+      refreshToken?: string;
+      expiresIn: number;
+      tokenType: "Bearer";
+    }
+  | {
+      error: "authorization_pending" | "slow_down" | "expired_token" | "access_denied";
+    };
+
 export interface AuthenticatedIdentity {
   userId: string;
   tenantId: string;
@@ -52,6 +72,8 @@ export interface IdentityProvider {
   getOrCreateOrgForTenant(tenantId: string, name: string): Promise<string>;
   loginRedirectUrl(request: LoginRedirectRequest): Promise<string>;
   handleCallback(request: CallbackRequest): Promise<AuthenticatedIdentity>;
+  startDeviceAuthorization(): Promise<DeviceAuthorization>;
+  pollDeviceToken(deviceCode: string): Promise<DeviceTokenResult>;
   refreshSession(refreshToken: string): Promise<AuthenticatedIdentity>;
   listActiveSessions(tenantId: string, userId: string): Promise<SessionRecord[]>;
   revokeSession(tenantId: string, userId: string, sessionId: string): Promise<void>;

@@ -34,6 +34,7 @@ import { NotificationModule } from "./notifications";
 import { DiscoveryModule } from "./discovery/discovery.module";
 import { SearchModule } from "./search";
 import { StaffModule } from "./staff";
+import { CliModule } from "./cli";
 
 @Module({
   imports: [
@@ -71,6 +72,7 @@ import { StaffModule } from "./staff";
     DiscoveryModule,
     SearchModule,
     StaffModule,
+    CliModule,
   ],
   controllers: [HealthController],
 })

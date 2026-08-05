@@ -98,5 +98,13 @@ function providerStub(): IdentityProvider {
       status: "verified" as const,
     })),
     configureSso: vi.fn(async (_tenantId, config) => config),
+    startDeviceAuthorization: vi.fn(async () => ({
+      deviceCode: "device",
+      userCode: "USER",
+      verificationUri: "https://identity.test/activate",
+      expiresIn: 600,
+      interval: 5,
+    })),
+    pollDeviceToken: vi.fn(async () => ({ error: "authorization_pending" as const })),
   };
 }
