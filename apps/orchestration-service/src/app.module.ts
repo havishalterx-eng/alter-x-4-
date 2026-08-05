@@ -22,6 +22,7 @@ import {
   PolicyStoreClient,
   ProvisioningClient,
   SandboxServiceClient,
+  AwsSecretsManagerProvider,
   AwsSsmParameterProvider,
   S3ObjectStorageProvider,
   NodeexecGrpcController,
@@ -82,6 +83,14 @@ import { RecoveryTriggerService } from "./recovery/recovery-trigger.service";
 import { loadRecoveryEnvironment } from "./config/recovery-environment";
 import { TriggerRegistryController } from "./trigger-registry/trigger-registry.controller";
 import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
+import {
+  IntegrationWebhookController,
+  PostgresTriggerBindingStore,
+  TriggerBindingController,
+  TriggerBindingService,
+  WebhookEndpointController,
+  loadTriggerBindingEnvironment,
+} from "./trigger-bindings";
 import { WorkflowReadController } from "./workflow-read/workflow-read.controller";
 import { WorkflowReadService } from "./workflow-read/workflow-read.service";
 import { TemplateVariablesController } from "./template-variables/template-variables.controller";
@@ -136,6 +145,9 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
     RunLearningController,
     ApprovalsController,
     TriggerRegistryController,
+    TriggerBindingController,
+    WebhookEndpointController,
+    IntegrationWebhookController,
     WorkflowReadController,
     TemplateVariablesController,
     ClarificationsController,
@@ -300,6 +312,38 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
         return new TriggerRegistryService(store);
+      },
+    },
+    {
+      // ENG-BINDING. Same reasoning as TriggerRegistryService above:
+      // constructs its own PostgresOrchestrationStoreProvider rather than
+      // reaching into the guard's private instance.
+      //
+      // Signing secrets are held by AWS Secrets Manager, the only
+      // MutableSecretsProvider wired in this repo. Nothing about the feature
+      // depends on that choice -- TriggerBindingService takes the interface,
+      // so swapping in another provider is a one-line change here.
+      provide: TriggerBindingService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        const bindingConfig = loadTriggerBindingEnvironment(process.env);
+        return new TriggerBindingService(
+          new PostgresTriggerBindingStore(store),
+          new AwsSecretsManagerProvider({ region: dbConfig.awsRegion }),
+          {
+            webhookBaseUrl: bindingConfig.webhookBaseUrl,
+            maxSkewSeconds: bindingConfig.maxSkewSeconds,
+          },
+        );
       },
     },
     {

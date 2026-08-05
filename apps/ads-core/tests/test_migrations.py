@@ -52,6 +52,7 @@ class TestMigrationFileStructure:
         assert py_files == [
             "0001_create_ads_core_tables.py",
             "0002_retrieval_safety_audit.py",
+            "0003_source_permissions.py",
         ]
 
     def test_all_tables_defined(self) -> None:

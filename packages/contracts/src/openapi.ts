@@ -6,6 +6,17 @@ import {
 import { CanonicalEventSchema } from "./canonical-event";
 import { ActorTokenClaimsSchema } from "./actor-token";
 import {
+  AdsRetrievalRequestSchema,
+  AdsRetrievalResponseSchema,
+} from "./ads-retrieval";
+import {
+  AdsIngestionJobSchema,
+  AdsUploadCompleteRequestSchema,
+  AdsUploadStartRequestSchema,
+  AdsUploadStartResponseSchema,
+} from "./ads-ingestion";
+import { AdsSourcePermissionsSchema } from "./ads-permissions";
+import {
   ClarificationIdSchema,
   ProjectIdSchema,
   RequestIdSchema,
@@ -29,6 +40,13 @@ import {
   TriggerVersionSchema,
 } from "./triggers";
 import {
+  CreateTriggerBindingRequestSchema,
+  RotateWebhookSecretResultSchema,
+  TriggerBindingListSchema,
+  TriggerBindingSchema,
+  WebhookEndpointSchema,
+} from "./trigger-bindings";
+import {
   NodeRequirementsSchema,
   NodeTypeSchema,
   PolicyBindingsSchema,
@@ -47,7 +65,7 @@ import {
 } from "./voice";
 import { z } from "./zod";
 
-type HttpMethod = "get" | "post" | "patch" | "delete";
+type HttpMethod = "get" | "post" | "put" | "patch" | "delete";
 
 export interface V1RouteSpec {
   readonly method: HttpMethod;
@@ -59,6 +77,7 @@ export interface V1RouteSpec {
   readonly runsFilter?: boolean;
   readonly sse?: boolean;
   readonly successStatus?: 200 | 201 | 202;
+  readonly idempotent?: boolean;
   // Typed response override, replacing the generic opaque Resource (or,
   // for a collection route, the generic cursor-paginated envelope) with a
   // real, registered schema. Registered once in createOpenApiDocument()
@@ -203,6 +222,55 @@ export const V1_ROUTE_SPECS: readonly V1RouteSpec[] = [
     tag: "Triggers",
     responseSchema: TriggerSchema,
   },
+  // ENG-BINDING. Trigger-to-integration binding + the per-integration webhook
+  // endpoint a binding provisions. Rotation semantics (hard cutover, zero
+  // overlap) are declared in trigger-bindings.ts and carried on the wire in
+  // every WebhookEndpoint/RotateWebhookSecretResult body, so a platform test
+  // can assert them rather than assume them.
+  //
+  // The public inbound receiver (POST /webhooks/integrations/{token}) is
+  // deliberately NOT in this document: every route here is registered with
+  // M2MAuth + ActorToken security, and the receiver is authenticated by HMAC
+  // signature over the raw body instead of by a platform token. Its wire
+  // contract lives in trigger-bindings.ts's header/algorithm constants.
+  {
+    method: "post",
+    path: "/triggers/{id}/bindings",
+    summary: "Bind trigger to integration connection",
+    tag: "Triggers",
+    successStatus: 201,
+    requestBodySchema: CreateTriggerBindingRequestSchema,
+    responseSchema: TriggerBindingSchema,
+  },
+  {
+    method: "get",
+    path: "/triggers/{id}/bindings",
+    summary: "List trigger integration bindings",
+    tag: "Triggers",
+    responseSchema: TriggerBindingListSchema,
+  },
+  {
+    method: "delete",
+    path: "/triggers/{id}/bindings/{bid}",
+    summary: "Disable trigger integration binding",
+    tag: "Triggers",
+    responseSchema: TriggerBindingSchema,
+  },
+  {
+    method: "get",
+    path: "/integrations/{id}/webhook-endpoint",
+    summary: "Get integration webhook endpoint",
+    tag: "Triggers",
+    responseSchema: WebhookEndpointSchema,
+  },
+  {
+    method: "post",
+    path: "/webhook-endpoints/{id}/actions/rotate-secret",
+    summary: "Rotate webhook signing secret",
+    tag: "Triggers",
+    responseSchema: RotateWebhookSecretResultSchema,
+  },
+
   { method: "get", path: "/events", summary: "List canonical events", tag: "Events", collection: true },
   { method: "get", path: "/events/{id}", summary: "Get canonical event", tag: "Events" },
   { method: "get", path: "/conversations", summary: "List conversations", tag: "Conversations", collection: true },
@@ -288,10 +356,57 @@ export const V1_ROUTE_SPECS: readonly V1RouteSpec[] = [
   { method: "get", path: "/artifacts/{id}", summary: "Get artifact metadata", tag: "Resources" },
   { method: "get", path: "/deployments/{id}", summary: "Get deployment", tag: "Resources" },
 
-  { method: "post", path: "/ads/ingestion/uploads", summary: "Start ingestion upload", tag: "ADS", successStatus: 202 },
-  { method: "get", path: "/ads/ingestion/jobs/{id}", summary: "Get ingestion job", tag: "ADS" },
+  {
+    method: "post",
+    path: "/ads/ingestion/uploads",
+    summary: "Start ingestion upload",
+    tag: "ADS",
+    successStatus: 202,
+    requestBodySchema: AdsUploadStartRequestSchema,
+    responseSchema: AdsUploadStartResponseSchema,
+  },
+  {
+    method: "post",
+    path: "/ads/ingestion/uploads/complete",
+    summary: "Complete ADS ingestion upload",
+    tag: "ADS",
+    successStatus: 202,
+    requestBodySchema: AdsUploadCompleteRequestSchema,
+    responseSchema: AdsIngestionJobSchema,
+  },
+  {
+    method: "get",
+    path: "/ads/ingestion/jobs/{id}",
+    summary: "Get ingestion job",
+    tag: "ADS",
+    responseSchema: AdsIngestionJobSchema,
+  },
   { method: "post", path: "/ads/sources", summary: "Create ADS source", tag: "ADS", successStatus: 201 },
   { method: "post", path: "/ads/sources/{id}/actions/sync", summary: "Sync ADS source", tag: "ADS", successStatus: 202 },
+  {
+    method: "get",
+    path: "/ads/sources/{id}/permissions",
+    summary: "Get ADS source permissions",
+    tag: "ADS",
+    responseSchema: AdsSourcePermissionsSchema.nullable(),
+  },
+  {
+    method: "put",
+    path: "/ads/sources/{id}/permissions",
+    summary: "Replace ADS source permissions",
+    tag: "ADS",
+    requestBodySchema: AdsSourcePermissionsSchema,
+    responseSchema: AdsSourcePermissionsSchema,
+  },
+  {
+    method: "post",
+    path: "/ads/query",
+    summary: "Query ADS retrieval",
+    tag: "ADS",
+    idempotent: false,
+    requestBodySchema: AdsRetrievalRequestSchema,
+    responseSchema: AdsRetrievalResponseSchema,
+  },
   { method: "get", path: "/ads/documents", summary: "List ADS documents", tag: "ADS", collection: true },
   { method: "get", path: "/ads/documents/{id}", summary: "Get ADS document", tag: "ADS" },
   { method: "post", path: "/ads/documents/{id}/actions/reindex", summary: "Reindex ADS document", tag: "ADS" },
@@ -425,6 +540,19 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
       TriggerListResultSchema,
       registry.register("TriggerListResult", TriggerListResultSchema),
     ],
+    [TriggerBindingSchema, registry.register("TriggerBinding", TriggerBindingSchema)],
+    [
+      TriggerBindingListSchema,
+      registry.register("TriggerBindingList", TriggerBindingListSchema),
+    ],
+    [WebhookEndpointSchema, registry.register("WebhookEndpoint", WebhookEndpointSchema)],
+    [
+      RotateWebhookSecretResultSchema,
+      registry.register(
+        "RotateWebhookSecretResult",
+        RotateWebhookSecretResultSchema,
+      ),
+    ],
     [
       PromoteVersionResultSchema,
       registry.register("PromoteVersionResult", PromoteVersionResultSchema),
@@ -455,6 +583,29 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
       VoiceCapabilitiesSchema,
       registry.register("VoiceCapabilities", VoiceCapabilitiesSchema),
     ],
+    [
+      AdsRetrievalResponseSchema,
+      registry.register("AdsRetrievalResponse", AdsRetrievalResponseSchema),
+    ],
+    [
+      AdsUploadStartResponseSchema,
+      registry.register("AdsUploadStartResponse", AdsUploadStartResponseSchema),
+    ],
+    [
+      AdsIngestionJobSchema,
+      registry.register("AdsIngestionJob", AdsIngestionJobSchema),
+    ],
+    [
+      AdsSourcePermissionsSchema.nullable(),
+      registry.register(
+        "AdsSourcePermissionsNullable",
+        AdsSourcePermissionsSchema.nullable(),
+      ),
+    ],
+    [
+      AdsSourcePermissionsSchema,
+      registry.register("AdsSourcePermissions", AdsSourcePermissionsSchema),
+    ],
   ]);
   const requestBodySchemaByRaw = new Map<z.ZodTypeAny, z.ZodTypeAny>([
     [
@@ -474,6 +625,29 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
     [
       InitiateVoiceCallRequestSchema,
       registry.register("InitiateVoiceCallRequest", InitiateVoiceCallRequestSchema),
+    ],
+    [
+      AdsRetrievalRequestSchema,
+      registry.register("AdsRetrievalRequest", AdsRetrievalRequestSchema),
+    ],
+    [
+      AdsUploadStartRequestSchema,
+      registry.register("AdsUploadStartRequest", AdsUploadStartRequestSchema),
+    ],
+    [
+      AdsUploadCompleteRequestSchema,
+      registry.register("AdsUploadCompleteRequest", AdsUploadCompleteRequestSchema),
+    ],
+    [
+      CreateTriggerBindingRequestSchema,
+      registry.register(
+        "CreateTriggerBindingRequest",
+        CreateTriggerBindingRequestSchema,
+      ),
+    ],
+    [
+      AdsSourcePermissionsSchema,
+      registry.register("AdsSourcePermissions", AdsSourcePermissionsSchema),
     ],
   ]);
 
@@ -520,7 +694,7 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
         ? StreamHeadersSchema
         : route.method === "patch"
           ? PatchHeadersSchema
-          : mutation
+          : mutation && route.idempotent !== false
             ? MutationHeadersSchema
             : TraceHeadersSchema,
     };

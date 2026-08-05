@@ -37,6 +37,10 @@ WITH candidates AS (
       cardinality(CAST(:scope_ids AS text[])) = 0
       OR c.scope_id = ANY(CAST(:scope_ids AS text[]))
     )
+    AND (
+      cardinality(CAST(:source_ids AS text[])) = 0
+      OR d.source_id = ANY(CAST(:source_ids AS text[]))
+    )
     AND COALESCE(c.metadata, '{}'::jsonb) @> CAST(:metadata_filter AS jsonb)
 )
 SELECT *, (0.7 * semantic_score + 0.3 * LEAST(keyword_score, 1)) AS hybrid_score
@@ -49,6 +53,13 @@ _VALID_SCOPES = text(
     """SELECT id FROM scopes WHERE tenant_id = CAST(:tenant_id AS uuid)
        AND workspace_id = CAST(:workspace_id AS uuid)
        AND id = ANY(CAST(:scope_ids AS text[]))"""
+)
+_VALID_SOURCES = text(
+    """SELECT src.id FROM sources src
+       JOIN scopes s ON s.id = src.scope_id AND s.tenant_id = src.tenant_id
+       WHERE src.tenant_id = CAST(:tenant_id AS uuid)
+         AND s.workspace_id = CAST(:workspace_id AS uuid)
+         AND src.id = ANY(CAST(:source_ids AS text[]))"""
 )
 _AUDIT = text(
     """
@@ -90,6 +101,8 @@ class SqlAlchemyRetrievalRepository:
             raise ScopeViolationError("ADS Q requires at least one explicit scope")
         for scope_id in request.scope_ids:
             validate_prefixed_id(scope_id.split("_", 1)[0], scope_id)
+        for source_id in request.source_ids:
+            validate_prefixed_id("src", source_id)
         for prefix, value in (("prj", request.project_id), ("wf", request.workflow_id)):
             if value is not None:
                 validate_prefixed_id(prefix, value)
@@ -112,6 +125,21 @@ class SqlAlchemyRetrievalRepository:
             )
         if visible != set(request.scope_ids):
             raise ScopeViolationError("Requested scope is unavailable")
+        if request.source_ids:
+            with self._sessions.begin() as session:
+                session.execute(_SET_TENANT, {"tenant_id": tenant_uuid})
+                visible_sources = set(
+                    session.scalars(
+                        _VALID_SOURCES,
+                        {
+                            "tenant_id": tenant_uuid,
+                            "workspace_id": workspace_uuid,
+                            "source_ids": list(request.source_ids),
+                        },
+                    )
+                )
+            if visible_sources != set(request.source_ids):
+                raise ScopeViolationError("Requested source is unavailable")
 
     def retrieve(self, request: RetrievalRequest, embedding: tuple[float, ...]) -> QueryResult:
         if len(embedding) != 1024:
@@ -129,6 +157,7 @@ class SqlAlchemyRetrievalRepository:
                     "embedding": _vector_literal(embedding),
                     "query": request.query,
                     "scope_ids": list(request.scope_ids),
+                    "source_ids": list(request.source_ids),
                     "metadata_filter": json.dumps(request.metadata_filter, separators=(",", ":")),
                     "limit": request.top_k,
                 },
@@ -244,6 +273,7 @@ def _scope_inputs(request: RetrievalRequest) -> dict[str, object]:
     return {
         "workspace_id": request.workspace_id,
         "scope_ids": request.scope_ids,
+        "source_ids": request.source_ids,
         "project_id": request.project_id,
         "workflow_id": request.workflow_id,
     }

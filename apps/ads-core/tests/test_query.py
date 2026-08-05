@@ -72,7 +72,7 @@ def retrieval_service() -> Generator[tuple[RetrievalService, sa.Engine], None, N
         admin.dispose()
 
 
-def _seed(admin: sa.Engine) -> tuple[str, str, str, str, str]:
+def _seed(admin: sa.Engine) -> tuple[str, str, str, str, str, str]:
     tenant = str(uuid.uuid4())
     workspace = str(uuid.uuid4())
     other_workspace = str(uuid.uuid4())
@@ -134,7 +134,7 @@ def _seed(admin: sa.Engine) -> tuple[str, str, str, str, str]:
                     "embedding": "[1," + ",".join(["0"] * 1023) + "]",
                 },
             )
-    return f"ten_{tenant}", f"ws_{workspace}", scope, document, f"ws_{other_workspace}"
+    return f"ten_{tenant}", f"ws_{workspace}", scope, document, source, f"ws_{other_workspace}"
 
 
 def _seed_empty_tenant(admin: sa.Engine) -> tuple[str, str, str]:
@@ -159,7 +159,7 @@ def test_hybrid_query_filters_metadata_scopes_and_audits(
     retrieval_service: tuple[RetrievalService, sa.Engine],
 ) -> None:
     service, admin = retrieval_service
-    tenant, workspace, scope, document, other_workspace = _seed(admin)
+    tenant, workspace, scope, document, source, other_workspace = _seed(admin)
     response = service.retrieve(
         RetrievalRequest(
             tenant_id=tenant,
@@ -167,6 +167,8 @@ def test_hybrid_query_filters_metadata_scopes_and_audits(
             requester="svc_engine",
             query="refund policy",
             scope_ids=(scope,),
+            source_ids=(source,),
+            rerank=True,
             metadata_filter={"department": "support"},
         )
     )
@@ -195,6 +197,7 @@ def test_hybrid_query_filters_metadata_scopes_and_audits(
             .one()
         )
     assert audit["scope_inputs"]["scope_ids"] == [scope]
+    assert audit["scope_inputs"]["source_ids"] == [source]
     assert audit["filters"] == {"department": "support"}
     assert audit["candidate_ids"]["chunk_ids"] == [response.hits[0].chunk_id]
     assert audit["result_doc_ids"]["document_ids"] == [document]
@@ -224,7 +227,7 @@ def test_query_route_returns_real_seeded_provenance_and_confidence(
     retrieval_service: tuple[RetrievalService, sa.Engine],
 ) -> None:
     service, admin = retrieval_service
-    tenant, workspace, scope, document, _ = _seed(admin)
+    tenant, workspace, scope, document, source, _ = _seed(admin)
     application = FastAPI()
     application.include_router(query_router)
     application.dependency_overrides[get_retrieval_service] = lambda: service
@@ -242,7 +245,9 @@ def test_query_route_returns_real_seeded_provenance_and_confidence(
             "workspace_id": workspace,
             "requester": "usr_retrieval_test",
             "query": "refund policy",
+            "rerank": True,
             "scope_ids": [scope],
+            "source_ids": [source],
             "metadata_filter": {"department": "support"},
         },
     )
@@ -259,7 +264,7 @@ def test_retrieval_backpressure_is_audited(
     retrieval_service: tuple[RetrievalService, sa.Engine],
 ) -> None:
     service, admin = retrieval_service
-    tenant, workspace, scope, _, _ = _seed(admin)
+    tenant, workspace, scope, _, _, _ = _seed(admin)
     service._slots.acquire()  # Exercise a full gate without timing-sensitive worker threads.
     try:
         with pytest.raises(RetrievalBackpressureError):
@@ -287,7 +292,7 @@ def test_redteam_cross_tenant_scope_is_rejected_without_leaking_hits(
     retrieval_service: tuple[RetrievalService, sa.Engine],
 ) -> None:
     service, admin = retrieval_service
-    _, _, foreign_scope, foreign_document, _ = _seed(admin)
+    _, _, foreign_scope, foreign_document, _, _ = _seed(admin)
     tenant, workspace, own_scope = _seed_empty_tenant(admin)
 
     with pytest.raises(ScopeViolationError):

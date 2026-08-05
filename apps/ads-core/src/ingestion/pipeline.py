@@ -51,7 +51,12 @@ class IngestionPipeline:
         self._max_content_bytes = max_content_bytes
         self._embedding_pipeline_version = embedding_pipeline_version
 
-    def ingest(self, payload: IngestionPayload) -> IngestionJobResponse:
+    def ingest(
+        self,
+        payload: IngestionPayload,
+        *,
+        ingestion_job_id: str | None = None,
+    ) -> IngestionJobResponse:
         validate_prefixed_id("ten", payload.tenant_id)
         validate_prefixed_id("src", payload.source_id)
         tenant_uuid = payload.tenant_id.removeprefix("ten_")
@@ -59,7 +64,7 @@ class IngestionPipeline:
         content_hash = hashlib.sha256(payload.content).hexdigest()
 
         job = self._repository.receive(
-            ingestion_job_id=new_prefixed_id("ing"),
+            ingestion_job_id=ingestion_job_id or new_prefixed_id("ing"),
             tenant_uuid=tenant_uuid,
             source_id=payload.source_id,
             content_hash=content_hash,

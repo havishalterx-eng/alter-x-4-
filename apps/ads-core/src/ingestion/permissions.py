@@ -30,6 +30,25 @@ class DocumentPermissionsPatch(_StrictFrozenModel):
         return self
 
 
+RetentionDays = Annotated[int, Field(ge=1, le=3650)]
+
+
+class SourcePermissions(_StrictFrozenModel):
+    """Source-level permissions -- same shape as `DocumentPermissions`, plus the
+    source's retention policy.
+
+    `retention_days` is not a stored-only preference: the ADS deletion
+    provider's retention sweep deletes documents (and their versions and
+    chunks) belonging to this source once they are older than this many days.
+    `None` means "no source-level expiry" -- documents from that source are
+    kept until an explicit delete or a tenant-wide erasure.
+    """
+
+    visibility: Literal["tenant"]
+    shared_with: tuple[PermissionSubject, ...]
+    retention_days: RetentionDays | None = None
+
+
 def default_permissions() -> dict[str, object]:
     """Starting-point permissions for a newly-ingested document.
 

@@ -34,6 +34,7 @@ class Source(Base):
     provider: Mapped[str | None] = mapped_column(Text)
     integration_ref: Mapped[str | None] = mapped_column(UUID(as_uuid=False))
     sync_config: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    permissions: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     status: Mapped[str | None] = mapped_column(Text)
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(

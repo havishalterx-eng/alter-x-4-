@@ -41,7 +41,7 @@ class RetrievalService:
                     tenant_id=request.tenant_id, text=request.query, dimensions=1024
                 ).vector,
             ).hits
-            hits = rerank_and_reconstruct(candidates)
+            hits = rerank_and_reconstruct(candidates) if request.rerank else candidates
             audited_at = self._repository.audit(
                 request, candidates=candidates, results=hits, outcome="succeeded"
             )

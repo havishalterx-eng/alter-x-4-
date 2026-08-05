@@ -1,4 +1,13 @@
 import type { JsonValue } from "@alterx/shared-clients";
+import type {
+  AdsIngestionJob,
+  AdsRetrievalRequest,
+  AdsRetrievalResponse,
+  AdsSourcePermissions,
+  AdsUploadCompleteRequest,
+  AdsUploadStartRequest,
+  AdsUploadStartResponse,
+} from "@alterx/contracts";
 
 export type AdsResource = Readonly<Record<string, JsonValue>>;
 export type AdsInput = Record<string, JsonValue>;
@@ -26,16 +35,49 @@ export interface DocumentPermissionsPatch {
   shared_with?: string[] | undefined;
 }
 
-export interface AdsRetrievalQuery {
-  query: string;
-  top_k?: number | undefined;
-  scope_ids?: string[] | undefined;
-  project_id?: string | null | undefined;
-  workflow_id?: string | null | undefined;
-  metadata_filter?: Record<string, JsonValue> | undefined;
+export type AdsRetrievalQuery = AdsRetrievalRequest;
+export type {
+  AdsIngestionJob,
+  AdsRetrievalResponse,
+  AdsSourcePermissions,
+  AdsUploadCompleteRequest,
+  AdsUploadStartRequest,
+  AdsUploadStartResponse,
+};
+
+export interface AdsCorePresignUploadResponse {
+  ingestion_job_id: string;
+  upload_url: string;
+  upload_fields: Record<string, string>;
+  upload_key: string;
+  max_content_bytes: number;
+  expires_at: string;
 }
 
-export interface AdsRetrievalHit {
+export interface AdsCoreIngestionError {
+  code: string;
+  detail: string;
+}
+
+export interface AdsCoreIngestionJob {
+  ingestion_job_id: string;
+  source_id: string;
+  stage:
+    | "received"
+    | "validated"
+    | "scanned"
+    | "normalized"
+    | "deduplicated"
+    | "chunked"
+    | "indexed"
+    | "failed";
+  stats: Record<string, JsonValue>;
+  error: AdsCoreIngestionError | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface AdsCoreRetrievalHit {
   document_id: string;
   chunk_id: string;
   source_id: string;
@@ -51,22 +93,9 @@ export interface AdsRetrievalHit {
   keyword_score: number;
 }
 
-export interface AdsRetrievalResponse {
-  hits: AdsRetrievalHit[];
+export interface AdsCoreRetrievalResponse {
+  hits: AdsCoreRetrievalHit[];
   audited_at: string | null;
 }
 
-export const adsDeferredCapabilities = [
-  {
-    capability: "upload_signed_url_job_shape",
-    status: "NOT_MET",
-    reason:
-      "Upload returns opaque Resource; only the ingestion-job Location header is declared, so signed-URL and job-id body fields cannot be asserted by the BFF.",
-  },
-  {
-    capability: "source_permissions",
-    status: "NOT_MET",
-    reason:
-      "Engine contract has no source-permission endpoint or declared permission fields.",
-  },
-] as const;
+export const adsDeferredCapabilities = [] as const;

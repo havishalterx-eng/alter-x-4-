@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Generator
 from pathlib import Path
 
@@ -18,6 +19,7 @@ TENANT_A = "018f4d6e-2b4a-7a3e-8c1a-1234567890a1"
 TENANT_B = "018f4d6e-2b4a-7a3e-8c1a-1234567890b1"
 TENANT_PARTIAL = "018f4d6e-2b4a-7a3e-8c1a-1234567890c1"
 TENANT_RETENTION = "018f4d6e-2b4a-7a3e-8c1a-1234567890d1"
+TENANT_SOURCE_RETENTION = "018f4d6e-2b4a-7a3e-8c1a-1234567890e1"
 MANIFEST = "del_018f4d6e-2b4a-7a3e-8c1a-123456789099"
 
 
@@ -237,6 +239,71 @@ def test_retention_sweeps_only_expired_rows(
     assert counts["retrieval_audit"] == 0
     assert counts["ingestion_jobs"] == 0
     assert counts["documents"] == 1
+
+
+def test_source_retention_config_changes_actual_deletion_behaviour(
+    deletion_database: tuple[sessionmaker[Session], sessionmaker[Session]],
+) -> None:
+    """Retention config is enforced, not merely stored: the same aged document
+    survives under a long window and is purged (rows + object) once the source's
+    `retention_days` is shortened past its age.
+    """
+
+    tenant_sessions, system_sessions = deletion_database
+    objects = MemoryObjects()
+    reference = _seed_all(tenant_sessions, TENANT_SOURCE_RETENTION, "srcret")
+    objects.references.add(reference)
+    with tenant_sessions.begin() as session:
+        session.execute(
+            sa.text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
+            {"tenant": TENANT_SOURCE_RETENTION},
+        )
+        session.execute(
+            sa.text(
+                "UPDATE documents SET updated_at=now()-interval '100 days' "
+                "WHERE id='doc_srcret'"
+            )
+        )
+    provider = AdsDeletionProvider(tenant_sessions, objects, system_sessions)
+
+    def set_retention_days(value: int) -> None:
+        with tenant_sessions.begin() as session:
+            session.execute(
+                sa.text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
+                {"tenant": TENANT_SOURCE_RETENTION},
+            )
+            session.execute(
+                sa.text(
+                    "UPDATE sources SET permissions=CAST(:permissions AS jsonb) "
+                    "WHERE id='src_srcret'"
+                ),
+                {
+                    "permissions": json.dumps(
+                        {"visibility": "tenant", "shared_with": [], "retention_days": value}
+                    )
+                },
+            )
+
+    def counts() -> dict[str, int]:
+        locations = provider.locate_subject_data(f"ten_{TENANT_SOURCE_RETENTION}")
+        return {item.table: item.rowCount for item in locations}
+
+    set_retention_days(365)
+    long_window = provider.apply_retention_policy()
+    assert long_window.deletedObjects == 0
+    assert counts()["documents"] == 1
+    assert objects.object_exists(reference) is True
+
+    set_retention_days(90)
+    short_window = provider.apply_retention_policy()
+    assert short_window.deletedRows == 3  # chunk + document_version + document
+    assert short_window.deletedObjects == 1
+    after = counts()
+    assert after["documents"] == 0
+    assert after["document_versions"] == 0
+    assert after["chunks"] == 0
+    assert after["sources"] == 1  # the source itself is never swept
+    assert objects.object_exists(reference) is False
 
 
 def test_internal_subject_enumeration_uses_only_system_connection(

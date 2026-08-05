@@ -34,14 +34,118 @@ describe("OpenAPI generation", () => {
     const operationCount = Object.values(paths).reduce(
       (count, pathItem) =>
         count +
-        ["get", "post", "patch", "delete"].filter(
+        ["get", "post", "put", "patch", "delete"].filter(
           (method) =>
             pathItem?.[method as keyof typeof pathItem] !== undefined,
         ).length,
       0,
     );
     expect(operationCount).toBe(V1_ROUTE_SPECS.length);
-    expect(operationCount).toBe(97);
+    expect(operationCount).toBe(106);
+  });
+
+  it("documents ADS source permission routes", () => {
+    const document = createOpenApiDocument();
+    const get =
+      document.paths?.["/api/v1/ads/sources/{id}/permissions"]?.get;
+    const put =
+      document.paths?.["/api/v1/ads/sources/{id}/permissions"]?.put;
+
+    expect(
+      get?.responses?.[200]?.content?.["application/json"]?.schema,
+    ).toEqual(
+      expect.objectContaining({
+        allOf: expect.arrayContaining([
+          { $ref: "#/components/schemas/AdsSourcePermissions" },
+        ]),
+      }),
+    );
+    expect(put?.requestBody).toMatchObject({
+      content: {
+        "application/json": {
+          schema: { $ref: "#/components/schemas/AdsSourcePermissions" },
+        },
+      },
+    });
+    expect(put?.responses?.[200]).toMatchObject({
+      content: {
+        "application/json": {
+          schema: { $ref: "#/components/schemas/AdsSourcePermissions" },
+        },
+      },
+    });
+    expect(document.components?.schemas?.AdsSourcePermissions).toMatchObject({
+      properties: expect.objectContaining({
+        visibility: expect.any(Object),
+        shared_with: expect.any(Object),
+        retention_days: expect.any(Object),
+      }),
+    });
+  });
+
+  it("documents ADS retrieval request and response shapes", () => {
+    const document = createOpenApiDocument();
+    const query = document.paths?.["/api/v1/ads/query"]?.post;
+
+    expect(query?.requestBody).toMatchObject({
+      content: {
+        "application/json": {
+          schema: { $ref: "#/components/schemas/AdsRetrievalRequest" },
+        },
+      },
+    });
+    expect(query?.responses?.[200]).toMatchObject({
+      content: {
+        "application/json": {
+          schema: { $ref: "#/components/schemas/AdsRetrievalResponse" },
+        },
+      },
+    });
+    expect(document.components?.schemas?.AdsRetrievalResult).toMatchObject({
+      required: expect.arrayContaining([
+        "id",
+        "document_id",
+        "chunk_id",
+        "score",
+        "confidence",
+        "provenance",
+      ]),
+    });
+  });
+
+  it("documents ADS upload signed URL and ingestion job shapes", () => {
+    const document = createOpenApiDocument();
+    const upload = document.paths?.["/api/v1/ads/ingestion/uploads"]?.post;
+    const job = document.paths?.["/api/v1/ads/ingestion/jobs/{id}"]?.get;
+
+    expect(upload?.responses?.[202]).toMatchObject({
+      content: {
+        "application/json": {
+          schema: { $ref: "#/components/schemas/AdsUploadStartResponse" },
+        },
+      },
+    });
+    expect(job?.responses?.[200]).toMatchObject({
+      content: {
+        "application/json": {
+          schema: { $ref: "#/components/schemas/AdsIngestionJob" },
+        },
+      },
+    });
+    expect(document.components?.schemas?.AdsUploadStartResponse).toMatchObject({
+      required: expect.arrayContaining(["ingestion_job_id", "upload"]),
+    });
+    expect(document.components?.schemas?.SignedReference).toMatchObject({
+      required: expect.arrayContaining(["signed_url", "expires_at"]),
+    });
+    expect(document.components?.schemas?.AdsIngestionJob).toMatchObject({
+      required: expect.arrayContaining([
+        "status",
+        "progress",
+        "document_ids",
+        "failure_detail",
+      ]),
+    });
   });
 
   it("documents typed, secret-safe voice channel management DTOs", () => {
@@ -95,7 +199,7 @@ describe("OpenAPI generation", () => {
         },
       });
 
-      if (route.method !== "get") {
+      if (route.method !== "get" && route.idempotent !== false) {
         expect(operation.parameters).toEqual(
           expect.arrayContaining([
             expect.objectContaining({

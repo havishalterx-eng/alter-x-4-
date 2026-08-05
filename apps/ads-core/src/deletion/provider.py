@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Protocol
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.ids import validate_prefixed_id
@@ -118,6 +118,22 @@ class AdsDeletionProvider:
         if self._system_sessions is None:
             raise RuntimeError("system deletion database connection is required for retention")
         deleted = 0
+        # Source-level retention (sources.permissions.retention_days, written
+        # through PUT /ads/sources/{id}/permissions) is enforced here, not
+        # merely stored: documents from a source past its configured window
+        # are purged along with their versions, chunks, and stored objects.
+        expired_documents, document_references = self._expired_by_source_retention()
+        for reference in document_references:
+            self._objects.delete_object(reference)
+        if expired_documents:
+            with self._system_sessions.begin() as session:
+                for statement in _RETENTION_DOCUMENT_DELETES:
+                    deleted += _rowcount(
+                        session.execute(
+                            text(statement).bindparams(bindparam("documents", expanding=True)),
+                            {"documents": list(expired_documents)},
+                        )
+                    )
         with self._system_sessions.begin() as session:
             # Retrieval audit is retained 13 months; completed ingestion diagnostics 90 days.
             deleted += _rowcount(
@@ -139,9 +155,36 @@ class AdsDeletionProvider:
         return RetentionSweepResult(
             store=STORE,
             deletedRows=deleted,
-            deletedObjects=0,
+            deletedObjects=len(document_references),
             sweptAt=datetime.now(UTC).isoformat(),
         )
+
+    def _expired_by_source_retention(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Documents past their source's `retention_days`, plus their object refs."""
+
+        assert self._system_sessions is not None
+        with self._system_sessions.begin() as session:
+            documents = tuple(session.scalars(text(_RETENTION_EXPIRED_DOCUMENTS)).all())
+            if not documents:
+                return (), ()
+            rows = session.execute(
+                text(
+                    "SELECT content_ref,normalized_ref FROM document_versions "
+                    "WHERE document_id IN :documents"
+                ).bindparams(bindparam("documents", expanding=True)),
+                {"documents": list(documents)},
+            ).all()
+        references = tuple(
+            sorted(
+                {
+                    ref
+                    for row in rows
+                    for ref in row
+                    if isinstance(ref, str) and ref.startswith("s3://")
+                }
+            )
+        )
+        return documents, references
 
     def list_subject_ids(self) -> tuple[str, ...]:
         if self._system_sessions is None:
@@ -210,6 +253,23 @@ def _object_references(session: Session, tenant_uuid: str) -> tuple[str, ...]:
         )
     )
 
+
+# A source's retention window applies to its documents' last write
+# (documents.updated_at), so a re-ingested/updated document restarts the clock
+# rather than being purged on its original creation date.
+_RETENTION_EXPIRED_DOCUMENTS = (
+    "SELECT d.id FROM documents d "
+    "JOIN sources s ON s.tenant_id=d.tenant_id AND s.id=d.source_id "
+    "WHERE jsonb_typeof(s.permissions->'retention_days')='number' "
+    "AND d.updated_at < now() - "
+    "((s.permissions->>'retention_days')::int * interval '1 day')"
+)
+
+_RETENTION_DOCUMENT_DELETES: Sequence[str] = (
+    "DELETE FROM chunks WHERE document_id IN :documents",
+    "DELETE FROM document_versions WHERE document_id IN :documents",
+    "DELETE FROM documents WHERE id IN :documents",
+)
 
 _DELETE_STATEMENTS: Sequence[str] = (
     "DELETE FROM retrieval_audit WHERE tenant_id=:tenant",

@@ -227,6 +227,9 @@ class RecordingRepository:
         self._sessions = sessions
         self.committed_stages: list[str] = []
 
+    def reserve_upload(self, **kwargs: object) -> StoredIngestionJob:
+        return self._delegate.reserve_upload(**kwargs)  # type: ignore[arg-type]
+
     def receive(self, **kwargs: object) -> StoredIngestionJob:
         job = self._delegate.receive(**kwargs)  # type: ignore[arg-type]
         self._record(str(kwargs["tenant_uuid"]), job.ingestion_job_id)

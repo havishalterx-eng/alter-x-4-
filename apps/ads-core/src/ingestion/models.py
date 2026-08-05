@@ -59,14 +59,16 @@ class PresignUploadRequest(_StrictFrozenModel):
 
 
 class PresignUploadResponse(_StrictFrozenModel):
+    ingestion_job_id: str
     upload_url: str
     upload_fields: dict[str, str]
     upload_key: str
     max_content_bytes: int
-    expires_in_seconds: int
+    expires_at: datetime
 
 
 class CompleteUploadRequest(_StrictFrozenModel):
+    ingestion_job_id: str
     source_id: str
     upload_key: str
 

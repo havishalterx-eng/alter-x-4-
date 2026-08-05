@@ -59,6 +59,24 @@ export const MemoryNamespaceIdSchema = prefixedUuidV7("mns");
 export const IngestionJobIdSchema = prefixedUuidV7("ing");
 export const RetrievalAuditIdSchema = prefixedUuidV7("rta");
 
+// ENG-BINDING. Trigger-to-integration binding, the webhook endpoint that a
+// binding provisions, and that endpoint's signing-secret record.
+export const TriggerBindingIdSchema = prefixedUuidV7("tbn");
+export const WebhookEndpointIdSchema = prefixedUuidV7("whe");
+export const WebhookEndpointSecretIdSchema = prefixedUuidV7("whs");
+
+// An integration connection is owned by platform-api's `oauth_connections`
+// table, which mints a bare (non-prefixed) UUID -- see
+// apps/platform-api/src/integrations/integration.service.ts's callback().
+// Engine stores it as an opaque cross-service reference with no foreign key,
+// because the two services do not share a database. Shape is validated,
+// existence is not.
+export const IntegrationConnectionIdSchema = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, {
+    message: "Expected an integration connection UUID",
+  });
+
 export const ServiceActorIdSchema = z
   .string()
   .regex(/^svc_[a-z0-9][a-z0-9._:-]{2,127}$/i, {

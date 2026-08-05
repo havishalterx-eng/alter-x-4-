@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Res,
   UseFilters,
@@ -30,16 +31,22 @@ import { AdsExceptionFilter } from "./ads-exception.filter";
 import { AdsService } from "./ads.service";
 import { AdsHttpError } from "./problem";
 import type {
+  AdsIngestionJob,
   AdsPage,
   AdsResource,
   AdsRetrievalResponse,
+  AdsSourcePermissions,
+  AdsUploadStartResponse,
   DocumentPermissions,
 } from "./types";
 import {
   parseAdsInput,
   parseAdsPagination,
   parseAdsRetrievalQuery,
+  parseAdsUploadComplete,
+  parseAdsUploadStart,
   parseDocumentPermissionsPatch,
+  parseSourcePermissions,
 } from "./validation";
 
 const readRoles = ["admin", "editor", "operator", "approver", "viewer"] as const;
@@ -136,6 +143,30 @@ export class AdsController {
     );
   }
 
+  @Post("ingestion/uploads/complete")
+  @HttpCode(202)
+  @RequireWorkspaceRole(...adminRoles)
+  @RequirePermission("knowledge:admin")
+  @Idempotent()
+  async completeUpload(
+    @Body() body: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<AdsIngestionJob> {
+    const instance = "/api/v1/ads/ingestion/uploads/complete";
+    return project(
+      await this.ads.completeUpload(
+        parseAdsUploadComplete(body, instance),
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+
   @Post("sources/:sourceId/actions/sync")
   @HttpCode(202)
   @RequireWorkspaceRole(...adminRoles)
@@ -162,6 +193,51 @@ export class AdsController {
     );
   }
 
+  @Get("sources/:sourceId/permissions")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("knowledge:read")
+  async sourcePermissions(
+    @Param("sourceId") sourceId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<AdsSourcePermissions | null> {
+    const instance = `/api/v1/ads/sources/${sourceId}/permissions`;
+    return project(
+      await this.ads.sourcePermissions(
+        sourceId,
+        requireActor(actor, instance),
+        traceparent,
+      ),
+      reply,
+    );
+  }
+
+  @Put("sources/:sourceId/permissions")
+  @RequireWorkspaceRole(...adminRoles)
+  @RequirePermission("knowledge:admin")
+  @Idempotent()
+  async replaceSourcePermissions(
+    @Param("sourceId") sourceId: string,
+    @Body() body: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<AdsSourcePermissions> {
+    const instance = `/api/v1/ads/sources/${sourceId}/permissions`;
+    return project(
+      await this.ads.replaceSourcePermissions(
+        sourceId,
+        parseSourcePermissions(body, instance),
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+
   @Post("ingestion/uploads")
   @HttpCode(202)
   @RequireWorkspaceRole(...adminRoles)
@@ -173,11 +249,11 @@ export class AdsController {
     @Headers("traceparent") traceparent: string | undefined,
     @Headers("idempotency-key") idempotencyKey: string | undefined,
     @Res({ passthrough: true }) reply: FastifyReply,
-  ): Promise<AdsResource> {
+  ): Promise<AdsUploadStartResponse> {
     const instance = "/api/v1/ads/ingestion/uploads";
     return project(
       await this.ads.createUpload(
-        parseAdsInput(body, instance),
+        parseAdsUploadStart(body, instance),
         requireActor(actor, instance),
         traceparent,
         idempotencyKey!,
@@ -194,7 +270,7 @@ export class AdsController {
     @ActorContext() actor: ActorContextType | undefined,
     @Headers("traceparent") traceparent: string | undefined,
     @Res({ passthrough: true }) reply: FastifyReply,
-  ): Promise<AdsResource> {
+  ): Promise<AdsIngestionJob> {
     const instance = `/api/v1/ads/ingestion/jobs/${jobId}`;
     return project(
       await this.ads.ingestionJob(

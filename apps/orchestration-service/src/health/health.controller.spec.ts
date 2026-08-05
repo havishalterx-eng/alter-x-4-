@@ -41,6 +41,7 @@ describe("GET /health", () => {
       TEMPORAL_NAMESPACE: "default",
       CONVERSATION_LIFECYCLE_TASK_QUEUE: "conversation-lifecycle",
       EXECUTOR_TASK_QUEUE: "executor",
+      WEBHOOK_PUBLIC_BASE_URL: "https://hooks.example.test",
     };
     for (const [name, value] of Object.entries(config)) {
       vi.stubEnv(name, value);

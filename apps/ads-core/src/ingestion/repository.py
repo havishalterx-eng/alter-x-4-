@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.db.models import Chunk, Document, DocumentVersion, IngestionJob, Source
 
 from .models import IngestionStage
-from .permissions import DocumentPermissions, DocumentPermissionsPatch
+from .permissions import DocumentPermissions, DocumentPermissionsPatch, SourcePermissions
 
 _SET_TENANT = text("SELECT set_config('app.current_tenant_id', :tenant_id, true)")
 _LOCK_CONTENT = text(
@@ -77,6 +77,16 @@ class StoredReindex:
 
 
 class IngestionRepository(Protocol):
+    def reserve_upload(
+        self,
+        *,
+        ingestion_job_id: str,
+        tenant_uuid: str,
+        source_id: str,
+        upload_key: str,
+        content_type: str,
+    ) -> StoredIngestionJob: ...
+
     def receive(
         self,
         *,
@@ -191,6 +201,28 @@ class SqlAlchemyIngestionRepository:
             if source_exists is None:
                 raise SourceNotFoundError("Source does not exist for requesting tenant")
 
+            reserved = session.scalar(
+                select(IngestionJob).where(
+                    IngestionJob.tenant_id == tenant_uuid,
+                    IngestionJob.id == ingestion_job_id,
+                )
+            )
+            if reserved is not None:
+                if reserved.source_id != source_id or reserved.stage != "received":
+                    raise ValueError("Reserved ingestion job cannot accept this upload")
+                current_stats = dict(reserved.stats or {})
+                current_stats.update(
+                    {
+                        "content_hash": content_hash,
+                        "content_bytes": content_bytes,
+                        "content_type": content_type,
+                        "upload_pending": False,
+                    }
+                )
+                reserved.stats = current_stats
+                session.flush()
+                return self._stored(reserved)
+
             existing = session.scalar(
                 select(IngestionJob).where(
                     IngestionJob.tenant_id == tenant_uuid,
@@ -210,6 +242,43 @@ class SqlAlchemyIngestionRepository:
                     "content_hash": content_hash,
                     "content_bytes": content_bytes,
                     "content_type": content_type,
+                    "stage_history": ["received"],
+                },
+                error=None,
+                completed_at=None,
+            )
+            session.add(job)
+            session.flush()
+            return self._stored(job)
+
+    def reserve_upload(
+        self,
+        *,
+        ingestion_job_id: str,
+        tenant_uuid: str,
+        source_id: str,
+        upload_key: str,
+        content_type: str,
+    ) -> StoredIngestionJob:
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            source_exists = session.scalar(
+                select(Source.id).where(
+                    Source.tenant_id == tenant_uuid,
+                    Source.id == source_id,
+                )
+            )
+            if source_exists is None:
+                raise SourceNotFoundError("Source does not exist for requesting tenant")
+            job = IngestionJob(
+                id=ingestion_job_id,
+                tenant_id=tenant_uuid,
+                source_id=source_id,
+                stage="received",
+                stats={
+                    "content_type": content_type,
+                    "upload_key": upload_key,
+                    "upload_pending": True,
                     "stage_history": ["received"],
                 },
                 error=None,
@@ -411,6 +480,38 @@ class SqlAlchemyIngestionRepository:
             document.updated_at = datetime.now(UTC)
             session.flush()
             return updated
+
+    def get_source_permissions(
+        self,
+        *,
+        tenant_uuid: str,
+        source_id: str,
+    ) -> SourcePermissions | None:
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            source = self._get_source(session, tenant_uuid, source_id)
+            if source.permissions is None:
+                return None
+            return SourcePermissions.model_validate(source.permissions)
+
+    def replace_source_permissions(
+        self,
+        *,
+        tenant_uuid: str,
+        source_id: str,
+        permissions: SourcePermissions,
+    ) -> SourcePermissions:
+        """Full replace (PUT), not a merge -- the stored object is exactly the
+        validated body, so a caller can never be surprised by a field it did
+        not send surviving from an earlier write.
+        """
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            source = self._get_source(session, tenant_uuid, source_id, for_update=True)
+            source.permissions = permissions.model_dump(mode="json")
+            source.updated_at = datetime.now(UTC)
+            session.flush()
+            return permissions
 
     def mark_indexed_as_duplicate(
         self, *, tenant_uuid: str, ingestion_job_id: str
@@ -653,6 +754,25 @@ class SqlAlchemyIngestionRepository:
                 "Document does not exist for requesting tenant"
             )
         return document
+
+    @staticmethod
+    def _get_source(
+        session: Session,
+        tenant_uuid: str,
+        source_id: str,
+        *,
+        for_update: bool = False,
+    ) -> Source:
+        statement = select(Source).where(
+            Source.tenant_id == tenant_uuid,
+            Source.id == source_id,
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        source = session.scalar(statement)
+        if source is None:
+            raise SourceNotFoundError("Source does not exist for requesting tenant")
+        return source
 
     @staticmethod
     def _stored(job: IngestionJob) -> StoredIngestionJob:

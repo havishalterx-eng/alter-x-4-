@@ -176,6 +176,13 @@
       "when": 1784861024000,
       "tag": "0024_create_template_variables_clarifications",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1784861025000,
+      "tag": "0025_create_trigger_integration_bindings",
+      "breakpoints": true
     }
   ]
 }

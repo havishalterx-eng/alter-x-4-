@@ -149,12 +149,15 @@ def client(database: DatabaseHarness) -> Generator[TestClient, None, None]:
     engine.dispose()
 
 
-def test_presign_returns_tenant_scoped_key(client: TestClient) -> None:
-    tenant_id, _ = _new_tenant()
+def test_presign_returns_tenant_scoped_key(
+    client: TestClient, database: DatabaseHarness
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
     response = client.post(
         "/ads/ingestion/uploads/presign",
         json={
-            "source_id": "src_00000000-0000-7000-8000-000000000000",
+            "source_id": source_id,
             "content_type": "text/plain",
         },
         headers={"X-Alter-Tenant-Id": tenant_id},
@@ -164,6 +167,15 @@ def test_presign_returns_tenant_scoped_key(client: TestClient) -> None:
     bare_tenant = tenant_id.removeprefix("ten_")
     assert body["upload_key"].startswith(f"tenants/{bare_tenant}/uploads/")
     assert body["max_content_bytes"] == 1024
+    assert body["ingestion_job_id"].startswith("ing_")
+    assert body["expires_at"]
+
+    job = client.get(
+        f"/ads/ingestion/jobs/{body['ingestion_job_id']}",
+        headers={"X-Alter-Tenant-Id": tenant_id},
+    )
+    assert job.status_code == 200
+    assert job.json()["stage"] == "received"
 
 
 def test_presign_rejects_disallowed_content_type(client: TestClient) -> None:
@@ -194,7 +206,11 @@ def test_complete_upload_runs_the_real_pipeline_end_to_end(
 
     response = client.post(
         "/ads/ingestion/uploads/complete",
-        json={"source_id": source_id, "upload_key": presign["upload_key"]},
+        json={
+            "ingestion_job_id": presign["ingestion_job_id"],
+            "source_id": source_id,
+            "upload_key": presign["upload_key"],
+        },
         headers={"X-Alter-Tenant-Id": tenant_id},
     )
     assert response.status_code == 202, response.text
@@ -211,6 +227,7 @@ def test_complete_upload_404s_when_object_was_never_uploaded(client: TestClient)
     response = client.post(
         "/ads/ingestion/uploads/complete",
         json={
+            "ingestion_job_id": new_prefixed_id("ing"),
             "source_id": "src_00000000-0000-7000-8000-000000000000",
             "upload_key": f"tenants/{bare}/uploads/never-uploaded",
         },
@@ -225,6 +242,7 @@ def test_complete_upload_rejects_a_key_scoped_to_another_tenant(client: TestClie
     response = client.post(
         "/ads/ingestion/uploads/complete",
         json={
+            "ingestion_job_id": new_prefixed_id("ing"),
             "source_id": "src_00000000-0000-7000-8000-000000000000",
             "upload_key": f"tenants/{other_bare}/uploads/some-key",
         },
@@ -233,12 +251,43 @@ def test_complete_upload_rejects_a_key_scoped_to_another_tenant(client: TestClie
     assert response.status_code == 403
 
 
-def test_complete_upload_rejects_oversized_object(client: TestClient) -> None:
+def test_complete_upload_rejects_key_not_reserved_for_job(
+    client: TestClient, database: DatabaseHarness
+) -> None:
     tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    presign = client.post(
+        "/ads/ingestion/uploads/presign",
+        json={"source_id": source_id, "content_type": "text/plain"},
+        headers={"X-Alter-Tenant-Id": tenant_id},
+    ).json()
+    other_key = f"tenants/{tenant_uuid}/uploads/different-object"
+    client.storage.simulate_upload(
+        key=other_key, content=b"wrong object", content_type="text/plain"
+    )
+
+    response = client.post(
+        "/ads/ingestion/uploads/complete",
+        json={
+            "ingestion_job_id": presign["ingestion_job_id"],
+            "source_id": source_id,
+            "upload_key": other_key,
+        },
+        headers={"X-Alter-Tenant-Id": tenant_id},
+    )
+
+    assert response.status_code == 403
+
+
+def test_complete_upload_rejects_oversized_object(
+    client: TestClient, database: DatabaseHarness
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
     presign = client.post(
         "/ads/ingestion/uploads/presign",
         json={
-            "source_id": "src_00000000-0000-7000-8000-000000000000",
+            "source_id": source_id,
             "content_type": "text/plain",
         },
         headers={"X-Alter-Tenant-Id": tenant_id},
@@ -249,7 +298,8 @@ def test_complete_upload_rejects_oversized_object(client: TestClient) -> None:
     response = client.post(
         "/ads/ingestion/uploads/complete",
         json={
-            "source_id": "src_00000000-0000-7000-8000-000000000000",
+            "ingestion_job_id": presign["ingestion_job_id"],
+            "source_id": source_id,
             "upload_key": presign["upload_key"],
         },
         headers={"X-Alter-Tenant-Id": tenant_id},
@@ -311,7 +361,11 @@ def test_get_ingestion_job_returns_real_status(
     )
     completed = client.post(
         "/ads/ingestion/uploads/complete",
-        json={"source_id": source_id, "upload_key": presign["upload_key"]},
+        json={
+            "ingestion_job_id": presign["ingestion_job_id"],
+            "source_id": source_id,
+            "upload_key": presign["upload_key"],
+        },
         headers={"X-Alter-Tenant-Id": tenant_id},
     ).json()
 
@@ -348,7 +402,11 @@ def test_get_ingestion_job_404s_across_tenants(
     )
     completed = client.post(
         "/ads/ingestion/uploads/complete",
-        json={"source_id": source_id, "upload_key": presign["upload_key"]},
+        json={
+            "ingestion_job_id": presign["ingestion_job_id"],
+            "source_id": source_id,
+            "upload_key": presign["upload_key"],
+        },
         headers={"X-Alter-Tenant-Id": tenant_id},
     ).json()
 

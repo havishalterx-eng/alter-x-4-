@@ -23,7 +23,7 @@ import type {
 
 export const ENGINE_CONFIG = Symbol("ENGINE_CONFIG");
 
-type EngineMethod = "GET" | "POST" | "PATCH" | "DELETE";
+type EngineMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 interface RequestOptions {
   body?: EngineRequestBody;
@@ -67,6 +67,19 @@ export class EngineClient {
     options: EnginePatchOptions,
   ): Promise<EngineResponse<TResponse>> {
     return this.request("PATCH", path, context, {
+      body,
+      idempotencyKey: options.idempotencyKey,
+      ifMatch: options.ifMatch,
+    });
+  }
+
+  put<TRequest extends EngineRequestBody, TResponse>(
+    path: EnginePath,
+    body: TRequest,
+    context: EngineCallerContext,
+    options: EnginePatchOptions,
+  ): Promise<EngineResponse<TResponse>> {
+    return this.request("PUT", path, context, {
       body,
       idempotencyKey: options.idempotencyKey,
       ifMatch: options.ifMatch,

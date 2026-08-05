@@ -44,7 +44,7 @@ import { adsDeferredCapabilities } from "./types";
 
 const uuid = "018f47a5-7b2c-7d10-8f11-123456789abc";
 const sourceId = `src_${uuid}`;
-const jobId = `job_${uuid}`;
+const jobId = `ing_${uuid}`;
 const documentId = `doc_${uuid}`;
 const actor: ActorContextType = {
   user_id: `usr_${uuid}`,
@@ -132,11 +132,11 @@ describe("ADS administration routes", () => {
     },
   );
 
-  it("relays opaque upload response and declared ingestion-job Location unchanged", async () => {
+  it("relays typed upload start and typed ingestion job status", async () => {
     const input = {
+      source_id: sourceId,
       filename: "handbook.pdf",
       content_type: "application/pdf",
-      opaque_extension: { checksum: "abc" },
     };
     const upload = await request({
       method: "POST",
@@ -147,11 +147,21 @@ describe("ADS administration routes", () => {
     });
     expect(upload.statusCode).toBe(202);
     expect(upload.json()).toEqual(engine.uploadResource);
+    expect(upload.json()).toEqual({
+      ingestion_job_id: jobId,
+      upload: {
+        signed_url: "https://uploads.example.test/tenant/object?signature=abc",
+        expires_at: "2026-08-04T08:15:00Z",
+      },
+      upload_fields: { key: "tenant/object", policy: "signed-policy" },
+      upload_key: "tenant/object",
+      max_content_bytes: 10_000_000,
+    });
     expect(upload.headers.location).toBe(
       `/api/v1/ads/ingestion/jobs/${jobId}`,
     );
     expect(engine.post).toHaveBeenCalledWith(
-      "/api/v1/ads/ingestion/uploads",
+      "/api/v1/ads/ingestion/uploads/presign",
       input,
       expect.objectContaining({
         tenantId: actor.tenant_id,
@@ -161,13 +171,81 @@ describe("ADS administration routes", () => {
       { idempotencyKey: "upload-flow" },
     );
 
+    const complete = await request({
+      method: "POST",
+      url: "/api/v1/ads/ingestion/uploads/complete",
+      body: {
+        ingestion_job_id: jobId,
+        source_id: sourceId,
+        upload_key: "tenant/object",
+      },
+      actor,
+      headers: { "idempotency-key": "upload-complete" },
+    });
+    expect(complete.statusCode).toBe(202);
+    expect(complete.json()).toEqual(engine.ingestionJobResponse);
+
     const job = await request({
       method: "GET",
       url: `/api/v1/ads/ingestion/jobs/${jobId}`,
       actor,
     });
     expect(job.statusCode).toBe(200);
-    expect(job.json()).toEqual(engine.jobResource);
+    expect(job.json()).toEqual(engine.ingestionJobResponse);
+  });
+
+  it.each([
+    ["received", "queued", 1, 14],
+    ["validated", "in_progress", 2, 29],
+    ["failed", "failed", 7, 100],
+  ] as const)(
+    "maps %s ingestion progress and status",
+    async (stage, status, completedStages, percent) => {
+      Object.assign(engine.jobResource, {
+        stage,
+        stats: { deduplication: null },
+        error: stage === "failed" ? "virus detected" : null,
+        completed_at: stage === "failed" ? "2026-08-04T08:00:08Z" : null,
+      });
+
+      const result = await request({
+        method: "GET",
+        url: `/api/v1/ads/ingestion/jobs/${jobId}`,
+        actor,
+      });
+
+      expect(result.statusCode).toBe(200);
+      expect(result.json()).toMatchObject({
+        status,
+        stage,
+        progress: { completed_stages: completedStages, percent },
+        document_ids: [],
+      });
+    },
+  );
+
+  it("reports both original and duplicate document references", async () => {
+    Object.assign(engine.jobResource, {
+      stage: "indexed",
+      stats: {
+        deduplication: {
+          document_id: documentId,
+          duplicate_of_document_id: `doc_duplicate_${uuid}`,
+        },
+      },
+      error: null,
+      completed_at: "2026-08-04T08:00:08Z",
+    });
+
+    const result = await request({
+      method: "GET",
+      url: `/api/v1/ads/ingestion/jobs/${jobId}`,
+      actor,
+    });
+
+    expect(result.json()).toMatchObject({
+      document_ids: [documentId, `doc_duplicate_${uuid}`],
+    });
   });
 
   it("relays document pagination, detail, and opaque deletion response", async () => {
@@ -290,6 +368,47 @@ describe("ADS administration routes", () => {
     );
   });
 
+  it("relays source permission reads and full replacements", async () => {
+    const read = await request({
+      method: "GET",
+      url: `/api/v1/ads/sources/${sourceId}/permissions`,
+      actor,
+    });
+    expect(read.statusCode).toBe(200);
+    expect(read.json()).toEqual(engine.sourcePermissionsResource);
+    expect(engine.get).toHaveBeenCalledWith(
+      `/api/v1/ads/sources/${sourceId}/permissions`,
+      expect.objectContaining({
+        tenantId: actor.tenant_id,
+        workspaceId: actor.workspace_id,
+      }),
+    );
+
+    const replacement = {
+      visibility: "tenant",
+      shared_with: ["team_legal"],
+      retention_days: 90,
+    };
+    const changed = await request({
+      method: "PUT",
+      url: `/api/v1/ads/sources/${sourceId}/permissions`,
+      body: replacement,
+      actor,
+      headers: { "idempotency-key": "source-permissions-replace" },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json()).toEqual(engine.sourcePermissionsResource);
+    expect(engine.put).toHaveBeenCalledWith(
+      `/api/v1/ads/sources/${sourceId}/permissions`,
+      replacement,
+      expect.objectContaining({
+        tenantId: actor.tenant_id,
+        workspaceId: actor.workspace_id,
+      }),
+      { idempotencyKey: "source-permissions-replace", ifMatch: "*" },
+    );
+  });
+
   it("relays per-document reindex through Engine with tenant actor context", async () => {
     const result = await request({
       method: "POST",
@@ -364,7 +483,9 @@ describe("ADS administration routes", () => {
     const query = {
       query: "refund policy",
       top_k: 5,
+      rerank: true,
       scope_ids: [`scp_${uuid}`],
+      source_ids: [sourceId],
       metadata_filter: { department: "support" },
     };
     const result = await request({
@@ -375,7 +496,7 @@ describe("ADS administration routes", () => {
     });
 
     expect(result.statusCode).toBe(200);
-    expect(result.json()).toEqual(engine.retrievalResponse);
+    expect(result.json()).toEqual(engine.retrievalHttpResponse);
     expect(engine.queryAds).toHaveBeenCalledWith(
       query,
       expect.objectContaining({
@@ -384,11 +505,19 @@ describe("ADS administration routes", () => {
         workspaceId: actor.workspace_id,
       }),
     );
-    const body = result.json() as typeof engine.retrievalResponse;
-    expect(body.hits[0]).toEqual(
+    const body = result.json() as typeof engine.retrievalHttpResponse;
+    expect(body.results[0]).toEqual(
       expect.objectContaining({
         provenance: engine.retrievalResponse.hits[0]!.provenance,
         confidence: 0.94,
+      }),
+    );
+    expect(body.query).toEqual(
+      expect.objectContaining({
+        query: "refund policy",
+        top_k: 5,
+        rerank: true,
+        source_ids: [sourceId],
       }),
     );
   });
@@ -564,21 +693,11 @@ describe("ADS administration routes", () => {
   });
 
   it("flags every deferred surface and leaves fabricated routes absent", async () => {
-    expect(adsDeferredCapabilities).toEqual([
-      expect.objectContaining({
-        capability: "upload_signed_url_job_shape",
-        status: "NOT_MET",
-      }),
-      expect.objectContaining({
-        capability: "source_permissions",
-        status: "NOT_MET",
-      }),
-    ]);
+    expect(adsDeferredCapabilities).toEqual([]);
 
     for (const [method, url] of [
       ["POST", "/api/v1/ads/retrieval"],
       ["POST", `/api/v1/ads/sources/${sourceId}/actions/reindex`],
-      ["GET", `/api/v1/ads/sources/${sourceId}/permissions`],
       ["GET", `/api/v1/ads/documents/${documentId}/deletion-certificate`],
     ] as const) {
       expect((await request({ method, url, body: {}, actor })).statusCode).toBe(
@@ -648,16 +767,52 @@ describe("ADS administration routes", () => {
 
 class AdsEngine {
   readonly uploadResource = {
-    engine_owned: {
-      nested: ["opaque", 7, true],
-      whitespace: " preserved\n",
+    ingestion_job_id: jobId,
+    upload: {
+      signed_url: "https://uploads.example.test/tenant/object?signature=abc",
+      expires_at: "2026-08-04T08:15:00Z",
     },
-    untouched: null,
+    upload_fields: { key: "tenant/object", policy: "signed-policy" },
+    upload_key: "tenant/object",
+    max_content_bytes: 10_000_000,
+  };
+  readonly presignResource = {
+    ingestion_job_id: jobId,
+    upload_url: "https://uploads.example.test/tenant/object?signature=abc",
+    expires_at: "2026-08-04T08:15:00Z",
+    upload_fields: { key: "tenant/object", policy: "signed-policy" },
+    upload_key: "tenant/object",
+    max_content_bytes: 10_000_000,
   };
   readonly jobResource = {
-    id: jobId,
-    state: "queued",
-    opaque_engine_extension: ["untouched"],
+    ingestion_job_id: jobId,
+    source_id: sourceId,
+    stage: "indexed",
+    stats: {
+      deduplication: {
+        document_id: documentId,
+        is_duplicate: false,
+      },
+    },
+    error: null,
+    created_at: "2026-08-04T08:00:00Z",
+    completed_at: "2026-08-04T08:00:08Z",
+  };
+  readonly ingestionJobResponse = {
+    ingestion_job_id: jobId,
+    source_id: sourceId,
+    status: "completed",
+    stage: "indexed",
+    progress: {
+      completed_stages: 7,
+      total_stages: 7,
+      percent: 100,
+      current_stage: "indexed",
+    },
+    document_ids: [documentId],
+    failure_detail: null,
+    created_at: "2026-08-04T08:00:00Z",
+    completed_at: "2026-08-04T08:00:08Z",
   };
   readonly documentResource = {
     id: documentId,
@@ -684,6 +839,11 @@ class AdsEngine {
     visibility: "tenant",
     shared_with: ["team_legal"],
   };
+  readonly sourcePermissionsResource = {
+    visibility: "tenant",
+    shared_with: ["team_legal"],
+    retention_days: 90,
+  };
   readonly retrievalResponse = {
     hits: [
       {
@@ -707,6 +867,39 @@ class AdsEngine {
     ],
     audited_at: "2026-08-04T08:00:01Z",
   };
+  get retrievalHttpResponse() {
+    const hit = this.retrievalResponse.hits[0]!;
+    return {
+      results: [
+        {
+          id: hit.chunk_id,
+          document_id: hit.document_id,
+          chunk_id: hit.chunk_id,
+          chunk_reference: hit.chunk_id,
+          source_id: hit.source_id,
+          scope_id: hit.scope_id,
+          text: hit.context,
+          reconstructed_text: hit.reconstructed_context,
+          score: hit.score,
+          confidence: hit.confidence,
+          provenance: hit.provenance,
+          metadata: hit.metadata,
+          freshness_at: hit.freshness_at,
+          semantic_score: hit.semantic_score,
+          keyword_score: hit.keyword_score,
+        },
+      ],
+      query: {
+        query: "refund policy",
+        top_k: 5,
+        rerank: true,
+        scope_ids: [`scp_${uuid}`],
+        source_ids: [sourceId],
+        metadata_filter: { department: "support" },
+        audited_at: this.retrievalResponse.audited_at,
+      },
+    };
+  }
   readonly deletionCertificate = {
     store: "orchestration-service",
     manifestId: "del_018f4d6e-2b4a-7a3e-8c1a-1234567890d1",
@@ -721,6 +914,7 @@ class AdsEngine {
   };
   readonly get = vi.fn(this.getResponse.bind(this));
   readonly post = vi.fn(this.postResponse.bind(this));
+  readonly put = vi.fn(this.putResponse.bind(this));
   readonly patch = vi.fn(this.patchResponse.bind(this));
   readonly delete = vi.fn(this.deleteResponse.bind(this));
   readonly queryAds = vi.fn(this.queryAdsResponse.bind(this));
@@ -730,6 +924,7 @@ class AdsEngine {
   reset(): void {
     this.get.mockClear();
     this.post.mockClear();
+    this.put.mockClear();
     this.patch.mockClear();
     this.delete.mockClear();
     this.queryAds.mockClear();
@@ -740,6 +935,7 @@ class AdsEngine {
   mutationCount(): number {
     return (
       this.post.mock.calls.length +
+      this.put.mock.calls.length +
       this.patch.mock.calls.length +
       this.delete.mock.calls.length
     );
@@ -792,6 +988,9 @@ class AdsEngine {
     if (pathname === "/api/v1/ads/documents") {
       return response(this.documentPage);
     }
+    if (pathname === `/api/v1/ads/sources/${sourceId}/permissions`) {
+      return response(this.sourcePermissionsResource);
+    }
     if (pathname.endsWith("/permissions")) {
       return response(this.permissionsResource);
     }
@@ -811,6 +1010,22 @@ class AdsEngine {
     return response(this.permissionsResource);
   }
 
+  private async putResponse(
+    path: EnginePath,
+    body: EngineRequestBody,
+    _context: EngineCallerContext,
+    _options: { idempotencyKey: string; ifMatch: string },
+  ): Promise<EngineResponse<unknown>> {
+    void body;
+    void _context;
+    void _options;
+    this.throwIfFailed("PUT", path);
+    if (path === `/api/v1/ads/sources/${sourceId}/permissions`) {
+      return response(this.sourcePermissionsResource);
+    }
+    return response({});
+  }
+
   private async postResponse(
     path: EnginePath,
     body: EngineRequestBody,
@@ -821,12 +1036,14 @@ class AdsEngine {
     void _context;
     void _options;
     this.throwIfFailed("POST", path);
-    if (path === "/api/v1/ads/ingestion/uploads") {
+    if (path === "/api/v1/ads/ingestion/uploads/presign") {
       return {
-        status: 202,
-        body: this.uploadResource,
-        location: `/api/v1/ads/ingestion/jobs/${jobId}`,
+        status: 201,
+        body: this.presignResource,
       };
+    }
+    if (path === "/api/v1/ads/ingestion/uploads/complete") {
+      return { status: 202, body: this.jobResource };
     }
     if (path.endsWith("/actions/sync")) {
       return { status: 202, body: { id: sourceId, state: "syncing" } };
@@ -941,7 +1158,21 @@ function mutationCases() {
     [
       "POST",
       "/api/v1/ads/ingestion/uploads",
-      { filename: "policy.pdf" },
+      {
+        source_id: sourceId,
+        filename: "policy.pdf",
+        content_type: "application/pdf",
+      },
+      202,
+    ],
+    [
+      "POST",
+      "/api/v1/ads/ingestion/uploads/complete",
+      {
+        ingestion_job_id: jobId,
+        source_id: sourceId,
+        upload_key: "tenant/object",
+      },
       202,
     ],
     ["DELETE", `/api/v1/ads/documents/${documentId}`, undefined, 200],
@@ -955,6 +1186,12 @@ function mutationCases() {
       "PATCH",
       `/api/v1/ads/documents/${documentId}/permissions`,
       { shared_with: ["team_legal"] },
+      200,
+    ],
+    [
+      "PUT",
+      `/api/v1/ads/sources/${sourceId}/permissions`,
+      { visibility: "tenant", shared_with: [], retention_days: 90 },
       200,
     ],
     ["POST", "/api/v1/ads/knowledge", { title: "Policy" }, 201],
@@ -975,7 +1212,20 @@ function routeCases(): ReadonlyArray<
     [
       "POST",
       "/api/v1/ads/ingestion/uploads",
-      { filename: "policy.pdf" },
+      {
+        source_id: sourceId,
+        filename: "policy.pdf",
+        content_type: "application/pdf",
+      },
+    ],
+    [
+      "POST",
+      "/api/v1/ads/ingestion/uploads/complete",
+      {
+        ingestion_job_id: jobId,
+        source_id: sourceId,
+        upload_key: "tenant/object",
+      },
     ],
     ["DELETE", `/api/v1/ads/documents/${documentId}`, undefined],
     [
@@ -993,7 +1243,13 @@ function routeCases(): ReadonlyArray<
       `/api/v1/ads/documents/${documentId}/permissions`,
       { shared_with: ["team_legal"] },
     ],
+    [
+      "PUT",
+      `/api/v1/ads/sources/${sourceId}/permissions`,
+      { visibility: "tenant", shared_with: [] },
+    ],
     ["GET", `/api/v1/ads/documents/${documentId}/permissions`, undefined],
+    ["GET", `/api/v1/ads/sources/${sourceId}/permissions`, undefined],
   ];
 }
 
@@ -1020,8 +1276,18 @@ function engineErrorCases() {
     [
       "POST",
       "/api/v1/ads/ingestion/uploads",
-      {},
-      "/api/v1/ads/ingestion/uploads",
+      { source_id: sourceId, content_type: "application/pdf" },
+      "/api/v1/ads/ingestion/uploads/presign",
+    ],
+    [
+      "POST",
+      "/api/v1/ads/ingestion/uploads/complete",
+      {
+        ingestion_job_id: jobId,
+        source_id: sourceId,
+        upload_key: "tenant/object",
+      },
+      "/api/v1/ads/ingestion/uploads/complete",
     ],
     [
       "GET",

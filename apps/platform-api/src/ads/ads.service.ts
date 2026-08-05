@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { JsonValue } from "@alterx/shared-clients";
 import type {
   RetentionSweepResult,
   VerificationResult,
@@ -13,12 +14,20 @@ import {
 import type { ActorContext } from "../rbac/types";
 import { AdsHttpError } from "./problem";
 import type {
+  AdsCoreIngestionJob,
+  AdsCorePresignUploadResponse,
   AdsInput,
+  AdsCoreRetrievalResponse,
+  AdsIngestionJob,
   AdsPage,
   AdsPagination,
   AdsResource,
   AdsRetrievalQuery,
   AdsRetrievalResponse,
+  AdsSourcePermissions,
+  AdsUploadCompleteRequest,
+  AdsUploadStartRequest,
+  AdsUploadStartResponse,
   DocumentPermissions,
   DocumentPermissionsPatch,
 } from "./types";
@@ -88,32 +97,99 @@ export class AdsService {
     );
   }
 
-  createUpload(
-    input: AdsInput,
+  sourcePermissions(
+    sourceId: string,
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<EngineResponse<AdsSourcePermissions | null>> {
+    const instance = `/api/v1/ads/sources/${sourceId}/permissions`;
+    const id = parseAdsId(sourceId, "sourceId", instance);
+    return this.engine.get(
+      `/api/v1/ads/sources/${encodeURIComponent(id)}/permissions`,
+      callerContext(actor, traceparent, instance),
+    );
+  }
+
+  replaceSourcePermissions(
+    sourceId: string,
+    input: AdsSourcePermissions,
     actor: ActorContext,
     traceparent: string | undefined,
     idempotencyKey: string,
-  ): Promise<EngineResponse<AdsResource>> {
-    return this.post(
-      "/api/v1/ads/ingestion/uploads",
-      input,
-      actor,
-      traceparent,
-      idempotencyKey,
+  ): Promise<EngineResponse<AdsSourcePermissions>> {
+    const instance = `/api/v1/ads/sources/${sourceId}/permissions`;
+    const id = parseAdsId(sourceId, "sourceId", instance);
+    return this.engine.put(
+      `/api/v1/ads/sources/${encodeURIComponent(id)}/permissions`,
+      input as EngineRequestBody,
+      callerContext(actor, traceparent, instance),
+      { idempotencyKey, ifMatch: "*" },
     );
+  }
+
+  createUpload(
+    input: AdsUploadStartRequest,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<AdsUploadStartResponse>> {
+    return this.engine.post<
+      EngineRequestBody,
+      AdsCorePresignUploadResponse
+    >(
+      "/api/v1/ads/ingestion/uploads/presign",
+      input as EngineRequestBody,
+      callerContext(actor, traceparent, "/api/v1/ads/ingestion/uploads"),
+      { idempotencyKey },
+    ).then((response) => ({
+      ...response,
+      status: 202,
+      location: `/api/v1/ads/ingestion/jobs/${response.body.ingestion_job_id}`,
+      body: {
+        ingestion_job_id: response.body.ingestion_job_id,
+        upload: {
+          signed_url: response.body.upload_url,
+          expires_at: response.body.expires_at,
+        },
+        upload_fields: response.body.upload_fields,
+        upload_key: response.body.upload_key,
+        max_content_bytes: response.body.max_content_bytes,
+      },
+    }));
+  }
+
+  completeUpload(
+    input: AdsUploadCompleteRequest,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<AdsIngestionJob>> {
+    const instance = "/api/v1/ads/ingestion/uploads/complete";
+    return this.engine.post<EngineRequestBody, AdsCoreIngestionJob>(
+      instance,
+      input as EngineRequestBody,
+      callerContext(actor, traceparent, instance),
+      { idempotencyKey },
+    ).then((response) => ({
+      ...response,
+      body: toIngestionJob(response.body),
+    }));
   }
 
   ingestionJob(
     jobId: string,
     actor: ActorContext,
     traceparent: string | undefined,
-  ): Promise<EngineResponse<AdsResource>> {
+  ): Promise<EngineResponse<AdsIngestionJob>> {
     const instance = `/api/v1/ads/ingestion/jobs/${jobId}`;
     const id = parseAdsId(jobId, "jobId", instance);
-    return this.engine.get(
+    return this.engine.get<AdsCoreIngestionJob>(
       `/api/v1/ads/ingestion/jobs/${encodeURIComponent(id)}`,
       callerContext(actor, traceparent, instance),
-    );
+    ).then((response) => ({
+      ...response,
+      body: toIngestionJob(response.body),
+    }));
   }
 
   documents(
@@ -227,11 +303,14 @@ export class AdsService {
     try {
       return await this.engine.queryAds<
         AdsRetrievalQuery,
-        AdsRetrievalResponse
+        AdsCoreRetrievalResponse
       >(
         input,
         callerContext(actor, traceparent, instance),
-      );
+      ).then((response) => ({
+        ...response,
+        body: toRetrievalResponse(input, response.body),
+      }));
     } catch (error) {
       if (!(error instanceof EngineProblemError)) throw error;
       if (error.problem.status === 403) {
@@ -278,6 +357,105 @@ export class AdsService {
       { idempotencyKey },
     );
   }
+}
+
+function toRetrievalResponse(
+  input: AdsRetrievalQuery,
+  upstream: AdsCoreRetrievalResponse,
+): AdsRetrievalResponse {
+  const rerank = input.rerank ?? true;
+  return {
+    results: upstream.hits.map((hit) => ({
+      id: hit.chunk_id,
+      document_id: hit.document_id,
+      chunk_id: hit.chunk_id,
+      chunk_reference: hit.chunk_id,
+      source_id: hit.source_id,
+      scope_id: hit.scope_id,
+      text: hit.context,
+      reconstructed_text: hit.reconstructed_context,
+      score: hit.score,
+      confidence: hit.confidence,
+      provenance: hit.provenance,
+      metadata: hit.metadata,
+      freshness_at: hit.freshness_at,
+      semantic_score: hit.semantic_score,
+      keyword_score: hit.keyword_score,
+    })),
+    query: {
+      query: input.query,
+      top_k: input.top_k ?? 10,
+      rerank,
+      scope_ids: input.scope_ids ?? [],
+      source_ids: input.source_ids ?? [],
+      project_id: input.project_id,
+      workflow_id: input.workflow_id,
+      metadata_filter: input.metadata_filter ?? {},
+      audited_at: upstream.audited_at,
+    },
+  };
+}
+
+const ingestionStages = [
+  "received",
+  "validated",
+  "scanned",
+  "normalized",
+  "deduplicated",
+  "chunked",
+  "indexed",
+  "failed",
+] as const;
+
+function toIngestionJob(upstream: AdsCoreIngestionJob): AdsIngestionJob {
+  const stageIndex = ingestionStages.indexOf(upstream.stage);
+  const totalStages = ingestionStages.length - 1;
+  const completedStages =
+    upstream.stage === "failed"
+      ? Math.max(0, stageIndex)
+      : Math.max(0, stageIndex + 1);
+  return {
+    ingestion_job_id: upstream.ingestion_job_id,
+    source_id: upstream.source_id,
+    status: ingestionStatus(upstream),
+    stage: upstream.stage,
+    progress: {
+      completed_stages: Math.min(completedStages, totalStages),
+      total_stages: totalStages,
+      percent: Math.round((Math.min(completedStages, totalStages) / totalStages) * 100),
+      current_stage: upstream.stage,
+    },
+    document_ids: documentIds(upstream.stats),
+    failure_detail: upstream.error,
+    created_at: upstream.created_at,
+    completed_at: upstream.completed_at,
+  };
+}
+
+function ingestionStatus(
+  job: AdsCoreIngestionJob,
+): "queued" | "in_progress" | "completed" | "failed" {
+  if (job.stage === "failed") return "failed";
+  if (job.stage === "indexed") return "completed";
+  if (job.stage === "received") return "queued";
+  return "in_progress";
+}
+
+function documentIds(stats: Record<string, JsonValue>): string[] {
+  const deduplication = stats["deduplication"];
+  if (
+    typeof deduplication !== "object" ||
+    deduplication === null ||
+    Array.isArray(deduplication)
+  ) {
+    return [];
+  }
+  const deduplicationRecord = deduplication as Record<string, JsonValue>;
+  const ids = [
+    deduplicationRecord["document_id"],
+    deduplicationRecord["duplicate_of_document_id"],
+  ];
+  return ids.filter((id): id is string => typeof id === "string");
 }
 
 function callerContext(

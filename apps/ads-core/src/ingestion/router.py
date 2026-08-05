@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request, status
@@ -19,7 +20,7 @@ from src.connectors.providers import (
 )
 from src.connectors.repository import SqlAlchemyConnectorSourceRepository
 from src.connectors.router import configure_connector_service
-from src.db.ids import validate_prefixed_id
+from src.db.ids import new_prefixed_id, validate_prefixed_id
 from src.query.repository import SqlAlchemyRetrievalRepository
 from src.query.router import configure_retrieval_service
 from src.query.service import RetrievalService
@@ -41,7 +42,7 @@ from .models import (
     ReindexResponse,
 )
 from .normalization import TextAwareNormalizer
-from .permissions import DocumentPermissions, DocumentPermissionsPatch
+from .permissions import DocumentPermissions, DocumentPermissionsPatch, SourcePermissions
 from .pipeline import IngestionPipeline
 from .repository import (
     DocumentNotFoundError,
@@ -196,6 +197,62 @@ def _document_id(document_id: str) -> str:
         ) from exc
 
 
+def _source_id(source_id: str) -> str:
+    try:
+        return validate_prefixed_id("src", source_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/sources/{source_id}/permissions",
+    response_model=SourcePermissions | None,
+)
+async def get_source_permissions(
+    source_id: str,
+    repository: RepositoryDep,
+    tenant_id: Annotated[str, Header(alias="X-Alter-Tenant-Id")],
+) -> SourcePermissions | None:
+    try:
+        return await run_in_threadpool(
+            repository.get_source_permissions,
+            tenant_uuid=_tenant_uuid(tenant_id),
+            source_id=_source_id(source_id),
+        )
+    except SourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.put(
+    "/sources/{source_id}/permissions",
+    response_model=SourcePermissions,
+)
+async def put_source_permissions(
+    source_id: str,
+    body: SourcePermissions,
+    repository: RepositoryDep,
+    tenant_id: Annotated[str, Header(alias="X-Alter-Tenant-Id")],
+) -> SourcePermissions:
+    try:
+        return await run_in_threadpool(
+            repository.replace_source_permissions,
+            tenant_uuid=_tenant_uuid(tenant_id),
+            source_id=_source_id(source_id),
+            permissions=body,
+        )
+    except SourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
 @router.get(
     "/documents/{document_id}/permissions",
     response_model=DocumentPermissions | None,
@@ -281,6 +338,7 @@ async def presign_upload(
     body: PresignUploadRequest,
     storage: StorageDep,
     settings: SettingsDep,
+    repository: RepositoryDep,
     tenant_id: Annotated[str, Header(alias="X-Alter-Tenant-Id")],
 ) -> PresignUploadResponse:
     """KNOW-6 real upload path for large files: client PUTs/POSTs straight
@@ -326,12 +384,26 @@ async def presign_upload(
         max_bytes=settings.ads_ingestion_max_content_bytes,
         expires_in_seconds=settings.ads_uploads_presign_expiry_seconds,
     )
+    ingestion_job_id = new_prefixed_id("ing")
+    try:
+        await run_in_threadpool(
+            repository.reserve_upload,
+            ingestion_job_id=ingestion_job_id,
+            tenant_uuid=bare_tenant,
+            source_id=body.source_id,
+            upload_key=upload_key,
+            content_type=content_type,
+        )
+    except SourceNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return PresignUploadResponse(
+        ingestion_job_id=ingestion_job_id,
         upload_url=presigned.url,
         upload_fields=presigned.fields,
         upload_key=presigned.key,
         max_content_bytes=settings.ads_ingestion_max_content_bytes,
-        expires_in_seconds=settings.ads_uploads_presign_expiry_seconds,
+        expires_at=datetime.now(UTC)
+        + timedelta(seconds=settings.ads_uploads_presign_expiry_seconds),
     )
 
 
@@ -345,6 +417,7 @@ async def complete_upload(
     pipeline: PipelineDep,
     storage: StorageDep,
     settings: SettingsDep,
+    repository: RepositoryDep,
     tenant_id: Annotated[str, Header(alias="X-Alter-Tenant-Id")],
 ) -> IngestionJobResponse:
     """Real, idempotent handler for "the object landed in object storage."
@@ -396,6 +469,20 @@ async def complete_upload(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     try:
+        validate_prefixed_id("ing", body.ingestion_job_id)
+        reserved = await run_in_threadpool(
+            repository.get,
+            tenant_uuid=bare_tenant,
+            ingestion_job_id=body.ingestion_job_id,
+        )
+        if (
+            reserved.source_id != body.source_id
+            or reserved.stats.get("upload_key") != body.upload_key
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="ingestion_job_id does not belong to this upload",
+            )
         response = await run_in_threadpool(
             pipeline.ingest,
             IngestionPayload(
@@ -404,7 +491,10 @@ async def complete_upload(
                 content_type=head.content_type,
                 content=content,
             ),
+            ingestion_job_id=body.ingestion_job_id,
         )
+    except IngestionJobNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except SourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
