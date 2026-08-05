@@ -43,6 +43,8 @@ export const CANONICAL_PROVIDER_INTERFACES = [
   "NetworkConnectivityProvider",
   "AuditStoreProvider",
   "VoiceProvider",
+  "NotificationProvider",
+  "EmailProvider",
 ] as const;
 
 export type CanonicalProviderInterfaceName =
@@ -398,6 +400,23 @@ export interface DurableExecutionProvider
 
 export interface ComputeProvider extends BaseProvider<"ComputeProvider"> {}
 export interface IdentityProvider extends BaseProvider<"IdentityProvider"> {}
+
+/** Reserved provider marker; in-app notifications are Platform-owned storage. */
+export interface NotificationProvider extends BaseProvider<"NotificationProvider"> {}
+
+export interface EmailSendResult {
+  readonly messageId: string;
+  readonly acceptedAt: string;
+}
+
+export interface EmailProvider extends BaseProvider<"EmailProvider"> {
+  sendTemplatedEmail(
+    to: string,
+    templateId: string,
+    variables: Record<string, string>,
+    locale?: string,
+  ): Promise<EmailSendResult>;
+}
 
 export interface ModelInvocationRequest {
   readonly tenantId: string;
