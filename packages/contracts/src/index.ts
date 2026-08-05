@@ -53,6 +53,7 @@ export {
   AuditIdSchema,
   CostIdSchema,
   DeploymentIdSchema,
+  EscalationIdSchema,
   IntegrationConnectionIdSchema,
   IsoTimestampSchema,
   NodeExecutionIdSchema,

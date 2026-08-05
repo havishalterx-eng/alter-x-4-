@@ -183,6 +183,13 @@
       "when": 1784861025000,
       "tag": "0025_create_trigger_integration_bindings",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1784861026000,
+      "tag": "0026_create_escalations",
+      "breakpoints": true
     }
   ]
 }

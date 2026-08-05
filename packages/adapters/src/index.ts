@@ -39,6 +39,7 @@ export {
   createConversationLifecycleWorker,
   createExecutorWorker,
   createFoundationWorker,
+  createPlatformJobsWorker,
 } from "./temporal/worker";
 export {
   createExecutorActivities,
@@ -47,15 +48,33 @@ export {
   type ExecutorActivities,
 } from "./temporal/activities/executor-activities";
 export {
+  createPlatformJobActivities,
+  UnknownPlatformJobTypeError,
+  type PlatformJobActivities,
+  type PlatformJobHandler,
+  type PlatformJobHandlerInput,
+  type PlatformJobHandlerResult,
+} from "./temporal/activities/platform-job-activities";
+export {
   executorWorkflow,
   type ExecutorWorkflowInput,
   type ExecutorWorkflowResult,
 } from "./temporal/workflows/executor-workflow";
 export {
+  platformJobWorkflow,
+  type PlatformJobWorkflowInput,
+  type PlatformJobWorkflowResult,
+} from "./temporal/workflows/platform-job-workflow";
+export {
   startExecutorWorker,
   type ExecutorWorkerBootstrapConfig,
   type ExecutorWorkerHandle,
 } from "./temporal/executor-bootstrap";
+export {
+  startPlatformJobsWorker,
+  type PlatformJobWorkerBootstrapConfig,
+  type PlatformJobWorkerHandle,
+} from "./temporal/platform-job-worker-bootstrap";
 export {
   foundationNoopWorkflow,
   type FoundationWorkflowStatus,

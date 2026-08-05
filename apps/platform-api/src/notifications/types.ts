@@ -14,6 +14,9 @@ export type NotificationSeverity = (typeof notificationSeverities)[number];
 export const notificationChannels = ["in_app", "email"] as const;
 export type NotificationChannel = (typeof notificationChannels)[number];
 
+export const notificationDeliveryModes = ["immediate", "digest"] as const;
+export type NotificationDeliveryMode = (typeof notificationDeliveryModes)[number];
+
 export interface CreateNotificationEventInput {
   readonly tenantId: string;
   readonly workspaceId: string;
@@ -46,6 +49,12 @@ export interface NotificationPreference {
   readonly eventClass: NotificationEventClass;
   readonly channel: NotificationChannel;
   readonly enabled: boolean;
+  readonly deliveryMode: NotificationDeliveryMode;
+}
+
+export interface DigestEligibleUser {
+  readonly tenantId: string;
+  readonly userId: string;
 }
 
 export interface NotificationPage {

@@ -4,7 +4,7 @@ import { HttpException } from "@nestjs/common";
 
 export class NotificationHttpError extends HttpException {
   constructor(
-    status: 400 | 404,
+    status: 400 | 404 | 503,
     errorCode: string,
     detail: string,
     instance: string,

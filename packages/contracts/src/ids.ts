@@ -47,6 +47,7 @@ export const VoiceAccountIdSchema = prefixedUuidV7("voc");
 export const VerificationResultIdSchema = prefixedUuidV7("ver");
 export const RecoveryActionIdSchema = prefixedUuidV7("rec");
 export const ClarificationIdSchema = prefixedUuidV7("clr");
+export const EscalationIdSchema = prefixedUuidV7("esc");
 export const TraceIdSchema = prefixedUuidV7("trc");
 export const RequestIdSchema = prefixedUuidV7("req");
 

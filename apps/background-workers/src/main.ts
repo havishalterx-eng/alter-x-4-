@@ -1,15 +1,28 @@
 import "reflect-metadata";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { NestFactory } from "@nestjs/core";
-import { CostClient, SqsQueueProvider, startExecutorWorker } from "@alterx/adapters";
+import {
+  CostClient,
+  SqsQueueProvider,
+  TemporalDurableExecutionProvider,
+  startExecutorWorker,
+  startPlatformJobsWorker,
+} from "@alterx/adapters";
 import { AppModule } from "./app.module";
 import { loadExecutorWorkerEnvironment } from "./config/environment";
 import { loadCostEventConsumerEnvironment } from "./config/cost-event-consumer-environment";
+import { loadPlatformJobWorkerEnvironment } from "./config/platform-job-worker-environment";
+import {
+  loadPlatformJobsEnvironment,
+  resolveRuntimeSecret,
+} from "./config/platform-jobs-environment";
 import { BLACKBOARD_PROTO_PATH } from "./executor/blackboard-proto-path";
 import { NODEEXEC_PROTO_PATH } from "./executor/nodeexec-proto-path";
 import { COST_PROTO_PATH } from "./cost-events/cost-proto-path";
 import { CostEventConsumerService } from "./cost-events/cost-event-consumer.service";
 import { CostEventConsumerRunner } from "./cost-events/cost-event-consumer-runner";
+import { createPlatformJobHandlers } from "./platform-jobs/handlers";
+import { NotificationDigestSchedulerRunner } from "./platform-jobs/notification-digest-scheduler-runner";
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -60,10 +73,54 @@ async function bootstrap(): Promise<void> {
   );
   costEventRunner.start();
 
+  // Platform Jobs worker (Engagement Phase, doc 12): real `platform`
+  // Temporal namespace, independent of the Executor worker's `engine`
+  // namespace above -- separate concerns, separate task queues.
+  const platformJobsEnvironment = loadPlatformJobWorkerEnvironment(process.env);
+  const platformJobsConfig = loadPlatformJobsEnvironment(process.env);
+  const notificationDigestServiceToken = await resolveRuntimeSecret(
+    platformJobsConfig.notificationDigestServiceTokenRef,
+  );
+  const platformJobsWorker = await startPlatformJobsWorker(
+    {
+      temporal: {
+        address: platformJobsEnvironment.temporalAddress,
+        namespace: platformJobsEnvironment.temporalNamespace,
+        taskQueue: platformJobsEnvironment.taskQueue,
+        ...(platformJobsEnvironment.temporalApiKey === undefined
+          ? {}
+          : { apiKey: platformJobsEnvironment.temporalApiKey }),
+      },
+    },
+    createPlatformJobHandlers({
+      platformApiInternalBaseUrl: platformJobsConfig.platformApiInternalBaseUrl,
+      notificationDigestServiceToken,
+    }),
+  );
+
+  // Real periodic trigger for the notification digest job -- durability
+  // and retry live in the Temporal workflow itself (platformJobWorkflow),
+  // this loop only decides when to start a real execution.
+  const digestDurableExecution = new TemporalDurableExecutionProvider({
+    address: platformJobsEnvironment.temporalAddress,
+    namespace: platformJobsEnvironment.temporalNamespace,
+    taskQueue: platformJobsEnvironment.taskQueue,
+    ...(platformJobsEnvironment.temporalApiKey === undefined
+      ? {}
+      : { apiKey: platformJobsEnvironment.temporalApiKey }),
+  });
+  const digestSchedulerRunner = new NotificationDigestSchedulerRunner(
+    digestDurableExecution,
+    platformJobsConfig.notificationDigestIntervalMs,
+  );
+  digestSchedulerRunner.start();
+
   app.enableShutdownHooks();
   app.getHttpAdapter().getInstance().addHook("onClose", () => {
     worker.shutdown();
     void costEventRunner.stop();
+    platformJobsWorker.shutdown();
+    void digestSchedulerRunner.stop();
   });
 
   await app.listen(3000, "0.0.0.0");

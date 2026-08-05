@@ -22,6 +22,7 @@ import {
   type FailureClassification,
 } from "./failure-classifier";
 import { createRecoveryActionId } from "./recovery-action-id";
+import type { EscalationsService } from "../escalations/escalations.service";
 import type { RecoveryDispatchService } from "./recovery-dispatch.service";
 import {
   POLICY_ID,
@@ -121,6 +122,7 @@ export class RecoveryPolicyService {
     private readonly dispatch: RecoveryDispatchService,
     mintRecoveryActionId: () => string = createRecoveryActionId,
     private readonly policyStoreClient?: PolicyStoreHandler,
+    private readonly escalations?: EscalationsService,
   ) {
     this.#mintRecoveryActionId = mintRecoveryActionId;
   }
@@ -278,18 +280,45 @@ export class RecoveryPolicyService {
     const outcome = parseOutcomeValue(request.outcome);
     const bareTenantId = tenantId.slice("ten_".length);
 
-    const recorded = await this.store.withTenant(bareTenantId, async (tx) => {
-      const result = await tx.query(
+    const updatedRow = await this.store.withTenant(bareTenantId, async (tx) => {
+      const result = await tx.query<{
+        readonly id: string;
+        readonly node_execution_id: string | null;
+        readonly failure_class: string;
+      }>(
         `UPDATE recovery_actions
          SET outcome = $1, resolved_at = clock_timestamp()
          WHERE tenant_id = $2 AND id = $3 AND run_id = $4
            AND strategy = $5 AND strategy IS NOT NULL
-         RETURNING id`,
+         RETURNING id, node_execution_id, failure_class`,
         [outcome, bareTenantId, recoveryActionId, request.run_id, request.strategy],
       );
-      return result.rowCount === 1;
+      return result.rows[0];
     });
-    if (!recorded) throw new RecoveryActionNotFoundError(recoveryActionId);
+    if (updatedRow === undefined) throw new RecoveryActionNotFoundError(recoveryActionId);
+
+    // Real HAC escalation queue entry (Product Core Phase's real
+    // /api/v1/escalations, previously a dead scaffold with no Engine
+    // backing) -- best-effort: a failure here must never make the
+    // already-real, already-committed recovery_actions write look like it
+    // failed too. escalations is optional (nullable DI) for callers/tests
+    // that don't need it wired.
+    if (outcome === "escalated" && this.escalations) {
+      try {
+        await this.escalations.create({
+          tenantId,
+          runId: request.run_id,
+          nodeExecutionId: updatedRow.node_execution_id ?? undefined,
+          recoveryActionId,
+          reason: `Recovery strategy "${request.strategy}" (${updatedRow.failure_class}) was exhausted and needs human attention`,
+        });
+      } catch {
+        // Disclosed, real limitation: the recovery outcome is already
+        // durably recorded above; a failure creating the escalation row
+        // means this instance won't appear in the real HAC queue, not
+        // that the recovery attempt itself was lost.
+      }
+    }
     return { recorded: true };
   }
 

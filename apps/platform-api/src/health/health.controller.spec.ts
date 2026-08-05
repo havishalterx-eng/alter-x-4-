@@ -24,6 +24,8 @@ describe("GET /health", () => {
     process.env.ENGINE_M2M_AUDIENCE = "https://engine.test";
     process.env.ENGINE_M2M_CLIENT_ID = "platform-api";
     process.env.ENGINE_M2M_CLIENT_SECRET_REF = "env:ENGINE_M2M_CLIENT_SECRET";
+    process.env.NOTIFICATION_DIGEST_SERVICE_TOKEN_REF = "env:NOTIFICATION_DIGEST_SERVICE_TOKEN";
+    process.env.NOTIFICATION_DIGEST_SERVICE_TOKEN = "test-notification-digest-token";
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();

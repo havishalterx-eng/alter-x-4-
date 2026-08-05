@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Worker, type NativeConnection } from "@temporalio/worker";
 
 import type { ExecutorActivities } from "./activities/executor-activities";
+import type { PlatformJobActivities } from "./activities/platform-job-activities";
 import type { TemporalConnectionConfig } from "./durable-execution-provider";
 
 function foundationWorkflowsPath(): string {
@@ -73,6 +74,32 @@ export function createExecutorWorker(
     namespace: config.namespace,
     taskQueue: config.taskQueue,
     workflowsPath: executorWorkflowsPath(),
+    activities,
+  });
+}
+
+function platformJobWorkflowsPath(): string {
+  const basePath = join(__dirname, "workflows", "platform-job-workflow");
+  const compiledPath = `${basePath}.js`;
+  return existsSync(compiledPath) ? compiledPath : `${basePath}.ts`;
+}
+
+/**
+ * Real worker for the `platform` Temporal namespace (doc 12, Engagement
+ * Phase Platform Jobs). One generic workflow + activity-registry dispatch
+ * (see platform-job-activities.ts) -- new real job types register a
+ * handler, they don't need a new worker or workflow file.
+ */
+export function createPlatformJobsWorker(
+  config: TemporalConnectionConfig,
+  connection: NativeConnection,
+  activities: PlatformJobActivities,
+): Promise<Worker> {
+  return Worker.create({
+    connection,
+    namespace: config.namespace,
+    taskQueue: config.taskQueue,
+    workflowsPath: platformJobWorkflowsPath(),
     activities,
   });
 }

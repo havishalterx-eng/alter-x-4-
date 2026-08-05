@@ -24,6 +24,7 @@ import {
   workflowTemplateVariableValues,
 } from "../../db/schema/workflow_template_variables";
 import { clarifications } from "../../db/schema/clarifications";
+import { escalations } from "../../db/schema/escalations";
 
 const schemaRoot = resolve(
   process.cwd(),
@@ -51,10 +52,11 @@ const schemas = [
   ["artifacts.ts", "artifacts"],
   ["workflow_template_variables.ts", "workflow_template_variable_definitions"],
   ["clarifications.ts", "clarifications"],
+  ["escalations.ts", "escalations"],
 ] as const;
 
 describe("orchestration Drizzle schemas", () => {
-  it("loads all twenty-one executable Drizzle table definitions", () => {
+  it("loads all twenty-two executable Drizzle table definitions", () => {
     for (const table of [
       workflows,
       triggers,
@@ -77,6 +79,7 @@ describe("orchestration Drizzle schemas", () => {
       workflowTemplateVariableDefinitions,
       workflowTemplateVariableValues,
       clarifications,
+      escalations,
     ]) {
       expect(table).toBeDefined();
     }

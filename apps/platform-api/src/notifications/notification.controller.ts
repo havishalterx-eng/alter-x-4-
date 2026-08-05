@@ -51,6 +51,7 @@ export class NotificationController {
           preference.eventClass,
           preference.channel,
           preference.enabled,
+          preference.deliveryMode,
         ),
       ),
     );

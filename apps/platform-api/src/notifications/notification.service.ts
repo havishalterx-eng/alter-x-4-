@@ -3,6 +3,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { EmailProvider } from "@alterx/shared-clients";
 import { NotificationHttpError } from "./problem";
 import { NotificationRepository } from "./notification.repository";
+import { SystemNotificationStore } from "./system-notification-store";
 import { EMAIL_PROVIDER } from "./tokens";
 import type {
   CreateNotificationEventInput,
@@ -22,15 +23,21 @@ export class NotificationService {
   constructor(
     private readonly repository: NotificationRepository,
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
+    private readonly systemStore?: SystemNotificationStore,
   ) {}
 
   async createEvent(input: CreateNotificationEventInput): Promise<NotificationEvent> {
-    const [inAppEnabled, emailEnabled] = await Promise.all([
+    const [inAppEnabled, emailPreference] = await Promise.all([
       this.repository.preferenceEnabled(input.tenantId, input.userId, input.eventClass, "in_app"),
-      this.repository.preferenceEnabled(input.tenantId, input.userId, input.eventClass, "email"),
+      this.repository.emailDeliveryPreference(input.tenantId, input.userId, input.eventClass),
     ]);
     const event = await this.repository.createEvent(createEventId(), input, inAppEnabled);
-    if (emailEnabled) await this.sendEventEmail(event, input.userId, input.locale);
+    // Only 'immediate' mode sends here -- 'digest' mode accumulates and is
+    // sent once by buildDigest/runDueDigests, never both (real, previously
+    // found double-send gap, closed by the delivery_mode column).
+    if (emailPreference.enabled && emailPreference.deliveryMode === "immediate") {
+      await this.sendEventEmail(event, input.userId, input.locale);
+    }
     return event;
   }
 
@@ -60,23 +67,26 @@ export class NotificationService {
     eventClass: NotificationEventClass,
     channel: NotificationChannel,
     enabled: boolean,
+    deliveryMode?: NotificationPreference["deliveryMode"],
   ): Promise<NotificationPreference> {
-    return this.repository.upsertPreference(tenantId, userId, eventClass, channel, enabled);
+    return this.repository.upsertPreference(
+      tenantId,
+      userId,
+      eventClass,
+      channel,
+      enabled,
+      deliveryMode,
+    );
   }
 
   async buildDigest(window: DigestWindow): Promise<{ readonly eventCount: number; readonly sent: boolean }> {
     if (window.periodStart >= window.periodEnd) {
       throw new Error("Digest period start must be before period end");
     }
-    const preferences = await this.repository.listPreferences(window.tenantId, window.userId);
-    const emailPreferences = new Map<NotificationEventClass, boolean>(
-      preferences
-        .filter((preference) => preference.channel === "email")
-        .map((preference) => [preference.eventClass, preference.enabled]),
-    );
-    const candidates = (await this.repository.listDigestCandidates(window)).filter(
-      (event) => emailPreferences.get(event.event_class) ?? true,
-    );
+    // listDigestCandidates already real-filters to enabled, delivery_mode
+    // = 'digest' rows at the SQL layer -- no further JS-side filtering
+    // needed.
+    const candidates = await this.repository.listDigestCandidates(window);
     if (candidates.length === 0) return { eventCount: 0, sent: false };
 
     const digestId = await this.repository.reserveDigest(
@@ -102,6 +112,48 @@ export class NotificationService {
       await this.repository.releaseDigest(window.tenantId, digestId);
       throw error;
     }
+  }
+
+  /**
+   * Real digest-cycle orchestration: enumerate every real (tenant, user)
+   * pair with a due digest window via the bypass-RLS system store, then
+   * build each real digest through the same real buildDigest path used
+   * everywhere else -- no separate/duplicated digest-sending logic here.
+   * One user's failure is isolated and doesn't block the others.
+   */
+  async runDueDigests(
+    periodStart: Date,
+    periodEnd: Date,
+  ): Promise<{ readonly usersProcessed: number; readonly usersFailed: number }> {
+    if (!this.systemStore) {
+      throw new NotificationHttpError(
+        503,
+        "NOTIFICATION_DIGEST_SCHEDULER_NOT_CONFIGURED",
+        "Digest scheduling requires the platform_db bypass-RLS system store, which is not configured",
+        "/internal/notifications/run-due-digests",
+      );
+    }
+    const eligible = await this.systemStore.listUsersDueForDigest(periodStart, periodEnd);
+    let usersFailed = 0;
+    for (const user of eligible) {
+      try {
+        await this.buildDigest({
+          tenantId: user.tenantId,
+          userId: user.userId,
+          periodStart,
+          periodEnd,
+        });
+      } catch (error) {
+        usersFailed += 1;
+        this.logger.error({
+          tenantId: user.tenantId,
+          userId: user.userId,
+          message: "digest build failed",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return { usersProcessed: eligible.length, usersFailed };
   }
 
   private async sendEventEmail(

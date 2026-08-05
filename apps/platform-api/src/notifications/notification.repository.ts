@@ -5,6 +5,7 @@ import type {
   CreateNotificationEventInput,
   DigestWindow,
   NotificationChannel,
+  NotificationDeliveryMode,
   NotificationEvent,
   NotificationEventClass,
   NotificationListInput,
@@ -32,6 +33,7 @@ interface PreferenceRow {
   event_class: NotificationEventClass;
   channel: NotificationChannel;
   enabled: boolean;
+  delivery_mode: NotificationDeliveryMode;
 }
 
 interface DigestCandidateRow extends EventRow {
@@ -143,7 +145,7 @@ export class NotificationRepository implements OnModuleDestroy {
   listPreferences(tenantId: string, userId: string): Promise<NotificationPreference[]> {
     return this.withTenant(tenantId, async (client) => {
       const result = await client.query<PreferenceRow>(
-        `SELECT event_class, channel, enabled FROM notification_preferences
+        `SELECT event_class, channel, enabled, delivery_mode FROM notification_preferences
           WHERE tenant_id = $1 AND user_id = $2
           ORDER BY event_class, channel`,
         [tenantId, userId],
@@ -152,6 +154,7 @@ export class NotificationRepository implements OnModuleDestroy {
         eventClass: row.event_class,
         channel: row.channel,
         enabled: row.enabled,
+        deliveryMode: row.delivery_mode,
       }));
     });
   }
@@ -172,25 +175,53 @@ export class NotificationRepository implements OnModuleDestroy {
     });
   }
 
+  /**
+   * Email-channel enabled + delivery mode together -- immediate-send
+   * (createEvent) must only fire for delivery_mode='immediate' rows, so
+   * digest-mode events aren't double-sent (once immediately, once in the
+   * digest batch).
+   */
+  async emailDeliveryPreference(
+    tenantId: string,
+    userId: string,
+    eventClass: NotificationEventClass,
+  ): Promise<{ readonly enabled: boolean; readonly deliveryMode: NotificationDeliveryMode }> {
+    return this.withTenant(tenantId, async (client) => {
+      const result = await client.query<{ enabled: boolean; delivery_mode: NotificationDeliveryMode }>(
+        `SELECT enabled, delivery_mode FROM notification_preferences
+          WHERE tenant_id = $1 AND user_id = $2 AND event_class = $3 AND channel = 'email'`,
+        [tenantId, userId, eventClass],
+      );
+      const row = result.rows[0];
+      return { enabled: row?.enabled ?? true, deliveryMode: row?.delivery_mode ?? "immediate" };
+    });
+  }
+
   upsertPreference(
     tenantId: string,
     userId: string,
     eventClass: NotificationEventClass,
     channel: NotificationChannel,
     enabled: boolean,
+    deliveryMode: NotificationDeliveryMode = "immediate",
   ): Promise<NotificationPreference> {
     return this.withTenant(tenantId, async (client) => {
       const result = await client.query<PreferenceRow>(
         `INSERT INTO notification_preferences
-           (id, tenant_id, user_id, event_class, channel, enabled)
-         VALUES ($1, $2, $3, $4, $5, $6)
+           (id, tenant_id, user_id, event_class, channel, enabled, delivery_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (tenant_id, user_id, event_class, channel) DO UPDATE
-           SET enabled = EXCLUDED.enabled
-         RETURNING event_class, channel, enabled`,
-        [randomUUID(), tenantId, userId, eventClass, channel, enabled],
+           SET enabled = EXCLUDED.enabled, delivery_mode = EXCLUDED.delivery_mode
+         RETURNING event_class, channel, enabled, delivery_mode`,
+        [randomUUID(), tenantId, userId, eventClass, channel, enabled, deliveryMode],
       );
       const row = result.rows[0]!;
-      return { eventClass: row.event_class, channel: row.channel, enabled: row.enabled };
+      return {
+        eventClass: row.event_class,
+        channel: row.channel,
+        enabled: row.enabled,
+        deliveryMode: row.delivery_mode,
+      };
     });
   }
 
@@ -207,6 +238,11 @@ export class NotificationRepository implements OnModuleDestroy {
     });
   }
 
+  /**
+   * Only real delivery_mode='digest' preferences qualify -- 'immediate'
+   * rows already got emailed synchronously in createEvent(), including
+   * them here would double-send the same event.
+   */
   listDigestCandidates(window: DigestWindow): Promise<DigestCandidateRow[]> {
     return this.withTenant(window.tenantId, async (client) => {
       const result = await client.query<DigestCandidateRow>(
@@ -217,6 +253,10 @@ export class NotificationRepository implements OnModuleDestroy {
            JOIN notification_reads r
              ON r.tenant_id = e.tenant_id AND r.notification_event_id = e.id
            JOIN users u ON u.id = r.user_id
+           JOIN notification_preferences p
+             ON p.tenant_id = e.tenant_id AND p.user_id = r.user_id
+                AND p.event_class = e.event_class AND p.channel = 'email'
+                AND p.delivery_mode = 'digest' AND p.enabled = true
           WHERE e.tenant_id = $1 AND r.user_id = $2
             AND e.created_at >= $3 AND e.created_at < $4
             AND NOT EXISTS (

@@ -2,16 +2,27 @@ import { z } from "zod";
 import { NotificationHttpError } from "./problem";
 import {
   notificationChannels,
+  notificationDeliveryModes,
   notificationEventClasses,
   notificationSeverities,
+  type NotificationDeliveryMode,
+  type NotificationEventClass,
+  type NotificationChannel,
   type NotificationListInput,
-  type NotificationPreference,
 } from "./types";
+
+export interface PreferenceUpdateInput {
+  readonly eventClass: NotificationEventClass;
+  readonly channel: NotificationChannel;
+  readonly enabled: boolean;
+  readonly deliveryMode: NotificationDeliveryMode | undefined;
+}
 
 const preferenceSchema = z.object({
   event_class: z.enum(notificationEventClasses),
   channel: z.enum(notificationChannels),
   enabled: z.boolean(),
+  delivery_mode: z.enum(notificationDeliveryModes).optional(),
 });
 
 const preferencesSchema = z.object({
@@ -43,12 +54,13 @@ export function parseListInput(
   };
 }
 
-export function parsePreferences(value: unknown): NotificationPreference[] {
+export function parsePreferences(value: unknown): PreferenceUpdateInput[] {
   return parse(preferencesSchema, value, "/api/v1/notifications/preferences").preferences.map(
     (preference) => ({
       eventClass: preference.event_class,
       channel: preference.channel,
       enabled: preference.enabled,
+      deliveryMode: preference.delivery_mode,
     }),
   );
 }

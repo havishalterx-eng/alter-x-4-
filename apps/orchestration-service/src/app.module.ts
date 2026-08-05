@@ -64,6 +64,8 @@ import { RunLearningController } from "./runs/run-learning.controller";
 import { loadRunLauncherEnvironment } from "./config/run-launcher-environment";
 import { ApprovalsController } from "./approvals/approvals.controller";
 import { ApprovalsService } from "./approvals/approvals.service";
+import { EscalationsController } from "./escalations/escalations.controller";
+import { EscalationsService } from "./escalations/escalations.service";
 import { createRuntimeNodeHandlerRegistry } from "./registry/node-handler-registry";
 import { PostgresVerificationGateReader } from "./registry/verification-gate-reader";
 import { BlackboardGrpcService } from "./blackboard/blackboard-grpc.service";
@@ -144,6 +146,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
     RunsController,
     RunLearningController,
     ApprovalsController,
+    EscalationsController,
     TriggerRegistryController,
     TriggerBindingController,
     WebhookEndpointController,
@@ -714,6 +717,25 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       },
     },
     {
+      provide: EscalationsService,
+      useFactory: () => {
+        // Same reasoning as ApprovalsService above: constructs its own
+        // PostgresOrchestrationStoreProvider rather than reaching into the
+        // guard's private instance.
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        return new EscalationsService(store);
+      },
+    },
+    {
       provide: BLACKBOARD_HANDLER,
       useFactory: () => {
         // Same reasoning as CONVERSATION_HANDLER/TriggerRegistryService
@@ -891,12 +913,14 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
     blackboard,
     verificationReader,
   );
+  const escalations = new EscalationsService(store);
   return new RecoveryPolicyService(
     store,
     modelGateway,
     dispatch,
     undefined,
     policyStoreClient,
+    escalations,
   );
 }
 
