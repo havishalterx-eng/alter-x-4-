@@ -29,6 +29,12 @@ interface ClassifierOutput {
   readonly reason?: unknown;
 }
 
+interface ModelGatewayOutputEnvelope {
+  readonly message?: {
+    readonly content?: unknown;
+  };
+}
+
 function buildClassificationPrompt(text: string): string {
   return JSON.stringify({
     task: "prompt_injection_classification",
@@ -39,9 +45,9 @@ function buildClassificationPrompt(text: string): string {
 }
 
 function parseClassifierOutput(outputJson: string): PromptInjectionClassificationResult {
-  let parsed: ClassifierOutput;
+  let parsed: ClassifierOutput | ModelGatewayOutputEnvelope;
   try {
-    parsed = JSON.parse(outputJson) as ClassifierOutput;
+    parsed = JSON.parse(outputJson) as ClassifierOutput | ModelGatewayOutputEnvelope;
   } catch {
     // A classifier response that isn't parseable JSON is treated as a
     // non-detection rather than a block -- this guard is a defense-in-depth
@@ -49,17 +55,29 @@ function parseClassifierOutput(outputJson: string): PromptInjectionClassificatio
     // malfunction rather than block every request in the system.
     return { blocked: false, confidence: 0 };
   }
-  const detected = parsed.injection_detected === true;
+  let candidate: ClassifierOutput = parsed as ClassifierOutput;
+  if ("message" in parsed) {
+    const content = parsed.message?.content;
+    if (typeof content !== "string") {
+      return { blocked: false, confidence: 0 };
+    }
+    try {
+      candidate = JSON.parse(content) as ClassifierOutput;
+    } catch {
+      return { blocked: false, confidence: 0 };
+    }
+  }
+  const detected = candidate.injection_detected === true;
   const confidence =
-    typeof parsed.confidence === "number" &&
-    parsed.confidence >= 0 &&
-    parsed.confidence <= 1
-      ? parsed.confidence
+    typeof candidate.confidence === "number" &&
+    candidate.confidence >= 0 &&
+    candidate.confidence <= 1
+      ? candidate.confidence
       : 0;
   return {
     blocked: detected,
     confidence,
-    ...(typeof parsed.reason === "string" ? { reason: parsed.reason } : {}),
+    ...(typeof candidate.reason === "string" ? { reason: candidate.reason } : {}),
   };
 }
 

@@ -7,6 +7,7 @@ import {
 } from "node:crypto";
 import { resolve } from "node:path";
 
+import { Controller, Get } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { Test } from "@nestjs/testing";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
@@ -17,6 +18,8 @@ import {
   RedisReplayStore,
   RedisRespSetClient,
   SessionGatewayGuard,
+  SessionGatewayRateLimitGuard,
+  SessionGatewayUploadAllowlistGuard,
 } from "@alterx/auth";
 import { ProblemDetailsSchema } from "@alterx/contracts";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
@@ -29,6 +32,16 @@ import { OrchestrationDeletionService } from "./deletion.service";
 const migrationsFolder = resolve(process.cwd(), "apps/orchestration-service/drizzle");
 const TENANT_A = "018f4d6e-2b4a-7a3e-8c1a-1234567890a1";
 const TENANT_B = "018f4d6e-2b4a-7a3e-8c1a-1234567890b1";
+const TENANT_RATE = "018f4d6e-2b4a-7a3e-8c1a-1234567890c1";
+const TENANT_UPLOAD = "018f4d6e-2b4a-7a3e-8c1a-1234567890d1";
+
+@Controller("guard-probe")
+class GuardProbeController {
+  @Get()
+  probe(): { readonly ok: true } {
+    return { ok: true };
+  }
+}
 
 describe.sequential("actor-scoped deletion request", () => {
   let postgres: StartedPostgreSqlContainer;
@@ -93,13 +106,18 @@ describe.sequential("actor-scoped deletion request", () => {
       tenantStore,
     );
     const module = await Test.createTestingModule({
-      controllers: [DeletionRequestController],
+      controllers: [DeletionRequestController, GuardProbeController],
       providers: [
         {
           provide: OrchestrationDeletionService,
           useValue: new OrchestrationDeletionService(tenantStore, admin),
         },
         { provide: APP_GUARD, useValue: guard },
+        { provide: APP_GUARD, useValue: new SessionGatewayRateLimitGuard() },
+        {
+          provide: APP_GUARD,
+          useValue: new SessionGatewayUploadAllowlistGuard(),
+        },
       ],
     }).compile();
     app = module.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
@@ -150,6 +168,44 @@ describe.sequential("actor-scoped deletion request", () => {
     expect(response.status).toBe(401);
     expect(ProblemDetailsSchema.parse(await response.json()).status).toBe(401);
   });
+
+  it("returns 429 through the real global guard chain after the default tenant limit", async () => {
+    for (let index = 0; index < 120; index += 1) {
+      const response = await authenticatedProbe(TENANT_RATE);
+      expect(response.status).toBe(200);
+    }
+
+    const limited = await authenticatedProbe(TENANT_RATE);
+    expect(limited.status).toBe(429);
+    expect(ProblemDetailsSchema.parse(await limited.json())).toMatchObject({
+      status: 429,
+      error_code: "SESSION_GATEWAY_RATE_LIMIT_EXCEEDED",
+    });
+  }, 30_000);
+
+  it("rejects a disallowed content type through the real global guard chain", async () => {
+    const response = await authenticatedProbe(TENANT_UPLOAD, {
+      "content-type": "application/xml",
+    });
+    expect(response.status).toBe(415);
+    expect(ProblemDetailsSchema.parse(await response.json())).toMatchObject({
+      status: 415,
+      error_code: "SESSION_GATEWAY_UPLOAD_REJECTED",
+    });
+  });
+
+  function authenticatedProbe(
+    tenantId: string,
+    headers: Record<string, string> = {},
+  ): Promise<Response> {
+    return fetch(`${baseUrl}/guard-probe`, {
+      headers: {
+        authorization: `Bearer ${jwt(machineClaims())}`,
+        "x-alter-actor-token": jwt(actorClaims(`ten_${tenantId}`)),
+        ...headers,
+      },
+    });
+  }
 
   async function seedWorkflow(tenantId: string, workflowId: string): Promise<void> {
     await admin.withTenant(tenantId, async (tx) => {

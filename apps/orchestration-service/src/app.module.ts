@@ -38,6 +38,8 @@ import {
   RedisReplayStore,
   RedisRespSetClient,
   SessionGatewayGuard,
+  SessionGatewayRateLimitGuard,
+  SessionGatewayUploadAllowlistGuard,
 } from "@alterx/auth";
 import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import { ConversationManagerService } from "./conversation/conversation-manager.service";
@@ -199,6 +201,14 @@ import { ArtifactContentGrpcService } from "./artifacts/artifact-content-grpc.se
           }),
         );
       },
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: () => new SessionGatewayRateLimitGuard(),
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: () => new SessionGatewayUploadAllowlistGuard(),
     },
     {
       provide: CONVERSATION_HANDLER,

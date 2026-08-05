@@ -12,6 +12,32 @@ const REQUEST = {
 };
 
 describe("PromptInjectionClassifier", () => {
+  it("parses the real Model Gateway output envelope", async () => {
+    const modelGateway: ModelGatewayInvokeLike = {
+      invoke: vi.fn(async () => ({
+        output_json: JSON.stringify({
+          message: {
+            role: "assistant",
+            content: JSON.stringify({
+              injection_detected: true,
+              confidence: 0.98,
+              reason: "instruction override detected",
+            }),
+          },
+          stop_reason: "end_turn",
+        }),
+      })),
+    };
+
+    await expect(
+      new PromptInjectionClassifier(modelGateway).classify(REQUEST),
+    ).resolves.toEqual({
+      blocked: true,
+      confidence: 0.98,
+      reason: "instruction override detected",
+    });
+  });
+
   it("reports a detected injection with confidence and reason", async () => {
     const modelGateway: ModelGatewayInvokeLike = {
       invoke: vi.fn(async (request) => {

@@ -9,6 +9,7 @@ import type {
   ConversationMergeClarificationResponse,
 } from "@alterx/contracts";
 import type { ConversationHandler, ModelGatewayHandler } from "@alterx/adapters";
+import { PromptInjectionClassifier } from "@alterx/auth";
 
 import {
   INTENT_VALUES,
@@ -89,6 +90,11 @@ function requireNonEmpty(field: string, value: string): void {
   if (value.trim().length === 0) {
     throw new ConversationValidationError(`${field} is required`);
   }
+}
+
+function prefixedUuidV7(prefix: "run" | "node"): `${typeof prefix}_${string}` {
+  const uuid = randomUUID();
+  return `${prefix}_${uuid.slice(0, 14)}7${uuid.slice(15)}`;
 }
 
 function parseJsonOrThrow<T>(raw: string, context: string): T {
@@ -200,10 +206,14 @@ async function readGoalStateRow(
 // bounds retries under pathological contention; exhausting it throws
 // ConversationConcurrencyError rather than looping forever.
 export class ConversationManagerService implements ConversationHandler {
+  readonly #promptInjectionClassifier: PromptInjectionClassifier;
+
   constructor(
     private readonly store: OrchestrationTenantStore,
     private readonly modelGateway: ModelGatewayHandler,
-  ) {}
+  ) {
+    this.#promptInjectionClassifier = new PromptInjectionClassifier(modelGateway);
+  }
 
   async classifyIntent(
     request: ConversationClassifyIntentRequest,
@@ -212,14 +222,26 @@ export class ConversationManagerService implements ConversationHandler {
     requireNonEmpty("conversation_id", request.conversation_id);
     requireNonEmpty("utterance", request.utterance);
 
+    const promptInjection = await this.#promptInjectionClassifier.classify({
+      tenantId: request.tenant_id,
+      runId: prefixedUuidV7("run"),
+      nodeExecutionId: prefixedUuidV7("node"),
+      text: request.utterance,
+    });
+    if (promptInjection.blocked) {
+      throw new ConversationValidationError(
+        promptInjection.reason ?? "Prompt injection attempt detected",
+      );
+    }
+
     const invokeResponse = await this.modelGateway.invoke({
       tenant_id: request.tenant_id,
       // ClassifyIntent has no natural run/node -- it's an ad-hoc Model
       // Gateway call, not part of a workflow execution. Synthesized here
       // solely so the Model Gateway's required cost/audit attribution
       // fields are populated.
-      run_id: `run_${randomUUID()}`,
-      node_execution_id: `node_${randomUUID()}`,
+      run_id: prefixedUuidV7("run"),
+      node_execution_id: prefixedUuidV7("node"),
       model_alias: "FAST",
       input_json: JSON.stringify({
         messages: [

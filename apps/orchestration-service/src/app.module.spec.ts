@@ -1,5 +1,9 @@
 import { APP_GUARD } from "@nestjs/core";
-import { SessionGatewayGuard } from "@alterx/auth";
+import {
+  SessionGatewayGuard,
+  SessionGatewayRateLimitGuard,
+  SessionGatewayUploadAllowlistGuard,
+} from "@alterx/auth";
 import { describe, expect, it, vi } from "vitest";
 import { AppModule } from "./app.module";
 
@@ -8,19 +12,19 @@ interface GlobalGuardProvider {
   readonly useFactory: () => unknown;
 }
 
-function globalGuardProvider(): GlobalGuardProvider {
+function globalGuardProviders(): readonly GlobalGuardProvider[] {
   const providers = Reflect.getMetadata("providers", AppModule) as unknown[];
-  const provider = providers.find(
+  const guards = providers.filter(
     (candidate): candidate is GlobalGuardProvider =>
       typeof candidate === "object" &&
       candidate !== null &&
       "provide" in candidate &&
       candidate.provide === APP_GUARD,
   );
-  if (!provider) {
+  if (guards.length === 0) {
     throw new Error("Session Gateway APP_GUARD is not registered");
   }
-  return provider;
+  return guards;
 }
 
 const VALID_CONFIG = {
@@ -49,7 +53,7 @@ function stubConfig(overrides: Record<string, string> = {}): void {
 
 describe("AppModule Session Gateway registration", () => {
   it("registers the Session Gateway globally and fails on missing config", () => {
-    const provider = globalGuardProvider();
+    const provider = globalGuardProviders()[0]!;
     expect(provider.provide).toBe(APP_GUARD);
     vi.stubEnv("AUTH0_DOMAIN", "");
     try {
@@ -64,8 +68,25 @@ describe("AppModule Session Gateway registration", () => {
   it("builds the guard when all required references are present", () => {
     stubConfig();
     try {
-      expect(globalGuardProvider().useFactory()).toBeInstanceOf(
+      expect(globalGuardProviders()[0]!.useFactory()).toBeInstanceOf(
         SessionGatewayGuard,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("registers rate limiting and upload validation after authentication", () => {
+    stubConfig();
+    try {
+      const guards = globalGuardProviders();
+      expect(guards).toHaveLength(3);
+      expect(guards[0]!.useFactory()).toBeInstanceOf(SessionGatewayGuard);
+      expect(guards[1]!.useFactory()).toBeInstanceOf(
+        SessionGatewayRateLimitGuard,
+      );
+      expect(guards[2]!.useFactory()).toBeInstanceOf(
+        SessionGatewayUploadAllowlistGuard,
       );
     } finally {
       vi.unstubAllEnvs();
@@ -75,7 +96,7 @@ describe("AppModule Session Gateway registration", () => {
   it("fails closed when production feature flag is not enabled", () => {
     stubConfig({ NODE_ENV: "production" });
     try {
-      expect(globalGuardProvider().useFactory).toThrow(
+      expect(globalGuardProviders()[0]!.useFactory).toThrow(
         "Production Session Gateway requires feature flag ingress.sessionGatewayCore",
       );
     } finally {
@@ -90,7 +111,7 @@ describe("AppModule Session Gateway registration", () => {
       ACTOR_TOKEN_JWKS_URL: "",
     });
     try {
-      expect(globalGuardProvider().useFactory).toThrow(
+      expect(globalGuardProviders()[0]!.useFactory).toThrow(
         "Missing required Session Gateway configuration: ACTOR_TOKEN_JWKS_URL",
       );
     } finally {
@@ -105,7 +126,7 @@ describe("AppModule Session Gateway registration", () => {
       ACTOR_TOKEN_TEST_SIGNER_ENABLED: "true",
     });
     try {
-      expect(globalGuardProvider().useFactory).toThrow(
+      expect(globalGuardProviders()[0]!.useFactory).toThrow(
         "Actor-token test signer cannot be enabled in production",
       );
     } finally {
@@ -119,7 +140,7 @@ describe("AppModule Session Gateway registration", () => {
       INGRESS_SESSION_GATEWAY_CORE_ENABLED: "true",
     });
     try {
-      expect(globalGuardProvider().useFactory()).toBeInstanceOf(
+      expect(globalGuardProviders()[0]!.useFactory()).toBeInstanceOf(
         SessionGatewayGuard,
       );
     } finally {
