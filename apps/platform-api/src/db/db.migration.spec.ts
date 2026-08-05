@@ -259,6 +259,7 @@ describe("platform_db migration", () => {
       "env_var_use_audits",
       "env_vars",
       "idempotency_keys",
+      "i18n_bundles",
       "oauth_connection_use_audits",
       "oauth_connections",
       "oauth_states",
