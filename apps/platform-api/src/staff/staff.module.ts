@@ -18,6 +18,7 @@ import { SupportAccessExceptionFilter } from "./support-access-exception.filter"
     StaffAuthMiddleware,
     SupportAccessExceptionFilter,
   ],
+  exports: [StaffService, StaffAuthMiddleware],
 })
 export class StaffModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

@@ -36,6 +36,7 @@ import { SearchModule } from "./search";
 import { StaffModule } from "./staff";
 import { CliModule } from "./cli";
 import { SystemHealthModule } from "./system-health/system-health.module";
+import { AdminTenantsModule } from "./admin-tenants";
 
 @Module({
   imports: [
@@ -75,6 +76,7 @@ import { SystemHealthModule } from "./system-health/system-health.module";
     StaffModule,
     CliModule,
     SystemHealthModule,
+    AdminTenantsModule,
   ],
   controllers: [HealthController],
 })
