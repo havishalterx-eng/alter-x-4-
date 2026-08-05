@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 describe("i18n migration", () => {
   it("adds only additive preferences and seeds minimal EN and HI product copy", () => {
     const sql = readFileSync(
-      join(__dirname, "../db/migrations/0010_i18n.sql"),
+      join(__dirname, "../db/migrations/0011_i18n.sql"),
       "utf8",
     );
 

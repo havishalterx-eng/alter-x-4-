@@ -260,6 +260,10 @@ describe("platform_db migration", () => {
       "env_vars",
       "i18n_bundles",
       "idempotency_keys",
+      "notification_digests",
+      "notification_events",
+      "notification_preferences",
+      "notification_reads",
       "oauth_connection_use_audits",
       "oauth_connections",
       "oauth_states",
@@ -440,7 +444,7 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
-    expect(rows[0]?.count).toBe("22");
+    expect(rows[0]?.count).toBe("26");
   });
 
   it("prevents tenant_id mutation on tenant-owned rows", async () => {

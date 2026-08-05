@@ -399,6 +399,13 @@ export {
 } from "./aws/s3-object-storage-provider";
 export { MetaCloudApiWhatsappProvider, MetaCloudApiWhatsappError, type WhatsappProviderAccount, type WhatsappTemplate } from "./meta/meta-cloud-api-whatsapp-provider";
 export {
+  SesEmailProvider,
+  SES_EMAIL_CAPABILITIES,
+  type SesCommandClient,
+  type SesEmailProviderConfig,
+} from "./ses/ses-email-provider";
+export { MockEmailProvider } from "./ses/mock-email-provider";
+export {
   AwsSsmParameterProvider,
   type AwsSsmParameterProviderConfig,
   type SsmParameterCommandClient,
