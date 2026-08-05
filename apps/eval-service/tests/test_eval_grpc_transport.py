@@ -118,7 +118,9 @@ def test_global_eval_service_round_trip_uses_minted_run_id_and_honest_gate_limit
             )
         )
 
-    eval_db_url = str(sessions.kw["bind"].url)
+    # str(URL) intentionally redacts credentials as "***". The independently
+    # constructed gRPC server engine needs the real test-container password.
+    eval_db_url = sessions.kw["bind"].url.render_as_string(hide_password=False)
     asyncio.run(_round_trip(eval_db_url, golden_set_name))
 
 
