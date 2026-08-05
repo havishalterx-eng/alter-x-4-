@@ -78,6 +78,10 @@ function createFakeStore(seed: readonly Row[] = []): {
             return { rowCount: 1, rows: [] as unknown as readonly TRow[] };
           }
 
+          if (statement.startsWith("INSERT INTO clarifications")) {
+            return { rowCount: 1, rows: [] as unknown as readonly TRow[] };
+          }
+
           throw new Error(`Unhandled query in fake store: ${statement}`);
         },
       });

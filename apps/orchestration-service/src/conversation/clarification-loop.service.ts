@@ -181,16 +181,38 @@ export class ClarificationLoopService {
       const questions: OutstandingQuestion[] = decomposed.clarification_questions.map(
         (question) => ({ clarificationId: prefixedUuidV7("clr"), question }),
       );
-      await this.updateGoalState(bareTenant, request.conversationId, (current) => ({
-        goalState: {
-          ...current,
-          pendingQuestions: {
-            ...current.pendingQuestions,
-            ...Object.fromEntries(questions.map((q) => [q.clarificationId, q.question])),
+      await this.updateGoalState(
+        bareTenant,
+        request.conversationId,
+        (current) => ({
+          goalState: {
+            ...current,
+            pendingQuestions: {
+              ...current.pendingQuestions,
+              ...Object.fromEntries(questions.map((q) => [q.clarificationId, q.question])),
+            },
           },
+          status: "awaiting_clarification",
+        }),
+        async (tx) => {
+          for (const question of questions) {
+            const inserted = await tx.query(
+              `INSERT INTO clarifications
+                 (id, tenant_id, workspace_id, conversation_id, question, status, expiry_at)
+               SELECT $1, $2, workspace_id, $3, $4, 'open',
+                      clock_timestamp() + make_interval(secs => 86400)
+               FROM conversations
+               WHERE tenant_id = $2 AND id = $3`,
+              [question.clarificationId, bareTenant, request.conversationId, question.question],
+            );
+            if (inserted.rowCount !== 1) {
+              throw new ClarificationLoopValidationError(
+                `conversation ${request.conversationId} was not found for this tenant`,
+              );
+            }
+          }
         },
-        status: "awaiting_clarification",
-      }));
+      );
       return { status: "awaiting_clarification", questions };
     }
 
@@ -255,6 +277,7 @@ export class ClarificationLoopService {
     tenantId: string,
     conversationId: string,
     next: (current: GoalState) => { goalState: GoalState; status: GoalStateStatus },
+    afterUpdate?: (tx: OrchestrationTransactionLike) => Promise<void>,
   ): Promise<void> {
     await this.store.withTenant(tenantId, async (tx) => {
       await tx.query(
@@ -282,6 +305,7 @@ export class ClarificationLoopService {
         );
 
         if (result.rowCount === 1) {
+          await afterUpdate?.(tx);
           return;
         }
       }

@@ -84,6 +84,10 @@ import { TriggerRegistryController } from "./trigger-registry/trigger-registry.c
 import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
 import { WorkflowReadController } from "./workflow-read/workflow-read.controller";
 import { WorkflowReadService } from "./workflow-read/workflow-read.service";
+import { TemplateVariablesController } from "./template-variables/template-variables.controller";
+import { TemplateVariablesService } from "./template-variables/template-variables.service";
+import { ClarificationsController } from "./clarifications/clarifications.controller";
+import { ClarificationsService } from "./clarifications/clarifications.service";
 import { ProjectReadController } from "./project-read/project-read.controller";
 import { ProjectReadService } from "./project-read/project-read.service";
 import { TOOLGW_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
@@ -133,6 +137,8 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
     ApprovalsController,
     TriggerRegistryController,
     WorkflowReadController,
+    TemplateVariablesController,
+    ClarificationsController,
     ProjectReadController,
     ArtifactsController,
     WhatsappWebhookController,
@@ -313,6 +319,36 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
         return new WorkflowReadService(store);
+      },
+    },
+    {
+      provide: TemplateVariablesService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        return new TemplateVariablesService(new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        }));
+      },
+    },
+    {
+      provide: ClarificationsService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        return new ClarificationsService(new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        }));
       },
     },
     {

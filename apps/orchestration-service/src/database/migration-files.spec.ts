@@ -41,6 +41,7 @@ describe("orchestration migration files", () => {
       "0021_create_whatsapp_accounts.sql",
       "0022_add_project_run_provisioning.sql",
       "0023_add_deployment_artifact_seam.sql",
+      "0024_create_template_variables_clarifications.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -71,6 +72,7 @@ describe("orchestration migration files", () => {
       "0021_drop_whatsapp_accounts.sql",
       "0022_remove_project_run_provisioning.sql",
       "0023_remove_deployment_artifact_seam.sql",
+      "0024_drop_template_variables_clarifications.sql",
     ]);
   });
 
@@ -93,13 +95,13 @@ describe("orchestration migration files", () => {
     },
   );
 
-  it("defines immutability function once and reuses it nineteen times", () => {
+  it("defines immutability function once and reuses it twenty-two times", () => {
     const allSql = migrationSql.map(({ sql }) => sql).join("\n");
 
     expect(allSql.match(/CREATE OR REPLACE FUNCTION reject_tenant_id_change/g))
       .toHaveLength(1);
     expect(allSql.match(/EXECUTE FUNCTION reject_tenant_id_change\(\)/g))
-      .toHaveLength(19);
+      .toHaveLength(22);
   });
 
   it("persists a bounded traffic percentage only for canary versions", () => {
@@ -233,6 +235,18 @@ describe("orchestration migration files", () => {
     expect(allSql).toContain('CREATE UNIQUE INDEX "idx_deployments_tenant_project_active"');
     expect(allSql).toContain(
       "cannot enforce one active deployment per project while duplicate active rows exist",
+    );
+    expect(allSql).toContain(
+      `CONSTRAINT "workflow_template_variable_definitions_type_check" CHECK ("value_type" IN ('text', 'number', 'secret', 'list'))`,
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "workflow_template_variable_definitions_version_tenant_fk" FOREIGN KEY ("tenant_id", "workflow_version_id") REFERENCES "workflow_versions"("tenant_id", "id") ON DELETE CASCADE',
+    );
+    expect(allSql).toContain(
+      `CONSTRAINT "clarifications_status_check" CHECK ("status" IN ('open', 'answered', 'expired'))`,
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "clarifications_conversation_tenant_fk" FOREIGN KEY ("tenant_id", "conversation_id") REFERENCES "conversations"("tenant_id", "id") ON DELETE CASCADE',
     );
   });
 

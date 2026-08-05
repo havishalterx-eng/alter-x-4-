@@ -20,14 +20,16 @@ export interface DeletionTenantStore {
 
 const STORE = "orchestration-service";
 const TABLES = [
-  "workflows", "workflow_versions", "triggers", "trigger_versions", "conversations",
+  "workflow_template_variable_values", "workflow_template_variable_definitions",
+  "workflows", "workflow_versions", "triggers", "trigger_versions", "clarifications", "conversations",
   "conversation_goal_states", "events", "runs", "blackboard_checkpoints", "node_executions",
   "run_stream_events", "verification_results", "recovery_actions", "run_outcomes", "approvals",
 ] as const;
 const DELETE_ORDER = [
   "approvals", "verification_results", "recovery_actions", "run_outcomes", "run_stream_events",
   "blackboard_checkpoints", "node_executions", "events", "runs", "conversation_goal_states",
-  "trigger_versions", "triggers", "workflow_versions", "conversations", "workflows",
+  "trigger_versions", "triggers", "workflow_template_variable_values",
+  "workflow_template_variable_definitions", "workflow_versions", "clarifications", "conversations", "workflows",
 ] as const;
 
 export class OrchestrationDeletionService implements DeletionProvider {
@@ -114,6 +116,9 @@ export class OrchestrationDeletionService implements DeletionProvider {
       const result = await tx.query<{ tenant_id: string }>(
         `SELECT DISTINCT tenant_id::text FROM (
            SELECT tenant_id FROM workflows UNION SELECT tenant_id FROM workflow_versions
+           UNION SELECT tenant_id FROM workflow_template_variable_definitions
+           UNION SELECT tenant_id FROM workflow_template_variable_values
+           UNION SELECT tenant_id FROM clarifications
            UNION SELECT tenant_id FROM triggers UNION SELECT tenant_id FROM trigger_versions
            UNION SELECT tenant_id FROM conversations UNION SELECT tenant_id FROM conversation_goal_states
            UNION SELECT tenant_id FROM events UNION SELECT tenant_id FROM runs

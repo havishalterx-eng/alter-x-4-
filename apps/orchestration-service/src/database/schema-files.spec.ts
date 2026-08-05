@@ -19,6 +19,11 @@ import { approvals } from "../../db/schema/approvals";
 import { projects } from "../../db/schema/projects";
 import { deployments } from "../../db/schema/deployments";
 import { artifacts } from "../../db/schema/artifacts";
+import {
+  workflowTemplateVariableDefinitions,
+  workflowTemplateVariableValues,
+} from "../../db/schema/workflow_template_variables";
+import { clarifications } from "../../db/schema/clarifications";
 
 const schemaRoot = resolve(
   process.cwd(),
@@ -44,10 +49,12 @@ const schemas = [
   ["projects.ts", "projects"],
   ["deployments.ts", "deployments"],
   ["artifacts.ts", "artifacts"],
+  ["workflow_template_variables.ts", "workflow_template_variable_definitions"],
+  ["clarifications.ts", "clarifications"],
 ] as const;
 
 describe("orchestration Drizzle schemas", () => {
-  it("loads all eighteen executable Drizzle table definitions", () => {
+  it("loads all twenty-one executable Drizzle table definitions", () => {
     for (const table of [
       workflows,
       triggers,
@@ -67,6 +74,9 @@ describe("orchestration Drizzle schemas", () => {
       projects,
       deployments,
       artifacts,
+      workflowTemplateVariableDefinitions,
+      workflowTemplateVariableValues,
+      clarifications,
     ]) {
       expect(table).toBeDefined();
     }
@@ -125,6 +135,14 @@ describe("orchestration Drizzle schemas", () => {
       'uniqueIndex("idx_deployments_tenant_project_active")',
       'foreignKey({\n      name: "artifacts_run_tenant_fk"',
       'index("idx_artifacts_tenant_run_created")',
+      'foreignKey({\n      name: "workflow_template_variable_definitions_workflow_tenant_fk"',
+      'foreignKey({\n      name: "workflow_template_variable_definitions_version_tenant_fk"',
+      '"workflow_template_variable_definitions_type_check"',
+      'index("idx_workflow_template_variable_definitions_workflow")',
+      'foreignKey({\n      name: "workflow_template_variable_values_workflow_tenant_fk"',
+      'foreignKey({\n      name: "clarifications_conversation_tenant_fk"',
+      '"clarifications_status_check"',
+      'index("idx_clarifications_tenant_status_requested")',
     ]) {
       expect(allSources).toContain(expected);
     }

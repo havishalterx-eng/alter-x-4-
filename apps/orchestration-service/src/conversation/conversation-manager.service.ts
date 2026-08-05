@@ -341,6 +341,19 @@ export class ConversationManagerService implements ConversationHandler {
         );
 
         if (result.rowCount === 1) {
+          await tx.query(
+            `UPDATE clarifications
+             SET status = CASE
+                   WHEN expiry_at < clock_timestamp() THEN 'expired'
+                   ELSE 'answered'
+                 END,
+                 answered_at = CASE
+                   WHEN expiry_at < clock_timestamp() THEN NULL
+                   ELSE clock_timestamp()
+                 END
+             WHERE tenant_id = $1 AND conversation_id = $2 AND id = $3 AND status = 'open'`,
+            [bareTenant, request.conversation_id, request.clarification_id],
+          );
           const updated = result.rows[0]!;
           return {
             goal_state_json: JSON.stringify(updated.goal_state_json),
