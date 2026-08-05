@@ -19,6 +19,7 @@ import { NodeExecutionLedgerService } from "../runs/node-execution-ledger.servic
 import { RunStreamEventService } from "../runs/run-stream-event.service";
 import type { RecoveryTriggerService } from "../recovery/recovery-trigger.service";
 import type { RunOutcomeService } from "../runs/run-outcome.service";
+import type { ProjectRunProvisioningService } from "../runs/project-run-provisioning.service";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -61,6 +62,7 @@ export class NodeexecService {
     private readonly streamEvents?: RunStreamEventService,
     private readonly recovery?: RecoveryTriggerService,
     private readonly runOutcomes?: RunOutcomeService,
+    private readonly projectProvisioning?: ProjectRunProvisioningService,
   ) {}
 
   async executeNode(
@@ -323,6 +325,14 @@ export class NodeexecService {
       request.tenant_id,
       request.run_id,
       request.status,
+    );
+    // Project sessions outlive individual node calls, but not the run. This
+    // call deliberately remains on the real terminal activity path so an
+    // unavailable Provisioning service fails the activity and Temporal
+    // retries cleanup instead of silently orphaning the sandbox.
+    await this.projectProvisioning?.closeForTerminalRun(
+      request.tenant_id,
+      request.run_id,
     );
     await this.#recordOutcomeBestEffort(request.tenant_id, request.run_id, result.status);
     // Only emit when the ledger actually applied *this* finalize -- if the

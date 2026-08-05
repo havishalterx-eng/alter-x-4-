@@ -2,6 +2,7 @@ import { z } from "./zod";
 import {
   IsoTimestampSchema,
   NonEmptyStringSchema,
+  ProjectIdSchema,
   RunIdSchema,
   WorkflowIdSchema,
   WorkflowVersionIdSchema,
@@ -22,13 +23,14 @@ export const RunLifecycleStatusSchema = z.enum([
   "cancelled",
 ]);
 
-export const RunParentKindSchema = z.enum(["workflow"]);
+export const RunParentKindSchema = z.enum(["workflow", "project"]);
 
 export const RunRecordSchema = z
   .object({
     id: RunIdSchema,
-    workflow_id: WorkflowIdSchema,
-    workflow_version_id: WorkflowVersionIdSchema,
+    workflow_id: WorkflowIdSchema.nullable(),
+    project_id: ProjectIdSchema.nullable(),
+    workflow_version_id: WorkflowVersionIdSchema.nullable(),
     parent_kind: RunParentKindSchema,
     status: RunLifecycleStatusSchema,
     started_at: IsoTimestampSchema.nullable(),

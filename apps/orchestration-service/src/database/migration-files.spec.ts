@@ -36,6 +36,7 @@ describe("orchestration migration files", () => {
       "0019_create_projects.sql",
       "0020_create_artifacts.sql",
       "0021_create_whatsapp_accounts.sql",
+      "0022_add_project_run_provisioning.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -64,6 +65,7 @@ describe("orchestration migration files", () => {
       "0019_drop_projects.sql",
       "0020_drop_artifacts.sql",
       "0021_drop_whatsapp_accounts.sql",
+      "0022_remove_project_run_provisioning.sql",
     ]);
   });
 
@@ -129,6 +131,9 @@ describe("orchestration migration files", () => {
     );
     expect(allSql).toContain(
       'CONSTRAINT "runs_workflow_tenant_fk" FOREIGN KEY ("tenant_id", "workflow_id") REFERENCES "workflows"("tenant_id", "id")',
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "runs_project_tenant_fk"\n  FOREIGN KEY ("tenant_id", "project_id") REFERENCES "projects"("tenant_id", "id")',
     );
     expect(allSql).toContain(
       'CONSTRAINT "conversation_goal_states_conversation_tenant_fk" FOREIGN KEY ("tenant_id", "conversation_id") REFERENCES "conversations"("tenant_id", "id")',

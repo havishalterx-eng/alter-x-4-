@@ -19,6 +19,7 @@ import {
   ModelGatewayClient,
   PlannerClient,
   PolicyStoreClient,
+  ProvisioningClient,
   SandboxServiceClient,
   AwsSsmParameterProvider,
   S3ObjectStorageProvider,
@@ -54,7 +55,9 @@ import { RunStreamController } from "./runs/run-stream.controller";
 import { RunLauncherService } from "./runs/run-launcher.service";
 import { RunsController } from "./runs/runs.controller";
 import { RunOutcomeService } from "./runs/run-outcome.service";
+import { ProjectRunProvisioningService } from "./runs/project-run-provisioning.service";
 import { RunWorkspaceLookupService } from "./runs/run-workspace-lookup.service";
+import { PROVISIONING_CLIENT_PROTO_PATH } from "./runs/provisioning-client.constants";
 import { RunLearningController } from "./runs/run-learning.controller";
 import { loadRunLauncherEnvironment } from "./config/run-launcher-environment";
 import { ApprovalsController } from "./approvals/approvals.controller";
@@ -432,6 +435,13 @@ import { ArtifactContentGrpcService } from "./artifacts/artifact-content-grpc.se
           new RunStreamEventService(store),
           recoveryTrigger,
           buildRunOutcomeService(),
+          new ProjectRunProvisioningService(
+            store,
+            new ProvisioningClient({
+              address: runLauncherConfig.provisioningServiceAddress,
+              protoPath: PROVISIONING_CLIENT_PROTO_PATH,
+            }),
+          ),
         );
       },
     },
@@ -528,7 +538,18 @@ import { ArtifactContentGrpcService } from "./artifacts/artifact-content-grpc.se
             ? {}
             : { apiKey: runLauncherConfig.temporalApiKey }),
         });
-        return new RunLauncherService(store, durable, buildRunOutcomeService());
+        return new RunLauncherService(
+          store,
+          durable,
+          buildRunOutcomeService(),
+          new ProjectRunProvisioningService(
+            store,
+            new ProvisioningClient({
+              address: runLauncherConfig.provisioningServiceAddress,
+              protoPath: PROVISIONING_CLIENT_PROTO_PATH,
+            }),
+          ),
+        );
       },
     },
     {

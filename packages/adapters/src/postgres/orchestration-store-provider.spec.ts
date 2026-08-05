@@ -186,12 +186,13 @@ describe.sequential("PostgresOrchestrationStoreProvider integration", () => {
       ORDER BY source.relname, target.relname
     `);
 
-    expect(result.rows).toHaveLength(9);
+    expect(result.rows).toHaveLength(10);
     expect(result.rows).toEqual(expect.arrayContaining([
       { table_name: "events", foreign_table_name: "conversations" },
       { table_name: "events", foreign_table_name: "triggers" },
       { table_name: "events", foreign_table_name: "trigger_versions" },
       { table_name: "runs", foreign_table_name: "conversations" },
+      { table_name: "runs", foreign_table_name: "projects" },
       { table_name: "runs", foreign_table_name: "triggers" },
       { table_name: "runs", foreign_table_name: "workflows" },
       { table_name: "runs", foreign_table_name: "workflow_versions" },
@@ -287,10 +288,30 @@ describe.sequential("PostgresOrchestrationStoreProvider integration", () => {
       adminPool.query(
         `INSERT INTO runs
            (id, tenant_id, workspace_id, parent_kind)
-         VALUES ('run_invalid', $1, $2, 'project')`,
+         VALUES ('run_invalid', $1, $2, 'invalid')`,
         [tenantA, workspaceA],
       ),
     ).rejects.toMatchObject({ code: "23514" });
+
+    await adminPool.query(
+      `INSERT INTO projects (id, tenant_id, workspace_id, name)
+       VALUES ('prj_a', $1, $2, 'Project A')`,
+      [tenantA, workspaceA],
+    );
+    await expect(
+      adminPool.query(
+        `INSERT INTO runs (id, tenant_id, workspace_id, parent_kind, project_id)
+         VALUES ('run_project_a', $1, $2, 'project', 'prj_a')`,
+        [tenantA, workspaceA],
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+    await expect(
+      adminPool.query(
+        `INSERT INTO runs (id, tenant_id, workspace_id, parent_kind, project_id)
+         VALUES ('run_project_cross_tenant', $1, $2, 'project', 'prj_a')`,
+        [tenantB, workspaceB],
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
   });
 
   it("rejects cross-tenant foreign keys and accepts same-tenant graph edges", async () => {

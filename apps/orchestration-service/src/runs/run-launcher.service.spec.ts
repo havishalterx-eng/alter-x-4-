@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { CompiledDag } from "@alterx/contracts";
 
 import {
   RunLauncherService,
@@ -9,14 +10,17 @@ import {
   WorkflowNotFoundError,
   type OrchestrationTenantStore,
 } from "./run-launcher.service";
+import { ProjectRunProvisioningService } from "./project-run-provisioning.service";
 
 const TENANT = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const BARE_TENANT = "018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const WORKFLOW = "wf_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const WORKFLOW_VERSION = "wfv_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const RUN = "run_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
+const PROJECT = "prj_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
+const SESSION = "ses_returned-by-provisioning";
 
-function compiledDag() {
+function compiledDag(): CompiledDag {
   return {
     schema_version: "v1",
     entry_node_keys: ["node_a"],
@@ -90,6 +94,121 @@ function fakeStore(handlers: {
   return { store, tx };
 }
 
+function projectRunHarness(options: { readonly reused?: boolean } = {}) {
+  const runs = new Map<string, Record<string, unknown>>();
+  const provision = vi.fn(async () => ({
+    session_id: SESSION,
+    project_directory: `/workspace/${PROJECT}`,
+    reused: options.reused ?? false,
+  }));
+  const closeCycle = vi.fn(async () => ({ closed: true }));
+  const query = vi.fn(async (statement: string, values: readonly unknown[] = []) => {
+    if (statement.includes("SELECT workspace_id FROM projects")) {
+      return { rowCount: 1, rows: [{ workspace_id: BARE_TENANT }] };
+    }
+    if (statement.includes("INSERT INTO runs")) {
+      const [id, tenantId, workspaceId, projectId, cycleId, templateId] = values as [
+        string,
+        string,
+        string,
+        string,
+        string,
+        string,
+      ];
+      const row = {
+        id,
+        workflow_id: null,
+        project_id: projectId,
+        workflow_version_id: null,
+        provisioning_session_id: null,
+        provisioning_cycle_id: cycleId,
+        provisioning_template_id: templateId,
+        provisioning_closed_at: null,
+        parent_kind: "project",
+        status: "pending",
+        started_at: null,
+        ended_at: null,
+        created_at: "2026-08-05T00:00:00.000Z",
+        tenant_id: tenantId,
+        workspace_id: workspaceId,
+      };
+      runs.set(id, row);
+      return { rowCount: 1, rows: [row] };
+    }
+    if (statement.includes("SET provisioning_session_id")) {
+      const [, runId, projectId, sessionId, cycleId] = values as [
+        string,
+        string,
+        string,
+        string,
+        string,
+      ];
+      const row = runs.get(runId);
+      if (
+        row === undefined ||
+        row.project_id !== projectId ||
+        row.provisioning_cycle_id !== cycleId ||
+        row.provisioning_session_id !== null
+      ) {
+        return { rowCount: 0, rows: [] };
+      }
+      row.provisioning_session_id = sessionId;
+      return { rowCount: 1, rows: [] };
+    }
+    if (statement.includes("SELECT project_id, provisioning_cycle_id")) {
+      const [, runId] = values as [string, string];
+      const row = runs.get(runId);
+      return { rowCount: row === undefined ? 0 : 1, rows: row === undefined ? [] : [row] };
+    }
+    if (statement.includes("SET provisioning_closed_at")) {
+      const [, runId] = values as [string, string];
+      const row = runs.get(runId);
+      if (row === undefined || row.provisioning_closed_at !== null) {
+        return { rowCount: 0, rows: [] };
+      }
+      row.provisioning_closed_at = "2026-08-05T00:05:00.000Z";
+      return { rowCount: 1, rows: [] };
+    }
+    if (statement.includes("UPDATE runs SET status = 'running'")) {
+      const [, runId] = values as [string, string];
+      const row = runs.get(runId)!;
+      row.status = "running";
+      row.started_at = "2026-08-05T00:00:01.000Z";
+      return { rowCount: 1, rows: [row] };
+    }
+    if (statement.includes("UPDATE runs SET status = 'cancelled'")) {
+      const [, runId] = values as [string, string];
+      const row = runs.get(runId)!;
+      row.status = "cancelled";
+      row.ended_at = "2026-08-05T00:04:00.000Z";
+      return { rowCount: 1, rows: [row] };
+    }
+    if (statement.includes("UPDATE runs SET status = 'failed'")) {
+      const [, runId] = values as [string, string];
+      const row = runs.get(runId)!;
+      row.status = "failed";
+      return { rowCount: 1, rows: [] };
+    }
+    if (statement.includes("FROM runs")) {
+      const [, runId] = values as [string, string];
+      const row = runs.get(runId);
+      return { rowCount: row === undefined ? 0 : 1, rows: row === undefined ? [] : [row] };
+    }
+    return { rowCount: 0, rows: [] };
+  });
+  const store: OrchestrationTenantStore = {
+    withTenant: async (tenantId, operation) => {
+      expect(tenantId).toBe(BARE_TENANT);
+      return operation({ query } as never);
+    },
+  };
+  const lifecycle = new ProjectRunProvisioningService(store, {
+    provision,
+    closeCycle,
+  });
+  return { store, runs, provision, closeCycle, lifecycle };
+}
+
 describe("RunLauncherService.createRun", () => {
   it("resolves the promoted version, inserts the run, starts the workflow, and marks it running", async () => {
     const { store } = fakeStore({
@@ -154,6 +273,136 @@ describe("RunLauncherService.createRun", () => {
     await expect(launcher.createRun(TENANT, WORKFLOW)).rejects.toBeInstanceOf(RunStartFailedError);
     const statements = tx.query.mock.calls.map((call) => String(call[0]));
     expect(statements.some((s: string) => s.includes("status = 'failed'"))).toBe(true);
+  });
+});
+
+describe("RunLauncherService.createProjectRun", () => {
+  it("provisions through the handler, durably persists that real session, and a fresh launcher retrieves it after restart", async () => {
+    const { store, provision, lifecycle } = projectRunHarness();
+    const durable = {
+      startWorkflow: vi.fn().mockResolvedValue({ workflowId: RUN, runId: "temporal-project-run" }),
+      terminateWorkflow: vi.fn(),
+    };
+    const launcher = new RunLauncherService(store, durable as never, undefined, lifecycle);
+
+    const created = await launcher.createProjectRun(TENANT, {
+      projectId: PROJECT,
+      cycle_id: "cycle_1",
+      template_id: "base",
+      environment_refs: { API_KEY: "secret/project/api-key" },
+      scaffold: [{ path: "package.json", content: "{}" }],
+      compiledDag: compiledDag(),
+    });
+
+    expect(provision).toHaveBeenCalledWith({
+      tenant_id: TENANT,
+      run_id: created.id,
+      project_id: PROJECT,
+      cycle_id: "cycle_1",
+      template_id: "base",
+      environment_refs: { API_KEY: "secret/project/api-key" },
+      scaffold: [{ path: "package.json", content: "{}" }],
+    });
+    expect(created).toMatchObject({
+      parent_kind: "project",
+      project_id: PROJECT,
+      provisioning_session_id: SESSION,
+      status: "running",
+    });
+    expect(durable.startWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({ workflowId: created.id, workflowType: "executorWorkflow" }),
+    );
+
+    // Simulates a fresh worker/process: only the durable runs row survives.
+    const restartedLauncher = new RunLauncherService(
+      store,
+      durable as never,
+      undefined,
+      lifecycle,
+    );
+    await expect(restartedLauncher.getRun(TENANT, created.id)).resolves.toMatchObject({
+      provisioning_session_id: SESSION,
+      provisioning_cycle_id: "cycle_1",
+    });
+    await expect(
+      lifecycle.provisionForRun(TENANT, created.id, PROJECT, {
+        cycle_id: "cycle_1",
+        template_id: "base",
+        environment_refs: { API_KEY: "secret/project/api-key" },
+        scaffold: [{ path: "package.json", content: "{}" }],
+      }),
+    ).resolves.toBe(SESSION);
+    expect(provision).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the provisioned cycle when the project run is cancelled", async () => {
+    const { store, closeCycle, lifecycle } = projectRunHarness();
+    const durable = {
+      startWorkflow: vi.fn().mockResolvedValue({ workflowId: RUN, runId: "temporal-project-run" }),
+      terminateWorkflow: vi.fn().mockResolvedValue(undefined),
+    };
+    const launcher = new RunLauncherService(store, durable as never, undefined, lifecycle);
+    const created = await launcher.createProjectRun(TENANT, {
+      projectId: PROJECT,
+      cycle_id: "cycle_1",
+      template_id: "base",
+      environment_refs: {},
+      scaffold: [],
+      compiledDag: compiledDag(),
+    });
+
+    await launcher.cancelRun(TENANT, created.id);
+
+    expect(closeCycle).toHaveBeenCalledWith({
+      tenant_id: TENANT,
+      run_id: created.id,
+      project_id: PROJECT,
+      cycle_id: "cycle_1",
+    });
+  });
+
+  it("closes the provisioned cycle when Temporal cannot start the project run", async () => {
+    const { store, closeCycle, lifecycle } = projectRunHarness();
+    const durable = {
+      startWorkflow: vi.fn().mockRejectedValue(new Error("Temporal unavailable")),
+      terminateWorkflow: vi.fn(),
+    };
+    const launcher = new RunLauncherService(store, durable as never, undefined, lifecycle);
+
+    await expect(
+      launcher.createProjectRun(TENANT, {
+        projectId: PROJECT,
+        cycle_id: "cycle_1",
+        template_id: "base",
+        environment_refs: {},
+        scaffold: [],
+        compiledDag: compiledDag(),
+      }),
+    ).rejects.toThrow("failed to start its durable workflow");
+
+    expect(closeCycle).toHaveBeenCalledWith(
+      expect.objectContaining({ project_id: PROJECT, cycle_id: "cycle_1" }),
+    );
+  });
+
+  it("persists the session returned by an idempotent Provision response", async () => {
+    const { store, lifecycle } = projectRunHarness({ reused: true });
+    const durable = {
+      startWorkflow: vi.fn().mockResolvedValue({ workflowId: RUN, runId: "temporal-project-run" }),
+      terminateWorkflow: vi.fn(),
+    };
+    const launcher = new RunLauncherService(store, durable as never, undefined, lifecycle);
+
+    const created = await launcher.createProjectRun(TENANT, {
+      projectId: PROJECT,
+      cycle_id: "cycle_retry",
+      template_id: "base",
+      environment_refs: {},
+      scaffold: [],
+      compiledDag: compiledDag(),
+    });
+
+    expect(created.provisioning_session_id).toBe(SESSION);
   });
 });
 

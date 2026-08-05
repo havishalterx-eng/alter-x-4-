@@ -89,6 +89,8 @@ describe("orchestration Drizzle schemas", () => {
       'foreignKey({\n      name: "triggers_workflow_tenant_fk"',
       'foreignKey({\n      name: "events_trigger_version_tenant_fk"',
       'foreignKey({\n      name: "runs_workflow_tenant_fk"',
+      'foreignKey({\n      name: "runs_project_tenant_fk"',
+      'index("idx_runs_tenant_project")',
       'unique("trigger_versions_tenant_trigger_version_unique")',
       'foreignKey({\n      name: "conversation_goal_states_conversation_tenant_fk"',
       'foreignKey({\n      name: "workflow_versions_workflow_tenant_fk"',
