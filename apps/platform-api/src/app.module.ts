@@ -28,9 +28,10 @@ import { CostsModule } from "./costs/costs.module";
 import { WhatsappModule } from "./channels/whatsapp/whatsapp.module";
 import { MarketplaceModule } from "./marketplace";
 import { PublisherModule } from "./publisher";
-import { SearchModule } from "./search";
 import { RegistryModule } from "./registry";
 import { NotificationModule } from "./notifications";
+import { SearchModule } from "./search";
+import { StaffModule } from "./staff";
 
 @Module({
   imports: [
@@ -62,9 +63,10 @@ import { NotificationModule } from "./notifications";
     WhatsappModule,
     MarketplaceModule,
     PublisherModule,
-    SearchModule,
     RegistryModule,
     NotificationModule,
+    SearchModule,
+    StaffModule,
   ],
   controllers: [HealthController],
 })

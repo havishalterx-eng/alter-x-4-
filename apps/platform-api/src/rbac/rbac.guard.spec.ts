@@ -6,12 +6,13 @@ import {
   ActorContext,
   Public,
   RequirePermission,
+  RequireStaffRole,
   RequireTenantRole,
   RequireWorkspaceRole,
 } from "./decorators";
 import { RbacModule, resourceTenantResolverToken } from "./rbac.module";
 import { RequestParamTenantResolver } from "./resource-tenant.resolver";
-import type { ActorContext as ActorContextType } from "./types";
+import type { ActorContext as ActorContextType, StaffActorContext } from "./types";
 
 const tenantA = "00000000-0000-7000-8000-000000000001";
 const tenantB = "00000000-0000-7000-8000-000000000002";
@@ -97,6 +98,18 @@ class RbacTestController {
   permission(): { ok: true } {
     return { ok: true };
   }
+
+  @RequireStaffRole("staff_admin")
+  @Get("staff/admin")
+  staffAdmin(): { ok: true } {
+    return { ok: true };
+  }
+
+  @RequireStaffRole("staff_admin", "staff_support", "staff_billing_ops", "staff_security")
+  @Get("staff/any")
+  staffAny(): { ok: true } {
+    return { ok: true };
+  }
 }
 
 @Module({
@@ -130,6 +143,11 @@ describe("RbacGuard", () => {
         (request as unknown as { actorContext?: ActorContextType }).actorContext = JSON.parse(
           actor,
         ) as ActorContextType;
+      }
+      const staff = request.headers["x-test-staff"];
+      if (typeof staff === "string") {
+        (request as unknown as { staffActorContext?: StaffActorContext }).staffActorContext =
+          JSON.parse(staff) as StaffActorContext;
       }
       done();
     });
@@ -196,13 +214,43 @@ describe("RbacGuard", () => {
     expect(allowed.statusCode).toBe(200);
   });
 
-  async function get(url: string, actorContext?: ActorContextType) {
+  it("allows each explicit staff role without a tenant actor", async () => {
+    for (const role of ["staff_admin", "staff_support", "staff_billing_ops", "staff_security"] as const) {
+      const response = await get("/rbac-test/staff/any", undefined, staffActor(role));
+      expect(response.statusCode).toBe(200);
+    }
+  });
+
+  it("requires staff_admin for staff-admin routes", async () => {
+    const denied = await get("/rbac-test/staff/admin", undefined, staffActor("staff_support"));
+    const allowed = await get("/rbac-test/staff/admin", undefined, staffActor("staff_admin"));
+    expect(denied.statusCode).toBe(403);
+    expect(allowed.statusCode).toBe(200);
+  });
+
+  it("denies tenant actors on staff-only routes", async () => {
+    const response = await get("/rbac-test/staff/any", actor(["owner"], tenantA));
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ error_code: "RBAC_ROLE_DENIED" });
+  });
+
+  async function get(
+    url: string,
+    actorContext?: ActorContextType,
+    staffContext?: StaffActorContext,
+  ) {
     const options: { method: "GET"; url: string; headers?: Record<string, string> } = {
       method: "GET",
       url,
     };
-    if (actorContext) {
-      options.headers = { "x-test-actor": JSON.stringify(actorContext) };
+    if (actorContext || staffContext) {
+      options.headers = {};
+      if (actorContext) {
+        options.headers["x-test-actor"] = JSON.stringify(actorContext);
+      }
+      if (staffContext) {
+        options.headers["x-test-staff"] = JSON.stringify(staffContext);
+      }
     }
     return await app.getHttpAdapter().getInstance().inject(options);
   }
@@ -224,4 +272,13 @@ function actor(
     context.workspace_id = workspaceId;
   }
   return context;
+}
+
+function staffActor(role: StaffActorContext["roles"][number]): StaffActorContext {
+  return {
+    staff_user_id: "stf_00000000-0000-7000-8000-000000000401",
+    identity_ref: "auth0|staff-test",
+    email: "staff@example.com",
+    roles: [role],
+  };
 }
