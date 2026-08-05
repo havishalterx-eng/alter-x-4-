@@ -274,6 +274,12 @@ export type {
   GetNodeExecutionRecoveryInfoRequest as RunsGetNodeExecutionRecoveryInfoRequest,
   GetNodeExecutionRecoveryInfoResponse as RunsGetNodeExecutionRecoveryInfoResponse,
 } from "./generated/alter/runs/v1/runs";
+export type {
+  RunEvaluationRequest as EvalRunEvaluationRequest,
+  RunEvaluationResponse as EvalRunEvaluationResponse,
+  CheckReleaseGateRequest as EvalCheckReleaseGateRequest,
+  CheckReleaseGateResponse as EvalCheckReleaseGateResponse,
+} from "./generated/alter/eval/v1/eval";
 export {
   CompiledDagSchema,
   NodeRequirementsSchema,
