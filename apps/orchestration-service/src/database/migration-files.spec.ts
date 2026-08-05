@@ -10,6 +10,9 @@ const migrationSql = migrationFiles.map((file) => ({
   file,
   sql: readFileSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, file), "utf8"),
 }));
+const migrationJournal = JSON.parse(
+  readFileSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "meta", "_journal.json"), "utf8"),
+) as { readonly entries: readonly { readonly tag: string }[] };
 
 describe("orchestration migration files", () => {
   it("keeps ordered migrations and matching rollbacks", () => {
@@ -37,6 +40,7 @@ describe("orchestration migration files", () => {
       "0020_create_artifacts.sql",
       "0021_create_whatsapp_accounts.sql",
       "0022_add_project_run_provisioning.sql",
+      "0023_add_deployment_artifact_seam.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -66,7 +70,14 @@ describe("orchestration migration files", () => {
       "0020_drop_artifacts.sql",
       "0021_drop_whatsapp_accounts.sql",
       "0022_remove_project_run_provisioning.sql",
+      "0023_remove_deployment_artifact_seam.sql",
     ]);
+  });
+
+  it("registers every migration in Drizzle journal so production migration runs cannot skip it", () => {
+    expect(migrationJournal.entries.map((entry) => `${entry.tag}.sql`)).toEqual(
+      migrationFiles,
+    );
   });
 
   it.each(migrationSql.filter(({ sql }) => sql.includes("CREATE TABLE")))(
@@ -212,6 +223,16 @@ describe("orchestration migration files", () => {
     );
     expect(allSql).toContain(
       'CONSTRAINT "artifacts_run_tenant_fk" FOREIGN KEY ("tenant_id", "run_id") REFERENCES "runs"("tenant_id", "id") ON DELETE CASCADE',
+    );
+    expect(allSql).toContain('CONSTRAINT "deployments_artifact_tenant_fk"');
+    expect(allSql).toContain(
+      'FOREIGN KEY ("tenant_id", "artifact_id")\n  REFERENCES "artifacts"("tenant_id", "id")',
+    );
+    expect(allSql).toContain('CONSTRAINT "deployments_status_check"');
+    expect(allSql).toContain("'pending', 'active', 'failed', 'rolled_back'");
+    expect(allSql).toContain('CREATE UNIQUE INDEX "idx_deployments_tenant_project_active"');
+    expect(allSql).toContain(
+      "cannot enforce one active deployment per project while duplicate active rows exist",
     );
   });
 

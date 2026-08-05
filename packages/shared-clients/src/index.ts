@@ -74,6 +74,8 @@ export {
   type BrowserProvider,
   type BrowserInspectionRequest,
   type BrowserInspectionResult,
+  type ArtifactDeploymentRequest,
+  type ArtifactDeploymentResult,
   type CacheProvider,
   type CanonicalProviderInterfaceName,
   type ComputeProvider,
@@ -192,6 +194,11 @@ export {
   createMockProvider,
   type MockProviderOptions,
 } from "./mock-provider";
+export {
+  createMockDeploymentProvider,
+  type MockDeploymentProvider,
+  type MockDeploymentProviderOptions,
+} from "./mocks/deployment-provider";
 export { cosineSimilarity } from "./semantic-cache";
 export {
   IN_AADHAAR_PATTERN,

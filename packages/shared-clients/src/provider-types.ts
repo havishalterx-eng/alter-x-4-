@@ -600,8 +600,23 @@ export interface BrowserInspectionResult {
 export interface BrowserProvider extends BaseProvider<"BrowserProvider"> {
   inspectPage(request: BrowserInspectionRequest): Promise<BrowserInspectionResult>;
 }
+export interface ArtifactDeploymentRequest {
+  readonly tenantId: string;
+  readonly projectId: string;
+  readonly artifactId: string;
+  /** Durable object reference; future runtime providers fetch it themselves. */
+  readonly sourceReference: string;
+  readonly contentType: string;
+}
+export interface ArtifactDeploymentResult {
+  readonly deploymentReference: string;
+}
 export interface DeploymentProvider
-  extends BaseProvider<"DeploymentProvider"> {}
+  extends BaseProvider<"DeploymentProvider"> {
+  deployArtifact(
+    request: ArtifactDeploymentRequest,
+  ): Promise<ArtifactDeploymentResult>;
+}
 export interface ObjectStorageProvider
   extends BaseProvider<"ObjectStorageProvider"> {
   putObject(

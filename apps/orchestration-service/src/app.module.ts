@@ -343,7 +343,7 @@ import { ArtifactContentGrpcService } from "./artifacts/artifact-content-grpc.se
     },
     {
       provide: DEPLOYCTL_HANDLER,
-      useFactory: () => {
+      useFactory: async (artifacts: ArtifactsService) => {
         const dbConfig = sessionGatewayEnvironment(process.env);
         const store = new PostgresOrchestrationStoreProvider({
           authentication: "iam",
@@ -354,8 +354,23 @@ import { ArtifactContentGrpcService } from "./artifacts/artifact-content-grpc.se
           region: dbConfig.awsRegion,
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
-        return new DeploymentControllerService(store);
+        const parameterStore = new AwsSsmParameterProvider({
+          region: dbConfig.awsRegion,
+        });
+        try {
+          const staticDeploymentBucket = await parameterStore.getParameter(
+            dbConfig.artifactsBucketParameter,
+          );
+          return new DeploymentControllerService(store, {
+            artifacts,
+            objects: new S3ObjectStorageProvider({ region: dbConfig.awsRegion }),
+            staticDeploymentBucket,
+          });
+        } finally {
+          parameterStore.close();
+        }
       },
+      inject: [ArtifactsService],
     },
     {
       // No PostgresOrchestrationStoreProvider here -- the Node Type

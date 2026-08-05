@@ -162,6 +162,13 @@
       "when": 1784861022000,
       "tag": "0022_add_project_run_provisioning",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1784861023000,
+      "tag": "0023_add_deployment_artifact_seam",
+      "breakpoints": true
     }
   ]
 }

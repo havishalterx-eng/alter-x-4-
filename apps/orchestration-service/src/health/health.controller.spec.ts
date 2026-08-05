@@ -1,11 +1,12 @@
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import { DEPLOYCTL_HANDLER } from "@alterx/adapters";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../app.module";
 import { ArtifactsService } from "../artifacts/artifacts.service";
 
 describe("GET /health", () => {
-  let app: NestFastifyApplication;
+  let app: NestFastifyApplication | undefined;
 
   beforeEach(async () => {
     const config = {
@@ -48,6 +49,10 @@ describe("GET /health", () => {
       // Health does not use artifact storage; avoid resolving AWS credentials.
       .overrideProvider(ArtifactsService)
       .useValue({})
+      // Deployment's S3 bucket is resolved only for deployment requests.
+      // Health must not contact AWS during its isolated controller test.
+      .overrideProvider(DEPLOYCTL_HANDLER)
+      .useValue({})
       .compile();
 
     app = moduleRef.createNestApplication<NestFastifyApplication>(
@@ -58,12 +63,12 @@ describe("GET /health", () => {
   });
 
   afterEach(async () => {
-    await app.close();
+    await app?.close();
     vi.unstubAllEnvs();
   });
 
   it("returns health without authentication through the global guard", async () => {
-    const response = await app
+    const response = await app!
       .getHttpAdapter()
       .getInstance()
       .inject({ method: "GET", url: "/health" });

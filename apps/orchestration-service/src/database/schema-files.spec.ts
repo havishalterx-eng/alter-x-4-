@@ -18,6 +18,7 @@ import { runOutcomes } from "../../db/schema/run_outcomes";
 import { approvals } from "../../db/schema/approvals";
 import { projects } from "../../db/schema/projects";
 import { deployments } from "../../db/schema/deployments";
+import { artifacts } from "../../db/schema/artifacts";
 
 const schemaRoot = resolve(
   process.cwd(),
@@ -42,10 +43,11 @@ const schemas = [
   ["approvals.ts", "approvals"],
   ["projects.ts", "projects"],
   ["deployments.ts", "deployments"],
+  ["artifacts.ts", "artifacts"],
 ] as const;
 
 describe("orchestration Drizzle schemas", () => {
-  it("loads all seventeen executable Drizzle table definitions", () => {
+  it("loads all eighteen executable Drizzle table definitions", () => {
     for (const table of [
       workflows,
       triggers,
@@ -64,6 +66,7 @@ describe("orchestration Drizzle schemas", () => {
       approvals,
       projects,
       deployments,
+      artifacts,
     ]) {
       expect(table).toBeDefined();
     }
@@ -118,6 +121,10 @@ describe("orchestration Drizzle schemas", () => {
       'index("idx_approvals_tenant_status_requested")',
       'foreignKey({\n      name: "deployments_project_tenant_fk"',
       'index("idx_deployments_project")',
+      'foreignKey({\n      name: "deployments_artifact_tenant_fk"',
+      'uniqueIndex("idx_deployments_tenant_project_active")',
+      'foreignKey({\n      name: "artifacts_run_tenant_fk"',
+      'index("idx_artifacts_tenant_run_created")',
     ]) {
       expect(allSources).toContain(expected);
     }
