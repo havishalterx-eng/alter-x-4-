@@ -10,6 +10,10 @@ import {
 import type {
   SandboxExecuteRequest,
   SandboxExecuteResponse,
+  SandboxReadFileRequest,
+  SandboxReadFileResponse,
+  SandboxWriteFileRequest,
+  SandboxWriteFileResponse,
 } from "@alterx/contracts";
 
 export const SANDBOX_HANDLER = Symbol("SANDBOX_HANDLER");
@@ -23,6 +27,8 @@ export class SandboxGrpcValidationError extends Error {
 
 export interface SandboxGrpcHandler {
   execute(request: SandboxExecuteRequest): Promise<SandboxExecuteResponse>;
+  readFile(request: SandboxReadFileRequest): Promise<SandboxReadFileResponse>;
+  writeFile(request: SandboxWriteFileRequest): Promise<SandboxWriteFileResponse>;
 }
 
 export interface SandboxGrpcTransportConfig {
@@ -55,6 +61,21 @@ export class SandboxGrpcController {
       });
     }
   }
+
+  @GrpcMethod("SandboxService", "ReadFile")
+  async readFile(request: SandboxReadFileRequest): Promise<SandboxReadFileResponse> {
+    try { return await this.handler.readFile(request); } catch (error: unknown) { throw mapSandboxError(error); }
+  }
+
+  @GrpcMethod("SandboxService", "WriteFile")
+  async writeFile(request: SandboxWriteFileRequest): Promise<SandboxWriteFileResponse> {
+    try { return await this.handler.writeFile(request); } catch (error: unknown) { throw mapSandboxError(error); }
+  }
+}
+
+function mapSandboxError(error: unknown): RpcException {
+  if (error instanceof SandboxGrpcValidationError) return new RpcException({ code: status.INVALID_ARGUMENT, message: error.message });
+  return new RpcException({ code: status.INTERNAL, message: "Sandbox file operation could not be completed" });
 }
 
 export async function startSandboxGrpcTransport(

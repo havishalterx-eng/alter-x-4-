@@ -3,6 +3,7 @@ import type { SandboxProvider } from "@alterx/shared-clients";
 import {
   SANDBOX_HANDLER,
   SandboxGrpcController,
+  type ArtifactContentClientHandler,
 } from "@alterx/adapters";
 
 import { HealthController } from "./health/health.controller";
@@ -16,6 +17,7 @@ import {
 export class AppModule {
   static register(
     sandbox: SandboxProvider,
+    artifacts: ArtifactContentClientHandler,
     tools?: SandboxToolDependencies,
   ): DynamicModule {
     return {
@@ -26,7 +28,7 @@ export class AppModule {
         {
           provide: SANDBOX_HANDLER,
           useFactory: (service: SandboxService) =>
-            new SandboxServiceGrpcHandler(service),
+            new SandboxServiceGrpcHandler(service, artifacts),
           inject: [SandboxService],
         },
       ],

@@ -8,6 +8,7 @@ import {
 
 import {
   AwsAppConfigConfigProvider,
+  ArtifactContentClient,
   AwsSecretsManagerProvider,
   BrowserbasePlaywrightProvider,
   E2bSandboxProvider,
@@ -97,6 +98,7 @@ function createQueueProvider(environment: SandboxEnvironment): QueueProvider {
     : new SqsQueueProvider({ region: environment.region });
 }
 import { SANDBOX_PROTO_PATH } from "./sandbox/grpc.constants";
+import { ARTIFACT_CONTENT_PROTO_PATH } from "./artifacts/grpc.constants";
 
 async function bootstrap(): Promise<void> {
   const environment = loadSandboxEnvironment(process.env);
@@ -113,9 +115,13 @@ async function bootstrap(): Promise<void> {
   const config = createConfigProvider(environment);
   const costQueue = createQueueProvider(environment);
   const database = new PostgresToolDatabaseProvider(secrets);
+  const artifacts = new ArtifactContentClient({
+    address: environment.artifactContentServiceAddress,
+    protoPath: ARTIFACT_CONTENT_PROTO_PATH,
+  });
 
   const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule.register(sandbox, {
+    AppModule.register(sandbox, artifacts, {
       browser,
       config,
       database,

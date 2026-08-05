@@ -4,6 +4,7 @@ interface SandboxEnvironmentBase {
   readonly alterEnvironment: (typeof ALTER_ENVIRONMENTS)[number];
   readonly region: "ap-south-1";
   readonly grpcBindAddress: string;
+  readonly artifactContentServiceAddress: string;
 }
 
 export interface SandboxMockEnvironment extends SandboxEnvironmentBase {
@@ -54,6 +55,7 @@ export function loadSandboxEnvironment(
       alterEnvironment as SandboxEnvironment["alterEnvironment"],
     region: "ap-south-1" as const,
     grpcBindAddress: grpcAddress(environment),
+    artifactContentServiceAddress: required(environment, "ARTIFACT_CONTENT_SERVICE_ADDRESS"),
   };
   const source = required(environment, "ALTER_CONFIG_SOURCE");
   if (source === "mock") {

@@ -7,6 +7,7 @@ const BASE = {
   ALTER_SERVICE_NAME: "sandbox-service",
   ALTER_REGION: "ap-south-1",
   ALTER_CONFIG_SOURCE: "mock",
+  ARTIFACT_CONTENT_SERVICE_ADDRESS: "orchestration-service:50061",
 };
 
 describe("loadSandboxEnvironment", () => {
@@ -15,6 +16,7 @@ describe("loadSandboxEnvironment", () => {
       alterEnvironment: "local",
       region: "ap-south-1",
       grpcBindAddress: "0.0.0.0:50057",
+      artifactContentServiceAddress: "orchestration-service:50061",
       configSource: "mock",
       localMock: true,
     });

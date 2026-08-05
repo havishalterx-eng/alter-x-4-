@@ -110,6 +110,10 @@ export type {
 export type {
   ExecuteRequest as SandboxExecuteRequest,
   ExecuteResponse as SandboxExecuteResponse,
+  ReadFileRequest as SandboxReadFileRequest,
+  ReadFileResponse as SandboxReadFileResponse,
+  WriteFileRequest as SandboxWriteFileRequest,
+  WriteFileResponse as SandboxWriteFileResponse,
 } from "./generated/alter/sandbox/v1/sandbox";
 export {
   SafetySeverity as VerifySafetySeverity,

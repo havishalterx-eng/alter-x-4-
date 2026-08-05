@@ -1,8 +1,12 @@
 import type {
   SandboxExecuteRequest,
   SandboxExecuteResponse,
+  SandboxReadFileRequest,
+  SandboxReadFileResponse,
+  SandboxWriteFileRequest,
+  SandboxWriteFileResponse,
 } from "@alterx/contracts";
-import { SandboxGrpcValidationError } from "@alterx/adapters";
+import { SandboxGrpcValidationError, type ArtifactContentClientHandler } from "@alterx/adapters";
 
 import { SandboxService } from "./sandbox.service";
 
@@ -11,7 +15,8 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 /** Maps public gRPC request to service's intentionally single-command API. */
 export class SandboxServiceGrpcHandler {
   constructor(
-    private readonly sandboxService: Pick<SandboxService, "execute">,
+    private readonly sandboxService: Pick<SandboxService, "execute" | "readFile" | "writeFiles">,
+    private readonly artifacts: ArtifactContentClientHandler,
   ) {}
 
   async execute(
@@ -39,6 +44,21 @@ export class SandboxServiceGrpcHandler {
       stdout: boundedOutput(result.stdout),
       stderr: boundedOutput(result.stderr),
     };
+  }
+
+  async readFile(request: SandboxReadFileRequest): Promise<SandboxReadFileResponse> {
+    requireValue(request.tenant_id, "tenant_id"); requireValue(request.run_id, "run_id"); requireValue(request.session_id, "session_id"); requireValue(request.path, "path");
+    const content = new TextEncoder().encode(await this.sandboxService.readFile(request.session_id, request.path));
+    const artifact = await this.artifacts.createContent({ tenant_id: request.tenant_id, run_id: request.run_id, content_type: "application/octet-stream", content });
+    return { content_artifact_id: artifact.artifact_id, size_bytes: artifact.size_bytes };
+  }
+
+  async writeFile(request: SandboxWriteFileRequest): Promise<SandboxWriteFileResponse> {
+    requireValue(request.tenant_id, "tenant_id"); requireValue(request.run_id, "run_id"); requireValue(request.session_id, "session_id"); requireValue(request.path, "path"); requireValue(request.content_artifact_id, "content_artifact_id");
+    const artifact = await this.artifacts.readContent({ tenant_id: request.tenant_id, artifact_id: request.content_artifact_id });
+    const content = new TextDecoder().decode(artifact.content);
+    await this.sandboxService.writeFiles(request.session_id, [{ path: request.path, content }]);
+    return { written: true, size_bytes: artifact.size_bytes };
   }
 }
 
