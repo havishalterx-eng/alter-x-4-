@@ -124,6 +124,101 @@ describe("PostgresAuditStoreProvider failure branches", () => {
   });
 });
 
+describe("PostgresAuditStoreProvider.queryEvents", () => {
+  it("builds the tenant-scoped filter and does not treat a null tenantId as unscoped by accident", async () => {
+    let capturedSql = "";
+    let capturedParams: unknown[] = [];
+    const client = clientWithQuery(async (sql: string, ...args: unknown[]) => {
+      if (sql.startsWith("SELECT * FROM audit_events")) {
+        capturedSql = sql;
+        capturedParams = (args[0] as unknown[] | undefined) ?? [];
+      }
+      return { rowCount: 0, rows: [] };
+    });
+    const provider = new PostgresAuditStoreProvider(
+      {
+        authentication: "static",
+        connectionString: "postgresql://test.invalid/audit",
+        migrationsFolder: MIGRATIONS_FOLDER,
+      },
+      { pool: poolWithClient(client) },
+    );
+
+    await provider.queryEvents({
+      tenantId: "018f47a2-7b11-7b11-8a11-1234567890ab",
+      limit: 50,
+    });
+
+    expect(capturedSql).toContain("tenant_id = $1");
+    expect(capturedParams[0]).toBe("018f47a2-7b11-7b11-8a11-1234567890ab");
+  });
+
+  it("omits the tenant_id predicate entirely for a null tenantId (genuine cross-tenant query)", async () => {
+    let capturedSql = "";
+    const client = clientWithQuery(async (sql: string) => {
+      capturedSql = sql;
+      return { rowCount: 0, rows: [] };
+    });
+    const provider = new PostgresAuditStoreProvider(
+      {
+        authentication: "static",
+        connectionString: "postgresql://test.invalid/audit",
+        migrationsFolder: MIGRATIONS_FOLDER,
+      },
+      { pool: poolWithClient(client) },
+    );
+
+    await provider.queryEvents({ tenantId: null, limit: 50 });
+
+    expect(capturedSql).not.toContain("tenant_id =");
+  });
+
+  it("clamps limit to the [1, 200] range", async () => {
+    let capturedParams: unknown[] = [];
+    const client = clientWithQuery(async (sql: string, ...args: unknown[]) => {
+      if (sql.startsWith("SELECT * FROM audit_events")) {
+        capturedParams = (args[0] as unknown[] | undefined) ?? [];
+      }
+      return { rowCount: 0, rows: [] };
+    });
+    const provider = new PostgresAuditStoreProvider(
+      {
+        authentication: "static",
+        connectionString: "postgresql://test.invalid/audit",
+        migrationsFolder: MIGRATIONS_FOLDER,
+      },
+      { pool: poolWithClient(client) },
+    );
+
+    await provider.queryEvents({ tenantId: null, limit: 9_999 });
+    // requested limit + 1 (the extra row is the has-more probe) is the last param
+    expect(capturedParams.at(-1)).toBe(201);
+
+    await provider.queryEvents({ tenantId: null, limit: 0 });
+    expect(capturedParams.at(-1)).toBe(2);
+  });
+
+  it("rolls back and propagates on query failure", async () => {
+    const failure = new Error("query failed");
+    const client = clientWithQuery(async (sql: string) => {
+      if (sql.startsWith("SELECT * FROM audit_events")) throw failure;
+      return { rowCount: 0, rows: [] };
+    });
+    const provider = new PostgresAuditStoreProvider(
+      {
+        authentication: "static",
+        connectionString: "postgresql://test.invalid/audit",
+        migrationsFolder: MIGRATIONS_FOLDER,
+      },
+      { pool: poolWithClient(client) },
+    );
+
+    await expect(provider.queryEvents({ tenantId: null, limit: 50 })).rejects.toBe(failure);
+    expect(client.query).toHaveBeenCalledWith("ROLLBACK");
+    expect(client.release).toHaveBeenCalledOnce();
+  });
+});
+
 describe("PostgresAuditStoreProvider IAM authentication", () => {
   const iamConfig = {
     authentication: "iam" as const,

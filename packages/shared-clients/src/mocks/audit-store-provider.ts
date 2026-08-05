@@ -3,6 +3,8 @@ import { createMockProvider } from "../mock-provider";
 import {
   auditGenesisHash,
   calculateAuditEntryHash,
+  type AuditEventQuery,
+  type AuditEventQueryResult,
   type AuditEventToAppend,
   type AuditStoreProvider,
   type DeletionCertificateToStore,
@@ -74,6 +76,24 @@ export function createMockAuditStoreProvider(
         return found === undefined ? undefined : cloneEvent(found);
       },
       readGlobalChain: async () => events.map(cloneEvent),
+      queryEvents: async (query: AuditEventQuery): Promise<AuditEventQueryResult> => {
+        const filtered = events
+          .filter((event) => query.tenantId === null || event.tenantId === query.tenantId)
+          .filter((event) => query.actorTypes === undefined || query.actorTypes.includes(event.actorType))
+          .filter((event) => query.action === undefined || event.action === query.action)
+          .filter((event) => query.result === undefined || event.result === query.result)
+          .filter((event) => query.occurredAfter === undefined || event.occurredAt >= query.occurredAfter)
+          .filter((event) => query.occurredBefore === undefined || event.occurredAt <= query.occurredBefore)
+          .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.id.localeCompare(b.id));
+        const startIndex = query.cursor === undefined
+          ? 0
+          : filtered.findIndex((event) => event.id === query.cursor) + 1;
+        const page = filtered.slice(startIndex, startIndex + query.limit);
+        const nextCursor = startIndex + query.limit < filtered.length
+          ? (page.at(-1)?.id ?? null)
+          : null;
+        return { events: page.map(cloneEvent), nextCursor };
+      },
       storeDeletionCertificate: async (certificate) => {
         certificates.push(structuredClone(certificate));
       },

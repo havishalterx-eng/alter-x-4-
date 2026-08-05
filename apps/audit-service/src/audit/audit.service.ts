@@ -14,6 +14,7 @@ import {
   type AuditActorType,
   type AuditChainVerificationResult,
   type AuditEventHandler,
+  type AuditEventQuery,
   type AuditResult,
   type AuditStoreProvider,
   type JsonValue,
@@ -234,5 +235,75 @@ export class AuditService implements AuditEventHandler {
 
   async verifyChain(): Promise<AuditChainVerificationResult> {
     return verifyAuditChain(await this.store.readGlobalChain());
+  }
+
+  // No actor_type or tenant_id restriction is applied here -- this is a
+  // trusted-internal-caller capability (service-token authenticated, see
+  // AuditQueryController). Which visibility policy applies (customer-scoped
+  // vs staff-scoped) is platform-api's job, not audit-service's -- audit-
+  // service has no concept of tenant RBAC or staff roles, those are Platform
+  // concepts. A null tenantId performs a genuinely cross-tenant query.
+  async queryEvents(request: {
+    readonly tenantId: string;
+    readonly actorTypes: readonly string[];
+    readonly action: string;
+    readonly result: string;
+    readonly occurredAfter: string;
+    readonly occurredBefore: string;
+    readonly cursor: string;
+    readonly limit: number;
+  }): Promise<{
+    readonly events: readonly GetEventResponse[];
+    readonly next_cursor: string | null;
+  }> {
+    const tenantId = parseTenantId(request.tenantId);
+    const actorTypes = request.actorTypes.filter(
+      (value): value is AuditActorType =>
+        ACTOR_TYPES.includes(value as AuditActorType),
+    );
+    if (request.actorTypes.length > 0 && actorTypes.length !== request.actorTypes.length) {
+      throw new AuditValidationError("actor_types contains an unsupported value");
+    }
+    const result = optionalText(request.result, "result");
+    if (result !== null && !AUDIT_RESULTS.includes(result as AuditResult)) {
+      throw new AuditValidationError("result is not supported");
+    }
+    if (!Number.isInteger(request.limit) || request.limit < 1) {
+      throw new AuditValidationError("limit must be a positive integer");
+    }
+
+    const action = optionalText(request.action, "action");
+    const occurredAfterText = optionalText(request.occurredAfter, "occurred_after");
+    const occurredBeforeText = optionalText(request.occurredBefore, "occurred_before");
+    const cursor = optionalText(request.cursor, "cursor");
+
+    const query: AuditEventQuery = {
+      tenantId,
+      ...(actorTypes.length > 0 ? { actorTypes } : {}),
+      ...(action !== null ? { action } : {}),
+      ...(result !== null ? { result: result as AuditResult } : {}),
+      ...(occurredAfterText !== null ? { occurredAfter: parseOccurredAt(occurredAfterText) } : {}),
+      ...(occurredBeforeText !== null ? { occurredBefore: parseOccurredAt(occurredBeforeText) } : {}),
+      ...(cursor !== null ? { cursor: cursor.replace(/^aud_/, "") } : {}),
+      limit: request.limit,
+    };
+
+    const { events, nextCursor } = await this.store.queryEvents(query);
+    return {
+      events: events.map((stored) => ({
+        id: auditId(stored.id),
+        actor_type: stored.actorType,
+        actor_ref: stored.actorRef,
+        action: stored.action,
+        target_type: stored.targetType ?? "",
+        target_ref: stored.targetRef ?? "",
+        result: stored.result,
+        reason_code: stored.reasonCode ?? "",
+        context_json: stored.context === null ? "" : JSON.stringify(stored.context),
+        occurred_at: stored.occurredAt.toISOString(),
+        entry_hash: stored.entryHash.toString("hex"),
+      })),
+      next_cursor: nextCursor === null ? null : auditId(nextCursor),
+    };
   }
 }

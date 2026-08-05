@@ -12,6 +12,8 @@ import type { ProviderCapabilities } from "@alterx/contracts";
 import {
   auditGenesisHash,
   calculateAuditEntryHash,
+  type AuditEventQuery,
+  type AuditEventQueryResult,
   type AuditEventToAppend,
   type AuditStoreProvider,
   type DeletionCertificateToStore,
@@ -291,6 +293,73 @@ export class PostgresAuditStoreProvider implements AuditStoreProvider {
       );
       await client.query("COMMIT");
       return result.rows.map(toStoredAuditEvent);
+    } catch (error: unknown) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async queryEvents(query: AuditEventQuery): Promise<AuditEventQueryResult> {
+    const limit = Math.min(Math.max(query.limit, 1), 200);
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN READ ONLY");
+      await enableInternalAuditAccess(client);
+
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+      let paramIndex = 1;
+
+      if (query.tenantId !== null) {
+        conditions.push(`tenant_id = $${paramIndex++}`);
+        params.push(query.tenantId);
+      }
+      if (query.actorTypes !== undefined && query.actorTypes.length > 0) {
+        conditions.push(`actor_type = ANY($${paramIndex++})`);
+        params.push(query.actorTypes);
+      }
+      if (query.action !== undefined) {
+        conditions.push(`action = $${paramIndex++}`);
+        params.push(query.action);
+      }
+      if (query.result !== undefined) {
+        conditions.push(`result = $${paramIndex++}`);
+        params.push(query.result);
+      }
+      if (query.occurredAfter !== undefined) {
+        conditions.push(`occurred_at >= $${paramIndex++}`);
+        params.push(query.occurredAfter);
+      }
+      if (query.occurredBefore !== undefined) {
+        conditions.push(`occurred_at <= $${paramIndex++}`);
+        params.push(query.occurredBefore);
+      }
+      if (query.cursor !== undefined) {
+        // Keyset pagination on (occurred_at, id) -- matches the ORDER BY
+        // below exactly, so pages never skip or repeat a row even when
+        // multiple events share the same occurred_at timestamp.
+        conditions.push(
+          `(occurred_at, id) > (SELECT occurred_at, id FROM audit_events WHERE id = $${paramIndex++})`,
+        );
+        params.push(query.cursor);
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      params.push(limit + 1);
+      const result = await client.query<DatabaseAuditRow>(
+        `SELECT * FROM audit_events ${whereClause} ORDER BY occurred_at, id LIMIT $${paramIndex}`,
+        params,
+      );
+      await client.query("COMMIT");
+
+      const hasMore = result.rows.length > limit;
+      const page = hasMore ? result.rows.slice(0, limit) : result.rows;
+      return {
+        events: page.map(toStoredAuditEvent),
+        nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null,
+      };
     } catch (error: unknown) {
       await client.query("ROLLBACK").catch(() => undefined);
       throw error;

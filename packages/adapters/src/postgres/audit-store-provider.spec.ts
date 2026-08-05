@@ -345,6 +345,53 @@ describe.sequential("PostgresAuditStoreProvider", () => {
     });
   });
 
+  it("queryEvents scopes by tenant, filters by actor_type, and paginates via real keyset cursor", async () => {
+    const tenantA = randomUUID();
+    const tenantB = randomUUID();
+    const marker = `query-test-${randomUUID()}`;
+    const rows: AuditEventToAppend[] = [
+      { ...event(900), id: randomUUID(), tenantId: tenantA, actorType: "user", action: marker, occurredAt: new Date("2027-01-01T00:00:00.000Z") },
+      { ...event(901), id: randomUUID(), tenantId: tenantA, actorType: "support", action: marker, reasonCode: "ticket-99", occurredAt: new Date("2027-01-01T00:01:00.000Z") },
+      { ...event(902), id: randomUUID(), tenantId: tenantA, actorType: "admin", action: marker, occurredAt: new Date("2027-01-01T00:02:00.000Z") },
+      { ...event(903), id: randomUUID(), tenantId: tenantB, actorType: "user", action: marker, occurredAt: new Date("2027-01-01T00:03:00.000Z") },
+    ];
+    for (const row of rows) {
+      await provider.append(row);
+    }
+
+    const tenantScoped = await provider.queryEvents({ tenantId: tenantA, action: marker, limit: 50 });
+    expect(tenantScoped.events).toHaveLength(3);
+    expect(tenantScoped.events.every((event_) => event_.tenantId === tenantA)).toBe(true);
+
+    const actorFiltered = await provider.queryEvents({
+      tenantId: tenantA,
+      action: marker,
+      actorTypes: ["user", "support"],
+      limit: 50,
+    });
+    expect(actorFiltered.events).toHaveLength(2);
+
+    const crossTenant = await provider.queryEvents({ tenantId: null, action: marker, limit: 50 });
+    expect(crossTenant.events).toHaveLength(4);
+
+    const page1 = await provider.queryEvents({ tenantId: null, action: marker, limit: 2 });
+    expect(page1.events).toHaveLength(2);
+    expect(page1.nextCursor).not.toBeNull();
+    if (page1.nextCursor === null) {
+      throw new Error("Expected a real cursor from the first page");
+    }
+    const page2 = await provider.queryEvents({
+      tenantId: null,
+      action: marker,
+      cursor: page1.nextCursor,
+      limit: 2,
+    });
+    expect(page2.events).toHaveLength(2);
+    expect(page2.nextCursor).toBeNull();
+    const allIds = new Set([...page1.events, ...page2.events].map((event_) => event_.id));
+    expect(allIds.size).toBe(4);
+  });
+
   it("executes rollback migration", async () => {
     const rollback = await readFile(
       resolve(

@@ -40,6 +40,24 @@ export interface StoredAuditEvent extends AuditEventToAppend {
   readonly entryHash: Buffer;
 }
 
+export interface AuditEventQuery {
+  // null = cross-tenant query (staff/admin use only, enforced by the caller,
+  // not by the store itself -- the store applies whatever filter it's given).
+  readonly tenantId: string | null;
+  readonly actorTypes?: readonly AuditActorType[];
+  readonly action?: string;
+  readonly result?: AuditResult;
+  readonly occurredAfter?: Date;
+  readonly occurredBefore?: Date;
+  readonly cursor?: string;
+  readonly limit: number;
+}
+
+export interface AuditEventQueryResult {
+  readonly events: readonly StoredAuditEvent[];
+  readonly nextCursor: string | null;
+}
+
 export interface DeletionCertificateToStore {
   readonly id: string;
   readonly tenantPseudonym: string;
@@ -74,6 +92,7 @@ export interface AuditStoreProvider extends BaseProvider<"AuditStoreProvider"> {
   append(event: AuditEventToAppend): Promise<StoredAuditEvent>;
   getById(id: string): Promise<StoredAuditEvent | undefined>;
   readGlobalChain(): Promise<readonly StoredAuditEvent[]>;
+  queryEvents(query: AuditEventQuery): Promise<AuditEventQueryResult>;
   storeDeletionCertificate(certificate: DeletionCertificateToStore): Promise<void>;
   appendDeletionLedger(entry: DeletionLedgerEntry): Promise<void>;
   storeDeletionCompletion(

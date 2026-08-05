@@ -14,6 +14,7 @@ import type { ObjectStorageProvider } from "@alterx/shared-clients";
 import { DELETION_SERVICE_TOKEN_HASH, DeletionController } from "./deletion/deletion.controller";
 import { DeletionOrchestrator } from "./deletion/deletion-orchestrator";
 import { HttpDeletionProvider } from "./deletion/http-deletion-provider";
+import { AUDIT_QUERY_SERVICE_TOKEN_HASH, AuditQueryController } from "./audit/audit-query.controller";
 
 export interface AuditDeletionWiring {
   readonly adsBaseUrl: string;
@@ -36,7 +37,11 @@ export class AppModule {
     );
     return {
       module: AppModule,
-      controllers: [AuditGrpcController, HealthController, ...(deletion === undefined ? [] : [DeletionController])],
+      controllers: [
+        AuditGrpcController,
+        HealthController,
+        ...(deletion === undefined ? [] : [DeletionController, AuditQueryController]),
+      ],
       providers: [
         { provide: AUDIT_STORE_PROVIDER, useValue: store },
         AuditService,
@@ -45,6 +50,10 @@ export class AppModule {
         ...(orchestrator === undefined || deletion === undefined ? [] : [
           { provide: DeletionOrchestrator, useValue: orchestrator },
           { provide: DELETION_SERVICE_TOKEN_HASH, useValue: deletion.serviceTokenHash },
+          // Reuses the same internal service token as deletion -- both are
+          // the identical trust boundary (trusted platform-api caller),
+          // no reason to sprawl a second secret for the same relationship.
+          { provide: AUDIT_QUERY_SERVICE_TOKEN_HASH, useValue: deletion.serviceTokenHash },
         ]),
       ],
     };

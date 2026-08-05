@@ -38,6 +38,8 @@ export {
   type AuditChainVerificationIssue,
   type AuditChainVerificationResult,
   type AuditEventHandler,
+  type AuditEventQuery,
+  type AuditEventQueryResult,
   type AuditEventToAppend,
   type DeletionCertificateToStore,
   type DeletionLedgerEntry,
