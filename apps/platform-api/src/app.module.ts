@@ -37,6 +37,7 @@ import { StaffModule } from "./staff";
 import { CliModule } from "./cli";
 import { SystemHealthModule } from "./system-health/system-health.module";
 import { AdminTenantsModule } from "./admin-tenants";
+import { BenchmarksModule } from "./benchmarks";
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { AdminTenantsModule } from "./admin-tenants";
     CliModule,
     SystemHealthModule,
     AdminTenantsModule,
+    BenchmarksModule,
   ],
   controllers: [HealthController],
 })

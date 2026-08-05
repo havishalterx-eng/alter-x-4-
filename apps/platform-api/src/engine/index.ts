@@ -20,6 +20,14 @@ export {
   type EstimateCostResponse,
   type NodeCost,
 } from "./cost-ledger-client";
+export {
+  EvalFacadeClient,
+  type CheckReleaseGateRequest,
+  type CheckReleaseGateResponse,
+  type EvalFacadeSecretResolver,
+  type RunEvaluationRequest,
+  type RunEvaluationResponse,
+} from "./eval-facade-client";
 export { EngineExceptionFilter } from "./engine-exception.filter";
 export { EngineModule } from "./engine.module";
 export { EngineProblemError } from "./problem";

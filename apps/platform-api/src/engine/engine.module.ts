@@ -13,6 +13,7 @@ import {
 import { engineConfigFromEnvironment, type EngineConfig } from "./config";
 import { ENGINE_CONFIG, EngineClient } from "./engine-client";
 import { CostLedgerClient } from "./cost-ledger-client";
+import { EvalFacadeClient } from "./eval-facade-client";
 import { EngineExceptionFilter } from "./engine-exception.filter";
 
 @Module({
@@ -59,10 +60,16 @@ import { EngineExceptionFilter } from "./engine-exception.filter";
       ) => new CostLedgerClient(config, authProvider),
     },
     {
+      provide: EvalFacadeClient,
+      inject: [ENGINE_CONFIG],
+      useFactory: (config: EngineConfig) =>
+        new EvalFacadeClient(config, resolveRuntimeSecret),
+    },
+    {
       provide: APP_FILTER,
       useClass: EngineExceptionFilter,
     },
   ],
-  exports: [EngineClient, CostLedgerClient],
+  exports: [EngineClient, CostLedgerClient, EvalFacadeClient],
 })
 export class EngineModule {}
