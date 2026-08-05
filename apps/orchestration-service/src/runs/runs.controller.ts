@@ -58,6 +58,7 @@ function toRunResponse(row: RunRow): Record<string, unknown> {
   return {
     id: row.id,
     workflow_id: row.workflow_id,
+    project_id: row.project_id ?? null,
     workflow_version_id: row.workflow_version_id,
     parent_kind: row.parent_kind,
     status: row.status,

@@ -174,7 +174,7 @@ export class RunOutcomeService {
           tenantId,
           run.workspace_id,
           runId,
-          run.parent_kind, // 'workflow' is the only real value today -- runs_parent_kind_check has no 'project' yet
+          run.parent_kind, // Project runs have no workflow version, so eligibility remains false.
           eligible,
           verdict,
           recovery.humanRescue,

@@ -13,6 +13,11 @@ import type {
   DurableWorkflowHandle,
 } from "@alterx/shared-clients";
 import type { RunOutcomeService } from "./run-outcome.service";
+import {
+  ProjectRunProvisioningError,
+  type ProjectRunProvisioningInput,
+  type ProjectRunProvisioningService,
+} from "./project-run-provisioning.service";
 
 const EXECUTOR_WORKFLOW_TYPE = "executorWorkflow";
 const RUNNABLE_VERSION_STATUSES = new Set(["compiled", "canary", "promoted"]);
@@ -66,15 +71,39 @@ export class RunStartFailedError extends Error {
   }
 }
 
+export class ProjectRunProvisioningFailedError extends Error {
+  constructor(runId: string, cause: unknown) {
+    super(`Run ${runId} failed to provision its sandbox session`, { cause });
+    this.name = "ProjectRunProvisioningFailedError";
+  }
+}
+
+export class ProjectRunProjectNotFoundError extends Error {
+  constructor(projectId: string) {
+    super(`Project ${projectId} was not found`);
+    this.name = "ProjectRunProjectNotFoundError";
+  }
+}
+
 export interface RunRow extends Record<string, unknown> {
   readonly id: string;
-  readonly workflow_id: string;
+  readonly workflow_id: string | null;
+  readonly project_id?: string | null;
   readonly workflow_version_id: string | null;
+  readonly provisioning_session_id?: string | null;
+  readonly provisioning_cycle_id?: string | null;
+  readonly provisioning_template_id?: string | null;
+  readonly provisioning_closed_at?: string | null;
   readonly parent_kind: string;
   readonly status: string;
   readonly started_at: string | null;
   readonly ended_at: string | null;
   readonly created_at: string;
+}
+
+export interface CreateProjectRunInput extends ProjectRunProvisioningInput {
+  readonly projectId: string;
+  readonly compiledDag: CompiledDag;
 }
 
 export interface RunPage {
@@ -114,6 +143,21 @@ function requireWorkflowVersionId(workflowVersionId: string): void {
   }
 }
 
+function requireProjectId(projectId: string): void {
+  if (!/^prj_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)) {
+    throw new RunValidationError("projectId must be a prj_ prefixed UUIDv7");
+  }
+}
+
+function requireProvisioningInput(input: ProjectRunProvisioningInput): void {
+  if (!/^[A-Za-z0-9_-]+$/.test(input.cycle_id)) {
+    throw new RunValidationError("cycle_id must be an identifier");
+  }
+  if (input.template_id.trim().length === 0) {
+    throw new RunValidationError("template_id is required");
+  }
+}
+
 function newRunId(): string {
   const id = randomUUID();
   return `run_${id.slice(0, 14)}7${id.slice(15)}`;
@@ -127,8 +171,10 @@ function normalizeLimit(limit: number | undefined): number {
   return limit;
 }
 
-const RUN_SELECT_COLUMNS = `id, workflow_id, workflow_version_id, parent_kind, status,
-       started_at::text, ended_at::text, created_at::text`;
+const RUN_SELECT_COLUMNS = `id, workflow_id, project_id, workflow_version_id,
+       provisioning_session_id, provisioning_cycle_id, provisioning_template_id,
+       provisioning_closed_at::text, parent_kind, status, started_at::text,
+       ended_at::text, created_at::text`;
 
 /**
  * Owns the run's actual lifecycle: creating the durable `runs` row,
@@ -141,6 +187,7 @@ export class RunLauncherService {
     private readonly store: OrchestrationTenantStore,
     private readonly durable: DurableExecutionProvider,
     private readonly runOutcomes?: RunOutcomeService,
+    private readonly projectProvisioning?: ProjectRunProvisioningService,
   ) {}
 
   async createRun(
@@ -177,6 +224,74 @@ export class RunLauncherService {
     });
 
     return this.startAndTransition(tenantId, created.row, created.compiledDag);
+  }
+
+  /**
+   * Project builds intentionally have their own creation path: a project is
+   * not a workflow and has no workflow version to resolve. The caller owns
+   * the build cycle/template choice; this service durably binds the real
+   * Provisioning session to the new run before the Executor can start.
+   */
+  async createProjectRun(
+    tenantIdInput: string,
+    input: CreateProjectRunInput,
+  ): Promise<RunRow> {
+    const tenantId = bareTenantUuid(tenantIdInput);
+    requireProjectId(input.projectId);
+    requireProvisioningInput(input);
+    const parsedDag = CompiledDagSchema.safeParse(input.compiledDag);
+    if (!parsedDag.success) {
+      throw new RunValidationError(
+        `project build compiled_dag failed schema validation: ${parsedDag.error.message}`,
+      );
+    }
+    if (this.projectProvisioning === undefined) {
+      throw new ProjectRunProvisioningError(
+        "Project run provisioning is not configured",
+      );
+    }
+
+    const row = await this.store.withTenant(tenantId, async (tx) => {
+      const project = await tx.query<{ readonly workspace_id: string }>(
+        "SELECT workspace_id FROM projects WHERE tenant_id = $1 AND id = $2",
+        [tenantId, input.projectId],
+      );
+      if (project.rowCount === 0) {
+        throw new ProjectRunProjectNotFoundError(input.projectId);
+      }
+      const runId = newRunId();
+      const inserted = await tx.query<RunRow>(
+        `INSERT INTO runs
+           (id, tenant_id, workspace_id, parent_kind, project_id,
+            provisioning_cycle_id, provisioning_template_id, status)
+         VALUES ($1, $2, $3, 'project', $4, $5, $6, 'pending')
+         RETURNING ${RUN_SELECT_COLUMNS}`,
+        [
+          runId,
+          tenantId,
+          project.rows[0]!.workspace_id,
+          input.projectId,
+          input.cycle_id,
+          input.template_id,
+        ],
+      );
+      return inserted.rows[0]!;
+    });
+
+    try {
+      await this.projectProvisioning.provisionForRun(
+        tenantIdInput,
+        row.id,
+        input.projectId,
+        input,
+      );
+    } catch (error: unknown) {
+      await this.markProjectRunProvisioningFailed(tenantId, tenantIdInput, row.id);
+      throw new ProjectRunProvisioningFailedError(row.id, error);
+    }
+
+    const provisioned = await this.getRun(tenantIdInput, row.id);
+    return this.startAndTransition(tenantId, provisioned, parsedDag.data);
   }
 
   async listRuns(
@@ -313,6 +428,7 @@ export class RunLauncherService {
         });
       }
     }
+    await this.projectProvisioning?.closeForTerminalRun(tenantIdInput, runId);
     return row;
   }
 
@@ -474,6 +590,7 @@ export class RunLauncherService {
           error: outcomeError instanceof Error ? outcomeError.message : String(outcomeError),
         });
       }
+      await this.projectProvisioning?.closeForTerminalRun(tenantIdWithPrefix, row.id);
       throw new RunStartFailedError(row.id, error);
     }
     void handle;
@@ -491,6 +608,30 @@ export class RunLauncherService {
       );
       return updated.rows[0] ?? row;
     });
+  }
+
+  private async markProjectRunProvisioningFailed(
+    tenantId: string,
+    tenantIdInput: string,
+    runId: string,
+  ): Promise<void> {
+    await this.store.withTenant(tenantId, async (tx) => {
+      await tx.query(
+        `UPDATE runs SET status = 'failed', ended_at = clock_timestamp()
+         WHERE tenant_id = $1 AND id = $2 AND status = 'pending'`,
+        [tenantId, runId],
+      );
+    });
+    try {
+      await this.runOutcomes?.recordOutcome(tenantIdInput, runId, "failed");
+    } catch (error: unknown) {
+      console.error("run_outcomes write failed -- VACR/VADR metrics gap", {
+        run_id: runId,
+        status: "failed",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    await this.projectProvisioning?.closeForTerminalRun(tenantIdInput, runId);
   }
 }
 

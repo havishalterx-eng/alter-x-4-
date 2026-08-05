@@ -283,6 +283,27 @@ describe("NodeexecService.finalizeRun", () => {
     );
   });
 
+  it("closes a project provisioning cycle from the real terminal activity path", async () => {
+    const closeForTerminalRun = vi.fn().mockResolvedValue(undefined);
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]),
+      fakeLedger(),
+      undefined,
+      undefined,
+      undefined,
+      { closeForTerminalRun } as never,
+    );
+
+    await nodeexec.finalizeRun({
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      status: "completed",
+      error_json: "",
+    });
+
+    expect(closeForTerminalRun).toHaveBeenCalledWith(TENANT_ID, RUN_ID);
+  });
+
   it("does not emit run.status when the run was already terminal for another reason", async () => {
     const ledger = fakeLedger();
     vi.mocked(ledger.finalizeRun).mockResolvedValue({

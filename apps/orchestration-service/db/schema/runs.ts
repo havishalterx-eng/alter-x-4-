@@ -10,6 +10,7 @@ import {
   uuid,
 } from "@alterx/adapters";
 import { conversations } from "./conversations";
+import { projects } from "./projects";
 import { triggers } from "./triggers";
 import { workflowVersions } from "./workflow_versions";
 import { workflows } from "./workflows";
@@ -22,9 +23,16 @@ export const runs = pgTable(
     workspaceId: uuid("workspace_id").notNull(),
     parentKind: text("parent_kind").notNull(),
     workflowId: text("workflow_id"),
+    projectId: text("project_id"),
     workflowVersionId: text("workflow_version_id"),
     conversationId: text("conversation_id"),
     triggerId: text("trigger_id"),
+    provisioningSessionId: text("provisioning_session_id"),
+    provisioningCycleId: text("provisioning_cycle_id"),
+    provisioningTemplateId: text("provisioning_template_id"),
+    provisioningClosedAt: timestamp("provisioning_closed_at", {
+      withTimezone: true,
+    }),
     status: text("status").notNull().default("pending"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
@@ -33,7 +41,7 @@ export const runs = pgTable(
       .defaultNow(),
   },
   (table) => [
-    check("runs_parent_kind_check", sql`${table.parentKind} IN ('workflow')`),
+    check("runs_parent_kind_check", sql`${table.parentKind} IN ('workflow', 'project')`),
     check(
       "runs_status_check",
       sql`${table.status} IN ('pending', 'running', 'paused', 'completed', 'failed', 'cancelled')`,
@@ -43,6 +51,11 @@ export const runs = pgTable(
       name: "runs_workflow_tenant_fk",
       columns: [table.tenantId, table.workflowId],
       foreignColumns: [workflows.tenantId, workflows.id],
+    }),
+    foreignKey({
+      name: "runs_project_tenant_fk",
+      columns: [table.tenantId, table.projectId],
+      foreignColumns: [projects.tenantId, projects.id],
     }),
     foreignKey({
       name: "runs_workflow_version_tenant_fk",
@@ -60,6 +73,7 @@ export const runs = pgTable(
       foreignColumns: [triggers.tenantId, triggers.id],
     }),
     index("idx_runs_workflow").on(table.workflowId),
+    index("idx_runs_tenant_project").on(table.tenantId, table.projectId),
     index("idx_runs_conversation").on(table.conversationId),
     index("idx_runs_tenant_status").on(table.tenantId, table.status),
   ],

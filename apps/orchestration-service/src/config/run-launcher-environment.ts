@@ -10,6 +10,7 @@ export interface RunLauncherEnvironment {
   readonly temporalNamespace: string;
   readonly temporalApiKey: string | undefined;
   readonly taskQueue: string;
+  readonly provisioningServiceAddress: string;
 }
 
 export class RunLauncherConfigurationError extends Error {
@@ -35,5 +36,9 @@ export function loadRunLauncherEnvironment(
     temporalNamespace: requireValue(environment, "TEMPORAL_NAMESPACE"),
     temporalApiKey: environment.TEMPORAL_API_KEY?.trim() || undefined,
     taskQueue: requireValue(environment, "EXECUTOR_TASK_QUEUE"),
+    provisioningServiceAddress: requireValue(
+      environment,
+      "PROVISIONING_SERVICE_ADDRESS",
+    ),
   };
 }

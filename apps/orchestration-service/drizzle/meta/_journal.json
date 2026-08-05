@@ -141,6 +141,27 @@
       "when": 1784861019000,
       "tag": "0019_create_projects",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1784861020000,
+      "tag": "0020_create_artifacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1784861021000,
+      "tag": "0021_create_whatsapp_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1784861022000,
+      "tag": "0022_add_project_run_provisioning",
+      "breakpoints": true
     }
   ]
 }
