@@ -30,6 +30,7 @@ import { MarketplaceModule } from "./marketplace";
 import { PublisherModule } from "./publisher";
 import { RegistryModule } from "./registry";
 import { I18nModule } from "./i18n/i18n.module";
+import { SearchModule } from "./search";
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { I18nModule } from "./i18n/i18n.module";
     PublisherModule,
     RegistryModule,
     I18nModule,
+    SearchModule,
   ],
   controllers: [HealthController],
 })
