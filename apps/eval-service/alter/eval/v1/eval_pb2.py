@@ -24,21 +24,31 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18\x61lter/eval/v1/eval.proto\x12\ralter.eval.v1\"6\n\x14RunEvaluationRequest\x12\x17\n\x0fgolden_set_name\x18\x01 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"_\n\x15RunEvaluationResponse\x12\x19\n\x11\x65valuation_run_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x14\n\x0cresults_json\x18\x03 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"U\n\x17\x43heckReleaseGateRequest\x12\x18\n\x10release_gate_key\x18\x01 \x01(\t\x12\x19\n\x11\x65valuation_run_id\x18\x02 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"L\n\x18\x43heckReleaseGateResponse\x12\x0e\n\x06passed\x18\x01 \x01(\x08\x12\x19\n\x11\x66\x61iled_thresholds\x18\x02 \x03(\tJ\x05\x08\x64\x10\xc8\x01\x32\xce\x01\n\x0b\x45valService\x12Z\n\rRunEvaluation\x12#.alter.eval.v1.RunEvaluationRequest\x1a$.alter.eval.v1.RunEvaluationResponse\x12\x63\n\x10\x43heckReleaseGate\x12&.alter.eval.v1.CheckReleaseGateRequest\x1a\'.alter.eval.v1.CheckReleaseGateResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18\x61lter/eval/v1/eval.proto\x12\ralter.eval.v1\"\xad\x01\n\x14RunEvaluationRequest\x12\x15\n\ttenant_id\x18\x01 \x01(\tB\x02\x18\x01\x12\x1d\n\x11\x65valuation_run_id\x18\x02 \x01(\tB\x02\x18\x01\x12 \n\x14golden_set_reference\x18\x03 \x01(\tB\x02\x18\x01\x12\x1d\n\x11\x63\x61ndidate_version\x18\x04 \x01(\tB\x02\x18\x01\x12\x17\n\x0fgolden_set_name\x18\x05 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"_\n\x15RunEvaluationResponse\x12\x19\n\x11\x65valuation_run_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x14\n\x0cresults_json\x18\x03 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"l\n\x17\x43heckReleaseGateRequest\x12\x15\n\ttenant_id\x18\x01 \x01(\tB\x02\x18\x01\x12\x18\n\x10release_gate_key\x18\x02 \x01(\t\x12\x19\n\x11\x65valuation_run_id\x18\x03 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"L\n\x18\x43heckReleaseGateResponse\x12\x0e\n\x06passed\x18\x01 \x01(\x08\x12\x19\n\x11\x66\x61iled_thresholds\x18\x02 \x03(\tJ\x05\x08\x64\x10\xc8\x01\x32\xce\x01\n\x0b\x45valService\x12Z\n\rRunEvaluation\x12#.alter.eval.v1.RunEvaluationRequest\x1a$.alter.eval.v1.RunEvaluationResponse\x12\x63\n\x10\x43heckReleaseGate\x12&.alter.eval.v1.CheckReleaseGateRequest\x1a\'.alter.eval.v1.CheckReleaseGateResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'alter.eval.v1.eval_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_RUNEVALUATIONREQUEST']._serialized_start=43
-  _globals['_RUNEVALUATIONREQUEST']._serialized_end=97
-  _globals['_RUNEVALUATIONRESPONSE']._serialized_start=99
-  _globals['_RUNEVALUATIONRESPONSE']._serialized_end=194
-  _globals['_CHECKRELEASEGATEREQUEST']._serialized_start=196
-  _globals['_CHECKRELEASEGATEREQUEST']._serialized_end=281
-  _globals['_CHECKRELEASEGATERESPONSE']._serialized_start=283
-  _globals['_CHECKRELEASEGATERESPONSE']._serialized_end=359
-  _globals['_EVALSERVICE']._serialized_start=362
-  _globals['_EVALSERVICE']._serialized_end=568
+  _globals['_RUNEVALUATIONREQUEST'].fields_by_name['tenant_id']._loaded_options = None
+  _globals['_RUNEVALUATIONREQUEST'].fields_by_name['tenant_id']._serialized_options = b'\030\001'
+  _globals['_RUNEVALUATIONREQUEST'].fields_by_name['evaluation_run_id']._loaded_options = None
+  _globals['_RUNEVALUATIONREQUEST'].fields_by_name['evaluation_run_id']._serialized_options = b'\030\001'
+  _globals['_RUNEVALUATIONREQUEST'].fields_by_name['golden_set_reference']._loaded_options = None
+  _globals['_RUNEVALUATIONREQUEST'].fields_by_name['golden_set_reference']._serialized_options = b'\030\001'
+  _globals['_RUNEVALUATIONREQUEST'].fields_by_name['candidate_version']._loaded_options = None
+  _globals['_RUNEVALUATIONREQUEST'].fields_by_name['candidate_version']._serialized_options = b'\030\001'
+  _globals['_CHECKRELEASEGATEREQUEST'].fields_by_name['tenant_id']._loaded_options = None
+  _globals['_CHECKRELEASEGATEREQUEST'].fields_by_name['tenant_id']._serialized_options = b'\030\001'
+  _globals['_RUNEVALUATIONREQUEST']._serialized_start=44
+  _globals['_RUNEVALUATIONREQUEST']._serialized_end=217
+  _globals['_RUNEVALUATIONRESPONSE']._serialized_start=219
+  _globals['_RUNEVALUATIONRESPONSE']._serialized_end=314
+  _globals['_CHECKRELEASEGATEREQUEST']._serialized_start=316
+  _globals['_CHECKRELEASEGATEREQUEST']._serialized_end=424
+  _globals['_CHECKRELEASEGATERESPONSE']._serialized_start=426
+  _globals['_CHECKRELEASEGATERESPONSE']._serialized_end=502
+  _globals['_EVALSERVICE']._serialized_start=505
+  _globals['_EVALSERVICE']._serialized_end=711
 # @@protoc_insertion_point(module_scope)

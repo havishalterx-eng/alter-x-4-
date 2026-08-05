@@ -11,8 +11,13 @@ message RunEvaluationRequest {
   reserved 100 to 199;
 
   // Eval runs are global Engine release-evaluation records, not tenant-owned
-  // workload runs. EvalRunOrchestrator mints the returned evaluation_run_id.
-  string golden_set_name = 1;
+  // workload runs. These legacy fields remain only for FILE compatibility and
+  // are ignored by the transport; EvalRunOrchestrator mints the returned ID.
+  string tenant_id = 1 [deprecated = true];
+  string evaluation_run_id = 2 [deprecated = true];
+  string golden_set_reference = 3 [deprecated = true];
+  string candidate_version = 4 [deprecated = true];
+  string golden_set_name = 5;
 }
 
 message RunEvaluationResponse {
@@ -26,8 +31,11 @@ message RunEvaluationResponse {
 message CheckReleaseGateRequest {
   reserved 100 to 199;
 
-  string release_gate_key = 1;
-  string evaluation_run_id = 2; // UUID minted by RunEvaluation
+  // Release-gate decisions are global Engine records. This legacy tenant field
+  // remains only for FILE compatibility and is ignored by the transport.
+  string tenant_id = 1 [deprecated = true];
+  string release_gate_key = 2;
+  string evaluation_run_id = 3; // UUID minted by RunEvaluation
 }
 
 message CheckReleaseGateResponse {

@@ -11,8 +11,18 @@ export const protobufPackage = "alter.eval.v1";
 export interface RunEvaluationRequest {
   /**
    * Eval runs are global Engine release-evaluation records, not tenant-owned
-   * workload runs. EvalRunOrchestrator mints the returned evaluation_run_id.
+   * workload runs. These legacy fields remain only for FILE compatibility and
+   * are ignored by the transport; EvalRunOrchestrator mints the returned ID.
+   *
+   * @deprecated
    */
+  tenant_id: string;
+  /** @deprecated */
+  evaluation_run_id: string;
+  /** @deprecated */
+  golden_set_reference: string;
+  /** @deprecated */
+  candidate_version: string;
   golden_set_name: string;
 }
 
@@ -24,6 +34,13 @@ export interface RunEvaluationResponse {
 }
 
 export interface CheckReleaseGateRequest {
+  /**
+   * Release-gate decisions are global Engine records. This legacy tenant field
+   * remains only for FILE compatibility and is ignored by the transport.
+   *
+   * @deprecated
+   */
+  tenant_id: string;
   release_gate_key: string;
   /** UUID minted by RunEvaluation */
   evaluation_run_id: string;
