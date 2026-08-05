@@ -6,9 +6,11 @@ export const workspaceRoles = [
   "approver",
   "viewer",
 ] as const;
+export const staffRoles = ["staff_admin", "staff_support", "staff_billing_ops", "staff_security"] as const;
 
 export type TenantRole = (typeof tenantRoles)[number];
 export type WorkspaceRole = (typeof workspaceRoles)[number];
+export type StaffRole = (typeof staffRoles)[number];
 export type RbacRole = TenantRole | WorkspaceRole;
 
 export interface ActorContext {
@@ -23,9 +25,12 @@ export interface ActorContext {
 
 export interface RbacRequest {
   actorContext?: ActorContext;
+  staffActorContext?: StaffActorContext;
   params?: Record<string, string | undefined>;
   url?: string;
 }
+export interface StaffActorContext { staff_user_id: string; identity_ref: string; email: string; roles: StaffRole[]; }
+export function staffRoleAllows(actual: string, required: StaffRole): boolean { return actual === required; }
 
 export function tenantRoleAllows(actual: string, required: TenantRole): boolean {
   const ranks: Record<TenantRole, number> = {

@@ -7,10 +7,11 @@ import {
   publicRouteMetadataKey,
   tenantRolesMetadataKey,
   workspaceRolesMetadataKey,
+  staffRolesMetadataKey,
 } from "./rbac.metadata";
 import type { ResourceTenantResolver } from "./resource-tenant.resolver";
-import type { RbacRequest, TenantRole, WorkspaceRole } from "./types";
-import { tenantRoleAllows, workspaceRoleAllows } from "./types";
+import type { RbacRequest, StaffRole, TenantRole, WorkspaceRole } from "./types";
+import { staffRoleAllows, tenantRoleAllows, workspaceRoleAllows } from "./types";
 
 @Injectable()
 export class RbacGuard implements CanActivate {
@@ -40,9 +41,15 @@ export class RbacGuard implements CanActivate {
       permissionsMetadataKey,
       [context.getHandler(), context.getClass()],
     );
+    const staffRoles = this.reflector.getAllAndOverride<StaffRole[]>(staffRolesMetadataKey, [context.getHandler(), context.getClass()]);
 
     const request = context.switchToHttp().getRequest<RbacRequest>();
     const actorContext = request.actorContext;
+    if (staffRoles?.length) {
+      const staff = request.staffActorContext;
+      if (!staff || !staffRoles.some((required) => staff.roles.some((actual) => staffRoleAllows(actual, required)))) throw deny("RBAC_ROLE_DENIED", request.url);
+      return true;
+    }
 
     if (!actorContext || (!tenantRoles?.length && !workspaceRoles?.length)) {
       throw deny("RBAC_ROLE_DENIED", request.url);

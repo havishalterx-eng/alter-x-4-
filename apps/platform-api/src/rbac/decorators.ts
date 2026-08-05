@@ -4,12 +4,14 @@ import {
   publicRouteMetadataKey,
   tenantRolesMetadataKey,
   workspaceRolesMetadataKey,
+  staffRolesMetadataKey,
 } from "./rbac.metadata";
 import type {
   ActorContext as ActorContextValue,
   RbacRequest,
   TenantRole,
   WorkspaceRole,
+  StaffRole,
 } from "./types";
 
 export const Public = () => SetMetadata(publicRouteMetadataKey, true);
@@ -29,3 +31,4 @@ export const ActorContext = createParamDecorator(
     return request.actorContext;
   },
 );
+export const RequireStaffRole = (...roles: StaffRole[]) => SetMetadata(staffRolesMetadataKey, roles);
