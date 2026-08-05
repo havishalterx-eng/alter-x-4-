@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from typing import Protocol
 
 import grpc
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from alter.eval.v1 import eval_pb2_grpc
@@ -41,6 +41,22 @@ class Closable(Protocol):
 
 def _build_service(settings: Settings) -> tuple[EvalGrpcService, Engine, tuple[Closable, ...]]:
     engine = create_engine(settings.eval_db_url_sync, pool_pre_ping=True)
+    # eval_db is forced-RLS and its policy explicitly requires both this role
+    # and context. The transport owns its database connection pool, so it must
+    # establish the same service identity the integration fixture uses.
+    @event.listens_for(engine, "checkout")
+    def _set_eval_service_context(
+        dbapi_connection: object, _record: object, _proxy: object
+    ) -> None:
+        # SQLAlchemy rolls back connections on return to the pool. Establish
+        # the RLS identity on every checkout so it is active for each request.
+        cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
+        try:
+            cursor.execute("SET ROLE eval_service")
+            cursor.execute("SET app.eval_internal = 'on'")
+        finally:
+            cursor.close()
+
     sessions = sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
 
     verification_client = VerificationClient(settings.verification_grpc_target)

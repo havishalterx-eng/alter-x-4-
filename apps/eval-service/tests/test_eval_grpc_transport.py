@@ -134,6 +134,12 @@ async def _round_trip(eval_db_url: str, golden_set_name: str) -> None:
     await server.start()
     channel = grpc.aio.insecure_channel(f"127.0.0.1:{port}")
     try:
+        with engine.connect() as connection:
+            current_user, internal_context = connection.execute(
+                sa.text("SELECT current_user, current_setting('app.eval_internal', true)")
+            ).one()
+        assert (current_user, internal_context) == ("eval_service", "on")
+
         stub = eval_pb2_grpc.EvalServiceStub(channel)  # type: ignore[no-untyped-call]
         evaluation = await stub.RunEvaluation(
             eval_pb2.RunEvaluationRequest(golden_set_name=golden_set_name)
