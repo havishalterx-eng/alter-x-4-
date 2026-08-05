@@ -14,7 +14,7 @@ const queueQuerySchema = z
     cursor: z.string().min(1).max(4096).optional(),
     limit: z.coerce.number().int().min(1).max(200).optional(),
     type: z.enum(["approval", "escalation"]).optional(),
-    status: z.enum(["pending"]).optional(),
+    status: z.enum(["pending", "approved", "rejected", "expired"]).optional(),
   })
   .strict()
   .superRefine((query, context) => {

@@ -4,6 +4,7 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import type { FastifyRequest } from "fastify";
+import { randomUUID } from "node:crypto";
 import { createMockMutableSecretsProvider } from "@alterx/shared-clients";
 import {
   afterAll,
@@ -30,7 +31,10 @@ import type {
   CreateOAuthConnectionInput,
   CreateOAuthStateInput,
 } from "./integration.repository";
-import { IntegrationRepository } from "./integration.repository";
+import {
+  ActivityCursorNotFoundError,
+  IntegrationRepository,
+} from "./integration.repository";
 import { IntegrationService } from "./integration.service";
 import {
   INTEGRATION_CONNECTOR_RUNTIME_CONFIG,
@@ -38,7 +42,12 @@ import {
   INTEGRATION_SECRETS_PROVIDER,
 } from "./tokens";
 import { integrationDeferredCapabilities } from "./types";
-import type { OAuthConnectionRecord, OAuthStateRecord } from "./types";
+import type {
+  IntegrationActivityQuery,
+  OAuthConnectionActivityRecord,
+  OAuthConnectionRecord,
+  OAuthStateRecord,
+} from "./types";
 
 const uuid = "018f47a5-7b2c-7d10-8f11-123456789abc";
 const connectionId = uuid;
@@ -55,10 +64,12 @@ const actor: ActorContextType = {
 class FakeIntegrationRepository {
   states = new Map<string, OAuthStateRecord>();
   connections = new Map<string, OAuthConnectionRecord>();
+  activities: OAuthConnectionActivityRecord[] = [];
 
   reset(): void {
     this.states.clear();
     this.connections.clear();
+    this.activities = [];
   }
 
   async createState(
@@ -152,8 +163,60 @@ class FakeIntegrationRepository {
     return updated;
   }
 
-  async recordUse(): Promise<string> {
-    return "audit-id";
+  async recordUse(
+    tenantId: string,
+    connectionId: string,
+    _usedBy: string,
+    action: string,
+  ): Promise<string> {
+    const id = randomUUID();
+    this.activities.push({
+      tenantId,
+      id,
+      connectionId,
+      action,
+      usedAt: new Date(),
+    });
+    return id;
+  }
+
+  addActivity(record: OAuthConnectionActivityRecord): void {
+    this.activities.push(record);
+  }
+
+  async listActivity(
+    tenantId: string,
+    connectionId: string,
+    query: IntegrationActivityQuery,
+  ) {
+    const records = this.activities
+      .filter(
+        (record) =>
+          record.tenantId === tenantId && record.connectionId === connectionId,
+      )
+      .sort(
+        (left, right) =>
+          right.usedAt.getTime() - left.usedAt.getTime() ||
+          right.id.localeCompare(left.id),
+      );
+    const cursorIndex = query.cursor
+      ? records.findIndex((record) => record.id === query.cursor)
+      : -1;
+    if (query.cursor && cursorIndex < 0) {
+      throw new ActivityCursorNotFoundError();
+    }
+    const limit = query.limit ?? 50;
+    const rows = records.slice(cursorIndex + 1);
+    const hasMore = rows.length > limit;
+    const data = hasMore ? rows.slice(0, limit) : rows;
+    return {
+      data,
+      page: {
+        next_cursor: hasMore ? data.at(-1)?.id ?? null : null,
+        has_more: hasMore,
+        limit,
+      },
+    };
   }
 
   async onModuleDestroy(): Promise<void> {}
@@ -383,6 +446,135 @@ describe("Integration OAuth Hub routes", () => {
       status: "revoked",
       revoked_remotely: true,
     });
+  });
+
+  it("lists tenant and workspace-scoped connection activity with keyset pagination", async () => {
+    await repository.createConnection(actor.tenant_id, {
+      id: connectionId,
+      workspaceId: actor.workspace_id!,
+      connector: "github",
+      externalAccountId: "activity-account",
+      scopes: "read:user",
+    });
+    repository.addActivity({
+      tenantId: actor.tenant_id,
+      id: "018f47a5-7b2c-7d10-8f11-123456789ab1",
+      connectionId,
+      action: "health_check",
+      usedAt: new Date("2026-08-05T08:00:00.000Z"),
+    });
+    repository.addActivity({
+      tenantId: actor.tenant_id,
+      id: "018f47a5-7b2c-7d10-8f11-123456789ab2",
+      connectionId,
+      action: "revoke",
+      usedAt: new Date("2026-08-05T09:00:00.000Z"),
+    });
+    repository.addActivity({
+      tenantId: actor.tenant_id,
+      id: "018f47a5-7b2c-7d10-8f11-123456789ab3",
+      connectionId,
+      action: "health_check",
+      usedAt: new Date("2026-08-05T10:00:00.000Z"),
+    });
+
+    const first = await request({
+      method: "GET",
+      url: `/api/v1/integrations/connections/${connectionId}/activity?limit=2`,
+      actor,
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toEqual({
+      data: [
+        {
+          id: "018f47a5-7b2c-7d10-8f11-123456789ab3",
+          connection_id: connectionId,
+          action: "health_check",
+          used_at: "2026-08-05T10:00:00.000Z",
+        },
+        {
+          id: "018f47a5-7b2c-7d10-8f11-123456789ab2",
+          connection_id: connectionId,
+          action: "revoke",
+          used_at: "2026-08-05T09:00:00.000Z",
+        },
+      ],
+      page: {
+        next_cursor: "018f47a5-7b2c-7d10-8f11-123456789ab2",
+        has_more: true,
+        limit: 2,
+      },
+    });
+
+    const second = await request({
+      method: "GET",
+      url: `/api/v1/integrations/connections/${connectionId}/activity?limit=2&cursor=018f47a5-7b2c-7d10-8f11-123456789ab2`,
+      actor,
+    });
+    expect(second.json()).toMatchObject({
+      data: [
+        {
+          id: "018f47a5-7b2c-7d10-8f11-123456789ab1",
+          action: "health_check",
+        },
+      ],
+      page: { next_cursor: null, has_more: false, limit: 2 },
+    });
+  });
+
+  it("does not expose activity across tenant or workspace boundaries", async () => {
+    await repository.createConnection(actor.tenant_id, {
+      id: connectionId,
+      workspaceId: actor.workspace_id!,
+      connector: "github",
+      externalAccountId: "scoped-activity-account",
+      scopes: "read:user",
+    });
+    repository.addActivity({
+      tenantId: actor.tenant_id,
+      id: "018f47a5-7b2c-7d10-8f11-123456789ab4",
+      connectionId,
+      action: "health_check",
+      usedAt: new Date("2026-08-05T10:00:00.000Z"),
+    });
+
+    const otherTenant = await request({
+      method: "GET",
+      url: `/api/v1/integrations/connections/${connectionId}/activity`,
+      actor: { ...actor, tenant_id: `ten_${uuid.slice(0, -1)}d` },
+    });
+    expectProblem(otherTenant, 404, "INTEGRATION_CONNECTION_NOT_FOUND");
+
+    const otherWorkspace = await request({
+      method: "GET",
+      url: `/api/v1/integrations/connections/${connectionId}/activity`,
+      actor: { ...actor, workspace_id: `ws_${uuid.slice(0, -1)}d` },
+    });
+    expectProblem(otherWorkspace, 404, "INTEGRATION_CONNECTION_NOT_FOUND");
+  });
+
+  it("rejects invalid activity pagination input", async () => {
+    await repository.createConnection(actor.tenant_id, {
+      id: connectionId,
+      workspaceId: actor.workspace_id!,
+      connector: "github",
+      externalAccountId: "invalid-activity-page-account",
+      scopes: "read:user",
+    });
+
+    const invalidCursor = await request({
+      method: "GET",
+      url: `/api/v1/integrations/connections/${connectionId}/activity?cursor=018f47a5-7b2c-7d10-8f11-123456789ab5`,
+      actor,
+    });
+    expectProblem(invalidCursor, 400, "INTEGRATION_VALIDATION_FAILED");
+
+    const invalidLimit = await request({
+      method: "GET",
+      url: `/api/v1/integrations/connections/${connectionId}/activity?limit=0`,
+      actor,
+    });
+    expectProblem(invalidLimit, 400, "INTEGRATION_VALIDATION_FAILED");
   });
 
   it("discloses health and revoke failures when the stored token secret is missing", async () => {

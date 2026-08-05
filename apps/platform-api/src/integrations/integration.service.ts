@@ -9,7 +9,10 @@ import {
 } from "./connectors";
 import { generatePkcePair, generateState } from "./adapters/oauth/oauth-http-client";
 import type { OAuthHttpClient } from "./adapters/oauth/oauth-http-client";
-import { IntegrationRepository } from "./integration.repository";
+import {
+  ActivityCursorNotFoundError,
+  IntegrationRepository,
+} from "./integration.repository";
 import { IntegrationHttpError } from "./problem";
 import {
   INTEGRATION_CONNECTOR_RUNTIME_CONFIG,
@@ -18,8 +21,11 @@ import {
 } from "./tokens";
 import type {
   ConnectorCatalogEntry,
+  IntegrationActivityQuery,
   OAuthAuthorizeInput,
   OAuthAuthorizeView,
+  OAuthConnectionActivityPage,
+  OAuthConnectionActivityRecord,
   OAuthCallbackInput,
   OAuthConnectionRecord,
   OAuthConnectionView,
@@ -220,6 +226,34 @@ export class IntegrationService {
     return { connection_id: record.id, scopes: splitScopes(record.scopes) };
   }
 
+  async activity(
+    tenantId: string,
+    workspaceId: string,
+    id: string,
+    query: IntegrationActivityQuery,
+  ): Promise<OAuthConnectionActivityPage> {
+    const instance = `/api/v1/integrations/connections/${id}/activity`;
+    await this.requireConnection(tenantId, workspaceId, id, instance);
+    try {
+      const page = await this.repository.listActivity(tenantId, id, query);
+      return {
+        data: page.data.map(projectActivity),
+        page: page.page,
+      };
+    } catch (error) {
+      if (error instanceof ActivityCursorNotFoundError) {
+        throw new IntegrationHttpError(
+          400,
+          "INTEGRATION_VALIDATION_FAILED",
+          "Activity cursor does not belong to this connection",
+          instance,
+          [{ field: "cursor", message: "Invalid activity cursor" }],
+        );
+      }
+      throw error;
+    }
+  }
+
   async health(
     tenantId: string,
     workspaceId: string,
@@ -403,6 +437,17 @@ function project(record: OAuthConnectionRecord): OAuthConnectionView {
     last_health_checked_at: record.lastHealthCheckedAt?.toISOString() ?? null,
     created_at: record.createdAt.toISOString(),
     version: record.updatedAt.toISOString(),
+  };
+}
+
+function projectActivity(
+  record: OAuthConnectionActivityRecord,
+): OAuthConnectionActivityPage["data"][number] {
+  return {
+    id: record.id,
+    connection_id: record.connectionId,
+    action: record.action,
+    used_at: record.usedAt.toISOString(),
   };
 }
 

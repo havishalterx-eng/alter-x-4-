@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { Injectable, type OnModuleDestroy } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
 import type { ConnectorId } from "./connectors";
-import type { OAuthConnectionRecord, OAuthStateRecord } from "./types";
+import type {
+  IntegrationActivityQuery,
+  OAuthConnectionActivityRecord,
+  OAuthConnectionRecord,
+  OAuthStateRecord,
+} from "./types";
 
 interface OAuthStateRow {
   tenant_id: string;
@@ -30,6 +35,21 @@ interface OAuthConnectionRow {
   use_audit_ptr: string | null;
   created_at: Date;
   updated_at: Date;
+}
+
+interface OAuthConnectionUseAuditRow {
+  tenant_id: string;
+  id: string;
+  connection_id: string;
+  action: string;
+  used_at: Date;
+}
+
+export class ActivityCursorNotFoundError extends Error {
+  constructor() {
+    super("Activity cursor does not belong to this connection");
+    this.name = "ActivityCursorNotFoundError";
+  }
 }
 
 export interface CreateOAuthStateInput {
@@ -220,6 +240,55 @@ export class IntegrationRepository implements OnModuleDestroy {
     });
   }
 
+  listActivity(
+    tenantId: string,
+    connectionId: string,
+    query: IntegrationActivityQuery,
+  ): Promise<{
+    readonly data: readonly OAuthConnectionActivityRecord[];
+    readonly page: { readonly next_cursor: string | null; readonly has_more: boolean; readonly limit: number };
+  }> {
+    const limit = query.limit ?? 50;
+    return this.withTenant(tenantId, async (client) => {
+      const values: unknown[] = [tenantId, connectionId];
+      const conditions = ["tenant_id = $1", "connection_id = $2"];
+      if (query.cursor) {
+        const cursor = await client.query<{ used_at: Date }>(
+          `SELECT used_at
+           FROM oauth_connection_use_audits
+           WHERE tenant_id = $1 AND connection_id = $2 AND id = $3`,
+          [tenantId, connectionId, query.cursor],
+        );
+        const usedAt = cursor.rows[0]?.used_at;
+        if (!usedAt) throw new ActivityCursorNotFoundError();
+        values.push(usedAt, query.cursor);
+        conditions.push(
+          `(used_at, id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`,
+        );
+      }
+      values.push(limit + 1);
+      const result = await client.query<OAuthConnectionUseAuditRow>(
+        `SELECT tenant_id, id, connection_id, action, used_at
+         FROM oauth_connection_use_audits
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY used_at DESC, id DESC
+         LIMIT $${values.length}`,
+        values,
+      );
+      const rows = result.rows.map(mapActivityRow);
+      const hasMore = rows.length > limit;
+      const data = hasMore ? rows.slice(0, limit) : rows;
+      return {
+        data,
+        page: {
+          next_cursor: hasMore ? data.at(-1)?.id ?? null : null,
+          has_more: hasMore,
+          limit,
+        },
+      };
+    });
+  }
+
   async onModuleDestroy(): Promise<void> {
     if (this.closePoolOnDestroy) await this.pool.end();
   }
@@ -276,5 +345,17 @@ function mapConnectionRow(row: OAuthConnectionRow): OAuthConnectionRecord {
     useAuditPtr: row.use_audit_ptr,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapActivityRow(
+  row: OAuthConnectionUseAuditRow,
+): OAuthConnectionActivityRecord {
+  return {
+    tenantId: row.tenant_id,
+    id: row.id,
+    connectionId: row.connection_id,
+    action: row.action,
+    usedAt: row.used_at,
   };
 }
