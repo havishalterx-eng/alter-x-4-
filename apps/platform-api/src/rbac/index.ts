@@ -3,6 +3,7 @@ export {
   Public,
   RequirePermission,
   RequireTenantRole,
+  RequireStaffRole,
   RequireWorkspaceRole,
 } from "./decorators";
 export * from "./rbac-exception.filter";
@@ -14,5 +15,6 @@ export type {
   RbacRequest,
   RbacRole,
   TenantRole,
+  StaffRole,
   WorkspaceRole,
 } from "./types";
