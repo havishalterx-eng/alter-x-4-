@@ -38,6 +38,7 @@ import { CliModule } from "./cli";
 import { SystemHealthModule } from "./system-health/system-health.module";
 import { AdminTenantsModule } from "./admin-tenants";
 import { BenchmarksModule } from "./benchmarks";
+import { AuditEventsModule } from "./audit-events";
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { BenchmarksModule } from "./benchmarks";
     SystemHealthModule,
     AdminTenantsModule,
     BenchmarksModule,
+    AuditEventsModule,
   ],
   controllers: [HealthController],
 })

@@ -25,6 +25,8 @@ export const platformApiEnvSchema = z
     ADS_CORE_BASE_URL: z.string().url().optional(),
     COST_LEDGER_BASE_URL: z.string().url().optional(),
     EVAL_FACADE_TOKEN_REF: z.string().min(1).optional(),
+    AUDIT_SERVICE_BASE_URL: z.string().url().optional(),
+    AUDIT_QUERY_SERVICE_TOKEN_REF: z.string().min(1).optional(),
     ENGINE_M2M_TOKEN_URL: z.string().url().optional(),
     ENGINE_M2M_AUDIENCE: z.string().min(1).optional(),
     ENGINE_M2M_CLIENT_ID: z.string().min(1).optional(),

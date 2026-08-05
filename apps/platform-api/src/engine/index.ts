@@ -12,6 +12,12 @@ export {
 } from "./config";
 export { ENGINE_CONFIG, EngineClient } from "./engine-client";
 export {
+  AuditEventsClient,
+  type AuditEvent,
+  type AuditEventsPage,
+  type AuditEventsQuery,
+} from "./audit-events-client";
+export {
   CostLedgerClient,
   type CostMode,
   type CostSource,

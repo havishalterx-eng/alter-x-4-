@@ -13,6 +13,8 @@ const config: EngineConfig = {
   adsCoreBaseUrl: "https://ads.test",
   costLedgerBaseUrl: "https://costs.test",
   evalFacadeTokenRef: "env:EVAL_FACADE_TOKEN",
+  auditServiceBaseUrl: "https://audit.test",
+  auditQueryServiceTokenRef: "env:AUDIT_QUERY_TOKEN",
   m2mTokenUrl: "https://identity.test/oauth/token",
   m2mAudience: "https://engine.test",
   m2mClientId: "platform-api",
