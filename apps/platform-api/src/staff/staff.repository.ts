@@ -16,6 +16,33 @@ export interface JitGrant {
   revoked_at: Date | null;
 }
 
+export interface TenantJitGrant {
+  id: string;
+  reason_code: string;
+  reason_text: string;
+  granted_at: Date;
+  expires_at: Date;
+  revoked_at: Date | null;
+  staff_roles: string[];
+}
+
+export interface TenantJitGrantPage {
+  data: TenantJitGrant[];
+  page: {
+    next_cursor: string | null;
+    has_more: boolean;
+    limit: number;
+  };
+}
+
+export class InvalidSupportAccessCursorError extends Error {
+  constructor() {
+    super("Invalid support access cursor");
+    this.name = "InvalidSupportAccessCursorError";
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
 export class StaffRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -93,6 +120,36 @@ export class StaffRepository {
     return result.rows;
   }
 
+  async listForTenant(
+    tenantId: string,
+    input: { readonly cursor?: string | undefined; readonly limit: number },
+  ): Promise<TenantJitGrantPage> {
+    const cursor = input.cursor ? decodeTenantGrantCursor(input.cursor) : undefined;
+    return this.transaction(async (client) => {
+      await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantId]);
+      const result = await client.query<TenantJitGrant>(
+        `SELECT g.id, g.reason_code, g.reason_text, g.granted_at, g.expires_at, g.revoked_at,
+                COALESCE(s.roles, ARRAY[]::text[]) AS staff_roles
+           FROM jit_grants g
+           LEFT JOIN staff_users s ON s.id = g.staff_user_id
+          WHERE g.tenant_id = $1
+            AND ($2::timestamptz IS NULL OR (g.granted_at, g.id) < ($2, $3))
+          ORDER BY g.granted_at DESC, g.id DESC
+          LIMIT $4`,
+        [tenantId, cursor?.grantedAt ?? null, cursor?.id ?? null, input.limit + 1],
+      );
+      const data = result.rows.slice(0, input.limit);
+      const tail = data.at(-1);
+      const nextCursor = result.rows.length > input.limit && tail
+        ? encodeTenantGrantCursor(tail.granted_at, tail.id)
+        : null;
+      return {
+        data,
+        page: { next_cursor: nextCursor, has_more: nextCursor !== null, limit: input.limit },
+      };
+    });
+  }
+
   private async audit(
     client: PoolClient,
     grantId: string,
@@ -118,5 +175,26 @@ export class StaffRepository {
     } finally {
       client.release();
     }
+  }
+}
+
+function encodeTenantGrantCursor(grantedAt: Date, id: string): string {
+  return Buffer.from(JSON.stringify({ grantedAt: grantedAt.toISOString(), id }), "utf8").toString("base64url");
+}
+
+function decodeTenantGrantCursor(cursor: string): { readonly grantedAt: string; readonly id: string } {
+  try {
+    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown;
+    const record = value && typeof value === "object" ? value as Record<string, unknown> : undefined;
+    if (
+      typeof record?.grantedAt !== "string" ||
+      typeof record.id !== "string" ||
+      Number.isNaN(Date.parse(record.grantedAt))
+    ) {
+      throw new Error("invalid cursor");
+    }
+    return { grantedAt: record.grantedAt, id: record.id };
+  } catch {
+    throw new InvalidSupportAccessCursorError();
   }
 }

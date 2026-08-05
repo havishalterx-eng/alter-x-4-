@@ -55,4 +55,8 @@ export class StaffService {
   list(staffUserId: string, includeAll: boolean) {
     return this.repository.list(staffUserId, includeAll);
   }
+
+  listForTenant(tenantId: string, input: { readonly cursor?: string | undefined; readonly limit: number }) {
+    return this.repository.listForTenant(tenantId, input);
+  }
 }
