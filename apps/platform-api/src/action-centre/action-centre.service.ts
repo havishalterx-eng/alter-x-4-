@@ -19,6 +19,7 @@ import { ActionCentreHttpError } from "./problem";
 import {
   type ActionQueueItem,
   type ActionQueuePage,
+  type ApprovalStatus,
   type EnginePage,
   type EngineResource,
   humanActionCentreDeferred,
@@ -197,7 +198,7 @@ function listPath(
   base: "/api/v1/approvals" | "/api/v1/escalations",
   cursor: string | null,
   limit: number,
-  status?: "pending" | null,
+  status?: ApprovalStatus | null,
 ): `${typeof base}${string}` {
   const query = new URLSearchParams({ limit: String(limit) });
   if (cursor) query.set("cursor", cursor);

@@ -5,6 +5,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Query,
   UseFilters,
 } from "@nestjs/common";
 import { Idempotent } from "../idempotency";
@@ -20,6 +21,7 @@ import { IntegrationHttpError } from "./problem";
 import type {
   ConnectorCatalogEntry,
   OAuthAuthorizeView,
+  OAuthConnectionActivityPage,
   OAuthConnectionView,
   OAuthRevokeView,
   OAuthScopesView,
@@ -27,6 +29,7 @@ import type {
 import {
   parseConnectionId,
   parseConnectorId,
+  parseActivityQuery,
   parseOAuthAuthorizeInput,
   parseOAuthCallbackInput,
 } from "./validation";
@@ -67,6 +70,25 @@ export class IntegrationController {
     const context = requireWorkspaceActor(actor, instance);
     const id = parseConnectionId(connectionId, instance);
     return this.integrations.getConnection(context.tenant_id, context.workspace_id, id);
+  }
+
+  @Get("connections/:connectionId/activity")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("integrations:read")
+  activity(
+    @Param("connectionId") connectionId: string,
+    @Query() query: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+  ): Promise<OAuthConnectionActivityPage> {
+    const instance = `/api/v1/integrations/connections/${connectionId}/activity`;
+    const context = requireWorkspaceActor(actor, instance);
+    const id = parseConnectionId(connectionId, instance);
+    return this.integrations.activity(
+      context.tenant_id,
+      context.workspace_id,
+      id,
+      parseActivityQuery(query, instance),
+    );
   }
 
   @Get("connections/:connectionId/scopes")

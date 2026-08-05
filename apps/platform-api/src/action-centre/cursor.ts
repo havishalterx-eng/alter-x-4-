@@ -104,5 +104,11 @@ function validType(value: unknown): boolean {
 }
 
 function validStatus(value: unknown): boolean {
-  return value === null || value === "pending";
+  return (
+    value === null ||
+    value === "pending" ||
+    value === "approved" ||
+    value === "rejected" ||
+    value === "expired"
+  );
 }
