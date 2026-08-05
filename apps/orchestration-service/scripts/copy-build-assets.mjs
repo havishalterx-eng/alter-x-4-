@@ -60,3 +60,8 @@ await cp(
   resolve(output, "proto/recovery.proto"),
   { force: true },
 );
+await cp(
+  resolve(root, "packages/contracts/proto/alter/eval/v1/eval.proto"),
+  resolve(output, "proto/eval.proto"),
+  { force: true },
+);

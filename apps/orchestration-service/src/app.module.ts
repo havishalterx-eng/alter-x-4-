@@ -16,6 +16,7 @@ import {
   ConversationDispatchClient,
   ConversationGrpcController,
   DeployctlGrpcController,
+  EvalServiceClient,
   ModelGatewayClient,
   PlannerClient,
   PolicyStoreClient,
@@ -101,6 +102,17 @@ import { ArtifactsController } from "./artifacts/artifacts.controller";
 import { ArtifactsService } from "./artifacts/artifacts.service";
 import { ArtifactContentGrpcService } from "./artifacts/artifact-content-grpc.service";
 import { GeneratedFileMaterializer } from "./registry/generated-file-materializer";
+import {
+  EVAL_FACADE_CONFIG,
+  loadEvalFacadeEnvironment,
+  type EvalFacadeEnvironment,
+} from "./eval-facade/config";
+import {
+  EvalFacadeController,
+  EVAL_FACADE_TOKEN_HASH,
+} from "./eval-facade/eval-facade.controller";
+import { EvalFacadeService } from "./eval-facade/eval-facade.service";
+import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
 
 @Module({
   controllers: [
@@ -127,8 +139,27 @@ import { GeneratedFileMaterializer } from "./registry/generated-file-materialize
     WhatsappAccountsController,
     DeletionController,
     DeletionRequestController,
+    EvalFacadeController,
   ],
   providers: [
+    {
+      provide: EVAL_FACADE_CONFIG,
+      useFactory: () => loadEvalFacadeEnvironment(process.env),
+    },
+    {
+      provide: EVAL_FACADE_TOKEN_HASH,
+      inject: [EVAL_FACADE_CONFIG],
+      useFactory: (config: EvalFacadeEnvironment) => config.tokenHash,
+    },
+    {
+      provide: EvalServiceClient,
+      inject: [EVAL_FACADE_CONFIG],
+      useFactory: (config: EvalFacadeEnvironment) => new EvalServiceClient({
+        address: config.grpcTarget,
+        protoPath: EVAL_PROTO_PATH,
+      }),
+    },
+    EvalFacadeService,
     {
       provide: ARTIFACT_CONTENT_HANDLER,
       useFactory: (artifacts: ArtifactsService) => new ArtifactContentGrpcService(artifacts),

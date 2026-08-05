@@ -207,6 +207,15 @@ export class PostgresOrchestrationStoreProvider
       (dependencies.poolFactory ?? ((poolConfig) => new Pool(poolConfig)))(
         createPoolConfig(config, dependencies.iamAuthTokenProvider),
       );
+    // node-postgres requires an 'error' listener on the pool -- an idle
+    // client's background connection fault (e.g. the server terminating the
+    // connection during teardown) otherwise surfaces as an unhandled
+    // process-level error instead of a catchable rejection. Guarded because
+    // injected test-double pools (dependencies.pool) aren't required to
+    // implement the full real Pool surface.
+    if (typeof this.#pool.on === "function") {
+      this.#pool.on("error", () => undefined);
+    }
     this.#migrationsFolder = config.migrationsFolder;
   }
 

@@ -179,6 +179,12 @@ export {
 } from "./grpc/runs-grpc-transport";
 export { RunsClient, type RunsClientConfig, type RunsHandlerClient } from "./grpc/runs-client";
 export {
+  EvalServiceClient,
+  EvalServiceClientError,
+  type EvalServiceClientConfig,
+  type EvalServiceHandlerClient,
+} from "./grpc/eval-client";
+export {
   PROVISIONING_HANDLER,
   ProvisioningGrpcController,
   startProvisioningGrpcTransport,
