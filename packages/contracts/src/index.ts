@@ -33,6 +33,12 @@ export {
   type ProviderCapabilities,
 } from "./provider-capabilities";
 export type {
+  CloseCycleRequest as ProvisioningCloseCycleRequest,
+  CloseCycleResponse as ProvisioningCloseCycleResponse,
+  ProvisionRequest as ProvisioningProvisionRequest,
+  ProvisionResponse as ProvisioningProvisionResponse,
+} from "./generated/alter/provisioning/v1/provisioning";
+export type {
   CreateContentRequest as ArtifactCreateContentRequest,
   CreateContentResponse as ArtifactCreateContentResponse,
   ReadContentRequest as ArtifactReadContentRequest,

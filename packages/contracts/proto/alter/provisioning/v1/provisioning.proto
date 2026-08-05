@@ -1,0 +1,42 @@
+syntax = "proto3";
+package alter.provisioning.v1;
+
+service ProvisioningService {
+  rpc Provision(ProvisionRequest) returns (ProvisionResponse);
+  rpc CloseCycle(CloseCycleRequest) returns (CloseCycleResponse);
+}
+
+message ProvisionRequest {
+  reserved 100 to 199;
+  string tenant_id = 1;
+  string run_id = 2;
+  string project_id = 3;
+  string cycle_id = 4;
+  string template_id = 5;
+  map<string, string> environment_refs = 6;
+  repeated ScaffoldFile scaffold = 7;
+}
+message ScaffoldFile {
+  string path = 1;
+  string content = 2;
+}
+
+message ProvisionResponse {
+  reserved 100 to 199;
+  string session_id = 1;
+  string project_directory = 2;
+  bool reused = 3;
+}
+
+message CloseCycleRequest {
+  reserved 100 to 199;
+  string tenant_id = 1;
+  string run_id = 2;
+  string project_id = 3;
+  string cycle_id = 4;
+}
+
+message CloseCycleResponse {
+  reserved 100 to 199;
+  bool closed = 1;
+}

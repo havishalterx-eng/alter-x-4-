@@ -178,6 +178,19 @@ export {
   type RunsHandler,
 } from "./grpc/runs-grpc-transport";
 export { RunsClient, type RunsClientConfig, type RunsHandlerClient } from "./grpc/runs-client";
+export {
+  PROVISIONING_HANDLER,
+  ProvisioningGrpcController,
+  startProvisioningGrpcTransport,
+  type ProvisioningGrpcHandler,
+  type ProvisioningGrpcTransportConfig,
+} from "./grpc/provisioning-grpc-transport";
+export {
+  ProvisioningClient,
+  ProvisioningClientError,
+  type ProvisioningClientConfig,
+  type ProvisioningClientHandler,
+} from "./grpc/provisioning-client";
 export { ARTIFACT_CONTENT_HANDLER, ArtifactContentGrpcController, connectArtifactContentGrpcTransport, type ArtifactContentGrpcTransportConfig, type ArtifactContentHandler } from "./grpc/artifact-content-grpc-transport";
 export { ArtifactContentClient, ArtifactContentClientError, type ArtifactContentClientConfig, type ArtifactContentClientHandler } from "./grpc/artifact-content-client";
 export {
