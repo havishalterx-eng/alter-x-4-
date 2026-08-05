@@ -54,7 +54,7 @@ describe("audit-events platform relay", () => {
       baseUrl: "http://engine.test", adsCoreBaseUrl: "http://ads.test", costLedgerBaseUrl: "http://costs.test",
       auditServiceBaseUrl: `http://127.0.0.1:${address.port}`,
       auditQueryServiceTokenRef: "test/audit-query-token",
-      evalServiceGrpcTarget: "eval-service:50062", m2mTokenUrl: "https://identity.test/token",
+      evalFacadeTokenRef: "env:EVAL_FACADE_TOKEN", m2mTokenUrl: "https://identity.test/token",
       m2mAudience: "engine", m2mClientId: "platform-api", m2mClientSecretRef: "env:ENGINE_SECRET", requestTimeoutMs: 100,
     };
     const secrets: SecretsProvider = { getSecret: async (reference) => {

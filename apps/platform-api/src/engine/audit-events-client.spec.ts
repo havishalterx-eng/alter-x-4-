@@ -9,7 +9,7 @@ const config: EngineConfig = {
   costLedgerBaseUrl: "https://costs.test",
   auditServiceBaseUrl: "https://audit.test/",
   auditQueryServiceTokenRef: "env:AUDIT_QUERY_TOKEN",
-  evalServiceGrpcTarget: "eval-service:50062",
+  evalFacadeTokenRef: "env:EVAL_FACADE_TOKEN",
   m2mTokenUrl: "https://identity.test/oauth/token",
   m2mAudience: "https://engine.test",
   m2mClientId: "platform-api",
