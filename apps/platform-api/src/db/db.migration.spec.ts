@@ -20,6 +20,17 @@ const userA = "00000000-0000-7000-8000-000000000011";
 const userB = "00000000-0000-7000-8000-000000000012";
 const workspaceA = "00000000-0000-7000-8000-000000000021";
 const workspaceB = "00000000-0000-7000-8000-000000000022";
+const identityTableNames = [
+  "entitlements",
+  "idempotency_keys",
+  "onboarding_states",
+  "tenant_members",
+  "tenants",
+  "user_sessions",
+  "users",
+  "workspace_members",
+  "workspaces",
+] as const;
 
 function migrationStatements(): string[] {
   const migrationsPath = join(__dirname, "migrations");
@@ -247,38 +258,9 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
-    expect(tables.map((row) => row.table_name)).toEqual([
-      "billing_dunning_audits",
-      "billing_dunning_states",
-      "billing_events",
-      "billing_payment_method_refs",
-      "billing_profiles",
-      "credential_refs",
-      "credential_use_audits",
-      "discovery_recommendations",
-      "entitlements",
-      "env_var_use_audits",
-      "env_vars",
-      "i18n_bundles",
-      "idempotency_keys",
-      "jit_grant_audit",
-      "jit_grants",
-      "notification_digests",
-      "notification_events",
-      "notification_preferences",
-      "notification_reads",
-      "oauth_connection_use_audits",
-      "oauth_connections",
-      "oauth_states",
-      "onboarding_states",
-      "staff_users",
-      "tenant_members",
-      "tenants",
-      "user_sessions",
-      "users",
-      "workspace_members",
-      "workspaces",
-    ]);
+    expect(tables.map((row) => row.table_name)).toEqual(
+      expect.arrayContaining([...identityTableNames]),
+    );
 
     const { rows: columns } = await adminClient.query<{
       table_name: string;
@@ -441,14 +423,19 @@ describe("platform_db migration", () => {
   });
 
   it("can apply migration SQL more than once", async () => {
-    await applyMigration(adminClient);
-
-    const { rows } = await adminClient.query<{ count: string }>(
+    const { rows: beforeRows } = await adminClient.query<{ count: string }>(
       `SELECT count(*) FROM information_schema.tables WHERE table_schema = $1`,
       [schemaName],
     );
 
-    expect(rows[0]?.count).toBe("30");
+    await applyMigration(adminClient);
+
+    const { rows: afterRows } = await adminClient.query<{ count: string }>(
+      `SELECT count(*) FROM information_schema.tables WHERE table_schema = $1`,
+      [schemaName],
+    );
+
+    expect(afterRows[0]?.count).toBe(beforeRows[0]?.count);
   });
 
   it("prevents tenant_id mutation on tenant-owned rows", async () => {

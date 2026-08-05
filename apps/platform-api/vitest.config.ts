@@ -11,6 +11,7 @@ export default defineConfig({
       "apps/platform-api/src/publisher/**/*.integration.spec.ts",
       "apps/platform-api/src/registry/**/*.integration.spec.ts",
       "apps/platform-api/src/db/db.migration.spec.ts",
+      "apps/platform-api/src/db/platform-db-schema-completeness.spec.ts",
       "apps/platform-api/src/identity/**/*.integration.spec.ts",
       "apps/platform-api/src/signup/**/*.integration.spec.ts",
       "apps/platform-api/src/idempotency/**/*.integration.spec.ts",
