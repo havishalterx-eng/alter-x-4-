@@ -33,6 +33,12 @@ export {
   type ProviderCapabilities,
 } from "./provider-capabilities";
 export type {
+  CreateContentRequest as ArtifactCreateContentRequest,
+  CreateContentResponse as ArtifactCreateContentResponse,
+  ReadContentRequest as ArtifactReadContentRequest,
+  ReadContentResponse as ArtifactReadContentResponse,
+} from "./generated/alter/artifacts/v1/artifacts";
+export type {
   GetEventRequest,
   GetEventResponse,
   RecordEventRequest,

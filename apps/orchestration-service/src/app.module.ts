@@ -10,6 +10,8 @@ import {
   REGISTRY_HANDLER,
   RUNS_HANDLER,
   BlackboardGrpcController,
+  ARTIFACT_CONTENT_HANDLER,
+  ArtifactContentGrpcController,
   CompilerGrpcController,
   ConversationDispatchClient,
   ConversationGrpcController,
@@ -92,6 +94,7 @@ import { OrchestrationDeletionService } from "./deletion/deletion.service";
 import { DeletionRequestController } from "./deletion/deletion-request.controller";
 import { ArtifactsController } from "./artifacts/artifacts.controller";
 import { ArtifactsService } from "./artifacts/artifacts.service";
+import { ArtifactContentGrpcService } from "./artifacts/artifact-content-grpc.service";
 
 @Module({
   controllers: [
@@ -104,6 +107,7 @@ import { ArtifactsService } from "./artifacts/artifacts.service";
     BlackboardGrpcController,
     RecoveryGrpcController,
     RunsGrpcController,
+    ArtifactContentGrpcController,
     NodeExecutionsController,
     RunStreamController,
     RunsController,
@@ -119,6 +123,11 @@ import { ArtifactsService } from "./artifacts/artifacts.service";
     DeletionRequestController,
   ],
   providers: [
+    {
+      provide: ARTIFACT_CONTENT_HANDLER,
+      useFactory: (artifacts: ArtifactsService) => new ArtifactContentGrpcService(artifacts),
+      inject: [ArtifactsService],
+    },
     {
       provide: WhatsappAccountRegistryService,
       useFactory: () => {

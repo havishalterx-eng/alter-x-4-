@@ -178,6 +178,8 @@ export {
   type RunsHandler,
 } from "./grpc/runs-grpc-transport";
 export { RunsClient, type RunsClientConfig, type RunsHandlerClient } from "./grpc/runs-client";
+export { ARTIFACT_CONTENT_HANDLER, ArtifactContentGrpcController, connectArtifactContentGrpcTransport, type ArtifactContentGrpcTransportConfig, type ArtifactContentHandler } from "./grpc/artifact-content-grpc-transport";
+export { ArtifactContentClient, ArtifactContentClientError, type ArtifactContentClientConfig, type ArtifactContentClientHandler } from "./grpc/artifact-content-client";
 export {
   COST_HANDLER,
   CostGrpcController,

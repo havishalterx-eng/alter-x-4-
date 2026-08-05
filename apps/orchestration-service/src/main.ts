@@ -3,6 +3,7 @@ import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fa
 import { NestFactory } from "@nestjs/core";
 import {
   connectBlackboardGrpcTransport,
+  connectArtifactContentGrpcTransport,
   connectCompilerGrpcTransport,
   connectDeployctlGrpcTransport,
   connectNodeexecGrpcTransport,
@@ -20,6 +21,7 @@ import { loadNodeexecEnvironment } from "./config/nodeexec-environment";
 import { loadRegistryEnvironment } from "./config/registry-environment";
 import { loadRecoveryEnvironment } from "./config/recovery-environment";
 import { loadRunsEnvironment } from "./config/runs-environment";
+import { loadArtifactContentEnvironment } from "./config/artifact-content-environment";
 import { BLACKBOARD_PROTO_PATH } from "./blackboard/grpc.constants";
 import { COMPILER_PROTO_PATH } from "./compiler/grpc.constants";
 import { CONVERSATION_PROTO_PATH } from "./conversation/grpc.constants";
@@ -28,6 +30,7 @@ import { NODEEXEC_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
 import { REGISTRY_PROTO_PATH } from "./registry/grpc.constants";
 import { RECOVERY_PROTO_PATH } from "./recovery/grpc.constants";
 import { RUNS_PROTO_PATH } from "./runs/grpc.constants";
+import { ARTIFACT_CONTENT_PROTO_PATH } from "./artifacts/grpc.constants";
 
 async function bootstrap(): Promise<void> {
   const conversationConfig = loadConversationManagerEnvironment(process.env);
@@ -38,6 +41,7 @@ async function bootstrap(): Promise<void> {
   const recoveryConfig = loadRecoveryEnvironment(process.env);
   const runsConfig = loadRunsEnvironment(process.env);
   const blackboardConfig = loadBlackboardEnvironment(process.env);
+  const artifactContentConfig = loadArtifactContentEnvironment(process.env);
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
@@ -81,6 +85,10 @@ async function bootstrap(): Promise<void> {
   connectRunsGrpcTransport(app, {
     bindAddress: runsConfig.grpcBindAddress,
     protoPath: RUNS_PROTO_PATH,
+  });
+  connectArtifactContentGrpcTransport(app, {
+    bindAddress: artifactContentConfig.grpcBindAddress,
+    protoPath: ARTIFACT_CONTENT_PROTO_PATH,
   });
   await startConversationGrpcTransport(app, {
     bindAddress: conversationConfig.grpcBindAddress,

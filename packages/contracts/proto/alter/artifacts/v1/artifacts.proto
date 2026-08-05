@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package alter.artifacts.v1;
+
+// Internal byte-content API. Public artifact endpoints expose metadata and
+// download handoffs only; engine services use this tenant-scoped transport.
+service ArtifactContentService {
+  rpc CreateContent(CreateContentRequest) returns (CreateContentResponse);
+  rpc ReadContent(ReadContentRequest) returns (ReadContentResponse);
+}
+
+message CreateContentRequest {
+  reserved 100 to 199;
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string run_id = 2; // run_ prefixed UUIDv7
+  string content_type = 3;
+  bytes content = 4;
+}
+
+message CreateContentResponse {
+  reserved 100 to 199;
+  string artifact_id = 1; // art_ prefixed UUIDv7
+  uint64 size_bytes = 2;
+}
+
+message ReadContentRequest {
+  reserved 100 to 199;
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string artifact_id = 2; // art_ prefixed UUIDv7
+}
+
+message ReadContentResponse {
+  reserved 100 to 199;
+  string content_type = 1;
+  bytes content = 2;
+  uint64 size_bytes = 3;
+}
