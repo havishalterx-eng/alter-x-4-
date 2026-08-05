@@ -6,6 +6,12 @@ import { AppConfigConfigProvider } from "./adapters/appconfig/appconfig-config-p
 import { LocalFileConfigProvider } from "./adapters/local-file/local-file-config-provider";
 import { ENTITLEMENT_PROVIDER } from "./entitlement-provider.interface";
 import { PostgresEntitlementStore } from "./entitlement-store";
+import { PlanDefinitionConfigProvider } from "./plan-definition-config-provider";
+import {
+  PLAN_DEFINITION_STORE,
+  PostgresPlanDefinitionStore,
+  type PlanDefinitionStore,
+} from "./plan-definition-store";
 import { InternalEntitlementProvider } from "./internal-entitlement-provider";
 import { EntitlementAccessGuard } from "./entitlement-access.guard";
 import { EntitlementsController } from "./entitlements.controller";
@@ -16,16 +22,26 @@ const ENTITLEMENT_STORE = Symbol("ENTITLEMENT_STORE");
   controllers: [EntitlementsController],
   providers: [
     {
+      provide: PLAN_DEFINITION_STORE,
+      useFactory: () =>
+        new PostgresPlanDefinitionStore(
+          new Pool({ connectionString: process.env.DATABASE_URL }),
+          true,
+        ),
+    },
+    {
       provide: CONFIG_PROVIDER,
-      useFactory: (): ConfigProvider => {
-        if (process.env.ALTER_CONFIG_SOURCE === "appconfig") {
-          return new AppConfigConfigProvider({
-            applicationIdentifier: process.env.APPCONFIG_APP_ID!,
-            environmentIdentifier: process.env.APPCONFIG_ENV_ID!,
-            configurationProfileIdentifier: process.env.APPCONFIG_PROFILE_ID!,
-          });
-        }
-        return new LocalFileConfigProvider();
+      inject: [PLAN_DEFINITION_STORE],
+      useFactory: (planDefinitions: PlanDefinitionStore): ConfigProvider => {
+        const baseline =
+          process.env.ALTER_CONFIG_SOURCE === "appconfig"
+            ? new AppConfigConfigProvider({
+                applicationIdentifier: process.env.APPCONFIG_APP_ID!,
+                environmentIdentifier: process.env.APPCONFIG_ENV_ID!,
+                configurationProfileIdentifier: process.env.APPCONFIG_PROFILE_ID!,
+              })
+            : new LocalFileConfigProvider();
+        return new PlanDefinitionConfigProvider(baseline, planDefinitions);
       },
     },
     {
@@ -48,6 +64,6 @@ const ENTITLEMENT_STORE = Symbol("ENTITLEMENT_STORE");
       useClass: EntitlementAccessGuard,
     },
   ],
-  exports: [CONFIG_PROVIDER, ENTITLEMENT_PROVIDER],
+  exports: [CONFIG_PROVIDER, ENTITLEMENT_PROVIDER, PLAN_DEFINITION_STORE],
 })
 export class EntitlementsModule {}

@@ -19,6 +19,7 @@ export default defineConfig({
       "apps/platform-api/src/env-vars/**/*.integration.spec.ts",
       "apps/platform-api/src/billing/**/*.integration.spec.ts",
       "apps/platform-api/src/admin-tenants/**/*.integration.spec.ts",
+      "apps/platform-api/src/entitlements/**/*.integration.spec.ts",
     ],
     coverage: {
       provider: "v8",
@@ -55,6 +56,7 @@ export default defineConfig({
         "apps/platform-api/src/discovery/**/*.ts",
         "apps/platform-api/src/publisher/**/*.ts",
         "apps/platform-api/src/admin-tenants/**/*.ts",
+        "apps/platform-api/src/admin-policy/**/*.ts",
       ],
       exclude: [
         "apps/platform-api/src/db/**/*.spec.ts",
@@ -84,6 +86,7 @@ export default defineConfig({
         "apps/platform-api/src/billing/**/*.spec.ts",
         "apps/platform-api/src/discovery/**/*.spec.ts",
         "apps/platform-api/src/admin-tenants/**/*.spec.ts",
+        "apps/platform-api/src/admin-policy/**/*.spec.ts",
       ],
       thresholds: {
         lines: 90,
@@ -223,6 +226,10 @@ export default defineConfig({
           branches: 75,
         },
         "apps/platform-api/src/admin-tenants/**/*.ts": {
+          lines: 85,
+          branches: 80,
+        },
+        "apps/platform-api/src/admin-policy/**/*.ts": {
           lines: 85,
           branches: 80,
         },
