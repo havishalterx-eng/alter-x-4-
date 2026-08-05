@@ -258,6 +258,7 @@ describe("platform_db migration", () => {
       "entitlements",
       "env_var_use_audits",
       "env_vars",
+      "i18n_bundles",
       "idempotency_keys",
       "jit_grant_audit",
       "jit_grants",
@@ -446,7 +447,7 @@ describe("platform_db migration", () => {
       [schemaName],
     );
 
-    expect(rows[0]?.count).toBe("28");
+    expect(rows[0]?.count).toBe("29");
   });
 
   it("prevents tenant_id mutation on tenant-owned rows", async () => {
