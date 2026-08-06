@@ -895,10 +895,6 @@ describe("Integration OAuth Hub routes", () => {
   it("flags real remaining gaps and wires production module", () => {
     expect(integrationDeferredCapabilities).toEqual([
       expect.objectContaining({
-        capability: "oauth_flows_non_launch_connectors",
-        status: "NOT_MET",
-      }),
-      expect.objectContaining({
         capability: "oauth_round_trip_verified",
         status: "NOT_MET",
       }),
@@ -912,6 +908,26 @@ describe("Integration OAuth Hub routes", () => {
       }),
       expect.objectContaining({
         capability: "oauth_round_trip_verified_linkedin",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_zendesk",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_salesforce",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_shopify",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_x",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_m365",
         status: "NOT_MET",
       }),
     ]);

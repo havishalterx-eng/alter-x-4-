@@ -26,6 +26,9 @@ import { createFetchOAuthHttpClient } from "./oauth-http-client";
 const slack = findConnector("slack")!;
 const hubspot = findConnector("hubspot")!;
 const linkedin = findConnector("linkedin")!;
+const slackEndpoints = slack.resolveEndpoints(null);
+const hubspotEndpoints = hubspot.resolveEndpoints(null);
+const linkedinEndpoints = linkedin.resolveEndpoints(null);
 
 describe.skipIf(process.env.SLACK_LIVE_TEST !== "1" || !process.env.SLACK_LIVE_ACCESS_TOKEN)(
   "Slack OAuth live round trip",
@@ -34,7 +37,7 @@ describe.skipIf(process.env.SLACK_LIVE_TEST !== "1" || !process.env.SLACK_LIVE_A
       const client = createFetchOAuthHttpClient();
       const accountId = await client.fetchAccountId(
         "slack",
-        slack.userInfoUrl,
+        slackEndpoints.userInfoUrl,
         process.env.SLACK_LIVE_ACCESS_TOKEN!,
       );
       expect(accountId).toBeTruthy();
@@ -51,7 +54,7 @@ describe.skipIf(
     const client = createFetchOAuthHttpClient();
     const accountId = await client.fetchAccountId(
       "hubspot",
-      hubspot.userInfoUrl,
+      hubspotEndpoints.userInfoUrl,
       process.env.HUBSPOT_LIVE_ACCESS_TOKEN!,
     );
     expect(accountId).toBeTruthy();
@@ -61,7 +64,7 @@ describe.skipIf(
     const client = createFetchOAuthHttpClient();
     const result = await client.revoke({
       connector: "hubspot",
-      definition: hubspot,
+      endpoints: hubspotEndpoints,
       accessToken: process.env.HUBSPOT_LIVE_ACCESS_TOKEN!,
       refreshToken: process.env.HUBSPOT_LIVE_REFRESH_TOKEN!,
       clientId: process.env.HUBSPOT_LIVE_CLIENT_ID ?? "",
@@ -78,7 +81,7 @@ describe.skipIf(process.env.LINKEDIN_LIVE_TEST !== "1" || !process.env.LINKEDIN_
       const client = createFetchOAuthHttpClient();
       const accountId = await client.fetchAccountId(
         "linkedin",
-        linkedin.userInfoUrl,
+        linkedinEndpoints.userInfoUrl,
         process.env.LINKEDIN_LIVE_ACCESS_TOKEN!,
       );
       expect(accountId).toBeTruthy();
@@ -88,7 +91,7 @@ describe.skipIf(process.env.LINKEDIN_LIVE_TEST !== "1" || !process.env.LINKEDIN_
       const client = createFetchOAuthHttpClient();
       const result = await client.revoke({
         connector: "linkedin",
-        definition: linkedin,
+        endpoints: linkedinEndpoints,
         accessToken: process.env.LINKEDIN_LIVE_ACCESS_TOKEN!,
         refreshToken: null,
         clientId: process.env.LINKEDIN_LIVE_CLIENT_ID ?? "",

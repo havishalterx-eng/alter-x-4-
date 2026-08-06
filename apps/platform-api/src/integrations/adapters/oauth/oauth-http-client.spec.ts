@@ -537,6 +537,7 @@ describe("createFetchOAuthHttpClient", () => {
         connector: "zendesk",
         endpoints,
         accessToken: "at",
+        refreshToken: null,
         clientId: "cid",
         clientSecret: "secret",
       }),

@@ -43,7 +43,12 @@ describe("connector catalog", () => {
 
   it("flags revoke as unsupported where the provider has no revoke endpoint", () => {
     expect(findConnector("linkedin")?.resolveEndpoints(null).revokeUrl).toBeNull();
-    expect(findConnector("shopify")?.resolveEndpoints(null).revokeUrl).toBeNull();
+    expect(
+      findConnector("shopify")?.resolveEndpoints({
+        connector: "shopify",
+        shop_domain: "alter-store.myshopify.com",
+      }).revokeUrl,
+    ).toBeNull();
     expect(
       findConnector("m365")?.resolveEndpoints({ connector: "m365", tenant: "common" })
         .revokeUrl,
