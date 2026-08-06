@@ -1,9 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { ConnectorDefinition, ConnectorId } from "../../connectors";
+import type {
+  ConnectorId,
+  ResolvedConnectorEndpoints,
+} from "../../connectors";
 
 export interface TokenExchangeParams {
   readonly connector: ConnectorId;
-  readonly definition: ConnectorDefinition;
+  readonly endpoints: ResolvedConnectorEndpoints;
   readonly code: string;
   readonly codeVerifier: string | null;
   readonly redirectUri: string;
@@ -21,7 +24,7 @@ export interface TokenExchangeResult {
 
 export interface RevokeParams {
   readonly connector: ConnectorId;
-  readonly definition: ConnectorDefinition;
+  readonly endpoints: ResolvedConnectorEndpoints;
   readonly accessToken: string;
   // Only HubSpot's legacy revoke endpoint needs this (it revokes by refresh
   // token, not access token). Null for connectors that don't need it, or
@@ -75,14 +78,21 @@ export function createFetchOAuthHttpClient(): OAuthHttpClient {
         code: params.code,
         redirect_uri: params.redirectUri,
         client_id: params.clientId,
-        client_secret: params.clientSecret,
       });
+      if (params.connector !== "x") {
+        body.set("client_secret", params.clientSecret);
+      }
       if (params.codeVerifier) body.set("code_verifier", params.codeVerifier);
-      const response = await fetch(params.definition.tokenUrl, {
+      const response = await fetch(params.endpoints.tokenUrl, {
         method: "POST",
         headers: {
           "content-type": "application/x-www-form-urlencoded",
           accept: "application/json",
+          ...(params.connector === "x"
+            ? {
+                authorization: `Basic ${Buffer.from(`${params.clientId}:${params.clientSecret}`).toString("base64")}`,
+              }
+            : {}),
         },
         body: body.toString(),
       });
@@ -141,7 +151,9 @@ export function createFetchOAuthHttpClient(): OAuthHttpClient {
 
       const response = await fetch(userInfoUrl, {
         headers: {
-          authorization: `Bearer ${accessToken}`,
+          ...(connector === "shopify"
+            ? { "x-shopify-access-token": accessToken }
+            : { authorization: `Bearer ${accessToken}` }),
           accept: "application/json",
           "user-agent": "alterx-platform-api",
         },
@@ -152,7 +164,15 @@ export function createFetchOAuthHttpClient(): OAuthHttpClient {
         );
       }
       const json = (await response.json()) as Record<string, unknown>;
-      const accountId = json.id ?? json.sub ?? json.login;
+      const nested =
+        connector === "shopify" && isRecord(json.shop)
+          ? json.shop
+          : connector === "x" && isRecord(json.data)
+            ? json.data
+            : connector === "zendesk" && isRecord(json.user)
+              ? json.user
+              : json;
+      const accountId = nested.id ?? nested.sub ?? nested.login ?? nested.user_id;
       if (accountId === undefined || accountId === null) {
         throw new Error(
           `OAuth account lookup for ${connector} did not return an account identifier`,
@@ -187,13 +207,13 @@ export function createFetchOAuthHttpClient(): OAuthHttpClient {
       // failure via a JSON `ok` field -- trusting response.ok here would
       // silently report a failed revoke as successful.
       if (params.connector === "slack") {
-        if (!params.definition.revokeUrl) {
+        if (!params.endpoints.revokeUrl) {
           return {
             revokedRemotely: false,
             reason: "slack has no revoke endpoint; local invalidation only",
           };
         }
-        const response = await fetch(params.definition.revokeUrl, {
+        const response = await fetch(params.endpoints.revokeUrl, {
           method: "POST",
           headers: {
             authorization: `Bearer ${params.accessToken}`,
@@ -215,7 +235,7 @@ export function createFetchOAuthHttpClient(): OAuthHttpClient {
       // path (DELETE), not the access token in a request body. Without a
       // refresh token there is nothing to revoke against.
       if (params.connector === "hubspot") {
-        if (!params.definition.revokeUrl) {
+        if (!params.endpoints.revokeUrl) {
           return {
             revokedRemotely: false,
             reason: "hubspot has no revoke endpoint; local invalidation only",
@@ -228,7 +248,7 @@ export function createFetchOAuthHttpClient(): OAuthHttpClient {
           };
         }
         const response = await fetch(
-          `${params.definition.revokeUrl}${encodeURIComponent(params.refreshToken)}`,
+          `${params.endpoints.revokeUrl}${encodeURIComponent(params.refreshToken)}`,
           { method: "DELETE" },
         );
         if (response.status === 204) return { revokedRemotely: true };
@@ -238,18 +258,31 @@ export function createFetchOAuthHttpClient(): OAuthHttpClient {
         };
       }
 
-      if (!params.definition.revokeUrl) {
+      if (!params.endpoints.revokeUrl) {
         return {
           revokedRemotely: false,
           reason: `${params.connector} has no revoke endpoint; local invalidation only`,
         };
       }
 
-      const response = await fetch(params.definition.revokeUrl, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ token: params.accessToken }).toString(),
-      });
+      const response = params.connector === "zendesk"
+        ? await fetch(params.endpoints.revokeUrl, {
+            method: "DELETE",
+            headers: { authorization: `Bearer ${params.accessToken}` },
+          })
+        : await fetch(params.endpoints.revokeUrl, {
+            method: "POST",
+            headers: {
+              "content-type": "application/x-www-form-urlencoded",
+              ...(params.connector === "x"
+                ? { authorization: `Basic ${Buffer.from(`${params.clientId}:${params.clientSecret}`).toString("base64")}` }
+                : {}),
+            },
+            body: new URLSearchParams({
+              token: params.accessToken,
+              ...(params.connector === "x" ? { client_id: params.clientId } : {}),
+            }).toString(),
+          });
       if (response.ok) return { revokedRemotely: true };
       return {
         revokedRemotely: false,
@@ -257,4 +290,8 @@ export function createFetchOAuthHttpClient(): OAuthHttpClient {
       };
     },
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

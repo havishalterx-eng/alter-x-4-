@@ -6,6 +6,7 @@ import {
   findConnector,
   type ConnectorDefinition,
   type ConnectorId,
+  type ResolvedConnectorEndpoints,
 } from "./connectors";
 import { generatePkcePair, generateState } from "./adapters/oauth/oauth-http-client";
 import type { OAuthHttpClient } from "./adapters/oauth/oauth-http-client";
@@ -80,6 +81,21 @@ export class IntegrationService {
     const runtime = this.requireConfigured(definition.id, instance);
     const clientId = await this.secrets.getSecret(runtime.clientIdSecretRef);
 
+    if (input.tenant_config) {
+      await this.repository.upsertConnectorConfig(
+        tenantId,
+        workspaceId,
+        definition.id,
+        input.tenant_config,
+      );
+    }
+    const endpoints = await this.resolveEndpoints(
+      tenantId,
+      workspaceId,
+      definition,
+      instance,
+    );
+
     const state = generateState();
     const pkce = definition.pkce ? generatePkcePair() : null;
     const expiresAt = new Date(Date.now() + this.stateTtlSeconds * 1_000);
@@ -94,11 +110,11 @@ export class IntegrationService {
       expiresAt,
     });
 
-    const url = new URL(definition.authorizeUrl);
+    const url = new URL(endpoints.authorizeUrl);
     url.searchParams.set("client_id", clientId);
     url.searchParams.set("redirect_uri", input.redirect_uri);
     url.searchParams.set("response_type", "code");
-    url.searchParams.set("scope", definition.scopes.join(" "));
+    url.searchParams.set("scope", definition.scopes.join(definition.scopeSeparator));
     url.searchParams.set("state", state);
     if (pkce) {
       url.searchParams.set("code_challenge", pkce.challenge);
@@ -122,6 +138,12 @@ export class IntegrationService {
     const instance = `/api/v1/integrations/${connectorId}/actions/callback`;
     const definition = this.requireConnector(connectorId, instance);
     const runtime = this.requireConfigured(definition.id, instance);
+    const endpoints = await this.resolveEndpoints(
+      tenantId,
+      workspaceId,
+      definition,
+      instance,
+    );
 
     const stateRecord = await this.repository.findState(tenantId, input.state);
     if (
@@ -148,7 +170,7 @@ export class IntegrationService {
     try {
       tokenResult = await this.http.exchangeCode({
         connector: definition.id,
-        definition,
+        endpoints,
         code: input.code,
         codeVerifier: stateRecord.codeVerifier,
         redirectUri: stateRecord.redirectUri,
@@ -157,7 +179,7 @@ export class IntegrationService {
       });
       accountId = await this.http.fetchAccountId(
         definition.id,
-        definition.userInfoUrl,
+        endpoints.userInfoUrl,
         tokenResult.accessToken,
       );
     } catch (error) {
@@ -268,13 +290,19 @@ export class IntegrationService {
       instance,
     );
     const definition = this.requireConnector(record.connector, instance);
+    const endpoints = await this.resolveEndpoints(
+      tenantId,
+      workspaceId,
+      definition,
+      instance,
+    );
 
     let status: string;
     try {
       const token = await this.readToken(tenantId, workspaceId, id, instance);
       await this.http.fetchAccountId(
         definition.id,
-        definition.userInfoUrl,
+        endpoints.userInfoUrl,
         token.access_token,
       );
       status = "healthy";
@@ -308,6 +336,12 @@ export class IntegrationService {
       instance,
     );
     const definition = this.requireConnector(record.connector, instance);
+    const endpoints = await this.resolveEndpoints(
+      tenantId,
+      workspaceId,
+      definition,
+      instance,
+    );
     const runtime = this.connectorConfig[definition.id];
     const secretReference = tokenReference(tenantId, workspaceId, id);
 
@@ -324,7 +358,7 @@ export class IntegrationService {
         ]);
         const result = await this.http.revoke({
           connector: definition.id,
-          definition,
+          endpoints,
           accessToken: token.access_token,
           refreshToken: token.refresh_token,
           clientId,
@@ -364,6 +398,30 @@ export class IntegrationService {
       return JSON.parse(raw) as { access_token: string; refresh_token: string | null };
     } catch (error) {
       throw providerFailure(error, instance);
+    }
+  }
+
+  private async resolveEndpoints(
+    tenantId: string,
+    workspaceId: string,
+    definition: ConnectorDefinition,
+    instance: string,
+  ): Promise<ResolvedConnectorEndpoints> {
+    const record = await this.repository.findConnectorConfig(
+      tenantId,
+      workspaceId,
+      definition.id,
+    );
+    try {
+      return definition.resolveEndpoints(record?.config ?? null);
+    } catch {
+      throw new IntegrationHttpError(
+        400,
+        "INTEGRATION_TENANT_CONFIG_REQUIRED",
+        `Workspace configuration required for ${definition.id}`,
+        instance,
+        [{ field: "tenant_config", message: `Missing ${definition.id} workspace configuration` }],
+      );
     }
   }
 
@@ -424,7 +482,7 @@ export function tokenReference(
 }
 
 function splitScopes(scopes: string): string[] {
-  return scopes.split(" ").filter((scope) => scope.length > 0);
+  return scopes.split(/[ ,]+/).filter((scope) => scope.length > 0);
 }
 
 function project(record: OAuthConnectionRecord): OAuthConnectionView {

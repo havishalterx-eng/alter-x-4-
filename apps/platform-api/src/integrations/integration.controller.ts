@@ -122,7 +122,7 @@ export class IntegrationController {
       context.workspace_id,
       context.user_id,
       connectorId,
-      parseOAuthAuthorizeInput(body, instance),
+      parseOAuthAuthorizeInput(body, connectorId, instance),
     );
   }
 
