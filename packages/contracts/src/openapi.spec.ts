@@ -41,7 +41,7 @@ describe("OpenAPI generation", () => {
       0,
     );
     expect(operationCount).toBe(V1_ROUTE_SPECS.length);
-    expect(operationCount).toBe(106);
+    expect(operationCount).toBe(107);
   });
 
   it("documents ADS source permission routes", () => {

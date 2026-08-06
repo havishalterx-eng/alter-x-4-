@@ -28,6 +28,18 @@ function buildConnectorRuntimeConfig(): ConnectorRuntimeConfigMap {
       "GOOGLE_OAUTH_CLIENT_ID_SECRET_REF",
       "GOOGLE_OAUTH_CLIENT_SECRET_REF",
     ],
+    slack: [
+      "SLACK_OAUTH_CLIENT_ID_SECRET_REF",
+      "SLACK_OAUTH_CLIENT_SECRET_REF",
+    ],
+    hubspot: [
+      "HUBSPOT_OAUTH_CLIENT_ID_SECRET_REF",
+      "HUBSPOT_OAUTH_CLIENT_SECRET_REF",
+    ],
+    linkedin: [
+      "LINKEDIN_OAUTH_CLIENT_ID_SECRET_REF",
+      "LINKEDIN_OAUTH_CLIENT_SECRET_REF",
+    ],
   };
   const config: Record<string, unknown> = {};
   for (const connector of CONNECTOR_CATALOG) {

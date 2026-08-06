@@ -353,6 +353,9 @@ describe("Integration OAuth Hub routes", () => {
     expect(response.json()).toEqual([
       expect.objectContaining({ id: "github", configured: true }),
       expect.objectContaining({ id: "google", configured: false }),
+      expect.objectContaining({ id: "slack", configured: false }),
+      expect.objectContaining({ id: "hubspot", configured: false }),
+      expect.objectContaining({ id: "linkedin", configured: false }),
     ]);
   });
 
@@ -771,6 +774,18 @@ describe("Integration OAuth Hub routes", () => {
       }),
       expect.objectContaining({
         capability: "oauth_round_trip_verified",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_slack",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_hubspot",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_linkedin",
         status: "NOT_MET",
       }),
     ]);

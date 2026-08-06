@@ -109,12 +109,30 @@ export const integrationDeferredCapabilities = [
     capability: "oauth_flows_non_launch_connectors",
     status: "NOT_MET",
     reason:
-      "Only GitHub and Google are built in this ticket. LinkedIn/X/Slack/HubSpot/Salesforce/Shopify/Zendesk/M365 deferred to a later ticket per product-owner scope decision 2026-08-04.",
+      "GitHub, Google, Slack, HubSpot, and LinkedIn are built. X/Salesforce/Shopify/Zendesk/M365 deferred: their OAuth URLs are per-tenant (org/shop/subdomain-based) and connectors.ts only supports one fixed global URL per connector today -- building them without that architecture change would either be wrong or require inventing per-tenant config not yet designed. Deferred to a later ticket per CONN-OAUTH-EXPAND scope decision 2026-08-06.",
   },
   {
     capability: "oauth_round_trip_verified",
     status: "NOT_MET",
     reason:
       "Real client_id/client_secret for GitHub and Google are not provisioned yet in this environment. authorize/callback/health/revoke code paths are real (no mocks), but unexercised against live provider sandboxes. Flip to MET once GITHUB_OAUTH_CLIENT_ID_SECRET_REF/GITHUB_OAUTH_CLIENT_SECRET_REF and GOOGLE_OAUTH_CLIENT_ID_SECRET_REF/GOOGLE_OAUTH_CLIENT_SECRET_REF resolve to real credentials and a live round-trip test is run.",
+  },
+  {
+    capability: "oauth_round_trip_verified_slack",
+    status: "NOT_MET",
+    reason:
+      "Uses Sign in with Slack (OIDC) endpoints, not the classic bot-install oauth.v2.access flow. authorize/callback/userinfo/revoke code paths are real, but unexercised against a live Slack app -- in particular unverified: whether PKCE is safe to enable for our app (left off pending confirmation) and whether auth.revoke's ok-field handling matches a real failure response. Flip to MET once SLACK_OAUTH_CLIENT_ID_SECRET_REF/SLACK_OAUTH_CLIENT_SECRET_REF resolve to real credentials and a live round-trip test is run.",
+  },
+  {
+    capability: "oauth_round_trip_verified_hubspot",
+    status: "NOT_MET",
+    reason:
+      "authorize/callback code paths are real, but unexercised against a live HubSpot app. In particular unverified: the hub_id extraction from GET /oauth/v1/access-tokens/{token}, and the legacy DELETE /oauth/v1/refresh-tokens/{token} revoke path (HubSpot documents this API as being replaced by a dated 2026-03+ revoke endpoint we have not adopted). Flip to MET once HUBSPOT_OAUTH_CLIENT_ID_SECRET_REF/HUBSPOT_OAUTH_CLIENT_SECRET_REF resolve to real credentials and a live round-trip test is run.",
+  },
+  {
+    capability: "oauth_round_trip_verified_linkedin",
+    status: "NOT_MET",
+    reason:
+      "authorize/callback/userinfo code paths are real, but unexercised against a live LinkedIn app. LinkedIn has no documented revoke endpoint at all -- revoke is local-invalidation-only by design, not a gap to close. Flip to MET once LINKEDIN_OAUTH_CLIENT_ID_SECRET_REF/LINKEDIN_OAUTH_CLIENT_SECRET_REF resolve to real credentials and a live round-trip test is run.",
   },
 ] as const;

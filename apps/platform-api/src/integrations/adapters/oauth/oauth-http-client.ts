@@ -23,6 +23,10 @@ export interface RevokeParams {
   readonly connector: ConnectorId;
   readonly definition: ConnectorDefinition;
   readonly accessToken: string;
+  // Only HubSpot's legacy revoke endpoint needs this (it revokes by refresh
+  // token, not access token). Null for connectors that don't need it, or
+  // when no refresh token was ever issued.
+  readonly refreshToken: string | null;
   readonly clientId: string;
   readonly clientSecret: string;
 }
@@ -113,6 +117,28 @@ export function createFetchOAuthHttpClient(): OAuthHttpClient {
       userInfoUrl: string,
       accessToken: string,
     ): Promise<string> {
+      // HubSpot's GET /oauth/v1/access-tokens/{token} is self-authenticating
+      // via the token in the URL path -- there is no Authorization header,
+      // and the account identifier is `hub_id`, not id/sub/login.
+      if (connector === "hubspot") {
+        const response = await fetch(
+          `${userInfoUrl}${encodeURIComponent(accessToken)}`,
+          { headers: { accept: "application/json" } },
+        );
+        if (!response.ok) {
+          throw new Error(
+            `OAuth account lookup for ${connector} failed with status ${response.status}`,
+          );
+        }
+        const json = (await response.json()) as Record<string, unknown>;
+        if (json.hub_id === undefined || json.hub_id === null) {
+          throw new Error(
+            `OAuth account lookup for ${connector} did not return an account identifier`,
+          );
+        }
+        return String(json.hub_id);
+      }
+
       const response = await fetch(userInfoUrl, {
         headers: {
           authorization: `Bearer ${accessToken}`,
@@ -154,6 +180,61 @@ export function createFetchOAuthHttpClient(): OAuthHttpClient {
         return {
           revokedRemotely: false,
           reason: `GitHub grant revoke returned status ${response.status}`,
+        };
+      }
+
+      // Slack's Web API (auth.revoke) always answers HTTP 200 and signals
+      // failure via a JSON `ok` field -- trusting response.ok here would
+      // silently report a failed revoke as successful.
+      if (params.connector === "slack") {
+        if (!params.definition.revokeUrl) {
+          return {
+            revokedRemotely: false,
+            reason: "slack has no revoke endpoint; local invalidation only",
+          };
+        }
+        const response = await fetch(params.definition.revokeUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${params.accessToken}`,
+            "content-type": "application/x-www-form-urlencoded",
+          },
+        });
+        const json = (await response.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+        };
+        if (response.ok && json.ok === true) return { revokedRemotely: true };
+        return {
+          revokedRemotely: false,
+          reason: `slack auth.revoke returned ${json.error ?? `HTTP status ${response.status}`}`,
+        };
+      }
+
+      // HubSpot's legacy revoke endpoint deletes by REFRESH token in the URL
+      // path (DELETE), not the access token in a request body. Without a
+      // refresh token there is nothing to revoke against.
+      if (params.connector === "hubspot") {
+        if (!params.definition.revokeUrl) {
+          return {
+            revokedRemotely: false,
+            reason: "hubspot has no revoke endpoint; local invalidation only",
+          };
+        }
+        if (!params.refreshToken) {
+          return {
+            revokedRemotely: false,
+            reason: "hubspot revoke requires a refresh token, none was stored; local invalidation only",
+          };
+        }
+        const response = await fetch(
+          `${params.definition.revokeUrl}${encodeURIComponent(params.refreshToken)}`,
+          { method: "DELETE" },
+        );
+        if (response.status === 204) return { revokedRemotely: true };
+        return {
+          revokedRemotely: false,
+          reason: `hubspot refresh-token revoke returned status ${response.status}`,
         };
       }
 

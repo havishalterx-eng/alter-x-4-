@@ -326,6 +326,7 @@ export class IntegrationService {
           connector: definition.id,
           definition,
           accessToken: token.access_token,
+          refreshToken: token.refresh_token,
           clientId,
           clientSecret,
         });

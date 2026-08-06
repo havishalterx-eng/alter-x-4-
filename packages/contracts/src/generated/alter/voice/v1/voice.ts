@@ -36,6 +36,32 @@ export interface BindNumberResponse {
   status: string;
 }
 
+/**
+ * Introduced by CONN-ISO: platform-api has no local record of who owns a
+ * voice_account_id (there is no per-workspace ledger, unlike WhatsApp's
+ * account list). Every by-id mutation must confirm ownership against Engine
+ * first via this call before acting, closing the gap where a client-supplied
+ * id from another workspace could reach a mutating route unchecked.
+ */
+export interface GetNumberBindingRequest {
+  /** ten_ prefixed UUIDv7 */
+  tenant_id: string;
+  /** ws_ prefixed UUIDv7 */
+  workspace_id: string;
+  /** voc_ prefixed UUIDv7 */
+  voice_account_id: string;
+}
+
+export interface GetNumberBindingResponse {
+  /** voc_ prefixed UUIDv7 */
+  voice_account_id: string;
+  /** E.164 */
+  phone_number: string;
+  provider: string;
+  /** pending | active | suspended | failed */
+  status: string;
+}
+
 export interface ConfigureCallHandlingRequest {
   /** ten_ prefixed UUIDv7 */
   tenant_id: string;

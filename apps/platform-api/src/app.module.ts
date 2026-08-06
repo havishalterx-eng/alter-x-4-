@@ -26,6 +26,7 @@ import { BillingModule } from "./billing";
 import { EnvVarModule } from "./env-vars";
 import { CostsModule } from "./costs/costs.module";
 import { WhatsappModule } from "./channels/whatsapp/whatsapp.module";
+import { VoiceModule } from "./channels/voice/voice.module";
 import { MarketplaceModule } from "./marketplace";
 import { PublisherModule } from "./publisher";
 import { I18nModule } from "./i18n/i18n.module";
@@ -69,6 +70,7 @@ import { AuditEventsModule } from "./audit-events";
     CostsModule,
     EnvVarModule,
     WhatsappModule,
+    VoiceModule,
     MarketplaceModule,
     PublisherModule,
     I18nModule,

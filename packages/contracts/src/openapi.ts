@@ -323,6 +323,13 @@ export const V1_ROUTE_SPECS: readonly V1RouteSpec[] = [
     responseSchema: VoiceNumberBindingListSchema,
   },
   {
+    method: "get",
+    path: "/channels/voice/numbers/{id}",
+    summary: "Get voice number binding",
+    tag: "Voice channels",
+    responseSchema: VoiceNumberBindingSchema,
+  },
+  {
     method: "patch",
     path: "/channels/voice/numbers/{id}/call-handling",
     summary: "Configure voice call handling",
