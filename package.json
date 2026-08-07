@@ -8,6 +8,7 @@
     "lint": "nx run-many -t lint --all",
     "typecheck": "nx run-many -t typecheck --all",
     "test": "nx run-many -t test --all",
+    "test:p2-exit": "node scripts/run-product-core-exit-check.mjs",
     "py:install": "for d in apps/intelligence-service apps/eval-service apps/memory-service apps/verification-service; do (cd \"$d\" && uv sync); done"
   },
   "devDependencies": {
