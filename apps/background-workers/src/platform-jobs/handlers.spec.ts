@@ -75,4 +75,88 @@ describe("createPlatformJobHandlers", () => {
       } as never),
     ).rejects.toThrow(/503/);
   });
+
+  it("does not register the connector-health-sweep handler without real dependencies", () => {
+    const handlers = createPlatformJobHandlers();
+    expect(handlers.get("platform.connector-health-sweep")).toBeUndefined();
+  });
+
+  it("registers a real connector-health-sweep handler that relays to platform-api's internal route", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ connections_processed: 3, connections_failed: 0 }),
+      text: async () => "",
+    })) as unknown as typeof fetch;
+
+    const handlers = createPlatformJobHandlers({
+      platformApiInternalBaseUrl: "http://platform-api.internal",
+      connectorHealthSweepServiceToken: "real-token",
+      fetchImpl,
+    });
+    const handler = handlers.get("platform.connector-health-sweep");
+    expect(handler).toBeDefined();
+
+    const result = await handler!({});
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://platform-api.internal/internal/integrations/run-health-sweep",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ authorization: "Bearer real-token" }),
+      }),
+    );
+    expect(result).toEqual({ connections_processed: 3, connections_failed: 0 });
+  });
+
+  it("does not register the retention-sweep handler without real dependencies", () => {
+    const handlers = createPlatformJobHandlers();
+    expect(handlers.get("platform.retention-sweep")).toBeUndefined();
+  });
+
+  it("registers a real retention-sweep handler that relays to ads-core's internal route", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ deletedDocuments: 4 }),
+      text: async () => "",
+    })) as unknown as typeof fetch;
+
+    const handlers = createPlatformJobHandlers({
+      adsCoreInternalBaseUrl: "http://ads-core.internal",
+      retentionSweepServiceToken: "real-token",
+      fetchImpl,
+    });
+    const handler = handlers.get("platform.retention-sweep");
+    expect(handler).toBeDefined();
+
+    const result = await handler!({});
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://ads-core.internal/internal/deletion/retention",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ authorization: "Bearer real-token" }),
+      }),
+    );
+    expect(result).toEqual({ deletedDocuments: 4 });
+  });
+
+  it("throws a real error when the retention sweep route responds non-2xx", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({}),
+      text: async () => "unauthorized",
+    })) as unknown as typeof fetch;
+
+    const handlers = createPlatformJobHandlers({
+      adsCoreInternalBaseUrl: "http://ads-core.internal",
+      retentionSweepServiceToken: "wrong-token",
+      fetchImpl,
+    });
+    const handler = handlers.get("platform.retention-sweep")!;
+
+    await expect(handler({})).rejects.toThrow(/401/);
+  });
 });

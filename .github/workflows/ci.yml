@@ -103,7 +103,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: full monorepo sweep
-        run: pnpm exec nx run-many -t lint,typecheck,test,build --all
+        run: pnpm exec nx run-many -t lint,typecheck,test,build --all --parallel=2
 
       - name: migrate platform db
         run: pnpm --filter @alterx/platform-api db:migrate

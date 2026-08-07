@@ -26,6 +26,8 @@ describe("GET /health", () => {
     process.env.ENGINE_M2M_CLIENT_SECRET_REF = "env:ENGINE_M2M_CLIENT_SECRET";
     process.env.NOTIFICATION_DIGEST_SERVICE_TOKEN_REF = "env:NOTIFICATION_DIGEST_SERVICE_TOKEN";
     process.env.NOTIFICATION_DIGEST_SERVICE_TOKEN = "test-notification-digest-token";
+    process.env.CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN_REF = "env:CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN";
+    process.env.CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN = "test-connector-health-sweep-token";
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();

@@ -19,6 +19,9 @@ afterEach(() => {
 describe("IntegrationModule", () => {
   it("wires real providers with no connectors configured by default", async () => {
     process.env.DATABASE_URL = "postgres://localhost/platform";
+    process.env.CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN_REF =
+      "env:CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN";
+    process.env.CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN = "test-connector-health-sweep-token";
     delete process.env.GITHUB_OAUTH_CLIENT_ID_SECRET_REF;
     delete process.env.GITHUB_OAUTH_CLIENT_SECRET_REF;
     delete process.env.GOOGLE_OAUTH_CLIENT_ID_SECRET_REF;
@@ -52,6 +55,9 @@ describe("IntegrationModule", () => {
 
   it("marks a connector configured once both secret refs are set via env", async () => {
     process.env.DATABASE_URL = "postgres://localhost/platform";
+    process.env.CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN_REF =
+      "env:CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN";
+    process.env.CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN = "test-connector-health-sweep-token";
     process.env.GITHUB_OAUTH_CLIENT_ID_SECRET_REF =
       "/alter/prod/integrations/github/client-id";
     process.env.GITHUB_OAUTH_CLIENT_SECRET_REF =

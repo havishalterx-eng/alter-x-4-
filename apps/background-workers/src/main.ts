@@ -23,6 +23,7 @@ import { CostEventConsumerService } from "./cost-events/cost-event-consumer.serv
 import { CostEventConsumerRunner } from "./cost-events/cost-event-consumer-runner";
 import { createPlatformJobHandlers } from "./platform-jobs/handlers";
 import { NotificationDigestSchedulerRunner } from "./platform-jobs/notification-digest-scheduler-runner";
+import { IntervalJobSchedulerRunner } from "./platform-jobs/interval-job-scheduler-runner";
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -81,6 +82,12 @@ async function bootstrap(): Promise<void> {
   const notificationDigestServiceToken = await resolveRuntimeSecret(
     platformJobsConfig.notificationDigestServiceTokenRef,
   );
+  const connectorHealthSweepServiceToken = await resolveRuntimeSecret(
+    platformJobsConfig.connectorHealthSweepServiceTokenRef,
+  );
+  const retentionSweepServiceToken = await resolveRuntimeSecret(
+    platformJobsConfig.retentionSweepServiceTokenRef,
+  );
   const platformJobsWorker = await startPlatformJobsWorker(
     {
       temporal: {
@@ -95,6 +102,9 @@ async function bootstrap(): Promise<void> {
     createPlatformJobHandlers({
       platformApiInternalBaseUrl: platformJobsConfig.platformApiInternalBaseUrl,
       notificationDigestServiceToken,
+      connectorHealthSweepServiceToken,
+      adsCoreInternalBaseUrl: platformJobsConfig.adsCoreInternalBaseUrl,
+      retentionSweepServiceToken,
     }),
   );
 
@@ -115,12 +125,33 @@ async function bootstrap(): Promise<void> {
   );
   digestSchedulerRunner.start();
 
+  // Real periodic triggers for the connector health sweep and retention
+  // sweep job types -- same durable-workflow-owns-retry reasoning as the
+  // digest scheduler above, reusing the same Temporal connection.
+  const connectorHealthSweepRunner = new IntervalJobSchedulerRunner(
+    digestDurableExecution,
+    "platform.connector-health-sweep",
+    "connector-health-sweep",
+    platformJobsConfig.connectorHealthSweepIntervalMs,
+  );
+  connectorHealthSweepRunner.start();
+
+  const retentionSweepRunner = new IntervalJobSchedulerRunner(
+    digestDurableExecution,
+    "platform.retention-sweep",
+    "retention-sweep",
+    platformJobsConfig.retentionSweepIntervalMs,
+  );
+  retentionSweepRunner.start();
+
   app.enableShutdownHooks();
   app.getHttpAdapter().getInstance().addHook("onClose", () => {
     worker.shutdown();
     void costEventRunner.stop();
     platformJobsWorker.shutdown();
     void digestSchedulerRunner.stop();
+    void connectorHealthSweepRunner.stop();
+    void retentionSweepRunner.stop();
   });
 
   await app.listen(3000, "0.0.0.0");

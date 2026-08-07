@@ -6,6 +6,11 @@ export interface PlatformJobsEnvironment {
   readonly platformApiInternalBaseUrl: string;
   readonly notificationDigestServiceTokenRef: string;
   readonly notificationDigestIntervalMs: number;
+  readonly connectorHealthSweepServiceTokenRef: string;
+  readonly connectorHealthSweepIntervalMs: number;
+  readonly adsCoreInternalBaseUrl: string;
+  readonly retentionSweepServiceTokenRef: string;
+  readonly retentionSweepIntervalMs: number;
 }
 
 export class PlatformJobsConfigurationError extends Error {
@@ -24,25 +29,55 @@ function requireValue(environment: NodeJS.ProcessEnv, field: string): string {
 }
 
 const DEFAULT_DIGEST_INTERVAL_MS = 60 * 60 * 1000; // hourly
+const DEFAULT_CONNECTOR_HEALTH_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // hourly
+const DEFAULT_RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
+
+function parseIntervalMs(
+  environment: NodeJS.ProcessEnv,
+  field: string,
+  defaultMs: number,
+): number {
+  const raw = environment[field]?.trim();
+  const intervalMs = raw ? Number(raw) : defaultMs;
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    throw new PlatformJobsConfigurationError(field, "must be a positive number when set");
+  }
+  return intervalMs;
+}
 
 export function loadPlatformJobsEnvironment(
   environment: NodeJS.ProcessEnv,
 ): PlatformJobsEnvironment {
-  const intervalRaw = environment.NOTIFICATION_DIGEST_INTERVAL_MS?.trim();
-  const intervalMs = intervalRaw ? Number(intervalRaw) : DEFAULT_DIGEST_INTERVAL_MS;
-  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
-    throw new PlatformJobsConfigurationError(
-      "NOTIFICATION_DIGEST_INTERVAL_MS",
-      "must be a positive number when set",
-    );
-  }
   return {
     platformApiInternalBaseUrl: requireValue(environment, "PLATFORM_API_INTERNAL_BASE_URL"),
     notificationDigestServiceTokenRef: requireValue(
       environment,
       "NOTIFICATION_DIGEST_SERVICE_TOKEN_REF",
     ),
-    notificationDigestIntervalMs: intervalMs,
+    notificationDigestIntervalMs: parseIntervalMs(
+      environment,
+      "NOTIFICATION_DIGEST_INTERVAL_MS",
+      DEFAULT_DIGEST_INTERVAL_MS,
+    ),
+    connectorHealthSweepServiceTokenRef: requireValue(
+      environment,
+      "CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN_REF",
+    ),
+    connectorHealthSweepIntervalMs: parseIntervalMs(
+      environment,
+      "CONNECTOR_HEALTH_SWEEP_INTERVAL_MS",
+      DEFAULT_CONNECTOR_HEALTH_SWEEP_INTERVAL_MS,
+    ),
+    adsCoreInternalBaseUrl: requireValue(environment, "ADS_CORE_INTERNAL_BASE_URL"),
+    retentionSweepServiceTokenRef: requireValue(
+      environment,
+      "RETENTION_SWEEP_SERVICE_TOKEN_REF",
+    ),
+    retentionSweepIntervalMs: parseIntervalMs(
+      environment,
+      "RETENTION_SWEEP_INTERVAL_MS",
+      DEFAULT_RETENTION_SWEEP_INTERVAL_MS,
+    ),
   };
 }
 

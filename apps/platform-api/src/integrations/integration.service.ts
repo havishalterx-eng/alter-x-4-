@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { MutableSecretsProvider } from "@alterx/shared-clients";
 import {
   CONNECTOR_CATALOG,
@@ -15,6 +15,7 @@ import {
   IntegrationRepository,
 } from "./integration.repository";
 import { IntegrationHttpError } from "./problem";
+import { SystemIntegrationStore } from "./system-integration-store";
 import {
   INTEGRATION_CONNECTOR_RUNTIME_CONFIG,
   INTEGRATION_OAUTH_HTTP_CLIENT,
@@ -48,6 +49,8 @@ const DEFAULT_STATE_TTL_SECONDS = 300;
 
 @Injectable()
 export class IntegrationService {
+  private readonly logger = new Logger(IntegrationService.name);
+
   constructor(
     private readonly repository: IntegrationRepository,
     @Inject(INTEGRATION_SECRETS_PROVIDER)
@@ -57,6 +60,7 @@ export class IntegrationService {
     @Inject(INTEGRATION_CONNECTOR_RUNTIME_CONFIG)
     private readonly connectorConfig: ConnectorRuntimeConfigMap,
     private readonly stateTtlSeconds: number = DEFAULT_STATE_TTL_SECONDS,
+    private readonly systemStore?: SystemIntegrationStore,
   ) {}
 
   catalog(): ConnectorCatalogEntry[] {
@@ -320,6 +324,35 @@ export class IntegrationService {
     );
     if (!updated) throw notFound(instance);
     return project(updated);
+  }
+
+  async runHealthSweep(
+    actorId: string,
+  ): Promise<{ readonly connectionsProcessed: number; readonly connectionsFailed: number }> {
+    if (!this.systemStore) {
+      throw new IntegrationHttpError(
+        503,
+        "INTEGRATION_HEALTH_SWEEP_NOT_CONFIGURED",
+        "Connector health sweeping requires the platform_db bypass-RLS system store, which is not configured",
+        "/internal/integrations/run-health-sweep",
+      );
+    }
+    const connections = await this.systemStore.listActiveConnections();
+    let connectionsFailed = 0;
+    for (const connection of connections) {
+      try {
+        await this.health(connection.tenantId, connection.workspaceId, connection.id, actorId);
+      } catch (error) {
+        connectionsFailed += 1;
+        this.logger.error({
+          tenantId: connection.tenantId,
+          connectionId: connection.id,
+          message: "connector health check failed",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return { connectionsProcessed: connections.length, connectionsFailed };
   }
 
   async revoke(
