@@ -135,6 +135,12 @@ describe("RunController routes", () => {
     expect(response.json()).toEqual(engine.artifact);
   });
 
+  it("relays signed artifact download references through Platform", async () => {
+    const response = await request(`/api/v1/artifacts/${artifactId}/download`, actor);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(engine.artifact);
+  });
+
   it.each([
     ["/api/v1/runs"],
     [`/api/v1/runs/${runId}`],
@@ -147,7 +153,6 @@ describe("RunController routes", () => {
 
   it.each([
     ["/api/v1/runs?status=unknown"],
-    ["/api/v1/runs?mode=workflow"],
     ["/api/v1/runs?limit=0"],
     ["/api/v1/runs/bad"],
     ["/api/v1/artifacts/bad"],
@@ -178,17 +183,9 @@ describe("RunController routes", () => {
     expectProblem(response, 503, "ENGINE_RUN_UNAVAILABLE");
   });
 
-  it("keeps deferred surfaces absent instead of returning fake data", async () => {
+  it("keeps unsupported run artifact collection absent", async () => {
     expect(
       (await request(`/api/v1/runs/${runId}/artifacts`, actor)).statusCode,
-    ).toBe(404);
-    expect(
-      (
-        await request(
-          `/api/v1/artifacts/${artifactId}/download`,
-          actor,
-        )
-      ).statusCode,
     ).toBe(404);
   });
 
@@ -313,7 +310,10 @@ class RunEngine {
     if (path.endsWith("/outcome")) {
       return { status: 200, body: this.outcome };
     }
-    if (path === `/api/v1/artifacts/${artifactId}`) {
+    if (
+      path === `/api/v1/artifacts/${artifactId}` ||
+      path === `/api/v1/artifacts/${artifactId}/download`
+    ) {
       return { status: 200, body: this.artifact };
     }
     throw new Error(`Unexpected path ${path}`);

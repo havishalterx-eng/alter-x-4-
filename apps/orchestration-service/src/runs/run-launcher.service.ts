@@ -298,6 +298,7 @@ export class RunLauncherService {
     tenantIdInput: string,
     query: {
       readonly workflowId?: string;
+      readonly mode?: "workflow" | "project";
       readonly status?: string;
       readonly cursor?: string;
       readonly limit?: number;
@@ -306,6 +307,9 @@ export class RunLauncherService {
     const tenantId = bareTenantUuid(tenantIdInput);
     const limit = normalizeLimit(query.limit);
     if (query.workflowId !== undefined) requireWorkflowId(query.workflowId);
+    if (query.mode !== undefined && query.mode !== "workflow" && query.mode !== "project") {
+      throw new RunValidationError("mode must be workflow or project");
+    }
     if (query.cursor !== undefined) requireRunId(query.cursor);
 
     return this.store.withTenant(tenantId, async (tx) => {
@@ -315,6 +319,10 @@ export class RunLauncherService {
       if (query.workflowId !== undefined) {
         values.push(query.workflowId);
         conditions.push(`workflow_id = $${values.length}`);
+      }
+      if (query.mode !== undefined) {
+        values.push(query.mode);
+        conditions.push(`parent_kind = $${values.length}`);
       }
       if (query.status !== undefined) {
         values.push(query.status);

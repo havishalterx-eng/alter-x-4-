@@ -62,6 +62,8 @@ import { ProjectRunProvisioningService } from "./runs/project-run-provisioning.s
 import { RunWorkspaceLookupService } from "./runs/run-workspace-lookup.service";
 import { PROVISIONING_CLIENT_PROTO_PATH } from "./runs/provisioning-client.constants";
 import { RunLearningController } from "./runs/run-learning.controller";
+import { RunObservabilityController } from "./runs/run-observability.controller";
+import { RunObservabilityService } from "./runs/run-observability.service";
 import { loadRunLauncherEnvironment } from "./config/run-launcher-environment";
 import { ApprovalsController } from "./approvals/approvals.controller";
 import { ApprovalsService } from "./approvals/approvals.service";
@@ -146,6 +148,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
     NodeExecutionsController,
     RunStreamController,
     RunsController,
+    RunObservabilityController,
     RunLearningController,
     ApprovalsController,
     EscalationsController,
@@ -669,6 +672,17 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
         return new RunStreamEventService(new PostgresOrchestrationStoreProvider({
+          authentication: "iam", host: dbConfig.databaseHost, port: dbConfig.databasePort,
+          database: dbConfig.databaseName, user: dbConfig.databaseUser, region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        }));
+      },
+    },
+    {
+      provide: RunObservabilityService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        return new RunObservabilityService(new PostgresOrchestrationStoreProvider({
           authentication: "iam", host: dbConfig.databaseHost, port: dbConfig.databasePort,
           database: dbConfig.databaseName, user: dbConfig.databaseUser, region: dbConfig.awsRegion,
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,

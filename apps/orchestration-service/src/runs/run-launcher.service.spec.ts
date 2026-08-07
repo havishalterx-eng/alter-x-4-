@@ -276,6 +276,19 @@ describe("RunLauncherService.createRun", () => {
   });
 });
 
+describe("RunLauncherService.listRuns", () => {
+  it("filters the real runs table by workflow or project parent kind", async () => {
+    const { store, tx } = fakeStore({ workflowExists: true });
+    const launcher = new RunLauncherService(store, { startWorkflow: vi.fn(), terminateWorkflow: vi.fn() } as never);
+
+    await launcher.listRuns(TENANT, { mode: "project" });
+
+    const call = tx.query.mock.calls.find(([statement]) => String(statement).includes("FROM runs WHERE"));
+    expect(call?.[0]).toContain("parent_kind = $2");
+    expect(call?.[1]).toEqual([BARE_TENANT, "project", 51]);
+  });
+});
+
 describe("RunLauncherService.createProjectRun", () => {
   it("provisions through the handler, durably persists that real session, and a fresh launcher retrieves it after restart", async () => {
     const { store, provision, lifecycle } = projectRunHarness();

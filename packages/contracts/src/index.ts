@@ -64,6 +64,7 @@ export {
   TenantIdSchema,
   TriggerBindingIdSchema,
   TriggerIdSchema,
+  VerificationResultIdSchema,
   WebhookEndpointIdSchema,
   WebhookEndpointSecretIdSchema,
   WorkflowIdSchema,

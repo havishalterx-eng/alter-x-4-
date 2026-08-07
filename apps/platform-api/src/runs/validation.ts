@@ -18,6 +18,7 @@ const listQuerySchema = z
     status: z
       .enum(["pending", "running", "paused", "completed", "failed", "cancelled"])
       .optional(),
+    mode: z.enum(["workflow", "project"]).optional(),
     started_after: z.string().datetime({ offset: true }).optional(),
     started_before: z.string().datetime({ offset: true }).optional(),
   })

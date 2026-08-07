@@ -361,6 +361,7 @@ export const V1_ROUTE_SPECS: readonly V1RouteSpec[] = [
     responseSchema: VoiceCapabilitiesSchema,
   },
   { method: "get", path: "/artifacts/{id}", summary: "Get artifact metadata", tag: "Resources" },
+  { method: "get", path: "/artifacts/{id}/download", summary: "Get artifact download URL", tag: "Resources" },
   { method: "get", path: "/deployments/{id}", summary: "Get deployment", tag: "Resources" },
 
   {

@@ -12,6 +12,7 @@ export interface RunListQuery {
   cursor?: string | undefined;
   limit?: number | undefined;
   status?: RunStatus | undefined;
+  mode?: "workflow" | "project" | undefined;
   started_after?: string | undefined;
   started_before?: string | undefined;
 }

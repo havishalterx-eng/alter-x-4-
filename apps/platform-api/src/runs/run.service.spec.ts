@@ -38,6 +38,7 @@ describe("RunService", () => {
         cursor: "next cursor",
         limit: "25",
         status: "running",
+        mode: "project",
         started_after: "2026-07-01T00:00:00.000Z",
         started_before: "2026-07-26T00:00:00.000Z",
       },
@@ -46,7 +47,7 @@ describe("RunService", () => {
     );
 
     expect(engine.get).toHaveBeenCalledWith(
-      "/api/v1/runs?cursor=next+cursor&limit=25&status=running&started_after=2026-07-01T00%3A00%3A00.000Z&started_before=2026-07-26T00%3A00%3A00.000Z",
+      "/api/v1/runs?cursor=next+cursor&limit=25&status=running&mode=project&started_after=2026-07-01T00%3A00%3A00.000Z&started_before=2026-07-26T00%3A00%3A00.000Z",
       expectedContext(),
     );
     expect(result.body).toEqual(response);
@@ -145,7 +146,7 @@ describe("RunService", () => {
     const service = new RunService(engine.value, costLedgerStub().value);
 
     expect(() =>
-      service.list({ mode: "workflow" }, actor, traceparent),
+      service.list({ mode: "unsupported" } as never, actor, traceparent),
     ).toThrow(expect.objectContaining({ status: 400 }));
     expect(() =>
       service.list(

@@ -41,6 +41,7 @@ interface RetryNodeBody {
 
 interface RunsQuery {
   readonly workflow_id?: string;
+  readonly mode?: "workflow" | "project";
   readonly status?: string;
   readonly cursor?: string;
   readonly limit?: string;
@@ -121,6 +122,7 @@ export class RunsController {
     try {
       const page = await this.launcher.listRuns(tenantId, {
         ...(query.workflow_id === undefined ? {} : { workflowId: query.workflow_id }),
+        ...(query.mode === undefined ? {} : { mode: query.mode }),
         ...(query.status === undefined ? {} : { status: query.status }),
         ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
         ...(query.limit === undefined ? {} : { limit: Number(query.limit) }),

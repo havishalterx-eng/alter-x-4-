@@ -119,6 +119,19 @@ export class RunService {
     );
   }
 
+  artifactDownload(
+    artifactId: string,
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<EngineResponse<EngineResource>> {
+    const instance = `/api/v1/artifacts/${artifactId}/download`;
+    const id = parseArtifactId(artifactId, instance);
+    return this.engine.get(
+      `/api/v1/artifacts/${encodeURIComponent(id)}/download`,
+      callerContext(actor, traceparent, instance),
+    );
+  }
+
   private async allPages(
     path: EnginePath,
     context: EngineCallerContext,

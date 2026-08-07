@@ -95,6 +95,26 @@ export class ArtifactController {
       reply,
     );
   }
+
+  @Get(":artifactId/download")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("runs:read")
+  async download(
+    @Param("artifactId") artifactId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<EngineResource> {
+    const instance = `/api/v1/artifacts/${artifactId}/download`;
+    return project(
+      await this.runs.artifactDownload(
+        artifactId,
+        requireActor(actor, instance),
+        traceparent,
+      ),
+      reply,
+    );
+  }
 }
 
 function requireActor(
