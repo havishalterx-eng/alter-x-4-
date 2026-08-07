@@ -7,6 +7,10 @@
   "run_start": {
     "p95_ms": 2000
   },
+  "sse_reconnect": {
+    "p95_connect_ms": 1000,
+    "acceptance": 0.99
+  },
   "event_ingestion": {
     "sustained_events_per_second": 100,
     "burst_events_per_second": 500,

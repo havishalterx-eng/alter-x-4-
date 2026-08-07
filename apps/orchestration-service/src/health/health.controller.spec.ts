@@ -25,6 +25,7 @@ describe("GET /health", () => {
       ORCHESTRATION_DATABASE_USER: "orchestration_service",
       DELETION_DATABASE_USER: "orchestration_deletion",
       DELETION_SERVICE_TOKEN_SHA256: "a".repeat(64),
+      DEPLOYMENT_ADMIN_SERVICE_TOKEN_SHA256: "c".repeat(64),
       EVAL_SERVICE_GRPC_TARGET: "127.0.0.1:50062",
       EVAL_FACADE_TOKEN_SHA256: "b".repeat(64),
       AWS_REGION: "ap-south-1",

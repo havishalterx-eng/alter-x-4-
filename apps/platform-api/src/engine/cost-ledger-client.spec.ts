@@ -10,6 +10,7 @@ const config: EngineConfig = {
   adsCoreBaseUrl: "https://ads.test",
   costLedgerBaseUrl: "https://costs.test/",
   evalFacadeTokenRef: "env:EVAL_FACADE_TOKEN",
+  deploymentAdminServiceTokenRef: "env:DEPLOYMENT_ADMIN_TOKEN",
   auditServiceBaseUrl: "https://audit.test",
   auditQueryServiceTokenRef: "env:AUDIT_QUERY_TOKEN",
   m2mTokenUrl: "https://identity.test/oauth/token",

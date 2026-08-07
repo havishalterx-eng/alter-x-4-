@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Body, Controller, Get, HttpException, Param, Patch, Post, Req } from "@nestjs/common";
+import { Body, Controller, Get, HttpException, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import type { SessionGatewayRequest } from "@alterx/auth";
 import type { ProblemDetails } from "@alterx/contracts";
 import {
@@ -54,6 +54,24 @@ export class WorkflowReadController {
         workspaceId,
         name: body.goal ?? "",
       });
+    } catch (error: unknown) {
+      throw mapWorkflowError(error, request.url);
+    }
+  }
+
+  @Get()
+  async list(
+    @Req() request: SessionGatewayRequest,
+    @Query("cursor") cursor?: string,
+    @Query("limit") rawLimit?: string,
+  ) {
+    try {
+      return await this.service.listWorkflows(
+        requiredTenantId(request),
+        requiredWorkspaceId(request),
+        cursor,
+        rawLimit === undefined ? 50 : Number(rawLimit),
+      );
     } catch (error: unknown) {
       throw mapWorkflowError(error, request.url);
     }

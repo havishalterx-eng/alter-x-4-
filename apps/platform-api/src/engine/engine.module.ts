@@ -14,6 +14,7 @@ import { engineConfigFromEnvironment, type EngineConfig } from "./config";
 import { ENGINE_CONFIG, EngineClient } from "./engine-client";
 import { CostLedgerClient } from "./cost-ledger-client";
 import { EvalFacadeClient } from "./eval-facade-client";
+import { DeploymentAdminClient } from "./deployment-admin-client";
 import { AuditEventsClient } from "./audit-events-client";
 import { EngineExceptionFilter } from "./engine-exception.filter";
 import { secretsProviderToken } from "../identity-broker/identity-broker.module";
@@ -69,6 +70,12 @@ import type { SecretsProvider } from "@alterx/shared-clients";
         new EvalFacadeClient(config, resolveRuntimeSecret),
     },
     {
+      provide: DeploymentAdminClient,
+      inject: [ENGINE_CONFIG],
+      useFactory: (config: EngineConfig) =>
+        new DeploymentAdminClient(config, resolveRuntimeSecret),
+    },
+    {
       provide: AuditEventsClient,
       inject: [ENGINE_CONFIG, secretsProviderToken],
       useFactory: (config: EngineConfig, secrets: SecretsProvider) =>
@@ -79,6 +86,6 @@ import type { SecretsProvider } from "@alterx/shared-clients";
       useClass: EngineExceptionFilter,
     },
   ],
-  exports: [EngineClient, CostLedgerClient, EvalFacadeClient, AuditEventsClient],
+  exports: [EngineClient, CostLedgerClient, EvalFacadeClient, DeploymentAdminClient, AuditEventsClient],
 })
 export class EngineModule {}

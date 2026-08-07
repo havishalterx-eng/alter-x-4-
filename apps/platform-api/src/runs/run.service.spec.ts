@@ -25,6 +25,19 @@ const actor: ActorContext = {
 };
 
 describe("RunService", () => {
+  it("launches workflow run through Engine HTTP route", async () => {
+    const engine = engineStub(async () => ({ status: 200, body: page([]) }));
+    const service = new RunService(engine.value, costLedgerStub().value);
+    const workflowId = "wf_018f47a5-7b2c-7d10-8f11-123456789abc";
+    await service.create({ workflow_id: workflowId }, actor, traceparent, "run-key");
+    expect(engine.post).toHaveBeenCalledWith(
+      "/api/v1/runs",
+      { workflow_id: workflowId },
+      expectedContext(),
+      { idempotencyKey: "run-key" },
+    );
+  });
+
   it("relays real list filters, pagination, and opaque cross-mode rows", async () => {
     const response = page([
       { run_id: runId, parent_kind: "workflow" },
@@ -251,11 +264,14 @@ function engineStub(
 ): {
   value: EngineClient;
   get: ReturnType<typeof vi.fn>;
+  post: ReturnType<typeof vi.fn>;
 } {
   const get = vi.fn(implementation);
+  const post = vi.fn().mockResolvedValue({ status: 201, body: { id: runId } });
   return {
-    value: { get } as unknown as EngineClient,
+    value: { get, post } as unknown as EngineClient,
     get,
+    post,
   };
 }
 

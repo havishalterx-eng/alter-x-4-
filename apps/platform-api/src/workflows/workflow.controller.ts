@@ -22,6 +22,7 @@ import type { ActorContextType } from "../rbac";
 import { WorkflowHttpError } from "./problem";
 import type {
   WorkflowActionResult,
+  WorkflowList,
   WorkflowResource,
   WorkflowVersionList,
 } from "./types";
@@ -67,6 +68,26 @@ export class WorkflowController {
       idempotencyKey!,
     );
     return project(result, reply);
+  }
+
+  @Get()
+  @RequireWorkspaceRole(...readRoles)
+  async list(
+    @Query("cursor") cursor: string | undefined,
+    @Query("limit") limit: string | undefined,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<WorkflowList> {
+    return project(
+      await this.workflows.list(
+        cursor,
+        limit,
+        requireActor(actor, "/api/v1/workflows"),
+        traceparent,
+      ),
+      reply,
+    );
   }
 
   @Get(":workflowId")

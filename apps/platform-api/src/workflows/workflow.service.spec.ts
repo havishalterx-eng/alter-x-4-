@@ -55,6 +55,16 @@ describe("WorkflowService", () => {
     );
   });
 
+  it("lists workflows through real Engine HTTP route", async () => {
+    const engine = engineStub();
+    const service = new WorkflowService(engine.value);
+    await service.list("next cursor", "25", actor, traceparent);
+    expect(engine.get).toHaveBeenCalledWith(
+      "/api/v1/workflows?cursor=next+cursor&limit=25",
+      expectedContext(),
+    );
+  });
+
   it("saves full canvas DAG with concurrency headers", async () => {
     const engine = engineStub();
     const service = new WorkflowService(engine.value);

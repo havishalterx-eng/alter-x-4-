@@ -1,4 +1,4 @@
-import { TenantIdSchema } from "@alterx/contracts";
+import { TenantIdSchema, WorkflowIdSchema } from "@alterx/contracts";
 import { randomUUID } from "node:crypto";
 
 export class WorkflowNotFoundError extends Error {
@@ -38,6 +38,15 @@ export interface CreateWorkflowRequest {
   readonly tenantId: string;
   readonly workspaceId: string;
   readonly name: string;
+}
+
+export interface WorkflowPage {
+  readonly data: readonly Workflow[];
+  readonly page: {
+    readonly next_cursor: string | null;
+    readonly has_more: boolean;
+    readonly limit: number;
+  };
 }
 
 interface OrchestrationTransactionLike {
@@ -172,6 +181,45 @@ export class WorkflowReadService {
         throw new WorkflowNotFoundError(workflowId);
       }
       return fromRow(row);
+    });
+  }
+
+  async listWorkflows(
+    tenantId: string,
+    workspaceId: string,
+    cursor: string | undefined,
+    limit: number,
+  ): Promise<WorkflowPage> {
+    requireNonEmpty("tenantId", tenantId);
+    requireNonEmpty("workspaceId", workspaceId);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+      throw new WorkflowValidationError("limit must be an integer from 1 to 200");
+    }
+    if (cursor !== undefined && !WorkflowIdSchema.safeParse(cursor).success) {
+      throw new WorkflowValidationError("cursor must be a workflow ID");
+    }
+    const bareTenant = bareTenantUuid(tenantId);
+    const bareWorkspace = bareWorkspaceUuid(workspaceId);
+    return this.store.withTenant(bareTenant, async (tx) => {
+      const result = await tx.query<WorkflowRow>(
+        `SELECT id, tenant_id, workspace_id, name, status, created_at, updated_at
+         FROM workflows
+         WHERE tenant_id = $1 AND workspace_id = $2
+           AND ($3::text IS NULL OR id > $3)
+         ORDER BY id
+         LIMIT $4`,
+        [bareTenant, bareWorkspace, cursor ?? null, limit + 1],
+      );
+      const hasMore = result.rows.length > limit;
+      const rows = result.rows.slice(0, limit);
+      return {
+        data: rows.map(fromRow),
+        page: {
+          next_cursor: hasMore ? (rows.at(-1)?.id ?? null) : null,
+          has_more: hasMore,
+          limit,
+        },
+      };
     });
   }
 

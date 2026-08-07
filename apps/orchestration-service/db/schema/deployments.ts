@@ -32,7 +32,7 @@ export const deployments = pgTable(
   (table) => [
     check(
       "deployments_status_check",
-      sql`${table.status} IN ('pending', 'active', 'failed', 'rolled_back')`,
+      sql`${table.status} IN ('pending', 'active', 'failed', 'rolled_back', 'suspended')`,
     ),
     check(
       "deployments_active_artifact_check",

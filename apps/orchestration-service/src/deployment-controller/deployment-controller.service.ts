@@ -83,7 +83,7 @@ interface PromotedAtRow extends Record<string, unknown> {
   readonly promoted_at: Date | string;
 }
 
-type ProjectDeploymentStatus = "pending" | "active" | "failed" | "rolled_back";
+type ProjectDeploymentStatus = "pending" | "active" | "failed" | "rolled_back" | "suspended";
 
 interface ProjectDeploymentRow extends Record<string, unknown> {
   readonly id: string;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CreateRunRequestSchema, type CreateRunRequest } from "@alterx/contracts";
 import { RunHttpError } from "./problem";
 import type { RunListQuery } from "./types";
 
@@ -42,6 +43,18 @@ export function parseRunListQuery(
   instance: string,
 ): RunListQuery {
   return parse(listQuerySchema, input, instance);
+}
+
+export function parseCreateRunRequest(input: unknown, instance: string): CreateRunRequest {
+  const result = CreateRunRequestSchema.safeParse(input);
+  if (result.success) return result.data;
+  throw validationError(
+    instance,
+    result.error.issues.map((issue) => ({
+      field: issue.path.join(".") || "body",
+      message: issue.message,
+    })),
+  );
 }
 
 export function parseRunId(value: string, instance: string): string {

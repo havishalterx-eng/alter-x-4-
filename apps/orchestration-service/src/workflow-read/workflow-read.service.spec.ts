@@ -32,6 +32,15 @@ function createFakeStore(seed: readonly WorkflowRow[] = []): {
         ) {
           const sql = statement.replace(/\s+/g, " ").trim();
 
+          if (sql.includes("FROM workflows WHERE tenant_id = $1 AND workspace_id = $2")) {
+            const [queryTenantId, workspaceId, cursor, rawLimit] = values as [string, string, string | null, number];
+            const rows = [...workflows.values()]
+              .filter((row) => row.tenant_id === queryTenantId && row.workspace_id === workspaceId && (cursor === null || row.id > cursor))
+              .sort((left, right) => left.id.localeCompare(right.id))
+              .slice(0, rawLimit);
+            return { rowCount: rows.length, rows: rows as unknown as readonly TRow[] };
+          }
+
           if (sql.startsWith("SELECT")) {
             const [queryTenantId, workflowId] = values as [string, string];
             const row = workflows.get(workflowId);
@@ -110,6 +119,27 @@ function seedRow(): WorkflowRow {
 }
 
 describe("WorkflowReadService", () => {
+  it("lists only calling workspace with bounded cursor pagination", async () => {
+    const tenant = "018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
+    const workspace = "018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
+    const first = "wf_018f4d6e-2b4a-7a3e-8c1a-1234567890a1";
+    const second = "wf_018f4d6e-2b4a-7a3e-8c1a-1234567890a2";
+    const { store } = createFakeStore([
+      { id: first, tenant_id: tenant, workspace_id: workspace, name: "one", status: "active", created_at: "created", updated_at: "updated" },
+      { id: second, tenant_id: tenant, workspace_id: workspace, name: "two", status: "draft", created_at: "created", updated_at: "updated" },
+      { id: "wf_018f4d6e-2b4a-7a3e-8c1a-1234567890a3", tenant_id: tenant, workspace_id: "018f4d6e-2b4a-7a3e-8c1a-1234567890ac", name: "other", status: "draft", created_at: "created", updated_at: "updated" },
+    ]);
+    const service = new WorkflowReadService(store);
+    await expect(service.listWorkflows(`ten_${tenant}`, `ws_${workspace}`, undefined, 1)).resolves.toMatchObject({
+      data: [{ id: first }],
+      page: { has_more: true, next_cursor: first, limit: 1 },
+    });
+    await expect(service.listWorkflows(`ten_${tenant}`, `ws_${workspace}`, first, 10)).resolves.toMatchObject({
+      data: [{ id: second }],
+      page: { has_more: false, next_cursor: null },
+    });
+  });
+
   it("creates a real draft workflow in the authenticated tenant and workspace", async () => {
     const { store, workflows } = createFakeStore();
     const service = new WorkflowReadService(store);

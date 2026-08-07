@@ -49,6 +49,11 @@ import { ConversationManagerService } from "./conversation/conversation-manager.
 import { GraphCompilerService } from "./compiler/graph-compiler.service";
 import { DeploymentControllerService } from "./deployment-controller/deployment-controller.service";
 import { WorkflowDeploymentController } from "./deployment-controller/workflow-deployment.controller";
+import {
+  DEPLOYMENT_ADMIN_TOKEN_HASH,
+  DeploymentAdminController,
+} from "./deployment-admin/deployment-admin.controller";
+import { DeploymentAdminService } from "./deployment-admin/deployment-admin.service";
 import { RegistryService } from "./registry/registry.service";
 import { NodeexecService } from "./registry/nodeexec.service";
 import { NodeExecutionsController } from "./runs/node-executions.controller";
@@ -167,6 +172,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
     DeletionController,
     DeletionRequestController,
     EvalFacadeController,
+    DeploymentAdminController,
   ],
   providers: [
     {
@@ -187,6 +193,28 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       }),
     },
     EvalFacadeService,
+    {
+      provide: DEPLOYMENT_ADMIN_TOKEN_HASH,
+      useFactory: () => requireSha256Fingerprint(
+        process.env.DEPLOYMENT_ADMIN_SERVICE_TOKEN_SHA256,
+        "DEPLOYMENT_ADMIN_SERVICE_TOKEN_SHA256",
+      ),
+    },
+    {
+      provide: DeploymentAdminService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        return new DeploymentAdminService(new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        }));
+      },
+    },
     {
       provide: ARTIFACT_CONTENT_HANDLER,
       useFactory: (artifacts: ArtifactsService) => new ArtifactContentGrpcService(artifacts),

@@ -1,5 +1,5 @@
 import { z } from "./zod";
-import { DeploymentIdSchema, IsoTimestampSchema } from "./ids";
+import { DeploymentIdSchema, IsoTimestampSchema, ProjectIdSchema } from "./ids";
 import { ModelAliasBindingSchema, ModelAliasSchema } from "./model-alias-policy";
 
 export const PlatformTenantIdSchema = z.string().uuid();
@@ -176,6 +176,17 @@ export const DeploymentAdminActionRequestSchema = z
     reason: z.string().trim().min(1).max(1_000),
   })
   .strict();
+export const DeploymentAdminActionResultSchema = z
+  .object({
+    tenant_id: PlatformTenantIdSchema,
+    deployment_id: DeploymentIdSchema,
+    project_id: ProjectIdSchema,
+    action: z.enum(["rollback", "suspend", "resume"]),
+    status: z.enum(["active", "rolled_back", "suspended"]),
+    active_deployment_id: DeploymentIdSchema.nullable(),
+    updated_at: IsoTimestampSchema,
+  })
+  .strict();
 
 export const MarketplaceGovernanceActionRequestSchema = z
   .object({
@@ -225,6 +236,7 @@ export type ResolveDisputeRequest = z.infer<typeof ResolveDisputeRequestSchema>;
 export type AbuseSignal = z.infer<typeof AbuseSignalSchema>;
 export type ReviewAbuseSignalRequest = z.infer<typeof ReviewAbuseSignalRequestSchema>;
 export type DeploymentAdminActionRequest = z.infer<typeof DeploymentAdminActionRequestSchema>;
+export type DeploymentAdminActionResult = z.infer<typeof DeploymentAdminActionResultSchema>;
 export type MarketplaceGovernanceActionRequest = z.infer<typeof MarketplaceGovernanceActionRequestSchema>;
 export type MarketplaceGovernanceResourceType = z.infer<typeof MarketplaceGovernanceResourceTypeSchema>;
 export type MarketplaceGovernanceItem = z.infer<typeof MarketplaceGovernanceItemSchema>;

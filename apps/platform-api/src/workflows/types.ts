@@ -50,4 +50,6 @@ export interface WorkflowVersionList {
   };
 }
 
+export type WorkflowList = WorkflowVersionList;
+
 export const workflowDeferredCapabilities = [] as const;

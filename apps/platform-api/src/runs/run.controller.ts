@@ -1,14 +1,18 @@
 import {
+  Body,
   Controller,
   Get,
   Headers,
+  HttpCode,
   Param,
+  Post,
   Query,
   Res,
   UseFilters,
 } from "@nestjs/common";
 import type { FastifyReply } from "fastify";
 import type { EngineResponse } from "../engine";
+import { Idempotent } from "../idempotency";
 import {
   ActorContext,
   RequirePermission,
@@ -25,11 +29,34 @@ import type {
 } from "./types";
 
 const readRoles = ["admin", "editor", "operator", "approver", "viewer"] as const;
+const operateRoles = ["admin", "editor", "operator"] as const;
 
 @Controller("/api/v1/runs")
 @UseFilters(RunExceptionFilter)
 export class RunController {
   constructor(private readonly runs: RunService) {}
+
+  @Post()
+  @HttpCode(201)
+  @RequireWorkspaceRole(...operateRoles)
+  @Idempotent()
+  async create(
+    @Body() body: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<EngineResource> {
+    return project(
+      await this.runs.create(
+        body,
+        requireActor(actor, "/api/v1/runs"),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
 
   @Get()
   @RequireWorkspaceRole(...readRoles)

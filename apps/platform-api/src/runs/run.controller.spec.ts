@@ -24,6 +24,7 @@ import {
   type EngineResponse,
 } from "../engine";
 import { RbacModule, type ActorContextType, type RbacRequest } from "../rbac";
+import { PgIdempotencyStore } from "../idempotency";
 import { ArtifactController, RunController } from "./run.controller";
 import { RunExceptionFilter } from "./run-exception.filter";
 import { RunService } from "./run.service";
@@ -56,6 +57,15 @@ describe("RunController routes", () => {
         RunExceptionFilter,
         { provide: EngineClient, useValue: engine },
         { provide: CostLedgerClient, useValue: costs },
+        {
+          provide: PgIdempotencyStore,
+          useValue: {
+            execute: async (_input: unknown, operation: () => Promise<{ status: number; body: unknown }>) => ({
+              ...(await operation()),
+              replayed: false,
+            }),
+          },
+        },
         { provide: APP_FILTER, useClass: EngineExceptionFilter },
       ],
     }).compile();
@@ -85,6 +95,27 @@ describe("RunController routes", () => {
   });
 
   afterAll(async () => app.close());
+
+  it("launches a workflow run through authenticated Engine relay", async () => {
+    const workflowId = "wf_018f47a5-7b2c-7d10-8f11-123456789abc";
+    const response = await app.getHttpAdapter().getInstance().inject({
+      method: "POST",
+      url: "/api/v1/runs",
+      headers: {
+        "x-test-actor": JSON.stringify({ ...actor, roles: ["operator"] }),
+        "idempotency-key": "run-launch-1",
+      },
+      payload: { workflow_id: workflowId },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toEqual(engine.run);
+    expect(engine.post).toHaveBeenCalledWith(
+      "/api/v1/runs",
+      { workflow_id: workflowId },
+      expect.objectContaining({ tenantId: actor.tenant_id }),
+      { idempotencyKey: "run-launch-1" },
+    );
+  });
 
   it("lists paginated opaque rows using only real filters", async () => {
     const response = await request(
@@ -228,6 +259,7 @@ interface TestResponse {
 
 class RunEngine {
   readonly get = vi.fn(this.getResponse.bind(this));
+  readonly post = vi.fn(async () => ({ status: 201, body: this.run }));
   readonly runList = page([
     { run_id: runId, parent_kind: "workflow", status: "running" },
     { run_id: `${runId}-opaque`, parent_kind: "project", status: "completed" },
@@ -256,6 +288,7 @@ class RunEngine {
   reset(): void {
     this.failurePath = undefined;
     this.get.mockClear();
+    this.post.mockClear();
   }
 
   failNext(path: string): void {

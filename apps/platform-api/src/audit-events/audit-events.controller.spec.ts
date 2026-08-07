@@ -55,6 +55,7 @@ describe("audit-events platform relay", () => {
       auditServiceBaseUrl: `http://127.0.0.1:${address.port}`,
       auditQueryServiceTokenRef: "test/audit-query-token",
       evalFacadeTokenRef: "env:EVAL_FACADE_TOKEN", m2mTokenUrl: "https://identity.test/token",
+      deploymentAdminServiceTokenRef: "env:DEPLOYMENT_ADMIN_TOKEN",
       m2mAudience: "engine", m2mClientId: "platform-api", m2mClientSecretRef: "env:ENGINE_SECRET", requestTimeoutMs: 100,
     };
     const secrets: SecretsProvider = { getSecret: async (reference) => {

@@ -44,6 +44,7 @@ function setEngineEnvironment(): void {
   process.env.ADS_CORE_BASE_URL = "http://ads.test";
   process.env.COST_LEDGER_BASE_URL = "http://costs.test";
   process.env.EVAL_FACADE_TOKEN_REF = "env:EVAL_TOKEN";
+  process.env.DEPLOYMENT_ADMIN_SERVICE_TOKEN_REF = "env:DEPLOYMENT_ADMIN_TOKEN";
   process.env.AUDIT_SERVICE_BASE_URL = "http://audit.test";
   process.env.AUDIT_QUERY_SERVICE_TOKEN_REF = "env:AUDIT_TOKEN";
   process.env.ENGINE_M2M_TOKEN_URL = "https://identity.test/oauth/token";

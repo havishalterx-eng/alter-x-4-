@@ -14,3 +14,9 @@ k6 run -e BASE_URL=https://staging.example -e ACCESS_TOKEN=... -e API_READ_PATH=
 `event-ingestion.js` additionally requires `EVENT_INGEST_PATH` and
 `EVENT_INGEST_BODY`. Each run writes a JSON summary under `results/` and fails
 when a Test Plan SLO floor is breached.
+
+`sse-reconnect.js` uses the auto-resolved `k6/x/sse` community extension and
+requires `RUN_STREAM_PATH` for a seeded run that emits at least one replayable
+event, for example `/stream/runs/run_...`, plus `STREAM_HEALTH_PATH`. It measures
+real connection acceptance and p95 connection latency under burst reconnects,
+then probes gateway health during the storm to detect resource exhaustion.

@@ -6,6 +6,7 @@ import {
   type EngineCallerContext,
   type EnginePath,
   type EngineResponse,
+  type EngineRequestBody,
 } from "../engine";
 import type { ActorContext } from "../rbac/types";
 import { RunHttpError } from "./problem";
@@ -16,6 +17,7 @@ import type {
 } from "./types";
 import {
   parseArtifactId,
+  parseCreateRunRequest,
   parseRunId,
   parseRunListQuery,
   parseTraceparent,
@@ -41,6 +43,22 @@ export class RunService {
     return this.engine.get(
       `/api/v1/runs${serializeQuery(query)}`,
       callerContext(actor, traceparent, instance),
+    );
+  }
+
+  create(
+    input: unknown,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<EngineResource>> {
+    const instance = "/api/v1/runs";
+    const request = parseCreateRunRequest(input, instance);
+    return this.engine.post(
+      "/api/v1/runs",
+      request as unknown as EngineRequestBody,
+      callerContext(actor, traceparent, instance),
+      { idempotencyKey },
     );
   }
 

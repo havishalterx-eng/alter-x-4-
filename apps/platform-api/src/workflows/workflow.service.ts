@@ -19,6 +19,7 @@ import type {
   StartCanaryInput,
   WorkflowVersionActionInput,
   WorkflowActionResult,
+  WorkflowList,
   WorkflowResource,
   WorkflowVersionList,
 } from "./types";
@@ -43,6 +44,20 @@ export class WorkflowService {
       jsonBody(input),
       callerContext(actor, traceparent, "/api/v1/workflows"),
       { idempotencyKey },
+    );
+  }
+
+  list(
+    cursor: string | undefined,
+    limit: string | undefined,
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<EngineResponse<WorkflowList>> {
+    const instance = "/api/v1/workflows";
+    const query = parseVersionQuery(cursor, limit, instance);
+    return this.engine.get(
+      `/api/v1/workflows${query}`,
+      callerContext(actor, traceparent, instance),
     );
   }
 

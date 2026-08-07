@@ -46,6 +46,7 @@ describe("orchestration migration files", () => {
       "0026_create_escalations.sql",
       "0027_create_trigger_webhook_secrets.sql",
       "0028_create_project_plans.sql",
+      "0029_add_deployment_suspended_status.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -81,6 +82,7 @@ describe("orchestration migration files", () => {
       "0026_drop_escalations.sql",
       "0027_drop_trigger_webhook_secrets.sql",
       "0028_drop_project_plans.sql",
+      "0029_remove_deployment_suspended_status.sql",
     ]);
   });
 
@@ -239,7 +241,7 @@ describe("orchestration migration files", () => {
       'FOREIGN KEY ("tenant_id", "artifact_id")\n  REFERENCES "artifacts"("tenant_id", "id")',
     );
     expect(allSql).toContain('CONSTRAINT "deployments_status_check"');
-    expect(allSql).toContain("'pending', 'active', 'failed', 'rolled_back'");
+    expect(allSql).toContain("'pending', 'active', 'failed', 'rolled_back', 'suspended'");
     expect(allSql).toContain('CREATE UNIQUE INDEX "idx_deployments_tenant_project_active"');
     expect(allSql).toContain(
       "cannot enforce one active deployment per project while duplicate active rows exist",
