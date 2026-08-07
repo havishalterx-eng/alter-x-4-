@@ -159,4 +159,67 @@ describe("createPlatformJobHandlers", () => {
 
     await expect(handler({})).rejects.toThrow(/401/);
   });
+
+  it("does not register the benchmark-sweep handler without real dependencies", () => {
+    const handlers = createPlatformJobHandlers();
+    expect(handlers.get("platform.benchmark-sweep")).toBeUndefined();
+  });
+
+  it("registers a real benchmark-sweep handler that sweeps every real launch-floor golden set with trigger=scheduled", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ evaluation_run_id: "evr_1", status: "completed", results_json: "{}" }),
+      text: async () => "",
+    })) as unknown as typeof fetch;
+
+    const handlers = createPlatformJobHandlers({
+      orchestrationServiceInternalBaseUrl: "http://orchestration-service.internal",
+      evalFacadeServiceToken: "real-token",
+      fetchImpl,
+    });
+    const handler = handlers.get("platform.benchmark-sweep");
+    expect(handler).toBeDefined();
+
+    const result = await handler!({});
+
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    for (const goldenSetName of ["planner", "intent", "retrieval", "verification"]) {
+      expect(fetchImpl).toHaveBeenCalledWith(
+        "http://orchestration-service.internal/internal/eval/run-evaluation",
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({ authorization: "Bearer real-token" }),
+          body: JSON.stringify({ golden_set_name: goldenSetName, trigger: "scheduled" }),
+        }),
+      );
+    }
+    expect(result).toEqual({ goldenSetsProcessed: 4, goldenSetsFailed: 0 });
+  });
+
+  it("real isolates a single golden-set failure from the rest of the sweep", async () => {
+    let call = 0;
+    const fetchImpl = vi.fn(async () => {
+      call += 1;
+      if (call === 2) {
+        return { ok: false, status: 500, json: async () => ({}), text: async () => "boom" };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ evaluation_run_id: "evr_1", status: "completed", results_json: "{}" }),
+        text: async () => "",
+      };
+    }) as unknown as typeof fetch;
+
+    const handlers = createPlatformJobHandlers({
+      orchestrationServiceInternalBaseUrl: "http://orchestration-service.internal",
+      evalFacadeServiceToken: "real-token",
+      fetchImpl,
+    });
+    const result = await handlers.get("platform.benchmark-sweep")!({});
+
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(result).toEqual({ goldenSetsProcessed: 3, goldenSetsFailed: 1 });
+  });
 });

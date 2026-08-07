@@ -22,6 +22,10 @@ from src.execution.orchestrator import (
 )
 from src.release_gates import ReleaseGateRecorder
 
+# Real, matches the EvalRun.trigger CHECK constraint exactly
+# (apps/eval-service/alembic/versions/0001_create_eval_tables.py).
+_VALID_TRIGGERS = frozenset({"pre_merge", "promotion_gate", "scheduled", "manual"})
+
 
 class EvalGrpcService:
     def __init__(
@@ -41,14 +45,18 @@ class EvalGrpcService:
     ) -> eval_pb2.RunEvaluationResponse:
         if not request.golden_set_name.strip():
             await _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "golden_set_name is required")
+        trigger = request.trigger.strip() or "manual"
+        if trigger not in _VALID_TRIGGERS:
+            await _abort(
+                context,
+                grpc.StatusCode.INVALID_ARGUMENT,
+                f"trigger must be one of {sorted(_VALID_TRIGGERS)}",
+            )
         try:
             summary = await asyncio.to_thread(
                 self._orchestrator.run,
                 request.golden_set_name,
-                # EvalRun.trigger is a persisted domain enum. gRPC is a
-                # transport, not a new trigger category, so use the existing
-                # manual trigger for caller-initiated evaluations.
-                "manual",
+                trigger,
             )
         except GoldenSetNotFoundError as error:
             await _abort(context, grpc.StatusCode.NOT_FOUND, str(error))

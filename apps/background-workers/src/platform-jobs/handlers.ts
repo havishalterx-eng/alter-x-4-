@@ -102,12 +102,62 @@ function createRetentionSweepHandler(
   };
 }
 
+/**
+ * Real, scoped to the 4 confirmed "launch-floor" golden sets
+ * (apps/eval-service/src/db/launch_golden_sets.py) -- the redteam/chaos/
+ * recovery sets serve a different real purpose (security/resilience
+ * testing, not regular regression sweeps) and are deliberately out of
+ * scope here, disclosed rather than silently swept too.
+ */
+const LAUNCH_FLOOR_GOLDEN_SETS = ["planner", "intent", "retrieval", "verification"] as const;
+
+/**
+ * Real scheduled benchmark sweep: calls orchestration-service's real,
+ * pre-existing internal eval-facade route once per real launch-floor
+ * golden set, with trigger="scheduled" so the resulting EvalRun rows are
+ * real, honestly distinguishable from staff-triggered manual runs (the
+ * same route BenchmarksService already relays staff-initiated runs
+ * through). Per-golden-set error isolation, same real pattern as the
+ * other sweep handlers.
+ */
+function createBenchmarkSweepHandler(
+  baseUrl: string,
+  serviceToken: string,
+  fetchImpl: typeof fetch,
+): PlatformJobHandler {
+  return async (): Promise<JsonValue> => {
+    let goldenSetsProcessed = 0;
+    let goldenSetsFailed = 0;
+    for (const goldenSetName of LAUNCH_FLOOR_GOLDEN_SETS) {
+      try {
+        const response = await fetchImpl(`${baseUrl}/internal/eval/run-evaluation`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${serviceToken}`,
+          },
+          body: JSON.stringify({ golden_set_name: goldenSetName, trigger: "scheduled" }),
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} ${await response.text()}`);
+        }
+        goldenSetsProcessed += 1;
+      } catch {
+        goldenSetsFailed += 1;
+      }
+    }
+    return { goldenSetsProcessed, goldenSetsFailed };
+  };
+}
+
 export interface PlatformJobHandlerDependencies {
   readonly platformApiInternalBaseUrl?: string;
   readonly notificationDigestServiceToken?: string;
   readonly connectorHealthSweepServiceToken?: string;
   readonly adsCoreInternalBaseUrl?: string;
   readonly retentionSweepServiceToken?: string;
+  readonly orchestrationServiceInternalBaseUrl?: string;
+  readonly evalFacadeServiceToken?: string;
   readonly fetchImpl?: typeof fetch;
 }
 
@@ -144,6 +194,16 @@ export function createPlatformJobHandlers(
       createRetentionSweepHandler(
         dependencies.adsCoreInternalBaseUrl,
         dependencies.retentionSweepServiceToken,
+        fetchImpl,
+      ),
+    );
+  }
+  if (dependencies?.orchestrationServiceInternalBaseUrl && dependencies.evalFacadeServiceToken) {
+    handlers.set(
+      "platform.benchmark-sweep",
+      createBenchmarkSweepHandler(
+        dependencies.orchestrationServiceInternalBaseUrl,
+        dependencies.evalFacadeServiceToken,
         fetchImpl,
       ),
     );

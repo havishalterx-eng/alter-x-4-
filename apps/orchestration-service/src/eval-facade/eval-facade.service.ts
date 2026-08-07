@@ -12,6 +12,7 @@ import { EvalFacadeHttpError } from "./problem";
 
 export interface RunEvaluationInput {
   readonly golden_set_name: string;
+  readonly trigger?: string;
 }
 
 export interface CheckReleaseGateInput {
@@ -27,7 +28,10 @@ export class EvalFacadeService {
     input: RunEvaluationInput,
   ): Promise<EvalRunEvaluationResponse> {
     return this.withUpstreamErrors("/internal/eval/run-evaluation", () =>
-      this.client.runEvaluation(input),
+      this.client.runEvaluation({
+        golden_set_name: input.golden_set_name,
+        ...(input.trigger !== undefined ? { trigger: input.trigger } : {}),
+      }),
     );
   }
 

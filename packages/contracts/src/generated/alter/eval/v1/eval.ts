@@ -24,6 +24,12 @@ export interface RunEvaluationRequest {
   /** @deprecated */
   candidate_version: string;
   golden_set_name: string;
+  /**
+   * Real, persisted EvalRun.trigger enum value ('manual', 'scheduled',
+   * 'pre_merge', 'promotion_gate'). Empty defaults to "manual" for
+   * backward compatibility with callers that predate this field.
+   */
+  trigger: string;
 }
 
 export interface RunEvaluationResponse {

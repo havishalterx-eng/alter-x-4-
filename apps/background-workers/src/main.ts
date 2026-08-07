@@ -88,6 +88,9 @@ async function bootstrap(): Promise<void> {
   const retentionSweepServiceToken = await resolveRuntimeSecret(
     platformJobsConfig.retentionSweepServiceTokenRef,
   );
+  const evalFacadeServiceToken = await resolveRuntimeSecret(
+    platformJobsConfig.evalFacadeServiceTokenRef,
+  );
   const platformJobsWorker = await startPlatformJobsWorker(
     {
       temporal: {
@@ -105,6 +108,8 @@ async function bootstrap(): Promise<void> {
       connectorHealthSweepServiceToken,
       adsCoreInternalBaseUrl: platformJobsConfig.adsCoreInternalBaseUrl,
       retentionSweepServiceToken,
+      orchestrationServiceInternalBaseUrl: platformJobsConfig.orchestrationServiceInternalBaseUrl,
+      evalFacadeServiceToken,
     }),
   );
 
@@ -144,6 +149,14 @@ async function bootstrap(): Promise<void> {
   );
   retentionSweepRunner.start();
 
+  const benchmarkSweepRunner = new IntervalJobSchedulerRunner(
+    digestDurableExecution,
+    "platform.benchmark-sweep",
+    "benchmark-sweep",
+    platformJobsConfig.benchmarkSweepIntervalMs,
+  );
+  benchmarkSweepRunner.start();
+
   app.enableShutdownHooks();
   app.getHttpAdapter().getInstance().addHook("onClose", () => {
     worker.shutdown();
@@ -152,6 +165,7 @@ async function bootstrap(): Promise<void> {
     void digestSchedulerRunner.stop();
     void connectorHealthSweepRunner.stop();
     void retentionSweepRunner.stop();
+    void benchmarkSweepRunner.stop();
   });
 
   await app.listen(3000, "0.0.0.0");

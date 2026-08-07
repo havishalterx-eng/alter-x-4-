@@ -23,4 +23,18 @@ describe("EvalFacadeService", () => {
     await expect(service.runEvaluation({ golden_set_name: "planner" })).rejects.toMatchObject({ response: { status: 409 } });
     await expect(service.runEvaluation({ golden_set_name: "planner" })).rejects.toMatchObject({ response: { status: 504 } });
   });
+
+  it("real passes an explicit trigger through to the adapter, and omits it when absent", async () => {
+    const client = {
+      runEvaluation: vi.fn().mockResolvedValue({ evaluation_run_id: "evr_1", status: "completed", results_json: "{}" }),
+      checkReleaseGate: vi.fn(),
+    } as unknown as EvalServiceClient;
+    const service = new EvalFacadeService(client);
+
+    await service.runEvaluation({ golden_set_name: "planner", trigger: "scheduled" });
+    expect(client.runEvaluation).toHaveBeenCalledWith({ golden_set_name: "planner", trigger: "scheduled" });
+
+    await service.runEvaluation({ golden_set_name: "planner" });
+    expect(client.runEvaluation).toHaveBeenCalledWith({ golden_set_name: "planner" });
+  });
 });

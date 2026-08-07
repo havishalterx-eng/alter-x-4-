@@ -18,6 +18,10 @@ message RunEvaluationRequest {
   string golden_set_reference = 3 [deprecated = true];
   string candidate_version = 4 [deprecated = true];
   string golden_set_name = 5;
+  // Real, persisted EvalRun.trigger enum value ('manual', 'scheduled',
+  // 'pre_merge', 'promotion_gate'). Empty defaults to "manual" for
+  // backward compatibility with callers that predate this field.
+  string trigger = 6;
 }
 
 message RunEvaluationResponse {

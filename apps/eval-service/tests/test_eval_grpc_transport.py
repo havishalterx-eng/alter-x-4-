@@ -124,8 +124,44 @@ def test_global_eval_service_round_trip_uses_minted_run_id_and_honest_gate_limit
     asyncio.run(_round_trip(eval_db_url, golden_set_name))
 
 
+def test_global_eval_service_honors_a_real_explicit_scheduled_trigger(
+    sessions: sessionmaker[Session],
+) -> None:
+    golden_set_name = "grpc-transport-scheduled"
+    with sessions.begin() as session:
+        session.add(
+            GoldenSet(
+                id=uuid4(),
+                name=golden_set_name,
+                domain="verification",
+                version=1,
+                status="active",
+            )
+        )
+    eval_db_url = sessions.kw["bind"].url.render_as_string(hide_password=False)
+    asyncio.run(_scheduled_trigger_round_trip(eval_db_url, golden_set_name))
+
+
 def test_global_eval_service_starts_and_rejects_invalid_requests() -> None:
     asyncio.run(_invalid_request_round_trip())
+
+
+def test_global_eval_service_rejects_an_unknown_trigger_value(
+    sessions: sessionmaker[Session],
+) -> None:
+    golden_set_name = "grpc-transport-bad-trigger"
+    with sessions.begin() as session:
+        session.add(
+            GoldenSet(
+                id=uuid4(),
+                name=golden_set_name,
+                domain="verification",
+                version=1,
+                status="active",
+            )
+        )
+    eval_db_url = sessions.kw["bind"].url.render_as_string(hide_password=False)
+    asyncio.run(_invalid_trigger_round_trip(eval_db_url, golden_set_name))
 
 
 async def _round_trip(eval_db_url: str, golden_set_name: str) -> None:
@@ -170,6 +206,53 @@ async def _round_trip(eval_db_url: str, golden_set_name: str) -> None:
         )
         assert gate.passed is False
         assert list(gate.failed_thresholds) == []
+    finally:
+        await channel.close()
+        await server.stop(grace=0)
+        _close_all(clients)
+        engine.dispose()
+
+
+async def _scheduled_trigger_round_trip(eval_db_url: str, golden_set_name: str) -> None:
+    service, engine, clients = _build_service(_settings(eval_db_url))
+    server = grpc.aio.server()
+    eval_pb2_grpc.add_EvalServiceServicer_to_server(service, server)  # type: ignore[no-untyped-call]
+    port = _bind_loopback_or_skip(server)
+    await server.start()
+    channel = grpc.aio.insecure_channel(f"127.0.0.1:{port}")
+    try:
+        stub = eval_pb2_grpc.EvalServiceStub(channel)  # type: ignore[no-untyped-call]
+        evaluation = await stub.RunEvaluation(
+            eval_pb2.RunEvaluationRequest(golden_set_name=golden_set_name, trigger="scheduled")
+        )
+        with engine.connect() as connection:
+            trigger = connection.scalar(
+                sa.select(EvalRun.trigger).where(EvalRun.id == UUID(evaluation.evaluation_run_id))
+            )
+        assert trigger == "scheduled"
+    finally:
+        await channel.close()
+        await server.stop(grace=0)
+        _close_all(clients)
+        engine.dispose()
+
+
+async def _invalid_trigger_round_trip(eval_db_url: str, golden_set_name: str) -> None:
+    service, engine, clients = _build_service(_settings(eval_db_url))
+    server = grpc.aio.server()
+    eval_pb2_grpc.add_EvalServiceServicer_to_server(service, server)  # type: ignore[no-untyped-call]
+    port = _bind_loopback_or_skip(server)
+    await server.start()
+    channel = grpc.aio.insecure_channel(f"127.0.0.1:{port}")
+    try:
+        stub = eval_pb2_grpc.EvalServiceStub(channel)  # type: ignore[no-untyped-call]
+        with pytest.raises(grpc.aio.AioRpcError) as caught:
+            await stub.RunEvaluation(
+                eval_pb2.RunEvaluationRequest(
+                    golden_set_name=golden_set_name, trigger="not-a-real-trigger"
+                )
+            )
+        assert caught.value.code() == grpc.StatusCode.INVALID_ARGUMENT
     finally:
         await channel.close()
         await server.stop(grace=0)

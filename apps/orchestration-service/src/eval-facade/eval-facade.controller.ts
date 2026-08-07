@@ -57,7 +57,13 @@ function parseRunEvaluation(value: unknown, instance: string): RunEvaluationInpu
   if (!isRecord(value) || !nonEmptyString(value.golden_set_name)) {
     throw new EvalFacadeHttpError(400, "EVAL_FACADE_VALIDATION_FAILED", "golden_set_name is required", instance);
   }
-  return { golden_set_name: value.golden_set_name };
+  if (value.trigger !== undefined && !nonEmptyString(value.trigger)) {
+    throw new EvalFacadeHttpError(400, "EVAL_FACADE_VALIDATION_FAILED", "trigger must be a non-empty string when provided", instance);
+  }
+  return {
+    golden_set_name: value.golden_set_name,
+    ...(value.trigger !== undefined ? { trigger: value.trigger as string } : {}),
+  };
 }
 
 function parseCheckReleaseGate(value: unknown, instance: string): CheckReleaseGateInput {

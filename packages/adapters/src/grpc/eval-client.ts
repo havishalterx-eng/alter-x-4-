@@ -15,7 +15,10 @@ export interface EvalServiceClientConfig {
 }
 
 export interface EvalServiceHandlerClient {
-  runEvaluation(request: Pick<EvalRunEvaluationRequest, "golden_set_name">): Promise<EvalRunEvaluationResponse>;
+  runEvaluation(
+    request: Pick<EvalRunEvaluationRequest, "golden_set_name"> &
+      Partial<Pick<EvalRunEvaluationRequest, "trigger">>,
+  ): Promise<EvalRunEvaluationResponse>;
   checkReleaseGate(
     request: Pick<EvalCheckReleaseGateRequest, "release_gate_key" | "evaluation_run_id">,
   ): Promise<EvalCheckReleaseGateResponse>;
@@ -36,7 +39,7 @@ export class EvalServiceClientError extends Error {
 
 interface EvalGrpcClient extends Client {
   runEvaluation(
-    request: Pick<EvalRunEvaluationRequest, "golden_set_name">,
+    request: Pick<EvalRunEvaluationRequest, "golden_set_name" | "trigger">,
     options: { readonly deadline: Date },
     callback: (error: Error | null, response?: EvalRunEvaluationResponse) => void,
   ): void;
@@ -82,10 +85,15 @@ export class EvalServiceClient implements EvalServiceHandlerClient {
   }
 
   runEvaluation(
-    request: Pick<EvalRunEvaluationRequest, "golden_set_name">,
+    request: Pick<EvalRunEvaluationRequest, "golden_set_name"> &
+      Partial<Pick<EvalRunEvaluationRequest, "trigger">>,
   ): Promise<EvalRunEvaluationResponse> {
     return this.#request((deadline, callback) =>
-      this.#client.runEvaluation(request, { deadline }, callback),
+      this.#client.runEvaluation(
+        { golden_set_name: request.golden_set_name, trigger: request.trigger ?? "" },
+        { deadline },
+        callback,
+      ),
     );
   }
 

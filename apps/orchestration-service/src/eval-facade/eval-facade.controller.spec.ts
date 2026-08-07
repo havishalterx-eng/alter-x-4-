@@ -37,4 +37,24 @@ describe("EvalFacadeController", () => {
     expect(service.runEvaluation).not.toHaveBeenCalled();
     expect(service.checkReleaseGate).not.toHaveBeenCalled();
   });
+
+  it("real passes through a real caller-supplied trigger", async () => {
+    const service = {
+      runEvaluation: vi.fn().mockResolvedValue({ evaluation_run_id: "evr_1", status: "completed", results_json: "{}" }),
+      checkReleaseGate: vi.fn(),
+    } as unknown as EvalFacadeService;
+    const controller = new EvalFacadeController(service, TOKEN_HASH);
+
+    await controller.runEvaluation({ golden_set_name: "planner", trigger: "scheduled" }, `Bearer ${TOKEN}`);
+    expect(service.runEvaluation).toHaveBeenCalledWith({ golden_set_name: "planner", trigger: "scheduled" });
+  });
+
+  it("rejects a real non-string trigger", () => {
+    const service = { runEvaluation: vi.fn(), checkReleaseGate: vi.fn() } as unknown as EvalFacadeService;
+    const controller = new EvalFacadeController(service, TOKEN_HASH);
+
+    expect(() => controller.runEvaluation({ golden_set_name: "planner", trigger: 5 }, `Bearer ${TOKEN}`))
+      .toThrow(HttpException);
+    expect(service.runEvaluation).not.toHaveBeenCalled();
+  });
 });

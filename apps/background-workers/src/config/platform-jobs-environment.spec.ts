@@ -12,6 +12,8 @@ function environment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN_REF: "env:CONNECTOR_HEALTH_SWEEP_TOKEN",
     ADS_CORE_INTERNAL_BASE_URL: "http://ads-core.internal",
     RETENTION_SWEEP_SERVICE_TOKEN_REF: "env:RETENTION_SWEEP_TOKEN",
+    ORCHESTRATION_SERVICE_INTERNAL_BASE_URL: "http://orchestration-service.internal",
+    EVAL_FACADE_SERVICE_TOKEN_REF: "env:EVAL_FACADE_SERVICE_TOKEN",
     ...overrides,
   };
 }
@@ -27,6 +29,9 @@ describe("loadPlatformJobsEnvironment", () => {
       adsCoreInternalBaseUrl: "http://ads-core.internal",
       retentionSweepServiceTokenRef: "env:RETENTION_SWEEP_TOKEN",
       retentionSweepIntervalMs: 24 * 60 * 60 * 1000,
+      orchestrationServiceInternalBaseUrl: "http://orchestration-service.internal",
+      evalFacadeServiceTokenRef: "env:EVAL_FACADE_SERVICE_TOKEN",
+      benchmarkSweepIntervalMs: 24 * 60 * 60 * 1000,
     });
   });
 
@@ -69,6 +74,20 @@ describe("loadPlatformJobsEnvironment", () => {
       loadPlatformJobsEnvironment(
         environment({ RETENTION_SWEEP_INTERVAL_MS: "5000" }),
       ).retentionSweepIntervalMs,
+    ).toBe(5000);
+  });
+
+  it("throws PlatformJobsConfigurationError when ORCHESTRATION_SERVICE_INTERNAL_BASE_URL is missing", () => {
+    expect(() =>
+      loadPlatformJobsEnvironment(environment({ ORCHESTRATION_SERVICE_INTERNAL_BASE_URL: "" })),
+    ).toThrow(PlatformJobsConfigurationError);
+  });
+
+  it("accepts a real custom benchmark sweep interval", () => {
+    expect(
+      loadPlatformJobsEnvironment(
+        environment({ BENCHMARK_SWEEP_INTERVAL_MS: "5000" }),
+      ).benchmarkSweepIntervalMs,
     ).toBe(5000);
   });
 });

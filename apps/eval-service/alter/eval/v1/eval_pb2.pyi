@@ -7,18 +7,20 @@ from typing import ClassVar as _ClassVar, Optional as _Optional
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class RunEvaluationRequest(_message.Message):
-    __slots__ = ("tenant_id", "evaluation_run_id", "golden_set_reference", "candidate_version", "golden_set_name")
+    __slots__ = ("tenant_id", "evaluation_run_id", "golden_set_reference", "candidate_version", "golden_set_name", "trigger")
     TENANT_ID_FIELD_NUMBER: _ClassVar[int]
     EVALUATION_RUN_ID_FIELD_NUMBER: _ClassVar[int]
     GOLDEN_SET_REFERENCE_FIELD_NUMBER: _ClassVar[int]
     CANDIDATE_VERSION_FIELD_NUMBER: _ClassVar[int]
     GOLDEN_SET_NAME_FIELD_NUMBER: _ClassVar[int]
+    TRIGGER_FIELD_NUMBER: _ClassVar[int]
     tenant_id: str
     evaluation_run_id: str
     golden_set_reference: str
     candidate_version: str
     golden_set_name: str
-    def __init__(self, tenant_id: _Optional[str] = ..., evaluation_run_id: _Optional[str] = ..., golden_set_reference: _Optional[str] = ..., candidate_version: _Optional[str] = ..., golden_set_name: _Optional[str] = ...) -> None: ...
+    trigger: str
+    def __init__(self, tenant_id: _Optional[str] = ..., evaluation_run_id: _Optional[str] = ..., golden_set_reference: _Optional[str] = ..., candidate_version: _Optional[str] = ..., golden_set_name: _Optional[str] = ..., trigger: _Optional[str] = ...) -> None: ...
 
 class RunEvaluationResponse(_message.Message):
     __slots__ = ("evaluation_run_id", "status", "results_json")

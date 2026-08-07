@@ -11,6 +11,9 @@ export interface PlatformJobsEnvironment {
   readonly adsCoreInternalBaseUrl: string;
   readonly retentionSweepServiceTokenRef: string;
   readonly retentionSweepIntervalMs: number;
+  readonly orchestrationServiceInternalBaseUrl: string;
+  readonly evalFacadeServiceTokenRef: string;
+  readonly benchmarkSweepIntervalMs: number;
 }
 
 export class PlatformJobsConfigurationError extends Error {
@@ -31,6 +34,7 @@ function requireValue(environment: NodeJS.ProcessEnv, field: string): string {
 const DEFAULT_DIGEST_INTERVAL_MS = 60 * 60 * 1000; // hourly
 const DEFAULT_CONNECTOR_HEALTH_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // hourly
 const DEFAULT_RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
+const DEFAULT_BENCHMARK_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
 
 function parseIntervalMs(
   environment: NodeJS.ProcessEnv,
@@ -77,6 +81,16 @@ export function loadPlatformJobsEnvironment(
       environment,
       "RETENTION_SWEEP_INTERVAL_MS",
       DEFAULT_RETENTION_SWEEP_INTERVAL_MS,
+    ),
+    orchestrationServiceInternalBaseUrl: requireValue(
+      environment,
+      "ORCHESTRATION_SERVICE_INTERNAL_BASE_URL",
+    ),
+    evalFacadeServiceTokenRef: requireValue(environment, "EVAL_FACADE_SERVICE_TOKEN_REF"),
+    benchmarkSweepIntervalMs: parseIntervalMs(
+      environment,
+      "BENCHMARK_SWEEP_INTERVAL_MS",
+      DEFAULT_BENCHMARK_SWEEP_INTERVAL_MS,
     ),
   };
 }
