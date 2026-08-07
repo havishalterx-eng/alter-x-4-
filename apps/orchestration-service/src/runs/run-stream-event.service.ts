@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   RunIdSchema,
+  ProjectIdSchema,
   SseEnvelopeSchema,
   TenantIdSchema,
   type SseEnvelope,
@@ -80,6 +81,14 @@ export class RunStreamEventService {
     });
   }
 
+  async listTerminalAfter(
+    tenantIdInput: string,
+    runId: string,
+    after = 0,
+  ): Promise<readonly SseEnvelope[]> {
+    return this.listAfterWhere(tenantIdInput, runId, after, "AND event = 'terminal.frame'");
+  }
+
   async runIsVisible(tenantIdInput: string, runId: string): Promise<boolean> {
     if (!RunIdSchema.safeParse(runId).success) return false;
     const tenantId = bareTenant(tenantIdInput);
@@ -89,6 +98,49 @@ export class RunStreamEventService {
         [tenantId, runId],
       );
       return result.rowCount === 1;
+    });
+  }
+
+  async projectRunIsVisible(
+    tenantIdInput: string,
+    projectId: string,
+    runId: string,
+  ): Promise<boolean> {
+    if (
+      !RunIdSchema.safeParse(runId).success ||
+      !ProjectIdSchema.safeParse(projectId).success
+    ) {
+      return false;
+    }
+    const tenantId = bareTenant(tenantIdInput);
+    return this.store.withTenant(tenantId, async (tx) => {
+      const result = await tx.query(
+        "SELECT id FROM runs WHERE tenant_id = $1 AND id = $2 AND project_id = $3",
+        [tenantId, runId, projectId],
+      );
+      return result.rowCount === 1;
+    });
+  }
+
+  private async listAfterWhere(
+    tenantIdInput: string,
+    runId: string,
+    after: number,
+    eventFilter: string,
+  ): Promise<readonly SseEnvelope[]> {
+    if (!RunIdSchema.safeParse(runId).success || !Number.isInteger(after) || after < 0) {
+      throw new Error("invalid stream cursor");
+    }
+    const tenantId = bareTenant(tenantIdInput);
+    return this.store.withTenant(tenantId, async (tx) => {
+      const result = await tx.query<Record<string, unknown> & { readonly seq: number; readonly event: string; readonly payload: unknown; readonly occurred_at: string }>(
+        `SELECT seq, event, payload,
+                to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS occurred_at
+         FROM run_stream_events WHERE tenant_id = $1 AND run_id = $2 AND seq > $3 ${eventFilter}
+         ORDER BY seq ASC LIMIT 256`, [tenantId, runId, after]);
+      return result.rows.map((row) => SseEnvelopeSchema.parse({
+        seq: row.seq, event: row.event, run_id: runId, ts: row.occurred_at, data: row.payload,
+      }));
     });
   }
 }

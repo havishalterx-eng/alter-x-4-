@@ -13,6 +13,7 @@ import {
   RunStatusDataSchema,
   SseEnvelopeSchema,
   SseEventStreamSchema,
+  TerminalFrameDataSchema,
   VerificationResultDataSchema,
 } from "./sse";
 import { ids, timestamp } from "./test-fixtures";
@@ -73,6 +74,11 @@ const variants = [
       index: 0,
       final: false,
     },
+  },
+  {
+    event: "terminal.frame",
+    schema: TerminalFrameDataSchema,
+    data: { stream: "stdout", data: "build complete\\n" },
   },
   {
     event: "verification.result",
@@ -169,7 +175,7 @@ describe("SSE data schemas", () => {
 });
 
 describe("SseEnvelopeSchema", () => {
-  it("accepts all 12 discriminated event variants", () => {
+  it("accepts all discriminated event variants", () => {
     variants.forEach((variant, index) => {
       expect(
         SseEnvelopeSchema.safeParse({

@@ -156,6 +156,10 @@ export class NodeexecService {
           }, request),
       });
 
+      if (request.node_type === "SandboxExec") {
+        await this.#appendTerminalFramesBestEffort(request, result.output);
+      }
+
       const outputJson = JSON.stringify(result.output);
       const metadataJson = JSON.stringify(result.metadata ?? {});
 
@@ -271,6 +275,20 @@ export class NodeexecService {
       await this.streamEvents?.append(request.tenant_id, request.run_id, event);
     } catch {
       // SSE journal is convenience transport. Durable node_executions remains source of truth.
+    }
+  }
+
+  async #appendTerminalFramesBestEffort(
+    request: NodeexecExecuteNodeRequest,
+    output: Record<string, unknown>,
+  ): Promise<void> {
+    for (const stream of ["stdout", "stderr"] as const) {
+      const data = output[stream];
+      if (typeof data !== "string" || data.length === 0) continue;
+      await this.#appendBestEffort({
+        event: "terminal.frame",
+        data: { stream, data },
+      }, request);
     }
   }
 

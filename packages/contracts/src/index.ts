@@ -249,6 +249,7 @@ export {
   RunStatusDataSchema,
   SseEnvelopeSchema,
   SseEventStreamSchema,
+  TerminalFrameDataSchema,
   VerificationResultDataSchema,
   type SseEnvelope,
 } from "./sse";

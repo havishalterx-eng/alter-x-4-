@@ -7,33 +7,72 @@ import { RunStreamEventService } from "./run-stream-event.service";
 
 const HEARTBEAT_MS = 15_000;
 
-@Controller("api/v1/runs")
+@Controller("api/v1")
 export class RunStreamController {
   constructor(private readonly events: RunStreamEventService) {}
 
-  @Get(":id/stream")
+  @Get("runs/:id/stream")
   async stream(
     @Req() request: FastifyRequest & SessionGatewayRequest,
     @Res() reply: FastifyReply,
     @Param("id") runId: string,
     @Headers("last-event-id") lastEventId: string | undefined,
   ): Promise<void> {
+    await this.openStream(
+      request,
+      reply,
+      runId,
+      lastEventId,
+      "/runs/{id}/stream",
+      () => this.events.runIsVisible(request.actorContext!.tenant_id, runId),
+      (tenantId, cursor) => this.events.listAfter(tenantId, runId, cursor),
+    );
+  }
+
+  @Get("projects/:projectId/builds/:runId/stream")
+  async terminal(
+    @Req() request: FastifyRequest & SessionGatewayRequest,
+    @Res() reply: FastifyReply,
+    @Param("projectId") projectId: string,
+    @Param("runId") runId: string,
+    @Headers("last-event-id") lastEventId: string | undefined,
+  ): Promise<void> {
+    await this.openStream(
+      request,
+      reply,
+      runId,
+      lastEventId,
+      "/projects/{projectId}/builds/{runId}/stream",
+      () => this.events.projectRunIsVisible(request.actorContext!.tenant_id, projectId, runId),
+      (tenantId, cursor) => this.events.listTerminalAfter(tenantId, runId, cursor),
+    );
+  }
+
+  private async openStream(
+    request: FastifyRequest & SessionGatewayRequest,
+    reply: FastifyReply,
+    runId: string,
+    lastEventId: string | undefined,
+    instance: string,
+    visible: () => Promise<boolean>,
+    listEvents: (tenantId: string, cursor: number) => Promise<readonly unknown[]>,
+  ): Promise<void> {
     const tenantId = request.actorContext?.tenant_id;
     if (!tenantId) {
-      throw problem(reply, 401, "AUTH_CONTEXT_REQUIRED", "Authenticated tenant context is required.");
+      throw problem(reply, 401, "AUTH_CONTEXT_REQUIRED", "Authenticated tenant context is required.", instance);
     }
     if (
       lastEventId !== undefined &&
       !/^(0|[1-9]\d*)$/.test(lastEventId)
     ) {
-      throw problem(reply, 400, "INVALID_LAST_EVENT_ID", "Last-Event-ID must be a non-negative integer.");
+      throw problem(reply, 400, "INVALID_LAST_EVENT_ID", "Last-Event-ID must be a non-negative integer.", instance);
     }
     let cursor = lastEventId === undefined ? 0 : Number(lastEventId);
     if (!Number.isSafeInteger(cursor)) {
-      throw problem(reply, 400, "INVALID_LAST_EVENT_ID", "Last-Event-ID is outside the supported range.");
+      throw problem(reply, 400, "INVALID_LAST_EVENT_ID", "Last-Event-ID is outside the supported range.", instance);
     }
-    if (!(await this.events.runIsVisible(tenantId, runId))) {
-      throw problem(reply, 404, "RUN_NOT_FOUND", "The requested run was not found.");
+    if (!(await visible())) {
+      throw problem(reply, 404, "RUN_NOT_FOUND", "The requested run was not found.", instance);
     }
     reply.hijack();
     reply.raw.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform", connection: "keep-alive", "x-accel-buffering": "no" });
@@ -41,10 +80,11 @@ export class RunStreamController {
     const deadline = request.actorTokenExpiresAtMs ?? Date.now() + 300_000;
     let heartbeatAt = Date.now() + HEARTBEAT_MS;
     while (!reply.raw.writableEnded && !reply.raw.destroyed && Date.now() < deadline) {
-      const events = await this.events.listAfter(tenantId, runId, cursor);
+      const events = await listEvents(tenantId, cursor);
       for (const event of events) {
-        await write(reply, `id: ${event.seq}\nevent: ${event.event}\ndata: ${JSON.stringify(event)}\n\n`);
-        cursor = event.seq;
+        const envelope = event as { readonly seq: number; readonly event: string };
+        await write(reply, `id: ${envelope.seq}\nevent: ${envelope.event}\ndata: ${JSON.stringify(event)}\n\n`);
+        cursor = envelope.seq;
       }
       if (Date.now() >= heartbeatAt) {
         await write(reply, ": keepalive\n\n");
@@ -74,6 +114,7 @@ function problem(
   status: number,
   errorCode: string,
   detail: string,
+  instance: string,
 ): HttpException {
   reply.header("content-type", "application/problem+json");
   const body: ProblemDetails = {
@@ -81,7 +122,7 @@ function problem(
     title: status === 404 ? "Not Found" : status === 401 ? "Unauthorized" : "Bad Request",
     status,
     detail,
-    instance: "/runs/{id}/stream",
+    instance,
     error_code: errorCode,
     trace_id: prefixedUuidV7("trc"),
     request_id: prefixedUuidV7("req"),

@@ -40,6 +40,7 @@ const TENANT_B_ID = `ten_${TENANT_B}`;
 const WORKSPACE = "018f4d6e-2b4a-7a3e-8c1a-1234567890a2";
 const RUN_A = "run_018f4d6e-2b4a-7a3e-8c1a-1234567890a3";
 const RUN_B = "run_018f4d6e-2b4a-7a3e-8c1a-1234567890b3";
+const PROJECT_A = "prj_018f4d6e-2b4a-7a3e-8c1a-1234567890a4";
 
 class EchoHandler implements NodeHandler {
   readonly nodeType: NodeType = "Merge";
@@ -139,6 +140,7 @@ describe.sequential("EXEC-8 live run SSE", () => {
         await tx.query("DELETE FROM run_stream_events WHERE tenant_id = $1", [tenant]);
         await tx.query("DELETE FROM node_executions WHERE tenant_id = $1", [tenant]);
         await tx.query("DELETE FROM runs WHERE tenant_id = $1", [tenant]);
+        await tx.query("DELETE FROM projects WHERE tenant_id = $1", [tenant]);
         await tx.query("INSERT INTO runs (id, tenant_id, workspace_id, parent_kind, status) VALUES ($1, $2, $3, 'workflow', 'running')", [tenant === TENANT_A ? RUN_A : RUN_B, tenant, WORKSPACE]);
       });
     }
@@ -171,6 +173,38 @@ describe.sequential("EXEC-8 live run SSE", () => {
     expect(frames.map((frame) => frame.id)).toEqual([2]);
   });
 
+  it("relays terminal frames only for the matching project run", async () => {
+    await admin.withTenant(TENANT_A, async (tx) => {
+      await tx.query(
+        "INSERT INTO projects (id, tenant_id, workspace_id, name) VALUES ($1, $2, $3, $4)",
+        [PROJECT_A, TENANT_A, WORKSPACE, "Streaming project"],
+      );
+      await tx.query(
+        "UPDATE runs SET parent_kind = 'project', project_id = $3 WHERE tenant_id = $1 AND id = $2",
+        [TENANT_A, RUN_A, PROJECT_A],
+      );
+    });
+    await events.append(TENANT_A_ID, RUN_A, {
+      event: "terminal.frame",
+      data: { stream: "stdout", data: "build complete\\n" },
+    });
+
+    const connection = await connect(
+      TENANT_A_ID,
+      undefined,
+      60,
+      `/api/v1/projects/${PROJECT_A}/builds/${RUN_A}/stream`,
+    );
+    const [frame] = await connection.readEvents(1);
+    connection.close();
+
+    expect(frame).toMatchObject({
+      id: 1,
+      event: "terminal.frame",
+      data: { data: { stream: "stdout", data: "build complete\\n" } },
+    });
+  });
+
   it("emits heartbeat on idle stream", async () => {
     const connection = await connect(TENANT_A_ID);
     const heartbeat = await connection.readComment(20_000);
@@ -200,9 +234,14 @@ describe.sequential("EXEC-8 live run SSE", () => {
     await events.append(TENANT_A_ID, RUN_A, { event: "node.completed", data: { node_execution_id: nodeId, dag_node_key: "node_merge", node_type: "Merge", attempt: 1, status: "succeeded", ended_at: new Date().toISOString() } });
   }
 
-  async function connect(tenantId: string, lastEventId?: string, expiresInSeconds = 60) {
+  async function connect(
+    tenantId: string,
+    lastEventId?: string,
+    expiresInSeconds = 60,
+    streamPath?: string,
+  ) {
     const abort = new AbortController();
-    const response = await authenticatedFetch(tenantId, RUN_A, lastEventId, expiresInSeconds, abort.signal);
+    const response = await authenticatedFetch(tenantId, RUN_A, lastEventId, expiresInSeconds, abort.signal, streamPath);
     expect(response.status).toBe(200);
     const reader = response.body!.getReader();
     void reader.closed.catch(() => undefined);
@@ -233,11 +272,18 @@ describe.sequential("EXEC-8 live run SSE", () => {
     };
   }
 
-  function authenticatedFetch(tenantId: string, runId: string, lastEventId?: string, expiresInSeconds = 60, signal?: AbortSignal): Promise<Response> {
+  function authenticatedFetch(
+    tenantId: string,
+    runId: string,
+    lastEventId?: string,
+    expiresInSeconds = 60,
+    signal?: AbortSignal,
+    streamPath = `/api/v1/runs/${runId}/stream`,
+  ): Promise<Response> {
     const now = Math.floor(Date.now() / 1_000);
     const machine = jwt({ iss: "https://auth.test/", aud: "alter-engine", iat: now, exp: now + 60 });
     const actor = jwt({ user_id: "usr_018f4d6e-2b4a-7a3e-8c1a-1234567890a5", tenant_id: tenantId, workspace_id: `ws_${WORKSPACE}`, roles: ["member"], permissions: ["workflow:read"], session_id: "session", auth_time: now, jti: randomBytes(12).toString("hex"), iss: "alter-platform-api.identity-broker", aud: "alter-engine", iat: now, exp: now + expiresInSeconds });
-    return fetch(`${baseUrl}/api/v1/runs/${runId}/stream`, {
+    return fetch(`${baseUrl}${streamPath}`, {
       headers: { authorization: `Bearer ${machine}`, "x-alter-actor-token": actor, ...(lastEventId ? { "last-event-id": lastEventId } : {}) },
       ...(signal === undefined ? {} : { signal }),
     });

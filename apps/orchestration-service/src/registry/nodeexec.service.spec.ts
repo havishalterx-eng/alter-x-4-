@@ -82,6 +82,42 @@ describe("NodeexecService.executeNode", () => {
     expect(received?.sandbox_session_id).toBe("e2b_ses_123");
   });
 
+  it("journals real SandboxExec stdout and stderr as terminal frames", async () => {
+    const handler: NodeHandler = {
+      nodeType: "SandboxExec",
+      async execute() {
+        return { output: { stdout: "installed\\n", stderr: "warning\\n", exit_code: 0 } };
+      },
+    };
+    const streamEvents = { append: vi.fn().mockResolvedValue(undefined) };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]),
+      fakeLedger(),
+      streamEvents as unknown as RunStreamEventService,
+    );
+
+    await nodeexec.executeNode({
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_sandbox",
+      node_type: "SandboxExec",
+      config_json: JSON.stringify({ sandbox_session_id: "e2b_ses_123" }),
+      inputs_json: "{}",
+    });
+
+    expect(streamEvents.append).toHaveBeenCalledWith(
+      TENANT_ID,
+      RUN_ID,
+      { event: "terminal.frame", data: { stream: "stdout", data: "installed\\n" } },
+    );
+    expect(streamEvents.append).toHaveBeenCalledWith(
+      TENANT_ID,
+      RUN_ID,
+      { event: "terminal.frame", data: { stream: "stderr", data: "warning\\n" } },
+    );
+  });
+
   it("falls back to the durable project-run session for SandboxExec", async () => {
     let received: NodeExecutionContext | undefined;
     const handler: NodeHandler = {

@@ -10,7 +10,7 @@ import {
   Res,
 } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { ActorContext, RequireWorkspaceRole } from "../rbac";
+import { ActorContext, RequirePermission, RequireWorkspaceRole } from "../rbac";
 import type { ActorContextType } from "../rbac";
 import { StreamProblemError, streamProblem } from "./problem";
 import { StreamGateway } from "./stream-gateway";
@@ -40,6 +40,7 @@ export class StreamController {
   constructor(private readonly gateway: StreamGateway) {}
 
   @RequireWorkspaceRole(...workspaceStreamRoles)
+  @RequirePermission("runs:read")
   @Get("runs/:runId")
   run(
     @Param("runId") runId: string,
@@ -62,6 +63,7 @@ export class StreamController {
   }
 
   @RequireWorkspaceRole(...workspaceStreamRoles)
+  @RequirePermission("runs:read")
   @Get("projects/:projectId/builds/:runId/terminal")
   terminal(
     @Param("projectId") projectId: string,
@@ -136,7 +138,9 @@ function validateRequest(
     !tabId ||
     !tabIdPattern.test(tabId) ||
     (traceparent !== undefined && !traceparentPattern.test(traceparent)) ||
-    (lastEventId?.length ?? 0) > 256
+    (lastEventId?.length ?? 0) > 256 ||
+    (lastEventId !== undefined &&
+      !new RegExp(`^${target.runId}:(0|[1-9]\\d*)$`, "i").test(lastEventId))
   ) {
     throw new StreamProblemError(
       streamProblem(400, "INVALID_STREAM_REQUEST", instance),

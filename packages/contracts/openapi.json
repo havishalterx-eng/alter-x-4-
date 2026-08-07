@@ -1950,6 +1950,58 @@
               "event": {
                 "type": "string",
                 "enum": [
+                  "terminal.frame"
+                ]
+              },
+              "run_id": {
+                "type": "string",
+                "pattern": "^run_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i"
+              },
+              "ts": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "stream": {
+                    "type": "string",
+                    "enum": [
+                      "stdout",
+                      "stderr"
+                    ]
+                  },
+                  "data": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "stream",
+                  "data"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "seq",
+              "event",
+              "run_id",
+              "ts",
+              "data"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "seq": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "description": "Strictly increasing sequence number within a run_id stream; also used as the SSE event ID for Last-Event-ID resume."
+              },
+              "event": {
+                "type": "string",
+                "enum": [
                   "verification.result"
                 ]
               },

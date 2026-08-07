@@ -74,6 +74,14 @@ export const ModelDeltaDataSchema = z
   })
   .strict();
 
+/** Output returned by a real SandboxExec invocation, ready for xterm relay. */
+export const TerminalFrameDataSchema = z
+  .object({
+    stream: z.enum(["stdout", "stderr"]),
+    data: z.string(),
+  })
+  .strict();
+
 export const VerificationResultDataSchema = z
   .object({
     verification_result_id: VerificationResultIdSchema,
@@ -211,6 +219,10 @@ export const ModelDeltaSseSchema = envelope(
   "model.delta",
   ModelDeltaDataSchema,
 );
+export const TerminalFrameSseSchema = envelope(
+  "terminal.frame",
+  TerminalFrameDataSchema,
+);
 export const VerificationResultSseSchema = envelope(
   "verification.result",
   VerificationResultDataSchema,
@@ -246,6 +258,7 @@ export const SseEnvelopeSchema = z.discriminatedUnion("event", [
   NodeCompletedSseSchema,
   NodeFailedSseSchema,
   ModelDeltaSseSchema,
+  TerminalFrameSseSchema,
   VerificationResultSseSchema,
   RecoveryActionSseSchema,
   ClarificationRequestedSseSchema,

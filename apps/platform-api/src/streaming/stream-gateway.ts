@@ -57,6 +57,9 @@ export class StreamGateway {
     const upstream = await this.engine.stream(
       enginePath(input.target),
       input.context,
+      ...(input.lastEventId
+        ? [{ lastEventId: upstreamCursor(input.target, input.lastEventId) }]
+        : []),
     );
     return new StreamChannel(
       input.target,
@@ -64,6 +67,8 @@ export class StreamGateway {
       upstream,
       this.config,
       this.revocations,
+      input.lastEventId,
+      input.tabId,
       () => this.channels.delete(key),
     );
   }
@@ -84,6 +89,8 @@ class StreamChannel {
     private readonly upstream: EngineEventStream,
     private readonly config: StreamingConfig,
     revocations: StreamRevocationBus,
+    private readonly upstreamResumeEventId: string | undefined,
+    private readonly upstreamResumeTabId: string,
     private readonly onEmpty: () => void,
   ) {
     this.stopRevocationWatch = revocations.subscribe((signal) => {
@@ -110,7 +117,12 @@ class StreamChannel {
       () => resyncEvent(this.target, this.latestEventId!, "backpressure"),
     );
     this.subscribers.set(input.tabId, subscriber);
-    this.replay(input.lastEventId, subscriber);
+    if (
+      input.tabId !== this.upstreamResumeTabId ||
+      input.lastEventId !== this.upstreamResumeEventId
+    ) {
+      this.replay(input.lastEventId, subscriber);
+    }
     if (!this.started) {
       this.started = true;
       void this.pump();
@@ -202,6 +214,27 @@ class StreamChannel {
     this.subscribers.clear();
     this.onEmpty();
   }
+}
+
+function upstreamCursor(target: StreamTarget, lastEventId: string): string {
+  const prefix = `${target.runId}:`;
+  if (!lastEventId.startsWith(prefix)) {
+    throw new StreamProblemError(
+      streamProblem(400, "INVALID_STREAM_REQUEST", lastEventId),
+    );
+  }
+  const cursor = lastEventId.slice(prefix.length);
+  if (!/^(0|[1-9]\d*)$/.test(cursor)) {
+    throw new StreamProblemError(
+      streamProblem(400, "INVALID_STREAM_REQUEST", lastEventId),
+    );
+  }
+  if (!Number.isSafeInteger(Number(cursor))) {
+    throw new StreamProblemError(
+      streamProblem(400, "INVALID_STREAM_REQUEST", lastEventId),
+    );
+  }
+  return cursor;
 }
 
 class StreamSubscriber implements StreamConnection {

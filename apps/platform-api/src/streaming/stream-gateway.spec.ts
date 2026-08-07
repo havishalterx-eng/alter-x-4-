@@ -28,6 +28,28 @@ const config: StreamingConfig = {
 };
 
 describe("StreamGateway", () => {
+  it("resumes a new channel from Engine's durable cursor after refresh", async () => {
+    const source = new PushStream<EngineSseMessage>();
+    const engine = engineStub(source);
+    const gateway = new StreamGateway(engine.value, config, new StreamRevocationBus());
+    const frames: StreamFrame[] = [];
+
+    const connection = await gateway.connect(
+      subscription("refreshed", frames, `${runId}:12`),
+    );
+    connection.start();
+
+    expect(engine.stream).toHaveBeenCalledWith(
+      `/api/v1/runs/${runId}/stream`,
+      context,
+      { lastEventId: "12" },
+    );
+    source.push(runStatus(13, "running"));
+    await vi.waitFor(() => expect(eventIds(frames)).toEqual([`${runId}:13`]));
+    expect(eventTypes(frames)).not.toContain("stream.resync");
+    connection.close();
+  });
+
   it("fans one Engine subscription to tabs and keeps sibling alive", async () => {
     const source = new PushStream<EngineSseMessage>();
     const close = vi.fn(() => source.end());
@@ -138,12 +160,14 @@ describe("StreamGateway", () => {
       subscription("expired", expiredFrames, `${runId}:2`),
     );
     expired.start();
+    expect(engine.stream).toHaveBeenLastCalledWith(
+      `/api/v1/runs/${runId}/stream`,
+      context,
+      { lastEventId: "2" },
+    );
+    nextSource.push(runStatus(3, "completed"));
     await vi.waitFor(() => expect(expiredFrames).toHaveLength(1));
-    expect(eventTypes(expiredFrames)).toEqual(["stream.resync"]);
-    expect(eventData(expiredFrames)[0]).toMatchObject({
-      reason: "stale_event_id",
-      refetch: true,
-    });
+    expect(eventIds(expiredFrames)).toEqual([`${runId}:3`]);
     expect(engine.stream).toHaveBeenCalledTimes(2);
 
     expired.close();
