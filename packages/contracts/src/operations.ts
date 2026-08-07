@@ -196,6 +196,19 @@ export const MarketplaceGovernanceActionRequestSchema = z
     (value) => value.action === "set_trust" ? value.trust_level !== undefined : value.trust_level === undefined,
     "trust_level is required only for set_trust",
   );
+export const MarketplaceGovernanceResourceTypeSchema = z.enum([
+  "listing",
+  "tool_manifest",
+]);
+export const MarketplaceGovernanceItemSchema = z.object({
+  resource_type: MarketplaceGovernanceResourceTypeSchema,
+  id: z.string().trim().min(1).max(128),
+  tenant_id: z.string().uuid().nullable(),
+  name: z.string().trim().min(1).max(255),
+  status: z.string().trim().min(1).max(64),
+  trust_level: z.string().trim().min(1).max(64).nullable(),
+  updated_at: IsoTimestampSchema,
+}).strict();
 
 export type StaffAccessScope = z.infer<typeof StaffAccessScopeSchema>;
 export type CreateJitGrantRequest = z.infer<typeof CreateJitGrantRequestSchema>;
@@ -213,3 +226,5 @@ export type AbuseSignal = z.infer<typeof AbuseSignalSchema>;
 export type ReviewAbuseSignalRequest = z.infer<typeof ReviewAbuseSignalRequestSchema>;
 export type DeploymentAdminActionRequest = z.infer<typeof DeploymentAdminActionRequestSchema>;
 export type MarketplaceGovernanceActionRequest = z.infer<typeof MarketplaceGovernanceActionRequestSchema>;
+export type MarketplaceGovernanceResourceType = z.infer<typeof MarketplaceGovernanceResourceTypeSchema>;
+export type MarketplaceGovernanceItem = z.infer<typeof MarketplaceGovernanceItemSchema>;

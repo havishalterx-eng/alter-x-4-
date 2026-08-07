@@ -4,6 +4,8 @@ export const platformApiEnvSchema = z
   .object({
     DATABASE_URL: z.string().url(),
     MARKETPLACE_DATABASE_URL: z.string().url(),
+    OPERATIONS_PLATFORM_DATABASE_URL: z.string().url().optional(),
+    OPERATIONS_MARKETPLACE_DATABASE_URL: z.string().url().optional(),
     // Reserved for platform cache wiring in a later ticket.
     REDIS_ENDPOINT_PARAM: z.string().optional(),
     // Production DB wiring resolves through SecretsProvider in a later ticket.
@@ -115,6 +117,15 @@ export const platformApiEnvSchema = z
           ? "MODEL_GATEWAY_ADMIN_TOKEN_REF"
           : "MODEL_GATEWAY_ADMIN_BASE_URL"],
         message: "MODEL_GATEWAY_ADMIN_BASE_URL and MODEL_GATEWAY_ADMIN_TOKEN_REF must be configured together",
+      });
+    }
+    if (Boolean(env.OPERATIONS_PLATFORM_DATABASE_URL) !== Boolean(env.OPERATIONS_MARKETPLACE_DATABASE_URL)) {
+      context.addIssue({
+        code: "custom",
+        path: [env.OPERATIONS_PLATFORM_DATABASE_URL
+          ? "OPERATIONS_MARKETPLACE_DATABASE_URL"
+          : "OPERATIONS_PLATFORM_DATABASE_URL"],
+        message: "Operations source database URLs must be configured together",
       });
     }
   });

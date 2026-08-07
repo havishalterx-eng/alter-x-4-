@@ -43,6 +43,7 @@ import { BenchmarksModule } from "./benchmarks";
 import { AuditEventsModule } from "./audit-events";
 import { IncidentModule } from "./incidents";
 import { AdminControlsModule } from "./admin-controls";
+import { MarketplaceGovernanceModule } from "./marketplace-governance";
 
 @Module({
   imports: [
@@ -89,6 +90,7 @@ import { AdminControlsModule } from "./admin-controls";
     AuditEventsModule,
     IncidentModule,
     AdminControlsModule,
+    MarketplaceGovernanceModule,
   ],
   controllers: [HealthController],
 })

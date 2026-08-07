@@ -3,6 +3,7 @@ import {
   CreateJitGrantRequestSchema,
   FeatureFlagNameSchema,
   MarketplaceGovernanceActionRequestSchema,
+  MarketplaceGovernanceItemSchema,
   RefundPaymentRequestSchema,
   ResolveDisputeRequestSchema,
   UpdateModelAliasRequestSchema,
@@ -71,5 +72,17 @@ describe("Operations contracts", () => {
       reason: "malware",
       trust_level: "blocked",
     })).toThrow();
+  });
+
+  it("types real marketplace governance queue resources", () => {
+    expect(MarketplaceGovernanceItemSchema.parse({
+      resource_type: "tool_manifest",
+      id: "tlm_123",
+      tenant_id: "f0204070-2fd2-4bb7-a117-3222301822fe",
+      name: "Package",
+      status: "blocked",
+      trust_level: "blocked",
+      updated_at: "2026-08-06T10:00:00.000Z",
+    }).resource_type).toBe("tool_manifest");
   });
 });

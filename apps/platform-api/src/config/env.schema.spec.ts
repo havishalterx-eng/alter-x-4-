@@ -115,4 +115,24 @@ describe("platformApiEnvSchema", () => {
       MODEL_GATEWAY_ADMIN_TOKEN_REF: "/alter/model-gateway/admin-token",
     });
   });
+
+  it("requires both privileged Operations database bindings", () => {
+    const base = {
+      DATABASE_URL: "postgres://localhost/platform_db",
+      MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db",
+      SIGNING_KEY_PROVIDER: "mock",
+    } as const;
+    expect(() => validatePlatformApiEnv({
+      ...base,
+      OPERATIONS_PLATFORM_DATABASE_URL: "postgres://localhost/platform_admin",
+    })).toThrow("configured together");
+    expect(validatePlatformApiEnv({
+      ...base,
+      OPERATIONS_PLATFORM_DATABASE_URL: "postgres://localhost/platform_admin",
+      OPERATIONS_MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_admin",
+    })).toMatchObject({
+      OPERATIONS_PLATFORM_DATABASE_URL: "postgres://localhost/platform_admin",
+      OPERATIONS_MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_admin",
+    });
+  });
 });
