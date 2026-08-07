@@ -53,6 +53,43 @@ describe("AuditEventsClient", () => {
     );
     await expect(invalid.query({})).rejects.toMatchObject({ problem: { status: 502 } });
   });
+
+  it("writes admin events through the authenticated HTTP boundary", async () => {
+    const secrets = {
+      getSecret: vi.fn().mockResolvedValue("private-service-token"),
+    } as unknown as SecretsProvider;
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(201, {
+      id: "aud_018f47a5-7b2c-7d10-8f11-123456789abc",
+      entry_hash: "a".repeat(64),
+    }));
+    const client = new AuditEventsClient(config, secrets, fetchImpl);
+    const input = {
+      tenant_id: "f0204070-2fd2-4bb7-a117-3222301822fe",
+      actor_type: "admin",
+      actor_ref: "stf_ops",
+      action: "tenant.suspend",
+      target_type: "tenant",
+      target_ref: "f0204070-2fd2-4bb7-a117-3222301822fe",
+      result: "success",
+      reason_code: "policy_violation",
+      context_json: '{"scope":"tenant:write"}',
+      occurred_at: "2026-08-06T10:00:00.000Z",
+    };
+
+    await expect(client.record(input)).resolves.toMatchObject({
+      entry_hash: "a".repeat(64),
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://audit.test/internal/audit-events",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(input),
+        headers: expect.objectContaining({
+          Authorization: "Bearer private-service-token",
+        }),
+      }),
+    );
+  });
 });
 
 function jsonResponse(status: number, body: unknown): Response {

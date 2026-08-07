@@ -6,8 +6,10 @@ import { StaffRepository } from "./staff.repository";
 import { StaffService } from "./staff.service";
 import { SupportAccessController } from "./support-access.controller";
 import { SupportAccessExceptionFilter } from "./support-access-exception.filter";
+import { AdminAuditModule } from "../admin-audit";
 
 @Module({
+  imports: [AdminAuditModule],
   controllers: [StaffController, SupportAccessController],
   providers: [
     {

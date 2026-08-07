@@ -14,6 +14,7 @@ import { AuditService } from "./audit.service";
 
 const TOKEN = "audit-internal-query-token";
 const queryEvents = vi.fn();
+const recordEvent = vi.fn();
 
 describe("AuditQueryController RFC 9457 internal surface", () => {
   let app: NestFastifyApplication;
@@ -22,7 +23,7 @@ describe("AuditQueryController RFC 9457 internal surface", () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [AuditQueryController],
       providers: [
-        { provide: AuditService, useValue: { queryEvents } },
+        { provide: AuditService, useValue: { queryEvents, recordEvent } },
         {
           provide: AUDIT_QUERY_SERVICE_TOKEN_HASH,
           useValue: createHash("sha256").update(TOKEN).digest("hex"),
@@ -36,6 +37,7 @@ describe("AuditQueryController RFC 9457 internal surface", () => {
 
   beforeEach(() => {
     queryEvents.mockReset();
+    recordEvent.mockReset();
   });
 
   afterAll(async () => {
@@ -63,6 +65,40 @@ describe("AuditQueryController RFC 9457 internal surface", () => {
     expect(queryEvents).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab" }),
     );
+  });
+
+  it("records an authenticated audit event", async () => {
+    recordEvent.mockResolvedValue({ id: "aud_event", entry_hash: "ab".repeat(32) });
+    const body = {
+      tenant_id: "f0204070-2fd2-4bb7-a117-3222301822fe",
+      actor_type: "admin",
+      actor_ref: "stf_ops",
+      action: "tenant.suspend",
+      target_type: "tenant",
+      target_ref: "f0204070-2fd2-4bb7-a117-3222301822fe",
+      result: "success",
+      reason_code: "policy_violation",
+      context_json: JSON.stringify({ scope: "tenant:write" }),
+      occurred_at: "2026-08-06T10:00:00.000Z",
+    };
+    const response = await app.getHttpAdapter().getInstance().inject({
+      method: "POST",
+      url: "/internal/audit-events",
+      headers: { authorization: `Bearer ${TOKEN}` },
+      payload: body,
+    });
+    expect(response.statusCode).toBe(201);
+    expect(recordEvent).toHaveBeenCalledWith(body);
+  });
+
+  it("rejects unauthenticated audit writes", async () => {
+    const response = await app.getHttpAdapter().getInstance().inject({
+      method: "POST",
+      url: "/internal/audit-events",
+      payload: {},
+    });
+    expect(response.statusCode).toBe(401);
+    expect(recordEvent).not.toHaveBeenCalled();
   });
 
   it("applies the default limit when none is supplied and clamps an oversized limit", async () => {

@@ -1,17 +1,24 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import {
   type ArgumentsHost,
+  Body,
   Catch,
   Controller,
   type ExceptionFilter,
   Get,
   Headers,
+  HttpCode,
   HttpException,
   Inject,
+  Post,
   Query,
   UseFilters,
 } from "@nestjs/common";
-import { ProblemDetailsSchema, type ProblemDetails } from "@alterx/contracts";
+import {
+  ProblemDetailsSchema,
+  type ProblemDetails,
+  type RecordEventRequest,
+} from "@alterx/contracts";
 import { createUuidV7 } from "./audit-id";
 import { AuditValidationError } from "@alterx/shared-clients";
 import { AuditService } from "./audit.service";
@@ -87,6 +94,26 @@ export class AuditQueryController {
     } catch (error: unknown) {
       if (error instanceof AuditValidationError) {
         throw new HttpException(problem("/internal/audit-events", 400, error.message), 400);
+      }
+      throw new HttpException(problem("/internal/audit-events", 500), 500);
+    }
+  }
+
+  @Post()
+  @HttpCode(201)
+  async record(
+    @Body() body: RecordEventRequest,
+    @Headers("authorization") auth?: string,
+  ) {
+    this.authorize(auth);
+    try {
+      return await this.audit.recordEvent(body);
+    } catch (error: unknown) {
+      if (error instanceof AuditValidationError) {
+        throw new HttpException(
+          problem("/internal/audit-events", 400, error.message),
+          400,
+        );
       }
       throw new HttpException(problem("/internal/audit-events", 500), 500);
     }

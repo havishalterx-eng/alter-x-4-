@@ -13,7 +13,8 @@ service AuditService {
 }
 
 message RecordEventRequest {
-  string tenant_id = 1; // Optional; empty for system-level events.
+  // Platform bare UUID or Engine ten_ prefixed UUIDv7; empty for system events.
+  string tenant_id = 1;
   string actor_type = 2; // user | service | admin | support | system
   string actor_ref = 3;
   string action = 4; // For example: trigger.enable or policy.promote.
@@ -31,7 +32,8 @@ message RecordEventResponse {
 }
 
 message GetEventRequest {
-  string tenant_id = 1; // Caller's own tenant; ten_ prefixed UUIDv7.
+  // Caller's own Platform bare UUID or Engine ten_ prefixed UUIDv7.
+  string tenant_id = 1;
   string event_id = 2; // aud_ prefixed UUIDv7.
 }
 

@@ -51,6 +51,7 @@ describe("SupportAccessController", () => {
         expires_at: new Date("2026-08-05T11:00:00.000Z"),
         revoked_at: null,
         staff_roles: ["staff_support"],
+        scopes: ["tenant:read"],
       }],
       page: { next_cursor: null, has_more: false, limit: 50 },
     });
@@ -70,6 +71,7 @@ describe("SupportAccessController", () => {
         expires_at: "2026-08-05T11:00:00.000Z",
         revoked_at: null,
         staff_roles: ["staff_support"],
+        scopes: ["tenant:read"],
       }],
       page: { next_cursor: null, has_more: false, limit: 50 },
     });

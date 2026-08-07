@@ -64,6 +64,83 @@
       "when": 1785790000000,
       "tag": "0008_project_env_vars",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785876400000,
+      "tag": "0009_oauth_hub",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785962800000,
+      "tag": "0010_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785962801000,
+      "tag": "0010_staff_plane",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786049200000,
+      "tag": "0011_i18n",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786135600000,
+      "tag": "0012_discovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786222000000,
+      "tag": "0013_admin_tenant_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1786308400000,
+      "tag": "0014_action_item_annotations",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1786308401000,
+      "tag": "0014_notification_digest_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786308402000,
+      "tag": "0014_plan_definitions",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786394800000,
+      "tag": "0015_operations_audit_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786040082000,
+      "tag": "0015_workspace_connector_configs",
+      "breakpoints": true
     }
   ]
 }

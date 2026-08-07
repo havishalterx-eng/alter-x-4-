@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { AdminAuditService } from "../admin-audit";
 import {
   CONFIG_PROVIDER,
   type ConfigProvider,
@@ -27,6 +28,7 @@ export class AdminPolicyService {
     private readonly definitions: PlanDefinitionStore,
     @Inject(CONFIG_PROVIDER)
     private readonly config: ConfigProvider,
+    private readonly audit: AdminAuditService,
   ) {}
 
   /**
@@ -85,6 +87,15 @@ export class AdminPolicyService {
       input.reason,
       staffUserId,
     );
+    await this.audit.record({
+      actorType: "admin",
+      actorRef: staffUserId,
+      action: created ? "policy.plan.create" : "policy.plan.update",
+      targetType: "plan",
+      targetRef: plan,
+      reasonCode: "staff_decision",
+      scope: "entitlements:write",
+    });
     return toDefinitionView(record);
   }
 
@@ -105,6 +116,15 @@ export class AdminPolicyService {
       input.reason,
       staffUserId,
     );
+    await this.audit.record({
+      actorType: "admin",
+      actorRef: staffUserId,
+      action: "policy.plan.delete",
+      targetType: "plan",
+      targetRef: plan,
+      reasonCode: "staff_decision",
+      scope: "entitlements:write",
+    });
   }
 
   async history(plan: string, limit: number): Promise<PlanDefinitionAuditView[]> {

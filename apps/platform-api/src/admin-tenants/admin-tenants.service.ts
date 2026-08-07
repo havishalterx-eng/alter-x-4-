@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
+import { AdminAuditService } from "../admin-audit";
 import { ENTITLEMENT_PROVIDER, type EntitlementProvider } from "../entitlements/entitlement-provider.interface";
 import { AdminTenantsRepository } from "./admin-tenants.repository";
 import { AdminTenantHttpError } from "./problem";
@@ -19,6 +20,7 @@ export class AdminTenantsService {
     private readonly repository: AdminTenantsRepository,
     @Inject(ENTITLEMENT_PROVIDER)
     private readonly entitlements: EntitlementProvider,
+    private readonly audit: AdminAuditService,
   ) {}
 
   async provision(
@@ -36,6 +38,15 @@ export class AdminTenantsService {
       accessState: "active",
     });
     await this.repository.recordAction(id, staffUserId, "provisioned", null);
+    await this.audit.record({
+      tenantId: id,
+      actorType: "admin",
+      actorRef: staffUserId,
+      action: "tenant.provision",
+      targetType: "tenant",
+      targetRef: id,
+      scope: "tenant:write",
+    });
     return tenant;
   }
 
@@ -72,6 +83,16 @@ export class AdminTenantsService {
       limits: effective.limits,
     });
     await this.repository.recordAction(id, staffUserId, "suspended", input.reason);
+    await this.audit.record({
+      tenantId: id,
+      actorType: "admin",
+      actorRef: staffUserId,
+      action: "tenant.suspend",
+      targetType: "tenant",
+      targetRef: id,
+      reasonCode: "staff_decision",
+      scope: "tenant:write",
+    });
     return updated;
   }
 
@@ -86,6 +107,15 @@ export class AdminTenantsService {
       limits: effective.limits,
     });
     await this.repository.recordAction(id, staffUserId, "reinstated", null);
+    await this.audit.record({
+      tenantId: id,
+      actorType: "admin",
+      actorRef: staffUserId,
+      action: "tenant.reinstate",
+      targetType: "tenant",
+      targetRef: id,
+      scope: "tenant:write",
+    });
     return updated;
   }
 
@@ -112,6 +142,16 @@ export class AdminTenantsService {
       "entitlement_overridden",
       input.reason,
     );
+    await this.audit.record({
+      tenantId: id,
+      actorType: "admin",
+      actorRef: staffUserId,
+      action: "tenant.entitlement_override",
+      targetType: "tenant",
+      targetRef: id,
+      reasonCode: "staff_decision",
+      scope: "entitlements:write",
+    });
     return {
       ...tenant,
       entitlement: {

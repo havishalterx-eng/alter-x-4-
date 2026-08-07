@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import type { StaffAccessScope } from "@alterx/contracts";
 
 export interface StaffUser {
   id: string;
@@ -14,6 +15,9 @@ export interface JitGrant {
   tenant_id: string;
   expires_at: Date;
   revoked_at: Date | null;
+  reason_code: string;
+  reason_text: string;
+  scopes: StaffAccessScope[];
 }
 
 export interface TenantJitGrant {
@@ -24,6 +28,7 @@ export interface TenantJitGrant {
   expires_at: Date;
   revoked_at: Date | null;
   staff_roles: string[];
+  scopes: StaffAccessScope[];
 }
 
 export interface TenantJitGrantPage {
@@ -61,13 +66,15 @@ export class StaffRepository {
     reasonCode: string,
     reasonText: string,
     expiresAt: Date,
+    scopes: readonly StaffAccessScope[] = ["tenant:read"],
+    grantedBy = staffUserId,
   ): Promise<JitGrant> {
     return this.transaction(async (client) => {
       const result = await client.query<JitGrant>(
-        "INSERT INTO jit_grants (id, staff_user_id, tenant_id, reason_code, reason_text, expires_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
-        [id, staffUserId, tenantId, reasonCode, reasonText, expiresAt],
+        "INSERT INTO jit_grants (id, staff_user_id, tenant_id, reason_code, reason_text, expires_at, scopes) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
+        [id, staffUserId, tenantId, reasonCode, reasonText, expiresAt, scopes],
       );
-      await this.audit(client, id, "granted", staffUserId);
+      await this.audit(client, id, "granted", grantedBy);
       return result.rows[0]!;
     });
   }
@@ -110,6 +117,35 @@ export class StaffRepository {
     });
   }
 
+  async authorize(
+    grantId: string,
+    staffUserId: string,
+    tenantId: string,
+    scope: StaffAccessScope,
+    now = new Date(),
+  ): Promise<{ readonly status: "active" | "expired" | "denied"; readonly grant?: JitGrant }> {
+    return this.transaction(async (client) => {
+      const result = await client.query<JitGrant>(
+        `SELECT * FROM jit_grants
+         WHERE id = $1 AND staff_user_id = $2 AND tenant_id = $3
+           AND revoked_at IS NULL AND $4 = ANY(scopes)
+         LIMIT 1`,
+        [grantId, staffUserId, tenantId, scope],
+      );
+      const grant = result.rows[0];
+      if (!grant) return { status: "denied" };
+      if (grant.expires_at <= now) {
+        await client.query(
+          "INSERT INTO jit_grant_audit (id, jit_grant_id, action, actor_id) SELECT $1, $2, 'expired', $3 WHERE NOT EXISTS (SELECT 1 FROM jit_grant_audit WHERE jit_grant_id = $2 AND action = 'expired')",
+          [`jta_${randomUUID()}`, grant.id, staffUserId],
+        );
+        return { status: "expired", grant };
+      }
+      await this.audit(client, grant.id, "used", staffUserId);
+      return { status: "active", grant };
+    });
+  }
+
   async list(staffUserId: string, includeAll: boolean): Promise<JitGrant[]> {
     const result = includeAll
       ? await this.pool.query<JitGrant>("SELECT * FROM jit_grants ORDER BY granted_at DESC")
@@ -128,7 +164,7 @@ export class StaffRepository {
     return this.transaction(async (client) => {
       await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantId]);
       const result = await client.query<TenantJitGrant>(
-        `SELECT g.id, g.reason_code, g.reason_text, g.granted_at, g.expires_at, g.revoked_at,
+        `SELECT g.id, g.reason_code, g.reason_text, g.granted_at, g.expires_at, g.revoked_at, g.scopes,
                 COALESCE(s.roles, ARRAY[]::text[]) AS staff_roles
            FROM jit_grants g
            LEFT JOIN staff_users s ON s.id = g.staff_user_id

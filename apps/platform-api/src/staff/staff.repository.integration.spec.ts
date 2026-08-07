@@ -100,6 +100,7 @@ describe("StaffRepository PostgreSQL integration", () => {
       reason_code: "support_case",
       reason_text: "Customer-visible support investigation",
       staff_roles: ["staff_admin"],
+      scopes: ["tenant:read"],
     });
     expect(visible).not.toHaveProperty("staff_user_id");
 
@@ -121,7 +122,11 @@ describe("StaffRepository PostgreSQL integration", () => {
 });
 
 async function migrate(pool: pg.Pool): Promise<void> {
-  for (const file of ["0000_platform_db_identity_foundation.sql", "0010_staff_plane.sql"]) {
+  for (const file of [
+    "0000_platform_db_identity_foundation.sql",
+    "0010_staff_plane.sql",
+    "0015_operations_audit_foundation.sql",
+  ]) {
     const source = readFileSync(join(__dirname, "../db/migrations", file), "utf8");
     for (const statement of source.split("--> statement-breakpoint").map((value) => value.trim())) {
       if (statement) {

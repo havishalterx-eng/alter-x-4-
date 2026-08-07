@@ -9,7 +9,7 @@
 export const protobufPackage = "alter.audit.v1";
 
 export interface RecordEventRequest {
-  /** Optional; empty for system-level events. */
+  /** Platform bare UUID or Engine ten_ prefixed UUIDv7; empty for system events. */
   tenant_id: string;
   /** user | service | admin | support | system */
   actor_type: string;
@@ -36,7 +36,7 @@ export interface RecordEventResponse {
 }
 
 export interface GetEventRequest {
-  /** Caller's own tenant; ten_ prefixed UUIDv7. */
+  /** Caller's own Platform bare UUID or Engine ten_ prefixed UUIDv7. */
   tenant_id: string;
   /** aud_ prefixed UUIDv7. */
   event_id: string;

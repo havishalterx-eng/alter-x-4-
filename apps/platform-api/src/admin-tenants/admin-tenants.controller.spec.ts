@@ -11,8 +11,11 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
 import { RbacModule, type RbacRequest } from "../rbac";
+import { AdminAuditService } from "../admin-audit";
+import { StaffService } from "../staff";
 import { ENTITLEMENT_PROVIDER, type EntitlementProvider } from "../entitlements/entitlement-provider.interface";
 import type {
   EffectiveEntitlement,
@@ -141,6 +144,7 @@ describe("Admin tenants routes", () => {
   let app: NestFastifyApplication;
   let repository: FakeAdminTenantsRepository;
   let entitlements: FakeEntitlementProvider;
+  const requireAccess = vi.fn();
 
   beforeAll(async () => {
     repository = new FakeAdminTenantsRepository();
@@ -154,6 +158,8 @@ describe("Admin tenants routes", () => {
         AdminTenantsExceptionFilter,
         { provide: AdminTenantsRepository, useValue: repository },
         { provide: ENTITLEMENT_PROVIDER, useValue: entitlements },
+        { provide: AdminAuditService, useValue: { record: async () => "a".repeat(64) } },
+        { provide: StaffService, useValue: { requireAccess } },
       ],
     }).compile();
 
@@ -180,6 +186,7 @@ describe("Admin tenants routes", () => {
   beforeEach(() => {
     repository.reset();
     entitlements.records.clear();
+    requireAccess.mockReset();
   });
 
   afterAll(async () => app.close());
@@ -228,6 +235,28 @@ describe("Admin tenants routes", () => {
       id: created.id,
       entitlement: { plan: "pro", access_state: "active" },
     });
+  });
+
+  it("requires an exact active tenant:read grant for support snapshots", async () => {
+    const created = await repository.createTenant(
+      "11111111-1111-7111-8111-111111111112",
+      "Support target",
+      "org-support",
+      "ap-south-1",
+    );
+    const response = await request({
+      method: "GET",
+      url: `/api/v1/admin/tenants/${created.id}/support-snapshot`,
+      staffContext: staff(["staff_support"]),
+      supportGrant: "jit_approved",
+    });
+    expect(response.statusCode).toBe(200);
+    expect(requireAccess).toHaveBeenCalledWith(
+      "jit_approved",
+      staffUserId,
+      created.id,
+      "tenant:read",
+    );
   });
 
   it("suspends then reinstates a tenant, preserving the entitlement plan and limits", async () => {
@@ -395,7 +424,10 @@ describe("Admin tenants routes", () => {
   });
 
   it("controller itself rejects a missing staff actor at the method level", async () => {
-    const controller = new AdminTenantsController({} as AdminTenantsService);
+    const controller = new AdminTenantsController(
+      {} as AdminTenantsService,
+      {} as StaffService,
+    );
     await expect(async () =>
       controller.provision({ name: "x" }, {} as RbacRequest),
     ).rejects.toMatchObject({
@@ -412,6 +444,9 @@ describe("Admin tenants routes", () => {
       headers: {
         ...(options.staffContext
           ? { "x-test-staff": JSON.stringify(options.staffContext) }
+          : {}),
+        ...(options.supportGrant
+          ? { "x-alter-support-grant": options.supportGrant }
           : {}),
       },
     } as never) as Promise<TestResponse>;
@@ -435,6 +470,7 @@ interface RequestOptions {
   url: string;
   body?: unknown;
   staffContext?: ReturnType<typeof staff>;
+  supportGrant?: string;
 }
 
 interface TestResponse {

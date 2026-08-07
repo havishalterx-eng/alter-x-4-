@@ -1,6 +1,7 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Req, UseFilters } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Param, Post, Req, UseFilters } from "@nestjs/common";
 import { RequireStaffRole } from "../rbac/decorators";
 import type { RbacRequest } from "../rbac/types";
+import { StaffService } from "../staff";
 import { AdminTenantsExceptionFilter } from "./admin-tenants-exception.filter";
 import { AdminTenantsService } from "./admin-tenants.service";
 import { AdminTenantHttpError } from "./problem";
@@ -29,7 +30,10 @@ const readRoles = ["staff_admin", "staff_support", "staff_billing_ops", "staff_s
 @Controller("/api/v1/admin/tenants")
 @UseFilters(AdminTenantsExceptionFilter)
 export class AdminTenantsController {
-  constructor(private readonly tenants: AdminTenantsService) {}
+  constructor(
+    private readonly tenants: AdminTenantsService,
+    private readonly staff: StaffService,
+  ) {}
 
   @Post()
   @HttpCode(201)
@@ -56,6 +60,32 @@ export class AdminTenantsController {
   get(@Param("tenantId") tenantId: string): Promise<AdminTenantDetailView> {
     const instance = `/api/v1/admin/tenants/${tenantId}`;
     return this.tenants.get(parseTenantId(tenantId, instance));
+  }
+
+  @Get(":tenantId/support-snapshot")
+  @RequireStaffRole("staff_admin", "staff_support")
+  async supportSnapshot(
+    @Param("tenantId") tenantId: string,
+    @Headers("x-alter-support-grant") grantId: string | undefined,
+    @Req() request: RbacRequest,
+  ): Promise<AdminTenantDetailView> {
+    const instance = `/api/v1/admin/tenants/${tenantId}/support-snapshot`;
+    const id = parseTenantId(tenantId, instance);
+    if (!grantId?.startsWith("jit_")) {
+      throw new AdminTenantHttpError(
+        403,
+        "ACTIVE_SUPPORT_GRANT_REQUIRED",
+        "Active scoped support grant required",
+        instance,
+      );
+    }
+    await this.staff.requireAccess(
+      grantId,
+      requireStaff(request, instance).staff_user_id,
+      id,
+      "tenant:read",
+    );
+    return this.tenants.get(id);
   }
 
   @Post(":tenantId/actions/suspend")

@@ -27,8 +27,10 @@ import {
   type ValidatedAuditEvent,
 } from "./audit.types";
 
-const TENANT_ID_PATTERN =
+const PREFIXED_TENANT_ID_PATTERN =
   /^ten_([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
+const PLATFORM_TENANT_ID_PATTERN =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
 const ISO_8601_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 const FORBIDDEN_CONTEXT_KEYS = new Set([
@@ -69,9 +71,14 @@ function parseTenantId(value: string): string | null {
   if (value.trim().length === 0) {
     return null;
   }
-  const match = TENANT_ID_PATTERN.exec(value.trim());
+  const normalized = value.trim();
+  const match =
+    PREFIXED_TENANT_ID_PATTERN.exec(normalized) ??
+    PLATFORM_TENANT_ID_PATTERN.exec(normalized);
   if (match?.[1] === undefined) {
-    throw new AuditValidationError("tenant_id must be a ten_ prefixed UUIDv7");
+    throw new AuditValidationError(
+      "tenant_id must be a Platform UUID or ten_ prefixed UUIDv7",
+    );
   }
   return match[1];
 }

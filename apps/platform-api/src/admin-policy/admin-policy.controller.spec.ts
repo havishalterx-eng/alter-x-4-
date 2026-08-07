@@ -13,6 +13,7 @@ import {
   it,
 } from "vitest";
 import { RbacModule, type RbacRequest } from "../rbac";
+import { AdminAuditService } from "../admin-audit";
 import { CONFIG_PROVIDER, type ConfigProvider } from "../entitlements/config-provider.interface";
 import {
   PLAN_DEFINITION_STORE,
@@ -160,6 +161,7 @@ describe("Admin policy plan routes", () => {
         AdminPolicyExceptionFilter,
         { provide: PLAN_DEFINITION_STORE, useValue: store },
         { provide: CONFIG_PROVIDER, useValue: config },
+        { provide: AdminAuditService, useValue: { record: async () => "a".repeat(64) } },
       ],
     }).compile();
 

@@ -37,6 +37,7 @@ export class SupportAccessController {
           expires_at: grant.expires_at.toISOString(),
           revoked_at: grant.revoked_at?.toISOString() ?? null,
           staff_roles: grant.staff_roles,
+          scopes: grant.scopes,
         })),
         page: page.page,
       };

@@ -134,6 +134,15 @@ describe("AuditService request validation", () => {
     );
   });
 
+  it("accepts Platform's bare tenant UUID contract", async () => {
+    const { service, append } = serviceWithStore();
+    const tenantId = "f0204070-2fd2-4bb7-a117-3222301822fe";
+    await service.recordEvent(request({ tenant_id: tenantId }));
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId }),
+    );
+  });
+
   it("accepts system event with nullable tenant, target, context, reason", async () => {
     const { service, append } = serviceWithStore();
     await service.recordEvent(
@@ -175,7 +184,7 @@ describe("AuditService request validation", () => {
     ["missing actor", { actor_ref: "" }, /actor_ref is required/],
     ["unknown actor type", { actor_type: "customer" }, /actor_type is not supported/],
     ["unknown result", { result: "partial" }, /result is not supported/],
-    ["invalid tenant", { tenant_id: "tenant-1" }, /ten_ prefixed UUIDv7/],
+    ["invalid tenant", { tenant_id: "tenant-1" }, /Platform UUID or ten_ prefixed UUIDv7/],
     ["invalid JSON", { context_json: "{" }, /valid JSON/],
     ["non-object context", { context_json: "[]" }, /JSON object/],
     ["content context", { context_json: '{"nested":{"prompt":"no"}}' }, /not permitted/],
