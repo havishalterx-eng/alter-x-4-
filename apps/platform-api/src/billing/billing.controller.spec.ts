@@ -639,6 +639,35 @@ class MemoryBillingProvider implements BillingProvider {
     this.maybeFail();
     this.methods = this.methods.filter((method) => method.ref !== ref);
   }
+  async refundPayment(
+    paymentRef: string,
+    amountMinor: number,
+    speed: "normal" | "optimum",
+  ) {
+    return {
+      id: `rfnd_${paymentRef}`,
+      paymentRef,
+      amount: amountMinor,
+      currency: "INR",
+      status: "processed",
+      speed,
+      createdAt: "2026-07-28T00:02:00.000Z",
+    };
+  }
+  async resolveDispute(
+    disputeRef: string,
+    resolution: { action: "accept" | "contest" },
+  ) {
+    return {
+      id: disputeRef,
+      paymentRef: "pay_test",
+      amount: 1_000,
+      currency: "INR",
+      status: resolution.action === "accept" ? "lost" as const : "under_review" as const,
+      phase: "chargeback",
+      respondBy: null,
+    };
+  }
   verifyWebhookSignature(): boolean {
     return false;
   }

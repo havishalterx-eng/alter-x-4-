@@ -36,6 +36,9 @@ export const platformApiEnvSchema = z
     RAZORPAY_KEY_ID_SECRET_REF: z.string().min(1).optional(),
     RAZORPAY_KEY_SECRET_SECRET_REF: z.string().min(1).optional(),
     RAZORPAY_WEBHOOK_SECRET_REF: z.string().min(1).optional(),
+    STATUS_PAGE_PROVIDER: z.enum(["atlassian", "mock"]).default("mock"),
+    STATUSPAGE_PAGE_ID: z.string().min(1).optional(),
+    STATUSPAGE_API_TOKEN_SECRET_REF: z.string().min(1).optional(),
     GITHUB_OAUTH_CLIENT_ID_SECRET_REF: z.string().min(1).optional(),
     GITHUB_OAUTH_CLIENT_SECRET_REF: z.string().min(1).optional(),
     GOOGLE_OAUTH_CLIENT_ID_SECRET_REF: z.string().min(1).optional(),
@@ -93,6 +96,14 @@ export const platformApiEnvSchema = z
     }
     if (env.REGISTRY_SCAN_PROVIDER === "sandbox") {
       context.addIssue({ code: "custom", path: ["REGISTRY_SCAN_PROVIDER"], message: "REGISTRY_SCAN_PROVIDER=sandbox is unavailable until SCAN-1" });
+    }
+    if (env.STATUS_PAGE_PROVIDER === "atlassian") {
+      requireFields(
+        env,
+        context,
+        ["STATUSPAGE_PAGE_ID", "STATUSPAGE_API_TOKEN_SECRET_REF"],
+        "STATUS_PAGE_PROVIDER=atlassian",
+      );
     }
   });
 

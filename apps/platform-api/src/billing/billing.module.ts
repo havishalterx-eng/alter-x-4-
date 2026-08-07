@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { MiddlewareConsumer, Module, type NestModule } from "@nestjs/common";
 import {
   AwsSecretsManagerProvider,
   RazorpayBillingProvider,
@@ -13,6 +13,10 @@ import {
 } from "../concurrency";
 import { IdempotencyModule } from "../idempotency";
 import { EntitlementsModule } from "../entitlements/entitlements.module";
+import { AdminAuditModule } from "../admin-audit/admin-audit.module";
+import { StaffAuthMiddleware, StaffModule } from "../staff";
+import { AdminBillingController } from "./admin-billing.controller";
+import { AdminBillingService } from "./admin-billing.service";
 import { BillingEtagResolver } from "./billing-etag.resolver";
 import { BillingExceptionFilter } from "./billing-exception.filter";
 import { BillingWebhookRepository } from "./billing-webhook.repository";
@@ -27,8 +31,8 @@ import {
 } from "./tokens";
 
 @Module({
-  imports: [IdempotencyModule, EntitlementsModule],
-  controllers: [BillingController],
+  imports: [IdempotencyModule, EntitlementsModule, AdminAuditModule, StaffModule],
+  controllers: [BillingController, AdminBillingController],
   providers: [
     {
       provide: BillingRepository,
@@ -80,6 +84,7 @@ import {
         ),
     },
     BillingService,
+    AdminBillingService,
     BillingWebhookService,
     BillingEtagResolver,
     {
@@ -92,4 +97,8 @@ import {
     BillingExceptionFilter,
   ],
 })
-export class BillingModule {}
+export class BillingModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(StaffAuthMiddleware).forRoutes(AdminBillingController);
+  }
+}

@@ -64,6 +64,7 @@ export const IncidentPublicationStateSchema = z.enum([
   "not_requested",
   "pending_approval",
   "approved",
+  "publishing",
   "published",
   "rejected",
 ]);
@@ -78,6 +79,26 @@ export const CreateIncidentRequestSchema = z
 export const IncidentApprovalRequestSchema = z
   .object({ reason: z.string().trim().min(1).max(1_000) })
   .strict();
+export const IncidentIdSchema = z.string().regex(/^inc_[0-9a-f-]{36}$/i);
+export const AdminIncidentSchema = z
+  .object({
+    id: IncidentIdSchema,
+    title: z.string(),
+    summary: z.string(),
+    severity: IncidentSeveritySchema,
+    impacted_services: z.array(z.string()),
+    status: IncidentStatusSchema,
+    publication_state: IncidentPublicationStateSchema,
+    created_by: z.string(),
+    created_at: IsoTimestampSchema,
+    publication_requested_by: z.string().nullable(),
+    publication_requested_at: IsoTimestampSchema.nullable(),
+    approved_by: z.string().nullable(),
+    approved_at: IsoTimestampSchema.nullable(),
+    provider_incident_ref: z.string().nullable(),
+    published_at: IsoTimestampSchema.nullable(),
+  })
+  .strict();
 
 export const RefundPaymentRequestSchema = z
   .object({
@@ -91,9 +112,16 @@ export const ResolveDisputeRequestSchema = z
   .object({
     action: z.enum(["accept", "contest"]),
     reason: z.string().trim().min(1).max(1_000),
-    evidence_refs: z.array(z.string().trim().min(1).max(512)).max(20).default([]),
+    evidence_refs: z
+      .array(z.string().trim().regex(/^doc_[A-Za-z0-9]+$/).max(512))
+      .max(20)
+      .default([]),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) => value.action !== "contest" || value.evidence_refs.length > 0,
+    "At least one evidence reference is required to contest a dispute",
+  );
 
 export const AbuseSignalSchema = z
   .object({
@@ -154,6 +182,7 @@ export type ProviderControl = z.infer<typeof ProviderControlSchema>;
 export type UpdateProviderControlRequest = z.infer<typeof UpdateProviderControlRequestSchema>;
 export type CreateIncidentRequest = z.infer<typeof CreateIncidentRequestSchema>;
 export type IncidentApprovalRequest = z.infer<typeof IncidentApprovalRequestSchema>;
+export type AdminIncident = z.infer<typeof AdminIncidentSchema>;
 export type RefundPaymentRequest = z.infer<typeof RefundPaymentRequestSchema>;
 export type ResolveDisputeRequest = z.infer<typeof ResolveDisputeRequestSchema>;
 export type AbuseSignal = z.infer<typeof AbuseSignalSchema>;

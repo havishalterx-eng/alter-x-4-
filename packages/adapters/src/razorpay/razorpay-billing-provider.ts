@@ -2,8 +2,11 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { ProviderCapabilities } from "@alterx/contracts";
 import type {
   BillingEvent,
+  BillingDispute,
+  BillingDisputeResolution,
   BillingPlan,
   BillingProvider,
+  BillingRefund,
   Invoice,
   Page,
   PaymentMethodRef,
@@ -228,6 +231,43 @@ export class RazorpayBillingProvider implements BillingProvider {
     await this.references.deletePaymentMethod(tenantId, ref);
   }
 
+  async refundPayment(
+    paymentRef: string,
+    amountMinor: number,
+    speed: "normal" | "optimum",
+    reason: string,
+  ): Promise<BillingRefund> {
+    const body = await this.call(
+      "POST",
+      `/v1/payments/${encodeURIComponent(paymentRef)}/refund`,
+      { amount: amountMinor, speed, notes: { reason } },
+    );
+    return mapRefund(body, speed);
+  }
+
+  async resolveDispute(
+    disputeRef: string,
+    resolution: BillingDisputeResolution,
+  ): Promise<BillingDispute> {
+    const path = `/v1/disputes/${encodeURIComponent(disputeRef)}`;
+    if (resolution.action === "accept") {
+      return mapDispute(await this.call("POST", `${path}/accept`));
+    }
+    if (resolution.evidenceRefs.length === 0) {
+      throw new RazorpayBillingError(
+        400,
+        "Contest requires at least one evidence reference",
+      );
+    }
+    return mapDispute(
+      await this.call("PATCH", `${path}/contest`, {
+        summary: resolution.reason,
+        explanation_letter: [...resolution.evidenceRefs],
+        action: "submit",
+      }),
+    );
+  }
+
   verifyWebhookSignature(
     rawBody: Uint8Array,
     signature: string,
@@ -363,6 +403,39 @@ function mapInvoice(value: unknown): Invoice {
   };
 }
 
+function mapRefund(
+  value: unknown,
+  requestedSpeed: BillingRefund["speed"],
+): BillingRefund {
+  const refund = object(value);
+  const speed = refund.speed_processed ?? refund.speed_requested ?? requestedSpeed;
+  if (speed !== "normal" && speed !== "optimum") {
+    throw malformedResource("refund", "speed", "must be normal or optimum");
+  }
+  return {
+    id: requiredString(refund.id, "refund", "id"),
+    paymentRef: requiredString(refund.payment_id, "refund", "payment_id"),
+    amount: monetaryAmount(refund.amount, "refund", "amount"),
+    currency: requiredString(refund.currency, "refund", "currency"),
+    status: requiredString(refund.status, "refund", "status"),
+    speed,
+    createdAt: epoch(refund.created_at),
+  };
+}
+
+function mapDispute(value: unknown): BillingDispute {
+  const dispute = object(value);
+  return {
+    id: requiredString(dispute.id, "dispute", "id"),
+    paymentRef: requiredString(dispute.payment_id, "dispute", "payment_id"),
+    amount: monetaryAmount(dispute.amount, "dispute", "amount"),
+    currency: requiredString(dispute.currency, "dispute", "currency"),
+    status: disputeStatus(dispute.status),
+    phase: requiredString(dispute.phase, "dispute", "phase"),
+    respondBy: nullableEpoch(dispute.respond_by),
+  };
+}
+
 function collection(value: unknown): {
   readonly items: readonly unknown[];
 } {
@@ -485,6 +558,23 @@ function invoiceStatus(value: unknown): Invoice["status"] {
     "invoice",
     "status",
     "must be a documented Razorpay invoice status",
+  );
+}
+
+function disputeStatus(value: unknown): BillingDispute["status"] {
+  if (
+    value === "open" ||
+    value === "under_review" ||
+    value === "won" ||
+    value === "lost" ||
+    value === "closed"
+  ) {
+    return value;
+  }
+  throw malformedResource(
+    "dispute",
+    "status",
+    "must be a documented Razorpay dispute status",
   );
 }
 

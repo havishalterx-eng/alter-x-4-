@@ -65,6 +65,9 @@ export {
   CANONICAL_PROVIDER_INTERFACES,
   type BaseProvider,
   type BillingEvent,
+  type BillingDispute,
+  type BillingDisputeResolution,
+  type BillingRefund,
   type BillingPlan,
   type BillingProvider,
   type KycDocumentRef,
@@ -152,6 +155,9 @@ export {
   type SecretReferenceId,
   type SecretsProvider,
   type Subscription,
+  type StatusPageIncident,
+  type StatusPageIncidentRequest,
+  type StatusPageProvider,
   type StartWorkflowRequest,
   type SignalWorkflowRequest,
   type TerminateWorkflowRequest,
@@ -176,6 +182,12 @@ export {
   createMockBillingProvider,
   type MockBillingProviderOptions,
 } from "./mocks/billing-provider";
+export {
+  MOCK_STATUS_PAGE_CAPABILITIES,
+  createMockStatusPageProvider,
+  type MockStatusPageProvider,
+  type MockStatusPageProviderOptions,
+} from "./mocks/status-page-provider";
 export {
   MOCK_KYC_CAPABILITIES,
   createMockKycProvider,

@@ -317,10 +317,12 @@ export {
 } from "./recovery-classification";
 export {
   AbuseSignalSchema,
+  AdminIncidentSchema,
   CreateIncidentRequestSchema,
   CreateJitGrantRequestSchema,
   DeploymentAdminActionRequestSchema,
   IncidentApprovalRequestSchema,
+  IncidentIdSchema,
   IncidentPublicationStateSchema,
   IncidentSeveritySchema,
   IncidentStatusSchema,
@@ -334,6 +336,7 @@ export {
   StaffAccessScopeSchema,
   UpdateProviderControlRequestSchema,
   type AbuseSignal,
+  type AdminIncident,
   type CreateIncidentRequest,
   type CreateJitGrantRequest,
   type DeploymentAdminActionRequest,

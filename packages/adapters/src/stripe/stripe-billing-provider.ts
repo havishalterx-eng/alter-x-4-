@@ -1,6 +1,8 @@
 import type { ProviderCapabilities } from "@alterx/contracts";
 import type {
   BillingEvent,
+  BillingDispute,
+  BillingRefund,
   BillingPlan,
   BillingProvider,
   Invoice,
@@ -86,6 +88,12 @@ export class StripeBillingProvider implements BillingProvider {
     return inactive();
   }
   detachPaymentMethod(): Promise<void> {
+    return inactive();
+  }
+  refundPayment(): Promise<BillingRefund> {
+    return inactive();
+  }
+  resolveDispute(): Promise<BillingDispute> {
     return inactive();
   }
   verifyWebhookSignature(): boolean {

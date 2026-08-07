@@ -29,6 +29,7 @@ describe("platformApiEnvSchema", () => {
       ALTER_CONFIG_SOURCE: "local-file",
       MARKETPLACE_OBJECT_STORAGE_PROVIDER: "mock",
       REGISTRY_SCAN_PROVIDER: "mock",
+      STATUS_PAGE_PROVIDER: "mock",
     });
   });
 
@@ -78,5 +79,20 @@ describe("platformApiEnvSchema", () => {
     expect(validatePlatformApiEnv(base).REGISTRY_SCAN_PROVIDER).toBe("mock");
     expect(() => validatePlatformApiEnv({ ...base, REGISTRY_SCAN_PROVIDER: "sandbox" })).toThrow("SCAN-1");
     expect(() => validatePlatformApiEnv({ ...base, REGISTRY_SCAN_PROVIDER: "other" })).toThrow("Invalid platform-api environment");
+  });
+
+  it("requires Statuspage identifiers when real publishing is selected", () => {
+    const base = {
+      DATABASE_URL: "postgres://localhost/platform_db",
+      MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db",
+      SIGNING_KEY_PROVIDER: "mock",
+      STATUS_PAGE_PROVIDER: "atlassian",
+    } as const;
+    expect(() => validatePlatformApiEnv(base)).toThrow("STATUSPAGE_PAGE_ID required");
+    expect(validatePlatformApiEnv({
+      ...base,
+      STATUSPAGE_PAGE_ID: "page_123",
+      STATUSPAGE_API_TOKEN_SECRET_REF: "/alter/statuspage/api-token",
+    })).toMatchObject({ STATUS_PAGE_PROVIDER: "atlassian" });
   });
 });

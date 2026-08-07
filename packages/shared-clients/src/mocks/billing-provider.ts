@@ -2,6 +2,7 @@ import type { ProviderCapabilities } from "@alterx/contracts";
 import { createMockProvider } from "../mock-provider";
 import type {
   BillingEvent,
+  BillingDispute,
   BillingPlan,
   BillingProvider,
   Invoice,
@@ -93,6 +94,24 @@ export function createMockBillingProvider(
           ),
         );
       },
+      refundPayment: async (paymentRef, amountMinor, speed) => ({
+        id: `rfnd_${paymentRef}`,
+        paymentRef,
+        amount: amountMinor,
+        currency: "INR",
+        status: "processed",
+        speed,
+        createdAt: "2026-07-28T00:02:00.000Z",
+      }),
+      resolveDispute: async (disputeRef, resolution): Promise<BillingDispute> => ({
+        id: disputeRef,
+        paymentRef: "pay_contract",
+        amount: 1_000,
+        currency: "INR",
+        status: resolution.action === "accept" ? "lost" : "under_review",
+        phase: "chargeback",
+        respondBy: "2026-08-28T00:00:00.000Z",
+      }),
       verifyWebhookSignature: (rawBody, signature, secret) =>
         signature === `${secret}:${new TextDecoder().decode(rawBody)}`,
       parseWebhookEvent: (rawBody): BillingEvent =>

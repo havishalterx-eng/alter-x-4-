@@ -3,6 +3,7 @@ import {
   CreateJitGrantRequestSchema,
   MarketplaceGovernanceActionRequestSchema,
   RefundPaymentRequestSchema,
+  ResolveDisputeRequestSchema,
   UpdateProviderControlRequestSchema,
 } from "./operations";
 
@@ -35,6 +36,17 @@ describe("Operations contracts", () => {
       amount_minor: 0,
       reason: "duplicate payment",
     })).toThrow();
+  });
+
+  it("requires evidence when contesting a dispute", () => {
+    expect(() => ResolveDisputeRequestSchema.parse({
+      action: "contest",
+      reason: "service delivered",
+    })).toThrow();
+    expect(ResolveDisputeRequestSchema.parse({
+      action: "accept",
+      reason: "claim valid",
+    }).evidence_refs).toEqual([]);
   });
 
   it("binds trust levels only to set_trust", () => {

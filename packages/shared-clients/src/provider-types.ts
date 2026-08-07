@@ -45,6 +45,7 @@ export const CANONICAL_PROVIDER_INTERFACES = [
   "VoiceProvider",
   "NotificationProvider",
   "EmailProvider",
+  "StatusPageProvider",
 ] as const;
 
 export type CanonicalProviderInterfaceName =
@@ -167,6 +168,32 @@ export interface BillingEvent {
   readonly payload: JsonValue;
 }
 
+export interface BillingRefund {
+  readonly id: string;
+  readonly paymentRef: string;
+  readonly amount: number;
+  readonly currency: string;
+  readonly status: string;
+  readonly speed: "normal" | "optimum";
+  readonly createdAt: string;
+}
+
+export interface BillingDispute {
+  readonly id: string;
+  readonly paymentRef: string;
+  readonly amount: number;
+  readonly currency: string;
+  readonly status: "open" | "under_review" | "won" | "lost" | "closed";
+  readonly phase: string;
+  readonly respondBy: string | null;
+}
+
+export interface BillingDisputeResolution {
+  readonly action: "accept" | "contest";
+  readonly reason: string;
+  readonly evidenceRefs: readonly string[];
+}
+
 export interface BillingProvider extends BaseProvider<"BillingProvider"> {
   listPlans(): Promise<BillingPlan[]>;
   getSubscription(tenantId: string): Promise<Subscription | null>;
@@ -188,6 +215,16 @@ export interface BillingProvider extends BaseProvider<"BillingProvider"> {
   ): Promise<PaymentMethodRef>;
   listPaymentMethods(tenantId: string): Promise<PaymentMethodRef[]>;
   detachPaymentMethod(tenantId: string, ref: string): Promise<void>;
+  refundPayment(
+    paymentRef: string,
+    amountMinor: number,
+    speed: "normal" | "optimum",
+    reason: string,
+  ): Promise<BillingRefund>;
+  resolveDispute(
+    disputeRef: string,
+    resolution: BillingDisputeResolution,
+  ): Promise<BillingDispute>;
   verifyWebhookSignature(
     rawBody: Uint8Array,
     signature: string,
@@ -416,6 +453,24 @@ export interface EmailProvider extends BaseProvider<"EmailProvider"> {
     variables: Record<string, string>,
     locale?: string,
   ): Promise<EmailSendResult>;
+}
+
+export interface StatusPageIncidentRequest {
+  readonly title: string;
+  readonly body: string;
+  readonly status: "investigating" | "monitoring" | "resolved";
+  readonly impact: "none" | "minor" | "major" | "critical";
+  readonly notifySubscribers: boolean;
+}
+
+export interface StatusPageIncident {
+  readonly providerIncidentRef: string;
+  readonly status: StatusPageIncidentRequest["status"];
+  readonly publishedAt: string;
+}
+
+export interface StatusPageProvider extends BaseProvider<"StatusPageProvider"> {
+  publishIncident(request: StatusPageIncidentRequest): Promise<StatusPageIncident>;
 }
 
 export interface ModelInvocationRequest {

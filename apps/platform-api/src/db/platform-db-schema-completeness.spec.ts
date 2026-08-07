@@ -35,9 +35,11 @@ function migrationDeclaredTableNames(): string[] {
     .sort()
     .flatMap((file) => {
       const sql = readFileSync(join(migrationsPath, file), "utf8");
-      return [...sql.matchAll(/CREATE TABLE(?: IF NOT EXISTS)?\s+"([^"]+)"/gi)].map(
-        (match) => match[1] ?? "",
-      );
+      return [
+        ...sql.matchAll(
+          /CREATE TABLE(?: IF NOT EXISTS)?\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/gi,
+        ),
+      ].map((match) => match[1] ?? match[2] ?? "");
     })
     .filter(Boolean)
     .sort();
