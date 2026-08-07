@@ -1,10 +1,16 @@
+import { createHash } from "node:crypto";
 import { Module } from "@nestjs/common";
 import { AwsSecretsManagerProvider } from "@alterx/adapters";
 import type { MutableSecretsProvider } from "@alterx/shared-clients";
 import { Pool } from "pg";
+import { resolveRuntimeSecret } from "../identity/identity.module";
 import { IdempotencyModule } from "../idempotency";
 import { CONNECTOR_CATALOG } from "./connectors";
 import { createFetchOAuthHttpClient, type OAuthHttpClient } from "./adapters/oauth/oauth-http-client";
+import {
+  ConnectorHealthSweepController,
+  CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN_HASH,
+} from "./connector-health-sweep.controller";
 import { IntegrationController } from "./integration.controller";
 import { IntegrationExceptionFilter } from "./integration-exception.filter";
 import { IntegrationRepository } from "./integration.repository";
@@ -12,6 +18,7 @@ import {
   IntegrationService,
   type ConnectorRuntimeConfigMap,
 } from "./integration.service";
+import { SystemIntegrationStore } from "./system-integration-store";
 import {
   INTEGRATION_CONNECTOR_RUNTIME_CONFIG,
   INTEGRATION_OAUTH_HTTP_CLIENT,
@@ -46,7 +53,7 @@ function buildConnectorRuntimeConfig(): ConnectorRuntimeConfigMap {
 
 @Module({
   imports: [IdempotencyModule],
-  controllers: [IntegrationController],
+  controllers: [IntegrationController, ConnectorHealthSweepController],
   providers: [
     {
       provide: IntegrationRepository,
@@ -55,6 +62,32 @@ function buildConnectorRuntimeConfig(): ConnectorRuntimeConfigMap {
           new Pool({ connectionString: process.env.DATABASE_URL }),
           true,
         ),
+    },
+    {
+      // Real, separate bypass-RLS connection for the health sweep's
+      // cross-tenant enumeration only -- undefined (fails closed, see
+      // SystemIntegrationStore) until the real platform_db system role
+      // is provisioned. CONNECTOR_HEALTH_SWEEP_SYSTEM_DATABASE_URL must
+      // point at a role with a real BYPASSRLS grant, never the normal
+      // per-request role.
+      provide: SystemIntegrationStore,
+      useFactory: () => {
+        const systemDatabaseUrl = process.env.CONNECTOR_HEALTH_SWEEP_SYSTEM_DATABASE_URL;
+        return new SystemIntegrationStore(
+          systemDatabaseUrl ? new Pool({ connectionString: systemDatabaseUrl }) : undefined,
+        );
+      },
+    },
+    {
+      provide: CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN_HASH,
+      useFactory: async () => {
+        const reference = process.env.CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN_REF;
+        if (!reference) {
+          throw new Error("CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN_REF must be configured");
+        }
+        const token = await resolveRuntimeSecret(reference);
+        return createHash("sha256").update(token).digest("hex");
+      },
     },
     {
       provide: INTEGRATION_SECRETS_PROVIDER,
@@ -78,12 +111,14 @@ function buildConnectorRuntimeConfig(): ConnectorRuntimeConfigMap {
         INTEGRATION_SECRETS_PROVIDER,
         INTEGRATION_OAUTH_HTTP_CLIENT,
         INTEGRATION_CONNECTOR_RUNTIME_CONFIG,
+        SystemIntegrationStore,
       ],
       useFactory: (
         repository: IntegrationRepository,
         secrets: MutableSecretsProvider,
         http: OAuthHttpClient,
         connectorConfig: ConnectorRuntimeConfigMap,
+        systemStore: SystemIntegrationStore,
       ) =>
         new IntegrationService(
           repository,
@@ -91,6 +126,7 @@ function buildConnectorRuntimeConfig(): ConnectorRuntimeConfigMap {
           http,
           connectorConfig,
           Number(process.env.OAUTH_STATE_TTL_SECONDS ?? 300),
+          systemStore,
         ),
     },
     IntegrationExceptionFilter,

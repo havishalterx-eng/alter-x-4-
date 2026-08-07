@@ -24,6 +24,14 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       all: true,
+      // Real CI-only reporter override: the default "text" reporter prints
+      // a full colored per-file table (~140 covered files here), which was
+      // crashing the CI runner mid-write (deterministic OOM-kill at the
+      // same row every run, not a real test failure -- 982/982 tests pass
+      // every time before this). text-summary keeps threshold enforcement
+      // identical (it reads the coverage map, not the printed format) and
+      // json/lcov are still written for tooling.
+      reporter: process.env.CI ? ["text-summary", "json", "lcov"] : ["text", "html", "clover", "json"],
     include: [
         "apps/platform-api/src/marketplace/**/*.ts",
         "apps/platform-api/src/publisher/**/*.ts",

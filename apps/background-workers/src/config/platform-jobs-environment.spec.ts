@@ -9,16 +9,24 @@ function environment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
     PLATFORM_API_INTERNAL_BASE_URL: "http://platform-api.internal",
     NOTIFICATION_DIGEST_SERVICE_TOKEN_REF: "env:NOTIFICATION_DIGEST_TOKEN",
+    CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN_REF: "env:CONNECTOR_HEALTH_SWEEP_TOKEN",
+    ADS_CORE_INTERNAL_BASE_URL: "http://ads-core.internal",
+    RETENTION_SWEEP_SERVICE_TOKEN_REF: "env:RETENTION_SWEEP_TOKEN",
     ...overrides,
   };
 }
 
 describe("loadPlatformJobsEnvironment", () => {
-  it("validates and returns the documented environment with a real default interval", () => {
+  it("validates and returns the documented environment with real default intervals", () => {
     expect(loadPlatformJobsEnvironment(environment())).toEqual({
       platformApiInternalBaseUrl: "http://platform-api.internal",
       notificationDigestServiceTokenRef: "env:NOTIFICATION_DIGEST_TOKEN",
       notificationDigestIntervalMs: 60 * 60 * 1000,
+      connectorHealthSweepServiceTokenRef: "env:CONNECTOR_HEALTH_SWEEP_TOKEN",
+      connectorHealthSweepIntervalMs: 60 * 60 * 1000,
+      adsCoreInternalBaseUrl: "http://ads-core.internal",
+      retentionSweepServiceTokenRef: "env:RETENTION_SWEEP_TOKEN",
+      retentionSweepIntervalMs: 24 * 60 * 60 * 1000,
     });
   });
 
@@ -40,6 +48,28 @@ describe("loadPlatformJobsEnvironment", () => {
     expect(() =>
       loadPlatformJobsEnvironment(environment({ PLATFORM_API_INTERNAL_BASE_URL: "" })),
     ).toThrow(PlatformJobsConfigurationError);
+  });
+
+  it("accepts a real custom connector health sweep interval", () => {
+    expect(
+      loadPlatformJobsEnvironment(
+        environment({ CONNECTOR_HEALTH_SWEEP_INTERVAL_MS: "5000" }),
+      ).connectorHealthSweepIntervalMs,
+    ).toBe(5000);
+  });
+
+  it("throws PlatformJobsConfigurationError when ADS_CORE_INTERNAL_BASE_URL is missing", () => {
+    expect(() =>
+      loadPlatformJobsEnvironment(environment({ ADS_CORE_INTERNAL_BASE_URL: "" })),
+    ).toThrow(PlatformJobsConfigurationError);
+  });
+
+  it("accepts a real custom retention sweep interval", () => {
+    expect(
+      loadPlatformJobsEnvironment(
+        environment({ RETENTION_SWEEP_INTERVAL_MS: "5000" }),
+      ).retentionSweepIntervalMs,
+    ).toBe(5000);
   });
 });
 
