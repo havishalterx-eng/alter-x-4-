@@ -122,6 +122,7 @@ describe("NodeexecService.executeNode", () => {
     const ledger = fakeLedger();
     const provisioned = {
       getSessionForRun: vi.fn().mockResolvedValue("e2b_ses_project"),
+      getProjectDirectoryForRun: vi.fn().mockResolvedValue("/workspace/prj_project"),
     };
     const materializer = {
       materialize: vi.fn().mockResolvedValue({ manifestArtifactId: "art_manifest", files: [] }),
@@ -138,10 +139,12 @@ describe("NodeexecService.executeNode", () => {
     });
 
     expect(provisioned.getSessionForRun).toHaveBeenCalledWith(TENANT_ID, RUN_ID);
+    expect(provisioned.getProjectDirectoryForRun).toHaveBeenCalledWith(TENANT_ID, RUN_ID);
     expect(received?.sandbox_session_id).toBe("e2b_ses_project");
     expect(received?.config.prompt).toContain("Return only JSON matching");
     expect(materializer.materialize).toHaveBeenCalledWith({
       tenantId: TENANT_ID, runId: RUN_ID, sessionId: "e2b_ses_project",
+      projectDirectory: "/workspace/prj_project",
       output: { files: [{ path: "src/index.ts", content: "export {};" }] },
     });
     expect(ledger.recordSucceeded).toHaveBeenCalledWith(expect.objectContaining({ outputRef: "art_manifest" }));

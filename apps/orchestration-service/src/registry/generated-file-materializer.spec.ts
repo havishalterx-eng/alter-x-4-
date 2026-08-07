@@ -45,15 +45,15 @@ describe("GeneratedFileMaterializer", () => {
   it("creates artifacts, writes every generated file, and returns a manifest artifact", async () => {
     const fake = harness();
     const result = await new GeneratedFileMaterializer(fake.artifacts, fake.sandbox).materialize({
-      tenantId: TENANT, runId: RUN, sessionId: SESSION,
+      tenantId: TENANT, runId: RUN, sessionId: SESSION, projectDirectory: "/workspace/prj_1",
       output: { files: [{ path: "src/index.ts", content: "export const answer = 42;" }, { path: "README.md", content: "# app" }] },
     });
 
     const read = await fake.sandbox.readFile({
-      tenant_id: TENANT, run_id: RUN, session_id: SESSION, path: "src/index.ts",
+      tenant_id: TENANT, run_id: RUN, session_id: SESSION, path: "/workspace/prj_1/src/index.ts",
     });
     expect(new TextDecoder().decode(fake.contents.get(read.content_artifact_id)!)).toBe("export const answer = 42;");
-    expect(fake.files.get(`${SESSION}:README.md`)).toBe("# app");
+    expect(fake.files.get(`${SESSION}:/workspace/prj_1/README.md`)).toBe("# app");
     expect(result.manifestArtifactId).toBe("art_3");
     expect(JSON.parse(new TextDecoder().decode(fake.contents.get(result.manifestArtifactId)!))).toEqual({
       files: [
@@ -66,7 +66,7 @@ describe("GeneratedFileMaterializer", () => {
   it("fails closed before any write when LLM output does not match schema", async () => {
     const fake = harness();
     await expect(new GeneratedFileMaterializer(fake.artifacts, fake.sandbox).materialize({
-      tenantId: TENANT, runId: RUN, sessionId: SESSION,
+      tenantId: TENANT, runId: RUN, sessionId: SESSION, projectDirectory: "/workspace/prj_1",
       output: { files: [{ path: "../escape", content: "x" }] },
     })).rejects.toThrow(GeneratedFileMaterializationError);
     expect(fake.artifacts.create).not.toHaveBeenCalled();
@@ -76,8 +76,18 @@ describe("GeneratedFileMaterializer", () => {
   it("fails closed when project session is missing", async () => {
     const fake = harness();
     await expect(new GeneratedFileMaterializer(fake.artifacts, fake.sandbox).materialize({
-      tenantId: TENANT, runId: RUN, sessionId: undefined,
+      tenantId: TENANT, runId: RUN, sessionId: undefined, projectDirectory: "/workspace/prj_1",
       output: { files: [{ path: "index.ts", content: "x" }] },
     })).rejects.toThrow("provisioning_session_id");
+  });
+
+  it("fails closed when the provisioned project directory is missing", async () => {
+    const fake = harness();
+    await expect(new GeneratedFileMaterializer(fake.artifacts, fake.sandbox).materialize({
+      tenantId: TENANT, runId: RUN, sessionId: SESSION, projectDirectory: undefined,
+      output: { files: [{ path: "index.ts", content: "x" }] },
+    })).rejects.toThrow("provisioned project directory");
+    expect(fake.artifacts.create).not.toHaveBeenCalled();
+    expect(fake.sandbox.writeFile).not.toHaveBeenCalled();
   });
 });

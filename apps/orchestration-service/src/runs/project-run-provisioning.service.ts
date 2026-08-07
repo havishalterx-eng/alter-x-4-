@@ -160,6 +160,34 @@ export class ProjectRunProvisioningService {
   }
 
   /**
+   * Generated file paths are contractually relative to the provisioned
+   * project root. Resolve that root from durable run state after worker
+   * restarts; never let a relative path reach Sandbox Service unchanged.
+   */
+  async getProjectDirectoryForRun(
+    tenantIdInput: string,
+    runId: string,
+  ): Promise<string | undefined> {
+    const tenantId = bareTenantUuid(tenantIdInput);
+    requireRunId(runId);
+    const row = await this.loadRun(tenantId, runId);
+    if (
+      row === undefined ||
+      row.project_id === null ||
+      row.provisioning_session_id === null ||
+      row.provisioning_session_id.trim().length === 0
+    ) {
+      return undefined;
+    }
+    if (!/^[A-Za-z0-9_-]+$/.test(row.project_id)) {
+      throw new ProjectRunProvisioningError(
+        "project run has an invalid project_id for its sandbox directory",
+      );
+    }
+    return `/workspace/${row.project_id}`;
+  }
+
+  /**
    * Closing is idempotent: the provider is called before the durable marker
    * is written, so a process failure between those steps merely retries the
    * provider's own idempotent CloseCycle operation.

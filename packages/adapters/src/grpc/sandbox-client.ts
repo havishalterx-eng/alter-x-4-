@@ -121,6 +121,10 @@ export class SandboxServiceClient implements SandboxExecuteHandler, SandboxFileH
   async readFile(request: SandboxReadFileRequest): Promise<SandboxReadFileResponse> { return this.#call("readFile", request); }
   async writeFile(request: SandboxWriteFileRequest): Promise<SandboxWriteFileResponse> { return this.#call("writeFile", request); }
 
+  close(): void {
+    this.#client.close();
+  }
+
   #call<TRequest, TResponse>(method: "readFile" | "writeFile", request: TRequest): Promise<TResponse> {
     return new Promise((resolve, reject) => {
       const callback = (error: (Error & { readonly code?: number }) | null, response?: TResponse) => {

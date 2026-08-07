@@ -325,6 +325,9 @@ describe("RunLauncherService.createProjectRun", () => {
       provisioning_cycle_id: "cycle_1",
     });
     await expect(
+      lifecycle.getProjectDirectoryForRun(TENANT, created.id),
+    ).resolves.toBe(`/workspace/${PROJECT}`);
+    await expect(
       lifecycle.provisionForRun(TENANT, created.id, PROJECT, {
         cycle_id: "cycle_1",
         template_id: "base",

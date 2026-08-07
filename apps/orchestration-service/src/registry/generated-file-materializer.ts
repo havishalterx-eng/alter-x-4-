@@ -41,6 +41,7 @@ export class GeneratedFileMaterializer {
     readonly tenantId: string;
     readonly runId: string;
     readonly sessionId: string | undefined;
+    readonly projectDirectory: string | undefined;
     readonly output: Record<string, unknown>;
   }): Promise<GeneratedFileMaterialization> {
     if (!TenantIdSchema.safeParse(input.tenantId).success) {
@@ -55,6 +56,15 @@ export class GeneratedFileMaterializer {
         "node_generate_code requires the project run provisioning_session_id",
       );
     }
+    const projectDirectory = input.projectDirectory;
+    if (
+      projectDirectory === undefined ||
+      !/^\/workspace\/[A-Za-z0-9_-]+$/.test(projectDirectory)
+    ) {
+      throw new GeneratedFileMaterializationError(
+        "node_generate_code requires the provisioned project directory",
+      );
+    }
 
     const parsed = GeneratedFilesOutputSchema.safeParse(input.output);
     if (!parsed.success) {
@@ -67,6 +77,7 @@ export class GeneratedFileMaterializer {
       tenantId: input.tenantId,
       runId: input.runId,
       sessionId,
+      projectDirectory,
     }, parsed.data);
     const manifest = await this.artifacts.create(input.tenantId, {
       runId: input.runId,
@@ -77,7 +88,12 @@ export class GeneratedFileMaterializer {
   }
 
   async #writeFiles(
-    input: { readonly tenantId: string; readonly runId: string; readonly sessionId: string },
+    input: {
+      readonly tenantId: string;
+      readonly runId: string;
+      readonly sessionId: string;
+      readonly projectDirectory: string;
+    },
     output: GeneratedFilesOutput,
   ): Promise<readonly { readonly path: string; readonly artifactId: string; readonly sizeBytes: number }[]> {
     const files: { path: string; artifactId: string; sizeBytes: number }[] = [];
@@ -91,7 +107,7 @@ export class GeneratedFileMaterializer {
         tenant_id: input.tenantId,
         run_id: input.runId,
         session_id: input.sessionId,
-        path: file.path,
+        path: `${input.projectDirectory}/${file.path}`,
         content_artifact_id: artifact.id,
       });
       if (!write.written) {

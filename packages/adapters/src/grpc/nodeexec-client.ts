@@ -139,4 +139,8 @@ export class NodeExecutionClient implements NodeExecutionHandler {
       });
     });
   }
+
+  close(): void {
+    this.#client.close();
+  }
 }

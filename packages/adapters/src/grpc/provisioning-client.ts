@@ -105,6 +105,10 @@ export class ProvisioningClient implements ProvisioningClientHandler {
     return this.#call("closeCycle", request);
   }
 
+  close(): void {
+    this.#client.close();
+  }
+
   #call<TRequest, TResponse>(
     method: "provision" | "closeCycle",
     request: TRequest,

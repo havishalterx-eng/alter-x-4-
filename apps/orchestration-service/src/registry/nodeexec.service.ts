@@ -249,10 +249,15 @@ export class NodeexecService {
     if (this.generatedFileMaterializer === undefined) {
       throw new NodeHandlerValidationError("Generated-file materializer is not configured");
     }
+    const projectDirectory = await this.projectProvisioning?.getProjectDirectoryForRun(
+      request.tenant_id,
+      request.run_id,
+    );
     const materialized = await this.generatedFileMaterializer.materialize({
       tenantId: request.tenant_id,
       runId: request.run_id,
       sessionId,
+      projectDirectory,
       output,
     });
     return materialized.manifestArtifactId;
