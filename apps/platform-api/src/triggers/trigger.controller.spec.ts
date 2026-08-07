@@ -382,33 +382,47 @@ describe("TriggerController routes", () => {
     }
   });
 
-  it("requires idempotency and leaves removed/deferred surfaces absent", async () => {
+  it("runs real trigger actions and requires idempotency", async () => {
     const missingKey = await request("POST", "/api/v1/triggers", writer, {
       body: createBody(),
     });
     expectProblem(missingKey, 400, "IDEMPOTENCY_KEY_REQUIRED");
-    expect(triggerDeferredCapabilities).toEqual([
-      expect.objectContaining({
-        capability: "template_variables",
-        status: "NOT_MET",
-      }),
-    ]);
+    expect(triggerDeferredCapabilities).toEqual([]);
 
-    for (const path of [
+    const enabled = await request(
+      "POST",
       `/api/v1/triggers/${triggerId}/actions/enable`,
-      `/api/v1/triggers/${triggerId}/actions/disable`,
+      admin,
+      { key: "action-enable", body: {} },
+    );
+    expect(enabled.statusCode).toBe(200);
+    expect(enabled.json()).toMatchObject({ status: "enabled" });
+
+    const tested = await request(
+      "POST",
       `/api/v1/triggers/${triggerId}/actions/test`,
-      `/api/v1/triggers/${triggerId}/template-variables`,
-    ]) {
-      expect(
-        (
-          await request("POST", path, admin, {
-            key: `absent-${path}`,
-            body: {},
-          })
-        ).statusCode,
-      ).toBe(404);
-    }
+      writer,
+      { key: "action-test", body: {} },
+    );
+    expect(tested.statusCode).toBe(200);
+    expect(tested.json()).toEqual({
+      eventId: "evt_test",
+      triggerId,
+      triggerVersion: 1,
+    });
+
+    const rotated = await request(
+      "POST",
+      `/api/v1/triggers/${triggerId}/actions/rotate-webhook-secret`,
+      admin,
+      { key: "action-rotate", body: {} },
+    );
+    expect(rotated.statusCode).toBe(200);
+    expect(rotated.json()).toEqual({
+      triggerId,
+      secret: "new-webhook-secret",
+      secretVersion: 1,
+    });
     expect(TriggerModule).toBeDefined();
   });
 
@@ -554,6 +568,22 @@ class TriggerEngine {
     void context;
     void options;
     this.throwIfFailed("POST", path);
+    if (path.endsWith("/actions/enable")) {
+      this.trigger.status = "enabled";
+      return { status: 200, body: { ...this.trigger } };
+    }
+    if (path.endsWith("/actions/test")) {
+      return {
+        status: 200,
+        body: { eventId: "evt_test", triggerId, triggerVersion: 1 },
+      };
+    }
+    if (path.endsWith("/actions/rotate-webhook-secret")) {
+      return {
+        status: 200,
+        body: { triggerId, secret: "new-webhook-secret", secretVersion: 1 },
+      };
+    }
     return path.endsWith("/versions")
       ? { status: 200, body: this.version }
       : {

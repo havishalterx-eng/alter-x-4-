@@ -6,6 +6,8 @@ const workflowIdPattern =
   /^wf_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const traceparentPattern =
   /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/i;
+const workflowVersionIdPattern =
+  /^wfv_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const createWorkflowSchema = z
   .object({
@@ -26,6 +28,26 @@ export const simulateWorkflowSchema = z
     input: z.record(z.string(), z.json()),
   })
   .strict();
+
+export const workflowVersionActionSchema = z
+  .object({ workflowVersionId: z.string().regex(workflowVersionIdPattern) })
+  .strict();
+
+export const startCanarySchema = workflowVersionActionSchema.extend({
+  trafficPercent: z.number().int().min(1).max(99),
+}).strict();
+
+const templateVariableDefinitionSchema = z.object({
+  name: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/),
+  value_type: z.enum(["text", "number", "secret", "list"]),
+  required: z.boolean(),
+}).strict();
+
+export const replaceTemplateVariablesSchema = z.object({
+  definitions: z.array(templateVariableDefinitionSchema),
+}).strict();
+
+export const setTemplateVariableValueSchema = z.object({ value: z.json() }).strict();
 
 export function parseWorkflowInput<T>(
   schema: z.ZodType<T>,

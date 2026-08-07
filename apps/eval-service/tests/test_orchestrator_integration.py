@@ -2839,7 +2839,7 @@ def trigger_registry_server_target() -> Generator[tuple[str, str], None, None]:
     bootstrap.
 
     Yields (http_target, db_url) -- TriggerRegistryClient needs both: the
-    HTTP target for the real POST /v1/triggers call, and the DB url to
+    HTTP target for the real POST /api/v1/triggers call, and the DB url to
     seed each case's own real `workflows` row directly (its real FK
     requirement -- see trigger_client.py's own module doc).
     """

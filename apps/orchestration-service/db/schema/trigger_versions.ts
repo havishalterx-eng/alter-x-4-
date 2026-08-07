@@ -21,7 +21,7 @@ export const triggerVersions = pgTable(
     tenantId: uuid("tenant_id").notNull(),
     triggerId: text("trigger_id").notNull(),
     version: integer("version").notNull(),
-    workflowVersionId: uuid("workflow_version_id"),
+    workflowVersionId: text("workflow_version_id"),
     config: jsonb("config").$type<TriggerConfig>().notNull(),
     status: text("status").notNull().default("active"),
     activatedAt: timestamp("activated_at", { withTimezone: true }),

@@ -371,35 +371,76 @@ describe("WorkflowController routes", () => {
     },
   );
 
-  it("flags deferred capabilities and exposes no fake routes", async () => {
-    expect(workflowDeferredCapabilities).toEqual(
-      [
-        "promote_version",
-        "start_canary",
-        "rollback_version",
-        "template_variables",
-      ].map((capability) =>
-        expect.objectContaining({ capability, status: "NOT_MET" }),
-      ),
-    );
+  it("relays deployment and template-variable routes to Engine", async () => {
+    expect(workflowDeferredCapabilities).toEqual([]);
+    const workflowVersionId = "wfv_018f47a5-7b2c-7d10-8f11-123456789abc";
+    const actionCases = [
+      ["promote-version", { workflowVersionId }],
+      ["start-canary", { workflowVersionId, trafficPercent: 10 }],
+      ["rollback", { workflowVersionId }],
+    ] as const;
 
-    for (const path of [
-      `/api/v1/workflows/${workflowId}/actions/promote-version`,
-      `/api/v1/workflows/${workflowId}/actions/start-canary`,
-      `/api/v1/workflows/${workflowId}/actions/rollback`,
-      `/api/v1/workflows/${workflowId}/template-variables`,
-    ]) {
-      const response = await request("POST", path, {
-        actor,
-        headers: { "idempotency-key": `absent-${path}` },
-        payload: {},
-      });
-      expect(response.statusCode).toBe(404);
+    for (const [action, payload] of actionCases) {
+      const response = await request(
+        "POST",
+        `/api/v1/workflows/${workflowId}/actions/${action}`,
+        {
+          actor,
+          headers: { "idempotency-key": `workflow-${action}` },
+          payload,
+        },
+      );
+      expect(response.statusCode).toBe(200);
     }
+
+    const definitions = {
+      definitions: [{ name: "region", value_type: "text", required: true }],
+    };
+    expect(
+      (
+        await request(
+          "PUT",
+          `/api/v1/workflows/${workflowId}/template-variables`,
+          {
+            actor,
+            headers: { "idempotency-key": "template-definitions" },
+            payload: definitions,
+          },
+        )
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await request(
+          "PUT",
+          `/api/v1/workflows/${workflowId}/template-variables/region/value`,
+          {
+            actor,
+            headers: { "idempotency-key": "template-value" },
+            payload: { value: "us-east-1" },
+          },
+        )
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await request("GET", `/api/v1/workflows/${workflowId}/template-variables`, {
+          actor,
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    expect(engine.post).toHaveBeenCalledWith(
+      `/api/v1/workflows/${workflowId}/actions/promote-version`,
+      { workflowVersionId },
+      expect.any(Object),
+      { idempotencyKey: "workflow-promote-version" },
+    );
+    expect(engine.put).toHaveBeenCalledTimes(2);
   });
 
   function request(
-    method: "GET" | "POST" | "PATCH",
+    method: "GET" | "POST" | "PATCH" | "PUT",
     url: string,
     options: {
       actor?: ActorContextType;
@@ -408,7 +449,7 @@ describe("WorkflowController routes", () => {
     } = {},
   ): Promise<TestResponse> {
     const injectOptions: {
-      method: "GET" | "POST" | "PATCH";
+      method: "GET" | "POST" | "PATCH" | "PUT";
       url: string;
       headers: Record<string, string>;
       payload?: object;
@@ -442,6 +483,7 @@ class StatefulEngine {
   readonly get = vi.fn(this.getResponse.bind(this));
   readonly post = vi.fn(this.postResponse.bind(this));
   readonly patch = vi.fn(this.patchResponse.bind(this));
+  readonly put = vi.fn(this.putResponse.bind(this));
   draft = initialDraft();
   private failure: { method: string; path: string } | undefined;
 
@@ -451,6 +493,7 @@ class StatefulEngine {
     this.get.mockClear();
     this.post.mockClear();
     this.patch.mockClear();
+    this.put.mockClear();
   }
 
   get revision(): number {
@@ -524,6 +567,19 @@ class StatefulEngine {
       dag: input.dag,
     };
     return { status: 200, body: this.draft };
+  }
+
+  private async putResponse(
+    path: EnginePath,
+    body: EngineRequestBody,
+    _context: EngineCallerContext,
+    _options: { idempotencyKey: string },
+  ): Promise<EngineResponse<Readonly<Record<string, JsonValue>>>> {
+    void body;
+    void _context;
+    void _options;
+    this.throwIfFailed("PUT", path);
+    return { status: 200, body: { workflow_id: workflowId, path } };
   }
 
   private throwIfFailed(method: string, path: string): void {

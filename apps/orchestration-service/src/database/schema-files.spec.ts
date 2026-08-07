@@ -25,6 +25,7 @@ import {
 } from "../../db/schema/workflow_template_variables";
 import { clarifications } from "../../db/schema/clarifications";
 import { escalations } from "../../db/schema/escalations";
+import { triggerWebhookSecrets } from "../../db/schema/trigger_webhook_secrets";
 
 const schemaRoot = resolve(
   process.cwd(),
@@ -53,10 +54,11 @@ const schemas = [
   ["workflow_template_variables.ts", "workflow_template_variable_definitions"],
   ["clarifications.ts", "clarifications"],
   ["escalations.ts", "escalations"],
+  ["trigger_webhook_secrets.ts", "trigger_webhook_secrets"],
 ] as const;
 
 describe("orchestration Drizzle schemas", () => {
-  it("loads all twenty-two executable Drizzle table definitions", () => {
+  it("loads all twenty-three executable Drizzle table definitions", () => {
     for (const table of [
       workflows,
       triggers,
@@ -79,6 +81,7 @@ describe("orchestration Drizzle schemas", () => {
       workflowTemplateVariableDefinitions,
       workflowTemplateVariableValues,
       clarifications,
+      triggerWebhookSecrets,
       escalations,
     ]) {
       expect(table).toBeDefined();
@@ -146,6 +149,9 @@ describe("orchestration Drizzle schemas", () => {
       'foreignKey({\n      name: "clarifications_conversation_tenant_fk"',
       '"clarifications_status_check"',
       'index("idx_clarifications_tenant_status_requested")',
+      'foreignKey({\n      name: "trigger_webhook_secrets_trigger_tenant_fk"',
+      '"trigger_webhook_secrets_hash_check"',
+      'index("idx_trigger_webhook_secrets_trigger")',
     ]) {
       expect(allSources).toContain(expected);
     }

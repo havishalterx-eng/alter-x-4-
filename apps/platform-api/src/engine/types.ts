@@ -35,6 +35,10 @@ export interface EnginePatchOptions extends EngineMutationOptions {
   ifMatch: string;
 }
 
+export interface EnginePutOptions extends EngineMutationOptions {
+  ifMatch?: string;
+}
+
 export interface EngineSseMessage {
   id?: string;
   event?: string;

@@ -39,6 +39,7 @@ import {
 
 const readRoles = ["admin", "editor", "operator", "approver", "viewer"] as const;
 const writeRoles = ["admin", "editor"] as const;
+const operateRoles = ["admin", "editor", "operator"] as const;
 const privilegedRoles = ["admin"] as const;
 
 @Controller("/api/v1/triggers")
@@ -155,6 +156,75 @@ export class TriggerController {
         traceparent,
         idempotencyKey!,
         ifMatch!,
+      ),
+      reply,
+    );
+  }
+
+  @Post(":id/actions/enable")
+  @RequireWorkspaceRole(...privilegedRoles)
+  @RequirePermission("workflows:deploy")
+  @Idempotent()
+  async enable(
+    @Param("id") id: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<Trigger> {
+    const instance = `/api/v1/triggers/${id}/actions/enable`;
+    return project(
+      await this.triggers.enable(
+        id,
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+
+  @Post(":id/actions/test")
+  @RequireWorkspaceRole(...operateRoles)
+  @RequirePermission("workflows:write")
+  @Idempotent()
+  async test(
+    @Param("id") id: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const instance = `/api/v1/triggers/${id}/actions/test`;
+    return project(
+      await this.triggers.test(
+        id,
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+
+  @Post(":id/actions/rotate-webhook-secret")
+  @RequireWorkspaceRole(...privilegedRoles)
+  @RequirePermission("workflows:deploy")
+  @Idempotent()
+  async rotateWebhookSecret(
+    @Param("id") id: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const instance = `/api/v1/triggers/${id}/actions/rotate-webhook-secret`;
+    return project(
+      await this.triggers.rotateWebhookSecret(
+        id,
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
       ),
       reply,
     );

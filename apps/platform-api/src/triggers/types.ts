@@ -38,11 +38,16 @@ export interface SetTriggerStatusInput {
   status: TriggerStatus;
 }
 
-export const triggerDeferredCapabilities = [
-  {
-    capability: "template_variables",
-    status: "NOT_MET",
-    reason:
-      "Engine contract has no typed, validated, or versioned template-variable route or table.",
-  },
-] as const;
+export interface TriggerTestResult {
+  eventId: string;
+  triggerId: string;
+  triggerVersion: number;
+}
+
+export interface TriggerWebhookSecretRotation {
+  triggerId: string;
+  secret: string;
+  secretVersion: number;
+}
+
+export const triggerDeferredCapabilities = [] as const;

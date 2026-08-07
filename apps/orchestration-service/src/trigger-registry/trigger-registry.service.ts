@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import { TenantIdSchema } from "@alterx/contracts";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { computeNextCronFireTime, validateCronExpression } from "./cron-validator";
 import { defaultDlqPolicy, validateDlqPolicy, type DlqPolicy } from "./dlq-policy";
@@ -79,6 +80,18 @@ export interface CreateTriggerVersionRequest {
   readonly config?: Readonly<Record<string, unknown>>;
 }
 
+export interface TriggerTestResult {
+  readonly eventId: string;
+  readonly triggerId: string;
+  readonly triggerVersion: number;
+}
+
+export interface TriggerWebhookSecretRotation {
+  readonly triggerId: string;
+  readonly secret: string;
+  readonly secretVersion: number;
+}
+
 interface OrchestrationTransactionLike {
   query<TRow extends Record<string, unknown> = Record<string, unknown>>(
     statement: string,
@@ -93,8 +106,16 @@ export interface OrchestrationTenantStore {
   ): Promise<T>;
 }
 
-const UUID_V7_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const WORKFLOW_VERSION_ID_PATTERN =
+  /^wfv_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function bareTenantUuid(tenantId: string): string {
+  const parsed = TenantIdSchema.safeParse(tenantId);
+  if (!parsed.success) {
+    throw new TriggerValidationError("tenantId must be a ten_ prefixed UUIDv7");
+  }
+  return parsed.data.slice("ten_".length);
+}
 
 function requireNonEmpty(field: string, value: string | undefined): void {
   if (value === undefined || value.trim().length === 0) {
@@ -106,15 +127,9 @@ function requireValidWorkflowVersionId(workflowVersionId: string | undefined): v
   if (workflowVersionId === undefined) {
     return;
   }
-  // workflow_versions doesn't exist yet (Planning phase's Deployment
-  // Controller, PLAN-9/PLAN-11, not built) -- trigger_versions.workflow_version_id
-  // has no FK constraint to anything real yet. This validates UUID *shape*
-  // only. Real binding-to-an-actual-compiled-DAG-version enforcement must be
-  // added once that table exists; this is a disclosed, deliberate gap, not
-  // an oversight.
-  if (!UUID_V7_PATTERN.test(workflowVersionId)) {
+  if (!WORKFLOW_VERSION_ID_PATTERN.test(workflowVersionId)) {
     throw new TriggerValidationError(
-      "workflowVersionId must be a UUIDv7-shaped string",
+      "workflowVersionId must be a wfv_ prefixed UUIDv7",
     );
   }
 }
@@ -168,8 +183,9 @@ export class TriggerRegistryService {
     requireValidWorkflowVersionId(request.workflowVersionId);
     const config = buildVersionConfig(request.type, request.config);
     const nextFireAt = computeNextFireAt(config);
+    const tenantId = bareTenantUuid(request.tenantId);
 
-    return this.store.withTenant(request.tenantId, async (tx) => {
+    return this.store.withTenant(tenantId, async (tx) => {
       const triggerId = `trg_${this.mintId()}`;
       const triggerVersionId = `trv_${this.mintId()}`;
 
@@ -178,7 +194,7 @@ export class TriggerRegistryService {
          VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7)`,
         [
           triggerId,
-          request.tenantId,
+          tenantId,
           request.workspaceId,
           request.workflowId,
           request.name,
@@ -191,7 +207,7 @@ export class TriggerRegistryService {
          VALUES ($1, $2, $3, $4, $5, $6, 'active', now())`,
         [
           triggerVersionId,
-          request.tenantId,
+          tenantId,
           triggerId,
           1,
           request.workflowVersionId ?? null,
@@ -230,11 +246,12 @@ export class TriggerRegistryService {
     requireNonEmpty("tenantId", request.tenantId);
     requireNonEmpty("triggerId", request.triggerId);
     requireValidWorkflowVersionId(request.workflowVersionId);
+    const tenantId = bareTenantUuid(request.tenantId);
 
-    return this.store.withTenant(request.tenantId, async (tx) => {
+    return this.store.withTenant(tenantId, async (tx) => {
       const triggerResult = await tx.query<{ type: TriggerType }>(
         `SELECT type FROM triggers WHERE tenant_id = $1 AND id = $2`,
-        [request.tenantId, request.triggerId],
+        [tenantId, request.triggerId],
       );
       const triggerRow = triggerResult.rows[0];
       if (triggerRow === undefined) {
@@ -247,7 +264,7 @@ export class TriggerRegistryService {
         `SELECT version FROM trigger_versions
          WHERE tenant_id = $1 AND trigger_id = $2
          ORDER BY version DESC LIMIT 1`,
-        [request.tenantId, request.triggerId],
+        [tenantId, request.triggerId],
       );
       const currentVersion = currentVersionResult.rows[0]?.version ?? 0;
       const nextVersion = currentVersion + 1;
@@ -255,7 +272,7 @@ export class TriggerRegistryService {
       await tx.query(
         `UPDATE trigger_versions SET status = 'superseded'
          WHERE tenant_id = $1 AND trigger_id = $2 AND status = 'active'`,
-        [request.tenantId, request.triggerId],
+        [tenantId, request.triggerId],
       );
 
       const triggerVersionId = `trv_${this.mintId()}`;
@@ -264,7 +281,7 @@ export class TriggerRegistryService {
          VALUES ($1, $2, $3, $4, $5, $6, 'active', now())`,
         [
           triggerVersionId,
-          request.tenantId,
+          tenantId,
           request.triggerId,
           nextVersion,
           request.workflowVersionId ?? null,
@@ -286,12 +303,13 @@ export class TriggerRegistryService {
   }
 
   async setTriggerStatus(
-    tenantId: string,
+    tenantIdInput: string,
     triggerId: string,
     targetStatus: TriggerStatus,
   ): Promise<Trigger> {
-    requireNonEmpty("tenantId", tenantId);
+    requireNonEmpty("tenantId", tenantIdInput);
     requireNonEmpty("triggerId", triggerId);
+    const tenantId = bareTenantUuid(tenantIdInput);
 
     return this.store.withTenant(tenantId, async (tx) => {
       const result = await tx.query<{
@@ -321,7 +339,7 @@ export class TriggerRegistryService {
 
       return {
         id: row.id,
-        tenantId,
+        tenantId: tenantIdInput,
         workspaceId: row.workspace_id,
         workflowId: row.workflow_id,
         name: row.name,
@@ -332,9 +350,99 @@ export class TriggerRegistryService {
     });
   }
 
-  async getTrigger(tenantId: string, triggerId: string): Promise<Trigger> {
-    requireNonEmpty("tenantId", tenantId);
+  async testTrigger(
+    tenantIdInput: string,
+    triggerId: string,
+  ): Promise<TriggerTestResult> {
+    requireNonEmpty("tenantId", tenantIdInput);
     requireNonEmpty("triggerId", triggerId);
+    const tenantId = bareTenantUuid(tenantIdInput);
+    return this.store.withTenant(tenantId, async (tx) => {
+      const trigger = await tx.query<{
+        id: string;
+        workspace_id: string;
+      }>(
+        `SELECT id, workspace_id FROM triggers
+         WHERE tenant_id = $1 AND id = $2`,
+        [tenantId, triggerId],
+      );
+      const row = trigger.rows[0];
+      if (row === undefined) throw new TriggerNotFoundError(triggerId);
+      const version = await tx.query<{ version: number }>(
+        `SELECT version FROM trigger_versions
+         WHERE tenant_id = $1 AND trigger_id = $2 AND status = 'active'
+         ORDER BY version DESC LIMIT 1`,
+        [tenantId, triggerId],
+      );
+      const active = version.rows[0];
+      if (active === undefined) {
+        throw new TriggerValidationError("trigger has no active version");
+      }
+      const eventId = `evt_${this.mintId()}`;
+      await tx.query(
+        `INSERT INTO events
+           (event_id, event_type, schema_version, tenant_id, workspace_id, source,
+            idempotency_key, occurred_at, trigger_id, trigger_version, payload, signature_status)
+         VALUES ($1, 'trigger.test', 'v1', $2, $3, 'trigger-registry', $4,
+                 clock_timestamp(), $5, $6, $7::jsonb, 'verified')`,
+        [
+          eventId,
+          tenantId,
+          row.workspace_id,
+          `trigger-test:${triggerId}:${eventId}`,
+          triggerId,
+          active.version,
+          JSON.stringify({ kind: "trigger_test", trigger_id: triggerId }),
+        ],
+      );
+      return { eventId, triggerId, triggerVersion: active.version };
+    });
+  }
+
+  async rotateWebhookSecret(
+    tenantIdInput: string,
+    triggerId: string,
+  ): Promise<TriggerWebhookSecretRotation> {
+    requireNonEmpty("tenantId", tenantIdInput);
+    requireNonEmpty("triggerId", triggerId);
+    const tenantId = bareTenantUuid(tenantIdInput);
+    return this.store.withTenant(tenantId, async (tx) => {
+      const trigger = await tx.query<{ type: TriggerType }>(
+        "SELECT type FROM triggers WHERE tenant_id = $1 AND id = $2",
+        [tenantId, triggerId],
+      );
+      const row = trigger.rows[0];
+      if (row === undefined) throw new TriggerNotFoundError(triggerId);
+      if (row.type !== "webhook") {
+        throw new TriggerValidationError("only webhook triggers have webhook secrets");
+      }
+      const current = await tx.query<{ version: number }>(
+        `SELECT COALESCE(MAX(version), 0) AS version
+         FROM trigger_webhook_secrets
+         WHERE tenant_id = $1 AND trigger_id = $2`,
+        [tenantId, triggerId],
+      );
+      const secretVersion = (current.rows[0]?.version ?? 0) + 1;
+      const secret = randomBytes(32).toString("base64url");
+      await tx.query(
+        `INSERT INTO trigger_webhook_secrets
+           (tenant_id, trigger_id, version, secret_hash)
+         VALUES ($1, $2, $3, $4)`,
+        [
+          tenantId,
+          triggerId,
+          secretVersion,
+          createHash("sha256").update(secret).digest("hex"),
+        ],
+      );
+      return { triggerId, secret, secretVersion };
+    });
+  }
+
+  async getTrigger(tenantIdInput: string, triggerId: string): Promise<Trigger> {
+    requireNonEmpty("tenantId", tenantIdInput);
+    requireNonEmpty("triggerId", triggerId);
+    const tenantId = bareTenantUuid(tenantIdInput);
 
     return this.store.withTenant(tenantId, async (tx) => {
       const result = await tx.query<{
@@ -356,7 +464,7 @@ export class TriggerRegistryService {
       }
       return {
         id: row.id,
-        tenantId,
+        tenantId: tenantIdInput,
         workspaceId: row.workspace_id,
         workflowId: row.workflow_id,
         name: row.name,
@@ -367,8 +475,12 @@ export class TriggerRegistryService {
     });
   }
 
-  async listTriggers(tenantId: string, workflowId?: string): Promise<readonly Trigger[]> {
-    requireNonEmpty("tenantId", tenantId);
+  async listTriggers(
+    tenantIdInput: string,
+    workflowId?: string,
+  ): Promise<readonly Trigger[]> {
+    requireNonEmpty("tenantId", tenantIdInput);
+    const tenantId = bareTenantUuid(tenantIdInput);
 
     return this.store.withTenant(tenantId, async (tx) => {
       const result = await tx.query<{
@@ -389,7 +501,7 @@ export class TriggerRegistryService {
       );
       return result.rows.map((row) => ({
         id: row.id,
-        tenantId,
+        tenantId: tenantIdInput,
         workspaceId: row.workspace_id,
         workflowId: row.workflow_id,
         name: row.name,

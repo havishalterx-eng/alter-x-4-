@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Res,
   UseFilters,
@@ -30,6 +31,10 @@ import {
   parseWorkflowInput,
   saveCanvasSchema,
   simulateWorkflowSchema,
+  replaceTemplateVariablesSchema,
+  setTemplateVariableValueSchema,
+  startCanarySchema,
+  workflowVersionActionSchema,
 } from "./validation";
 import { WorkflowExceptionFilter } from "./workflow-exception.filter";
 import { WorkflowService } from "./workflow.service";
@@ -273,6 +278,147 @@ export class WorkflowController {
       actor,
       traceparent,
       idempotencyKey,
+      reply,
+    );
+  }
+
+  @Post(":workflowId/actions/promote-version")
+  @RequireWorkspaceRole(...operateRoles)
+  @Idempotent()
+  async promoteVersion(
+    @Param("workflowId") workflowId: string,
+    @Body() body: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<WorkflowActionResult> {
+    const instance = `/api/v1/workflows/${workflowId}/actions/promote-version`;
+    return project(
+      await this.workflows.promoteVersion(
+        workflowId,
+        parseWorkflowInput(workflowVersionActionSchema, body, instance),
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+
+  @Post(":workflowId/actions/start-canary")
+  @RequireWorkspaceRole(...operateRoles)
+  @Idempotent()
+  async startCanary(
+    @Param("workflowId") workflowId: string,
+    @Body() body: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<WorkflowActionResult> {
+    const instance = `/api/v1/workflows/${workflowId}/actions/start-canary`;
+    return project(
+      await this.workflows.startCanary(
+        workflowId,
+        parseWorkflowInput(startCanarySchema, body, instance),
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+
+  @Post(":workflowId/actions/rollback")
+  @RequireWorkspaceRole(...operateRoles)
+  @Idempotent()
+  async rollback(
+    @Param("workflowId") workflowId: string,
+    @Body() body: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<WorkflowActionResult> {
+    const instance = `/api/v1/workflows/${workflowId}/actions/rollback`;
+    return project(
+      await this.workflows.rollback(
+        workflowId,
+        parseWorkflowInput(workflowVersionActionSchema, body, instance),
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+
+  @Get(":workflowId/template-variables")
+  @RequireWorkspaceRole(...readRoles)
+  async templateVariables(
+    @Param("workflowId") workflowId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<WorkflowActionResult> {
+    const instance = `/api/v1/workflows/${workflowId}/template-variables`;
+    return project(
+      await this.workflows.templateVariables(
+        workflowId,
+        requireActor(actor, instance),
+        traceparent,
+      ),
+      reply,
+    );
+  }
+
+  @Put(":workflowId/template-variables")
+  @RequireWorkspaceRole(...writeRoles)
+  @Idempotent()
+  async replaceTemplateVariables(
+    @Param("workflowId") workflowId: string,
+    @Body() body: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<WorkflowActionResult> {
+    const instance = `/api/v1/workflows/${workflowId}/template-variables`;
+    return project(
+      await this.workflows.replaceTemplateVariables(
+        workflowId,
+        parseWorkflowInput(replaceTemplateVariablesSchema, body, instance),
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+
+  @Put(":workflowId/template-variables/:name/value")
+  @RequireWorkspaceRole(...writeRoles)
+  @Idempotent()
+  async setTemplateVariableValue(
+    @Param("workflowId") workflowId: string,
+    @Param("name") name: string,
+    @Body() body: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<WorkflowActionResult> {
+    const instance = `/api/v1/workflows/${workflowId}/template-variables/${name}/value`;
+    return project(
+      await this.workflows.setTemplateVariableValue(
+        workflowId,
+        name,
+        parseWorkflowInput(setTemplateVariableValueSchema, body, instance),
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
       reply,
     );
   }

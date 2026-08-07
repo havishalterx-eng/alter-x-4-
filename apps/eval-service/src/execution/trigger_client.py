@@ -53,9 +53,9 @@ class TriggerRegistryClient(httpx.Client):
         self, *, tenant_uuid: str, workflow_id: str, name: str
     ) -> RegisterTriggerResult:
         self._seed_workflow(tenant_uuid=tenant_uuid, workflow_id=workflow_id)
-        workflow_version_id = str(_v7_shaped_uuid(f"eval-trigger-wfv/{uuid.uuid4()}"))
+        workflow_version_id = f"wfv_{_v7_shaped_uuid(f'eval-trigger-wfv/{uuid.uuid4()}')}"
         response = self.post(
-            "/v1/triggers",
+            "/api/v1/triggers",
             json={
                 "workspaceId": tenant_uuid,
                 "workflowId": workflow_id,

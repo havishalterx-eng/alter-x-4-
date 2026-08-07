@@ -84,6 +84,7 @@ describe("EngineClient", () => {
       .mockResolvedValueOnce(
         jsonResponse(200, { version: 2 }, { etag: '"new"', location: "/api/v1/runs/1" }),
       )
+      .mockResolvedValueOnce(jsonResponse(200, { updated: true }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     const client = new EngineClient(config, authProvider, fetchImpl, noDelay);
 
@@ -98,6 +99,12 @@ describe("EngineClient", () => {
       { name: "New" },
       context,
       { idempotencyKey: "patch-1", ifMatch: '"old"' },
+    );
+    await client.put(
+      "/api/v1/workflows/workflow-1/template-variables",
+      { definitions: [] },
+      context,
+      { idempotencyKey: "put-1" },
     );
     const deleted = await client.delete(
       "/api/v1/ads/documents/document-1",
@@ -128,6 +135,13 @@ describe("EngineClient", () => {
       etag: '"new"',
       location: "/api/v1/runs/1",
     });
+    expect(fetchImpl.mock.calls[2]?.[1]).toEqual(
+      expect.objectContaining({
+        method: "PUT",
+        body: '{"definitions":[]}',
+        headers: expect.objectContaining({ "Idempotency-Key": "put-1" }),
+      }),
+    );
     expect(deleted).toEqual({ status: 204, body: undefined });
   });
 

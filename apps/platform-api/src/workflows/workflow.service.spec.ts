@@ -105,6 +105,71 @@ describe("WorkflowService", () => {
     );
   });
 
+  it("relays deployment actions and template variables to Engine", async () => {
+    const engine = engineStub();
+    const service = new WorkflowService(engine.value);
+    const versionId = "wfv_018f47a5-7b2c-7d10-8f11-123456789abc";
+
+    await service.promoteVersion(
+      workflowId,
+      { workflowVersionId: versionId },
+      actor,
+      traceparent,
+      "promote-key",
+    );
+    await service.startCanary(
+      workflowId,
+      { workflowVersionId: versionId, trafficPercent: 10 },
+      actor,
+      traceparent,
+      "canary-key",
+    );
+    await service.rollback(
+      workflowId,
+      { workflowVersionId: versionId },
+      actor,
+      traceparent,
+      "rollback-key",
+    );
+    await service.replaceTemplateVariables(
+      workflowId,
+      { definitions: [{ name: "region", value_type: "text", required: true }] },
+      actor,
+      traceparent,
+      "definitions-key",
+    );
+    await service.setTemplateVariableValue(
+      workflowId,
+      "region",
+      { value: "us-east-1" },
+      actor,
+      traceparent,
+      "value-key",
+    );
+
+    expect(engine.post).toHaveBeenNthCalledWith(
+      1,
+      `/api/v1/workflows/${workflowId}/actions/promote-version`,
+      { workflowVersionId: versionId },
+      expectedContext(),
+      { idempotencyKey: "promote-key" },
+    );
+    expect(engine.post).toHaveBeenNthCalledWith(
+      2,
+      `/api/v1/workflows/${workflowId}/actions/start-canary`,
+      { workflowVersionId: versionId, trafficPercent: 10 },
+      expectedContext(),
+      { idempotencyKey: "canary-key" },
+    );
+    expect(engine.put).toHaveBeenNthCalledWith(
+      1,
+      `/api/v1/workflows/${workflowId}/template-variables`,
+      { definitions: [{ name: "region", value_type: "text", required: true }] },
+      expectedContext(),
+      { idempotencyKey: "definitions-key" },
+    );
+  });
+
   it("generates trace context and requires workspace context", async () => {
     const engine = engineStub();
     const service = new WorkflowService(engine.value);
@@ -186,6 +251,7 @@ function engineStub(): {
   get: ReturnType<typeof vi.fn>;
   post: ReturnType<typeof vi.fn>;
   patch: ReturnType<typeof vi.fn>;
+  put: ReturnType<typeof vi.fn>;
 } {
   const response: EngineResponse<Readonly<Record<string, never>>> = {
     status: 200,
@@ -194,10 +260,12 @@ function engineStub(): {
   const get = vi.fn().mockResolvedValue(response);
   const post = vi.fn().mockResolvedValue(response);
   const patch = vi.fn().mockResolvedValue(response);
+  const put = vi.fn().mockResolvedValue(response);
   return {
-    value: { get, post, patch } as unknown as EngineClient,
+    value: { get, post, patch, put } as unknown as EngineClient,
     get,
     post,
     patch,
+    put,
   };
 }

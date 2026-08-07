@@ -13,6 +13,30 @@ export interface SimulateWorkflowInput {
   input: Readonly<Record<string, JsonValue>>;
 }
 
+export interface WorkflowVersionActionInput {
+  workflowVersionId: string;
+}
+
+export interface StartCanaryInput extends WorkflowVersionActionInput {
+  trafficPercent: number;
+}
+
+export type TemplateVariableType = "text" | "number" | "secret" | "list";
+
+export interface TemplateVariableDefinition {
+  name: string;
+  value_type: TemplateVariableType;
+  required: boolean;
+}
+
+export interface ReplaceTemplateVariablesInput {
+  definitions: readonly TemplateVariableDefinition[];
+}
+
+export interface SetTemplateVariableValueInput {
+  value: JsonValue;
+}
+
 export type EmptyWorkflowActionInput = Readonly<Record<never, never>>;
 export type WorkflowResource = Readonly<Record<string, JsonValue>>;
 export type WorkflowActionResult = Readonly<Record<string, JsonValue>>;
@@ -26,29 +50,4 @@ export interface WorkflowVersionList {
   };
 }
 
-export const workflowDeferredCapabilities = [
-  {
-    capability: "promote_version",
-    status: "NOT_MET",
-    reason:
-      "Engine exposes version promotion through gRPC only; no REST controller is wired.",
-  },
-  {
-    capability: "start_canary",
-    status: "NOT_MET",
-    reason:
-      "Engine exposes canary start through gRPC only; no REST controller is wired.",
-  },
-  {
-    capability: "rollback_version",
-    status: "NOT_MET",
-    reason:
-      "Engine exposes workflow rollback through gRPC only; no REST controller is wired.",
-  },
-  {
-    capability: "template_variables",
-    status: "NOT_MET",
-    reason:
-      "Engine contract has no typed, validated, or versioned template-variable route or table.",
-  },
-] as const;
+export const workflowDeferredCapabilities = [] as const;

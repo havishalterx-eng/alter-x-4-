@@ -15,7 +15,9 @@ import type {
   SetTriggerStatusInput,
   Trigger,
   TriggerListResult,
+  TriggerTestResult,
   TriggerVersion,
+  TriggerWebhookSecretRotation,
 } from "./types";
 import {
   parseTraceparent,
@@ -102,6 +104,50 @@ export class TriggerService {
       jsonBody(input),
       callerContext(actor, traceparent, instance),
       { idempotencyKey, ifMatch },
+    );
+  }
+
+  enable(
+    triggerId: string,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<Trigger>> {
+    return this.action(triggerId, "enable", actor, traceparent, idempotencyKey);
+  }
+
+  test(
+    triggerId: string,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<TriggerTestResult>> {
+    return this.action(triggerId, "test", actor, traceparent, idempotencyKey);
+  }
+
+  rotateWebhookSecret(
+    triggerId: string,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<TriggerWebhookSecretRotation>> {
+    return this.action(triggerId, "rotate-webhook-secret", actor, traceparent, idempotencyKey);
+  }
+
+  private action<T>(
+    triggerId: string,
+    action: "enable" | "test" | "rotate-webhook-secret",
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<T>> {
+    const instance = `/api/v1/triggers/${triggerId}/actions/${action}`;
+    const id = parseTriggerId(triggerId, instance);
+    return this.engine.post(
+      `/api/v1/triggers/${encodeURIComponent(id)}/actions/${action}`,
+      {},
+      callerContext(actor, traceparent, instance),
+      { idempotencyKey },
     );
   }
 }

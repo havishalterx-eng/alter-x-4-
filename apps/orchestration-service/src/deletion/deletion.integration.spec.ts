@@ -57,16 +57,16 @@ describe.sequential("OrchestrationDeletionService real Postgres", () => {
     await postgres?.stop();
   }, 60_000);
 
-  it("deletes all 18 tenant tables while preserving a second tenant", async () => {
+  it("deletes all 19 tenant tables while preserving a second tenant", async () => {
     await seedAll(adminStore, TENANT_A, "a");
     await seedAll(adminStore, TENANT_B, "b");
 
     const before = await service.locateSubjectData(`ten_${TENANT_A}`);
-    expect(before).toHaveLength(18);
+    expect(before).toHaveLength(19);
     expect(before.every((location) => location.rowCount === 1)).toBe(true);
 
     await expect(service.deleteSubjectData(`ten_${TENANT_A}`, MANIFEST)).resolves.toMatchObject({
-      deletedRows: 18,
+      deletedRows: 19,
       deletedObjects: 0,
     });
     await expect(service.verifyDeletion(`ten_${TENANT_A}`, MANIFEST)).resolves.toMatchObject({
@@ -137,6 +137,7 @@ async function seedAll(
     await tx.query("INSERT INTO workflow_template_variable_definitions(id,tenant_id,workflow_id,workflow_version_id,name,value_type) VALUES ($1,$2,$3,$4,'REGION','text')", [`wtv_${suffix}`, tenant, workflow, workflowVersion]);
     await tx.query("INSERT INTO workflow_template_variable_values(tenant_id,workflow_id,name,value_json) VALUES ($1,$2,'REGION','\"ap-south-1\"')", [tenant, workflow]);
     await tx.query("INSERT INTO triggers(id,tenant_id,workspace_id,workflow_id,name,type) VALUES ($1,$2,$2,$3,'fixture','manual')", [trigger, tenant, workflow]);
+    await tx.query("INSERT INTO trigger_webhook_secrets(tenant_id,trigger_id,version,secret_hash) VALUES ($1,$2,1,repeat('0',64))", [tenant, trigger]);
     await tx.query("INSERT INTO trigger_versions(id,tenant_id,trigger_id,version,config) VALUES ($1,$2,$3,1,'{}')", [`trgv_${suffix}`, tenant, trigger]);
     await tx.query("INSERT INTO conversations(id,tenant_id,workspace_id,channel,temporal_workflow_id) VALUES ($1,$2,$2,'api',$3)", [conversation, tenant, `temporal-${suffix}`]);
     await tx.query("INSERT INTO clarifications(id,tenant_id,workspace_id,conversation_id,question,expiry_at) VALUES ($1,$2,$2,$3,'fixture',now()+interval '1 hour')", [`clr_${suffix}`, tenant, conversation]);

@@ -54,7 +54,7 @@ function requiredTenantId(request: SessionGatewayRequest): string {
   return tenantId;
 }
 
-@Controller("v1/triggers")
+@Controller("api/v1/triggers")
 export class TriggerRegistryController {
   constructor(private readonly service: TriggerRegistryService) {}
 
@@ -117,6 +117,39 @@ export class TriggerRegistryController {
         triggerId,
         body.status,
       );
+    } catch (error: unknown) {
+      throw mapTriggerError(error, request.url);
+    }
+  }
+
+  @Post(":id/actions/enable")
+  async enable(@Req() request: SessionGatewayRequest, @Param("id") triggerId: string) {
+    const tenantId = requiredTenantId(request);
+    try {
+      return await this.service.setTriggerStatus(tenantId, triggerId, "enabled");
+    } catch (error: unknown) {
+      throw mapTriggerError(error, request.url);
+    }
+  }
+
+  @Post(":id/actions/test")
+  async test(@Req() request: SessionGatewayRequest, @Param("id") triggerId: string) {
+    const tenantId = requiredTenantId(request);
+    try {
+      return await this.service.testTrigger(tenantId, triggerId);
+    } catch (error: unknown) {
+      throw mapTriggerError(error, request.url);
+    }
+  }
+
+  @Post(":id/actions/rotate-webhook-secret")
+  async rotateWebhookSecret(
+    @Req() request: SessionGatewayRequest,
+    @Param("id") triggerId: string,
+  ) {
+    const tenantId = requiredTenantId(request);
+    try {
+      return await this.service.rotateWebhookSecret(tenantId, triggerId);
     } catch (error: unknown) {
       throw mapTriggerError(error, request.url);
     }

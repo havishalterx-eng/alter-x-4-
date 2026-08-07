@@ -43,6 +43,7 @@ export type {
   EngineEventStream,
   EngineMutationOptions,
   EnginePatchOptions,
+  EnginePutOptions,
   EnginePath,
   EngineRequestBody,
   EngineResponse,

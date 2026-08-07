@@ -33,13 +33,24 @@ interface TriggerVersionRow {
   status: string;
 }
 
+interface WebhookSecretRow {
+  tenant_id: string;
+  trigger_id: string;
+  version: number;
+  secret_hash: string;
+}
+
 function createFakeStore(): {
   readonly store: OrchestrationTenantStore;
   readonly triggers: Map<string, TriggerRow>;
   readonly triggerVersions: TriggerVersionRow[];
+  readonly webhookSecrets: WebhookSecretRow[];
+  readonly events: readonly unknown[];
 } {
   const triggers = new Map<string, TriggerRow>();
   const triggerVersions: TriggerVersionRow[] = [];
+  const webhookSecrets: WebhookSecretRow[] = [];
+  const events: unknown[] = [];
   let insertOrder = 0;
 
   const store: OrchestrationTenantStore = {
@@ -97,6 +108,19 @@ function createFakeStore(): {
             };
           }
 
+          if (sql.startsWith("SELECT id, workspace_id FROM triggers")) {
+            const [tenantId, triggerId] = values as [string, string];
+            const row = triggers.get(triggerId);
+            const match =
+              row !== undefined && row.tenant_id === tenantId
+                ? [{ id: row.id, workspace_id: row.workspace_id }]
+                : [];
+            return {
+              rowCount: match.length,
+              rows: match as unknown as readonly TRow[],
+            };
+          }
+
           if (sql.startsWith("SELECT version FROM trigger_versions")) {
             const [tenantId, triggerId] = values as [string, string];
             const versions = triggerVersions
@@ -109,6 +133,41 @@ function createFakeStore(): {
                 ? []
                 : [{ version: top.version }]) as unknown as readonly TRow[],
             };
+          }
+
+          if (sql.startsWith("SELECT COALESCE(MAX(version), 0) AS version")) {
+            const [tenantId, triggerId] = values as [string, string];
+            const version = webhookSecrets
+              .filter(
+                (secret) =>
+                  secret.tenant_id === tenantId && secret.trigger_id === triggerId,
+              )
+              .reduce((current, secret) => Math.max(current, secret.version), 0);
+            return {
+              rowCount: 1,
+              rows: [{ version }] as unknown as readonly TRow[],
+            };
+          }
+
+          if (sql.startsWith("INSERT INTO trigger_webhook_secrets")) {
+            const [tenantId, triggerId, version, secretHash] = values as [
+              string,
+              string,
+              number,
+              string,
+            ];
+            webhookSecrets.push({
+              tenant_id: tenantId,
+              trigger_id: triggerId,
+              version,
+              secret_hash: secretHash,
+            });
+            return { rowCount: 1, rows: [] as unknown as readonly TRow[] };
+          }
+
+          if (sql.startsWith("INSERT INTO events")) {
+            events.push(values);
+            return { rowCount: 1, rows: [] as unknown as readonly TRow[] };
           }
 
           if (sql.startsWith("UPDATE trigger_versions SET status = 'superseded'")) {
@@ -176,11 +235,11 @@ function createFakeStore(): {
     },
   };
 
-  return { store, triggers, triggerVersions };
+  return { store, triggers, triggerVersions, webhookSecrets, events };
 }
 
-const TENANT_A = "ten_a";
-const TENANT_B = "ten_b";
+const TENANT_A = "ten_018f47a5-7b2c-7d10-8f11-123456789abc";
+const TENANT_B = "ten_018f47a5-7b2c-7d10-8f11-123456789abd";
 
 function baseRequest(
   overrides: Partial<RegisterTriggerRequest> = {},
@@ -348,6 +407,58 @@ describe("TriggerRegistryService", () => {
     await expect(
       service.setTriggerStatus(TENANT_A, "nope", "enabled"),
     ).rejects.toThrow(TriggerNotFoundError);
+  });
+
+  it("writes a real test event for active trigger version", async () => {
+    const { store, events } = createFakeStore();
+    const service = new TriggerRegistryService(store, () => "018f47a5-7b2c-7d10-8f11-123456789abc");
+    const registered = await service.registerTrigger(baseRequest());
+
+    const result = await service.testTrigger(TENANT_A, registered.trigger.id);
+
+    expect(result).toEqual({
+      eventId: "evt_018f47a5-7b2c-7d10-8f11-123456789abc",
+      triggerId: registered.trigger.id,
+      triggerVersion: 1,
+    });
+    expect(events).toHaveLength(1);
+  });
+
+  it("rotates webhook secrets as hashes and never stores raw secret", async () => {
+    const { store, webhookSecrets } = createFakeStore();
+    const service = new TriggerRegistryService(store);
+    const registered = await service.registerTrigger(baseRequest({ type: "webhook" }));
+
+    const first = await service.rotateWebhookSecret(TENANT_A, registered.trigger.id);
+    const second = await service.rotateWebhookSecret(TENANT_A, registered.trigger.id);
+
+    expect(first.secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(second.secretVersion).toBe(2);
+    expect(webhookSecrets).toHaveLength(2);
+    expect(webhookSecrets[0]?.secret_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(webhookSecrets)).not.toContain(first.secret);
+  });
+
+  it("rejects webhook-secret rotation for non-webhook triggers", async () => {
+    const { store } = createFakeStore();
+    const service = new TriggerRegistryService(store);
+    const registered = await service.registerTrigger(baseRequest({ type: "manual" }));
+
+    await expect(
+      service.rotateWebhookSecret(TENANT_A, registered.trigger.id),
+    ).rejects.toThrow(TriggerValidationError);
+  });
+
+  it("preserves a platform wfv_ workflow version identifier", async () => {
+    const { store } = createFakeStore();
+    const service = new TriggerRegistryService(store);
+    const workflowVersionId = "wfv_018f47a5-7b2c-7d10-8f11-123456789abc";
+
+    const result = await service.registerTrigger(
+      baseRequest({ workflowVersionId }),
+    );
+
+    expect(result.triggerVersion.workflowVersionId).toBe(workflowVersionId);
   });
 
   it("gets a trigger by id", async () => {

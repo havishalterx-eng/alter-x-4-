@@ -36,6 +36,7 @@ import {
 
 const migrationsFolder = resolve(process.cwd(), "apps/orchestration-service/drizzle");
 const TENANT_ID = "00000000-0000-7000-8000-000000000001";
+const PLATFORM_TENANT_ID = `ten_${TENANT_ID}`;
 const WORKSPACE_ID = "00000000-0000-7000-8000-000000000011";
 const APP_SECRET = "exit-check-app-secret";
 const VERIFY_TOKEN = "exit-check-verify-token";
@@ -335,11 +336,11 @@ describe.sequential("Ingress phase (INGR-1..8) exit checks", () => {
 
   it("check 5: a trigger is bound to an explicit, immutable DAG version", async () => {
     const triggerRegistry = new TriggerRegistryService(store);
-    const workflowVersionIdOne = "00000000-0000-7000-8000-0000000000a1";
-    const workflowVersionIdTwo = "00000000-0000-7000-8000-0000000000a2";
+    const workflowVersionIdOne = "wfv_00000000-0000-7000-8000-0000000000a1";
+    const workflowVersionIdTwo = "wfv_00000000-0000-7000-8000-0000000000a2";
 
     const registered = await triggerRegistry.registerTrigger({
-      tenantId: TENANT_ID,
+      tenantId: PLATFORM_TENANT_ID,
       workspaceId: WORKSPACE_ID,
       workflowId: "wf_exit",
       name: "Exit Check Trigger",
@@ -352,7 +353,7 @@ describe.sequential("Ingress phase (INGR-1..8) exit checks", () => {
     // Creating a new version must bind to its OWN explicit DAG version,
     // never silently inherit or float with the trigger's prior binding.
     const newVersion = await triggerRegistry.createTriggerVersion({
-      tenantId: TENANT_ID,
+      tenantId: PLATFORM_TENANT_ID,
       triggerId: registered.trigger.id,
       workflowVersionId: workflowVersionIdTwo,
     });

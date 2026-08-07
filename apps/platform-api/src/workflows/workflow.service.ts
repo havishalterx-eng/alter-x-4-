@@ -12,8 +12,12 @@ import { WorkflowHttpError } from "./problem";
 import type {
   CreateWorkflowInput,
   EmptyWorkflowActionInput,
+  ReplaceTemplateVariablesInput,
   SaveCanvasInput,
+  SetTemplateVariableValueInput,
   SimulateWorkflowInput,
+  StartCanaryInput,
+  WorkflowVersionActionInput,
   WorkflowActionResult,
   WorkflowResource,
   WorkflowVersionList,
@@ -101,6 +105,102 @@ export class WorkflowService {
     input:
       | EmptyWorkflowActionInput
       | SimulateWorkflowInput,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<WorkflowActionResult>> {
+    const instance = `/api/v1/workflows/${workflowId}/actions/${action}`;
+    const id = parseWorkflowId(workflowId, instance);
+    return this.engine.post(
+      `/api/v1/workflows/${encodeURIComponent(id)}/actions/${action}`,
+      jsonBody(input),
+      callerContext(actor, traceparent, instance),
+      { idempotencyKey },
+    );
+  }
+
+  promoteVersion(
+    workflowId: string,
+    input: WorkflowVersionActionInput,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<WorkflowActionResult>> {
+    return this.versionAction(workflowId, "promote-version", input, actor, traceparent, idempotencyKey);
+  }
+
+  startCanary(
+    workflowId: string,
+    input: StartCanaryInput,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<WorkflowActionResult>> {
+    return this.versionAction(workflowId, "start-canary", input, actor, traceparent, idempotencyKey);
+  }
+
+  rollback(
+    workflowId: string,
+    input: WorkflowVersionActionInput,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<WorkflowActionResult>> {
+    return this.versionAction(workflowId, "rollback", input, actor, traceparent, idempotencyKey);
+  }
+
+  templateVariables(
+    workflowId: string,
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<EngineResponse<WorkflowActionResult>> {
+    const instance = `/api/v1/workflows/${workflowId}/template-variables`;
+    const id = parseWorkflowId(workflowId, instance);
+    return this.engine.get(
+      `/api/v1/workflows/${encodeURIComponent(id)}/template-variables`,
+      callerContext(actor, traceparent, instance),
+    );
+  }
+
+  replaceTemplateVariables(
+    workflowId: string,
+    input: ReplaceTemplateVariablesInput,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<WorkflowActionResult>> {
+    const instance = `/api/v1/workflows/${workflowId}/template-variables`;
+    const id = parseWorkflowId(workflowId, instance);
+    return this.engine.put(
+      `/api/v1/workflows/${encodeURIComponent(id)}/template-variables`,
+      jsonBody(input),
+      callerContext(actor, traceparent, instance),
+      { idempotencyKey },
+    );
+  }
+
+  setTemplateVariableValue(
+    workflowId: string,
+    name: string,
+    input: SetTemplateVariableValueInput,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<WorkflowActionResult>> {
+    const instance = `/api/v1/workflows/${workflowId}/template-variables/${name}/value`;
+    const id = parseWorkflowId(workflowId, instance);
+    return this.engine.put(
+      `/api/v1/workflows/${encodeURIComponent(id)}/template-variables/${encodeURIComponent(name)}/value`,
+      jsonBody(input),
+      callerContext(actor, traceparent, instance),
+      { idempotencyKey },
+    );
+  }
+
+  private versionAction(
+    workflowId: string,
+    action: "promote-version" | "start-canary" | "rollback",
+    input: WorkflowVersionActionInput | StartCanaryInput,
     actor: ActorContext,
     traceparent: string | undefined,
     idempotencyKey: string,

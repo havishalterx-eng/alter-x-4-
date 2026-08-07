@@ -44,6 +44,7 @@ describe("orchestration migration files", () => {
       "0024_create_template_variables_clarifications.sql",
       "0025_create_trigger_integration_bindings.sql",
       "0026_create_escalations.sql",
+      "0027_create_trigger_webhook_secrets.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -77,6 +78,7 @@ describe("orchestration migration files", () => {
       "0024_drop_template_variables_clarifications.sql",
       "0025_drop_trigger_integration_bindings.sql",
       "0026_drop_escalations.sql",
+      "0027_drop_trigger_webhook_secrets.sql",
     ]);
   });
 
@@ -99,13 +101,13 @@ describe("orchestration migration files", () => {
     },
   );
 
-  it("defines immutability function once and reuses it twenty-six times", () => {
+  it("defines immutability function once and reuses it twenty-seven times", () => {
     const allSql = migrationSql.map(({ sql }) => sql).join("\n");
 
     expect(allSql.match(/CREATE OR REPLACE FUNCTION reject_tenant_id_change/g))
       .toHaveLength(1);
     expect(allSql.match(/EXECUTE FUNCTION reject_tenant_id_change\(\)/g))
-      .toHaveLength(26);
+      .toHaveLength(27);
   });
 
   it("persists a bounded traffic percentage only for canary versions", () => {

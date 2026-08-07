@@ -48,6 +48,7 @@ import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import { ConversationManagerService } from "./conversation/conversation-manager.service";
 import { GraphCompilerService } from "./compiler/graph-compiler.service";
 import { DeploymentControllerService } from "./deployment-controller/deployment-controller.service";
+import { WorkflowDeploymentController } from "./deployment-controller/workflow-deployment.controller";
 import { RegistryService } from "./registry/registry.service";
 import { NodeexecService } from "./registry/nodeexec.service";
 import { NodeExecutionsController } from "./runs/node-executions.controller";
@@ -152,6 +153,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
     WebhookEndpointController,
     IntegrationWebhookController,
     WorkflowReadController,
+    WorkflowDeploymentController,
     TemplateVariablesController,
     ClarificationsController,
     ProjectReadController,
@@ -457,7 +459,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       },
     },
     {
-      provide: DEPLOYCTL_HANDLER,
+      provide: DeploymentControllerService,
       useFactory: async (artifacts: ArtifactsService) => {
         const dbConfig = sessionGatewayEnvironment(process.env);
         const store = new PostgresOrchestrationStoreProvider({
@@ -486,6 +488,10 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         }
       },
       inject: [ArtifactsService],
+    },
+    {
+      provide: DEPLOYCTL_HANDLER,
+      useExisting: DeploymentControllerService,
     },
     {
       // No PostgresOrchestrationStoreProvider here -- the Node Type

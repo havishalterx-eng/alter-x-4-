@@ -14,6 +14,7 @@ import type {
   EngineEventStream,
   EngineMutationOptions,
   EnginePatchOptions,
+  EnginePutOptions,
   EnginePath,
   EngineRequestBody,
   EngineResponse,
@@ -77,12 +78,12 @@ export class EngineClient {
     path: EnginePath,
     body: TRequest,
     context: EngineCallerContext,
-    options: EnginePatchOptions,
+    options: EnginePutOptions,
   ): Promise<EngineResponse<TResponse>> {
     return this.request("PUT", path, context, {
       body,
       idempotencyKey: options.idempotencyKey,
-      ifMatch: options.ifMatch,
+      ...(options.ifMatch === undefined ? {} : { ifMatch: options.ifMatch }),
     });
   }
 

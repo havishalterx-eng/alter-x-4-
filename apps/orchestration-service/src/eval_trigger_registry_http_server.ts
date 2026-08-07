@@ -5,8 +5,13 @@ import { Module, type DynamicModule } from "@nestjs/common";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 
 import { PostgresOrchestrationStoreProvider } from "@alterx/adapters";
+import { createMockMutableSecretsProvider } from "@alterx/shared-clients";
 import type { ActorContext, SessionGatewayRequest } from "@alterx/auth";
 
+import {
+  PostgresTriggerBindingStore,
+  TriggerBindingService,
+} from "./trigger-bindings";
 import { TriggerRegistryController } from "./trigger-registry/trigger-registry.controller";
 import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
 
@@ -47,7 +52,17 @@ class EvalTriggerRegistryModule {
     return {
       module: EvalTriggerRegistryModule,
       controllers: [TriggerRegistryController],
-      providers: [{ provide: TriggerRegistryService, useValue: new TriggerRegistryService(store) }],
+      providers: [
+        { provide: TriggerRegistryService, useValue: new TriggerRegistryService(store) },
+        {
+          provide: TriggerBindingService,
+          useValue: new TriggerBindingService(
+            new PostgresTriggerBindingStore(store),
+            createMockMutableSecretsProvider({ secrets: {} }),
+            { webhookBaseUrl: "http://127.0.0.1" },
+          ),
+        },
+      ],
     };
   }
 }
@@ -77,7 +92,7 @@ async function bootstrap(): Promise<void> {
     EvalTriggerRegistryModule.register(store),
     new FastifyAdapter(),
   );
-  const actorContext = evalAuthActorContext(tenantId);
+  const actorContext = evalAuthActorContext(`ten_${tenantId}`);
   app.getHttpAdapter().getInstance().addHook(
     "onRequest",
     (request: SessionGatewayRequest, _reply: unknown, done: () => void) => {
