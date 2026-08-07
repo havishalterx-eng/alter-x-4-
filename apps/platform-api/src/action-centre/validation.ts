@@ -13,16 +13,19 @@ const queueQuerySchema = z
   .object({
     cursor: z.string().min(1).max(4096).optional(),
     limit: z.coerce.number().int().min(1).max(200).optional(),
-    type: z.enum(["approval", "escalation"]).optional(),
+    type: z.enum(["approval", "clarification", "escalation"]).optional(),
     status: z.enum(["pending", "approved", "rejected", "expired"]).optional(),
   })
   .strict()
   .superRefine((query, context) => {
-    if (query.type === "escalation" && query.status !== undefined) {
+    if (
+      (query.type === "escalation" || query.type === "clarification") &&
+      query.status !== undefined
+    ) {
       context.addIssue({
         code: "custom",
         path: ["status"],
-        message: "Engine declares no escalation status filter",
+        message: "Selected action source declares no status filter",
       });
     }
   });
@@ -45,6 +48,27 @@ export function parseActionBody(
     ]);
   }
   return value as Readonly<Record<string, unknown>>;
+}
+
+export function parseClarificationAssignmentBody(
+  input: unknown,
+  instance: string,
+): Readonly<{ assignee_user_id: string | null }> {
+  return parse(
+    z
+      .object({
+        assignee_user_id: z
+          .string()
+          .regex(
+            /^usr_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+            "Expected a usr_ UUIDv7",
+          )
+          .nullable(),
+      })
+      .strict(),
+    input,
+    instance,
+  );
 }
 
 export function parseResourceId(

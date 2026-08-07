@@ -11,7 +11,7 @@ export interface EnginePage<T> {
   };
 }
 
-export type QueueSourceType = "approval" | "escalation";
+export type QueueSourceType = "approval" | "clarification" | "escalation";
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
 
 export interface ActionQueueItem {
@@ -26,7 +26,6 @@ export interface ActionQueuePage {
     has_more: boolean;
     limit: number;
   };
-  deferred: typeof humanActionCentreDeferred;
 }
 
 export interface ActionQueueQuery {
@@ -35,31 +34,3 @@ export interface ActionQueueQuery {
   type?: QueueSourceType | undefined;
   status?: ApprovalStatus | undefined;
 }
-
-export const humanActionCentreDeferred = [
-  {
-    capability: "clarifications_in_queue",
-    status: "NOT_MET",
-    reason: "Engine has no clarifications list endpoint.",
-  },
-  {
-    capability: "universal_claim",
-    status: "NOT_MET",
-    reason: "Engine claim is declared only for escalations.",
-  },
-  {
-    capability: "annotate",
-    status: "NOT_MET",
-    reason: "Engine has no action-item annotation endpoint.",
-  },
-  {
-    capability: "assign_reassign",
-    status: "NOT_MET",
-    reason: "Engine has no assignment endpoint or declared assignee field.",
-  },
-  {
-    capability: "expiry",
-    status: "NOT_MET",
-    reason: "Engine exposes no action-item expiry surface.",
-  },
-] as const;

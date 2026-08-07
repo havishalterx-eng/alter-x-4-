@@ -7,6 +7,7 @@ import { AnnotationRepository } from "./annotation.repository";
 import {
   ActionQueueController,
   ApprovalActionController,
+  ClarificationAssignmentController,
   EscalationActionController,
   RunClarificationActionController,
 } from "./action-centre.controller";
@@ -18,6 +19,7 @@ import { ActionCentreService } from "./action-centre.service";
   controllers: [
     ActionQueueController,
     ApprovalActionController,
+    ClarificationAssignmentController,
     EscalationActionController,
     RunClarificationActionController,
     AnnotationController,

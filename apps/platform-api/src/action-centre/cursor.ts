@@ -2,10 +2,12 @@ import { ActionCentreHttpError } from "./problem";
 import type { ActionQueueQuery } from "./types";
 
 interface QueueCursor {
-  version: 1;
+  version: 2;
   approval_cursor: string | null;
+  clarification_cursor: string | null;
   escalation_cursor: string | null;
   approval_done: boolean;
+  clarification_done: boolean;
   escalation_done: boolean;
   offset: number;
   limit: number;
@@ -15,10 +17,12 @@ interface QueueCursor {
 
 export function initialCursor(query: ActionQueueQuery): QueueCursor {
   return {
-    version: 1,
+    version: 2,
     approval_cursor: null,
+    clarification_cursor: null,
     escalation_cursor: null,
     approval_done: false,
+    clarification_done: false,
     escalation_done: false,
     offset: 0,
     limit: query.limit ?? 50,
@@ -37,10 +41,12 @@ export function decodeCursor(
       Buffer.from(encoded, "base64url").toString("utf8"),
     ) as Partial<QueueCursor>;
     if (
-      value.version !== 1 ||
+      value.version !== 2 ||
       !validNullableString(value.approval_cursor) ||
+      !validNullableString(value.clarification_cursor) ||
       !validNullableString(value.escalation_cursor) ||
       typeof value.approval_done !== "boolean" ||
+      typeof value.clarification_done !== "boolean" ||
       typeof value.escalation_done !== "boolean" ||
       !Number.isSafeInteger(value.offset) ||
       value.offset! < 0 ||
@@ -81,13 +87,19 @@ export function advanceWithinBatch(
 export function advanceBatch(
   cursor: QueueCursor,
   approval: { next_cursor: string | null; has_more: boolean } | undefined,
+  clarification: { next_cursor: string | null; has_more: boolean } | undefined,
   escalation: { next_cursor: string | null; has_more: boolean } | undefined,
 ): QueueCursor {
   return {
     ...cursor,
     approval_cursor: approval?.next_cursor ?? cursor.approval_cursor,
+    clarification_cursor:
+      clarification?.next_cursor ?? cursor.clarification_cursor,
     escalation_cursor: escalation?.next_cursor ?? cursor.escalation_cursor,
     approval_done: approval ? !approval.has_more : cursor.approval_done,
+    clarification_done: clarification
+      ? !clarification.has_more
+      : cursor.clarification_done,
     escalation_done: escalation ? !escalation.has_more : cursor.escalation_done,
     offset: 0,
   };
@@ -100,7 +112,12 @@ function validNullableString(value: unknown): boolean {
 }
 
 function validType(value: unknown): boolean {
-  return value === null || value === "approval" || value === "escalation";
+  return (
+    value === null ||
+    value === "approval" ||
+    value === "clarification" ||
+    value === "escalation"
+  );
 }
 
 function validStatus(value: unknown): boolean {

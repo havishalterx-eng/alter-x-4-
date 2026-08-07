@@ -22,7 +22,6 @@ import {
   type ApprovalStatus,
   type EnginePage,
   type EngineResource,
-  humanActionCentreDeferred,
 } from "./types";
 import {
   parseActionBody,
@@ -50,11 +49,16 @@ export class ActionCentreService {
       ? decodeCursor(query.cursor, query, instance)
       : initialCursor(query);
     const context = callerContext(actor, traceparent, instance);
-    const includeApprovals = cursor.type !== "escalation";
+    const includeApprovals =
+      cursor.type !== "clarification" && cursor.type !== "escalation";
+    const includeClarifications =
+      cursor.type !== "approval" && cursor.type !== "escalation";
     const includeEscalations =
-      cursor.type !== "approval" && cursor.status === null;
+      cursor.type !== "approval" &&
+      cursor.type !== "clarification" &&
+      cursor.status === null;
 
-    const [approvals, escalations] = await Promise.all([
+    const [approvals, clarifications, escalations] = await Promise.all([
       includeApprovals && !cursor.approval_done
         ? this.engine.get<EnginePage<EngineResource>>(
             listPath(
@@ -62,6 +66,16 @@ export class ActionCentreService {
               cursor.approval_cursor,
               cursor.limit,
               cursor.status,
+            ),
+            context,
+          )
+        : undefined,
+      includeClarifications && !cursor.clarification_done
+        ? this.engine.get<EnginePage<EngineResource>>(
+            listPath(
+              "/api/v1/clarifications",
+              cursor.clarification_cursor,
+              cursor.limit,
             ),
             context,
           )
@@ -78,19 +92,23 @@ export class ActionCentreService {
         : undefined,
     ]);
     assertPage(approvals?.body.page, instance);
+    assertPage(clarifications?.body.page, instance);
     assertPage(escalations?.body.page, instance);
 
-    const merged = interleave(
+    const merged = interleave([
       tag("approval", approvals?.body.data ?? []),
+      tag("clarification", clarifications?.body.data ?? []),
       tag("escalation", escalations?.body.data ?? []),
-    );
+    ]);
     const data = merged.slice(cursor.offset, cursor.offset + cursor.limit);
     const next = nextCursor(
       cursor,
       merged.length,
       approvals?.body.page,
+      clarifications?.body.page,
       escalations?.body.page,
       includeApprovals,
+      includeClarifications,
       includeEscalations,
     );
 
@@ -101,7 +119,6 @@ export class ActionCentreService {
         has_more: next !== null,
         limit: cursor.limit,
       },
-      deferred: humanActionCentreDeferred,
     };
   }
 
@@ -160,24 +177,52 @@ export class ActionCentreService {
       { idempotencyKey },
     );
   }
+
+  assignClarification(
+    clarificationId: string,
+    body: unknown,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<EngineResource>> {
+    const instance = `/api/v1/clarifications/${clarificationId}/actions/assign`;
+    const id = parseClarificationId(clarificationId, instance);
+    return this.engine.post(
+      `/api/v1/clarifications/${encodeURIComponent(id)}/actions/assign`,
+      jsonBody(body),
+      callerContext(actor, traceparent, instance),
+      { idempotencyKey },
+    );
+  }
 }
 
 function nextCursor(
   cursor: ReturnType<typeof initialCursor>,
   mergedLength: number,
   approvalPage: EnginePage<EngineResource>["page"] | undefined,
+  clarificationPage: EnginePage<EngineResource>["page"] | undefined,
   escalationPage: EnginePage<EngineResource>["page"] | undefined,
   includeApprovals: boolean,
+  includeClarifications: boolean,
   includeEscalations: boolean,
 ): string | null {
   const nextOffset = cursor.offset + cursor.limit;
   if (nextOffset < mergedLength) {
     return encodeCursor(advanceWithinBatch(cursor, nextOffset));
   }
-  const advanced = advanceBatch(cursor, approvalPage, escalationPage);
+  const advanced = advanceBatch(
+    cursor,
+    approvalPage,
+    clarificationPage,
+    escalationPage,
+  );
   const approvalsDone = !includeApprovals || advanced.approval_done;
+  const clarificationsDone =
+    !includeClarifications || advanced.clarification_done;
   const escalationsDone = !includeEscalations || advanced.escalation_done;
-  return approvalsDone && escalationsDone ? null : encodeCursor(advanced);
+  return approvalsDone && clarificationsDone && escalationsDone
+    ? null
+    : encodeCursor(advanced);
 }
 
 function assertPage(
@@ -195,7 +240,10 @@ function assertPage(
 }
 
 function listPath(
-  base: "/api/v1/approvals" | "/api/v1/escalations",
+  base:
+    | "/api/v1/approvals"
+    | "/api/v1/clarifications"
+    | "/api/v1/escalations",
   cursor: string | null,
   limit: number,
   status?: ApprovalStatus | null,
@@ -214,16 +262,15 @@ function tag(
 }
 
 function interleave(
-  approvals: readonly ActionQueueItem[],
-  escalations: readonly ActionQueueItem[],
+  sources: readonly (readonly ActionQueueItem[])[],
 ): ActionQueueItem[] {
   const result: ActionQueueItem[] = [];
-  const length = Math.max(approvals.length, escalations.length);
+  const length = Math.max(0, ...sources.map((source) => source.length));
   for (let index = 0; index < length; index += 1) {
-    const approval = approvals[index];
-    const escalation = escalations[index];
-    if (approval) result.push(approval);
-    if (escalation) result.push(escalation);
+    for (const source of sources) {
+      const item = source[index];
+      if (item) result.push(item);
+    }
   }
   return result;
 }

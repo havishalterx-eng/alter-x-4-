@@ -21,6 +21,7 @@ import {
 import { ActionCentreExceptionFilter } from "./action-centre-exception.filter";
 import { ActionCentreService } from "./action-centre.service";
 import { ActionCentreHttpError } from "./problem";
+import { parseClarificationAssignmentBody } from "./validation";
 import type {
   ActionQueuePage,
   EngineResource,
@@ -28,6 +29,7 @@ import type {
 
 const readRoles = ["admin", "editor", "operator", "approver", "viewer"] as const;
 const decisionRoles = ["admin", "operator", "approver"] as const;
+const assignmentRoles = ["admin", "editor", "operator", "approver"] as const;
 
 @Controller("/api/v1/action-centre")
 @UseFilters(ActionCentreExceptionFilter)
@@ -224,6 +226,37 @@ export class RunClarificationActionController {
         runId,
         clarificationId,
         body,
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+}
+
+@Controller("/api/v1/clarifications")
+@UseFilters(ActionCentreExceptionFilter)
+export class ClarificationAssignmentController {
+  constructor(private readonly actionCentre: ActionCentreService) {}
+
+  @Post(":clarificationId/actions/assign")
+  @RequireWorkspaceRole(...assignmentRoles)
+  @RequirePermission("human-actions:read")
+  @Idempotent()
+  async assign(
+    @Param("clarificationId") clarificationId: string,
+    @Body() body: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<EngineResource> {
+    const instance = `/api/v1/clarifications/${clarificationId}/actions/assign`;
+    return project(
+      await this.actionCentre.assignClarification(
+        clarificationId,
+        parseClarificationAssignmentBody(body, instance),
         requireActor(actor, instance),
         traceparent,
         idempotencyKey!,

@@ -19,6 +19,7 @@ describe("action centre cursor", () => {
         initial,
         { next_cursor: "approval-next", has_more: true },
         undefined,
+        undefined,
       ),
       7,
     );
@@ -37,12 +38,15 @@ describe("action centre cursor", () => {
     const advanced = advanceBatch(
       initial,
       { next_cursor: null, has_more: false },
+      undefined,
       { next_cursor: "esc-next", has_more: true },
     );
     expect(advanced).toMatchObject({
       approval_done: true,
+      clarification_done: false,
       escalation_done: false,
       approval_cursor: null,
+      clarification_cursor: null,
       escalation_cursor: "esc-next",
       offset: 0,
     });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseActionBody,
+  parseClarificationAssignmentBody,
   parseClarificationId,
   parseQueueQuery,
   parseResourceId,
@@ -21,6 +22,9 @@ describe("action centre validation", () => {
     expect(parseQueueQuery({ status: "approved" }, "/queue")).toEqual({
       status: "approved",
     });
+    expect(parseQueueQuery({ type: "clarification" }, "/queue")).toEqual({
+      type: "clarification",
+    });
     const body = { answer: " Keep whitespace \n", extension: { value: 1 } };
     expect(parseActionBody(body, "/action")).toBe(body);
     expect(parseResourceId(id, "approvalId", "/action")).toBe(id);
@@ -32,9 +36,9 @@ describe("action centre validation", () => {
   it.each([
     [{ mode: "workflow" }],
     [{ limit: 0 }],
-    [{ type: "clarification" }],
     [{ status: "resolved" }],
     [{ type: "escalation", status: "pending" }],
+    [{ type: "clarification", status: "pending" }],
   ])("rejects invalid queue query %j", (query) => {
     expect(() => parseQueueQuery(query, "/queue")).toThrowError(
       expect.objectContaining({ status: 400 }),
@@ -45,6 +49,23 @@ describe("action centre validation", () => {
     expect(() => parseActionBody(body, "/action")).toThrowError(
       expect.objectContaining({ status: 400 }),
     );
+  });
+
+  it("accepts valid clarification assignment and rejects malformed assignees", () => {
+    expect(
+      parseClarificationAssignmentBody(
+        { assignee_user_id: "usr_018f47a5-7b2c-7d10-8f11-123456789abc" },
+        "/assign",
+      ),
+    ).toEqual({
+      assignee_user_id: "usr_018f47a5-7b2c-7d10-8f11-123456789abc",
+    });
+    expect(
+      parseClarificationAssignmentBody({ assignee_user_id: null }, "/assign"),
+    ).toEqual({ assignee_user_id: null });
+    expect(() =>
+      parseClarificationAssignmentBody({ assignee_user_id: "user-1" }, "/assign"),
+    ).toThrowError(expect.objectContaining({ status: 400 }));
   });
 
   it("rejects malformed ids and trace context", () => {

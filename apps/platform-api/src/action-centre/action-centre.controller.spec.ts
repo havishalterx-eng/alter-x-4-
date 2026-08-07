@@ -44,6 +44,7 @@ import { WorkflowService } from "../workflows/workflow.service";
 import {
   ActionQueueController,
   ApprovalActionController,
+  ClarificationAssignmentController,
   EscalationActionController,
   RunClarificationActionController,
 } from "./action-centre.controller";
@@ -86,6 +87,7 @@ describe("Human Action Centre routes", () => {
       controllers: [
         ActionQueueController,
         ApprovalActionController,
+        ClarificationAssignmentController,
         EscalationActionController,
         RunClarificationActionController,
         WorkflowController,
@@ -133,7 +135,7 @@ describe("Human Action Centre routes", () => {
 
   afterAll(async () => app.close());
 
-  it("merges both queues with tagged, lossless BFF pagination", async () => {
+  it("merges all real queues with tagged, lossless BFF pagination", async () => {
     const first = await request({
       method: "GET",
       url: "/api/v1/action-centre?limit=2",
@@ -143,7 +145,7 @@ describe("Human Action Centre routes", () => {
     expect(first.json()).toMatchObject({
       data: [
         { source_type: "approval", item: engine.approvals[0] },
-        { source_type: "escalation", item: engine.escalations[0] },
+        { source_type: "clarification", item: engine.clarifications[0] },
       ],
       page: { has_more: true, limit: 2 },
     });
@@ -155,8 +157,8 @@ describe("Human Action Centre routes", () => {
       actor,
     });
     expect((second.json() as QueueResponse).data).toEqual([
+      { source_type: "escalation", item: engine.escalations[0] },
       { source_type: "approval", item: engine.approvals[1] },
-      { source_type: "escalation", item: engine.escalations[1] },
     ]);
 
     const secondBody = second.json() as QueueResponse;
@@ -166,9 +168,21 @@ describe("Human Action Centre routes", () => {
       actor,
     });
     expect((third.json() as QueueResponse).data).toEqual([
+      { source_type: "clarification", item: engine.clarifications[1] },
+      { source_type: "escalation", item: engine.escalations[1] },
+    ]);
+    expect((third.json() as QueueResponse).page.has_more).toBe(true);
+
+    const thirdBody = third.json() as QueueResponse;
+    const fourth = await request({
+      method: "GET",
+      url: `/api/v1/action-centre?limit=2&cursor=${encodeURIComponent(thirdBody.page.next_cursor!)}`,
+      actor,
+    });
+    expect((fourth.json() as QueueResponse).data).toEqual([
       { source_type: "approval", item: engine.approvals[2] },
     ]);
-    expect((third.json() as QueueResponse).page.has_more).toBe(false);
+    expect((fourth.json() as QueueResponse).page.has_more).toBe(false);
   });
 
   it("uses only contract-backed source and status filters", async () => {
@@ -203,6 +217,23 @@ describe("Human Action Centre routes", () => {
       (item) => item.source_type === "escalation",
     )).toBe(true);
     expect(engine.get).toHaveBeenCalledTimes(1);
+
+    engine.get.mockClear();
+    const clarification = await request({
+      method: "GET",
+      url: "/api/v1/action-centre?type=clarification&limit=5",
+      actor,
+    });
+    expect((clarification.json() as QueueResponse).data).toEqual(
+      engine.clarifications.map((item) => ({
+        source_type: "clarification",
+        item,
+      })),
+    );
+    expect(engine.get).toHaveBeenCalledWith(
+      "/api/v1/clarifications?limit=5",
+      expect.objectContaining({ tenantId: actor.tenant_id }),
+    );
   });
 
   it("returns retained historical approvals through Engine status filters", async () => {
@@ -267,6 +298,24 @@ describe("Human Action Centre routes", () => {
       body,
       expect.any(Object),
       { idempotencyKey: "clarification-opaque" },
+    );
+  });
+
+  it("assigns an open clarification through the real Engine route", async () => {
+    const assignee = `usr_${uuid}`;
+    const response = await request({
+      method: "POST",
+      url: `/api/v1/clarifications/${clarificationId}/actions/assign`,
+      body: { assignee_user_id: assignee },
+      actor,
+      headers: { "idempotency-key": "assign-clarification" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(engine.post).toHaveBeenCalledWith(
+      `/api/v1/clarifications/${clarificationId}/actions/assign`,
+      { assignee_user_id: assignee },
+      expect.any(Object),
+      { idempotencyKey: "assign-clarification" },
     );
   });
 
@@ -339,6 +388,7 @@ describe("Human Action Centre routes", () => {
 
   it.each([
     ["GET", "/api/v1/action-centre?type=escalation&status=pending", undefined],
+    ["GET", "/api/v1/action-centre?type=clarification&status=pending", undefined],
     [
       "POST",
       "/api/v1/approvals/bad/actions/approve",
@@ -353,6 +403,11 @@ describe("Human Action Centre routes", () => {
       "POST",
       `/api/v1/runs/${runId}/clarifications/bad/answer`,
       {},
+    ],
+    [
+      "POST",
+      `/api/v1/clarifications/${clarificationId}/actions/assign`,
+      { assignee_user_id: "bad" },
     ],
   ])("returns problem+json validation for %s %s", async (method, url, body) => {
     const response = await request({
@@ -385,30 +440,13 @@ describe("Human Action Centre routes", () => {
     expect(engine.post).not.toHaveBeenCalled();
   });
 
-  it("marks all deferred capabilities and leaves fake routes absent", async () => {
+  it("does not advertise deferred Human Action Centre capabilities", async () => {
     const queue = await request({
       method: "GET",
       url: "/api/v1/action-centre",
       actor,
     });
-    expect((queue.json() as QueueResponse).deferred).toEqual([
-      expect.objectContaining({ capability: "clarifications_in_queue", status: "NOT_MET" }),
-      expect.objectContaining({ capability: "universal_claim", status: "NOT_MET" }),
-      expect.objectContaining({ capability: "annotate", status: "NOT_MET" }),
-      expect.objectContaining({ capability: "assign_reassign", status: "NOT_MET" }),
-      expect.objectContaining({ capability: "expiry", status: "NOT_MET" }),
-    ]);
-    for (const url of [
-      "/api/v1/action-centre/clarifications",
-      `/api/v1/approvals/${approvalId}/actions/claim`,
-      `/api/v1/approvals/${approvalId}/actions/annotate`,
-      `/api/v1/approvals/${approvalId}/actions/assign`,
-      `/api/v1/approvals/${approvalId}/actions/expire`,
-    ]) {
-      expect(
-        (await request({ method: "POST", url, body: {}, actor })).statusCode,
-      ).toBe(404);
-    }
+    expect(queue.json()).not.toHaveProperty("deferred");
   });
 
   it("keeps direct queue calls default-deny without actor context", async () => {
@@ -457,9 +495,11 @@ describe("Human Action Centre routes", () => {
 });
 
 type QueueResponse = {
-  data: Array<{ source_type: "approval" | "escalation"; item: EngineResource }>;
+  data: Array<{
+    source_type: "approval" | "clarification" | "escalation";
+    item: EngineResource;
+  }>;
   page: { next_cursor: string | null; has_more: boolean; limit: number };
-  deferred: Array<{ capability: string; status: string; reason: string }>;
 };
 
 interface RequestOptions {
@@ -485,6 +525,10 @@ class StatefulActionEngine {
   readonly escalations: EngineResource[] = [
     { escalation_id: escalationId, severity: "high" },
     { escalation_id: `${escalationId}-2`, engine_extension: true },
+  ];
+  readonly clarifications: EngineResource[] = [
+    { clarification_id: clarificationId, status: "open", question: "Target?" },
+    { clarification_id: `${clarificationId}-2`, status: "open", question: "When?" },
   ];
   readonly approvedApprovals: EngineResource[] = [
     {
@@ -546,6 +590,12 @@ class StatefulActionEngine {
       return {
         status: 200,
         body: page(this.escalations.slice(0, limit), null),
+      };
+    }
+    if (url.pathname === "/api/v1/clarifications") {
+      return {
+        status: 200,
+        body: page(this.clarifications.slice(0, limit), null),
       };
     }
     throw new Error(`Unexpected GET ${path}`);
@@ -670,6 +720,12 @@ function actionCases() {
       `/api/v1/runs/${runId}/clarifications/${clarificationId}/answer`,
       { answer: "Answer" },
       "runs:clarifications:answer",
+    ],
+    [
+      "POST",
+      `/api/v1/clarifications/${clarificationId}/actions/assign`,
+      { assignee_user_id: `usr_${uuid}` },
+      "human-actions:read",
     ],
   ] as const;
 }
