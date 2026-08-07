@@ -1,7 +1,11 @@
 import type { ProviderCapabilities } from "@alterx/contracts";
 
 import { createMockProvider } from "../mock-provider";
-import type { ParameterStoreProvider, ProviderMetadata } from "../provider-types";
+import type {
+  MutableParameterStoreProvider,
+  ParameterStoreProvider,
+  ProviderMetadata,
+} from "../provider-types";
 import { mockCapabilities, mockMetadata } from "./shared";
 
 export interface MockParameterStoreProviderOptions {
@@ -32,4 +36,34 @@ export function createMockParameterStoreProvider(
       },
     },
   });
+}
+
+export function createMockMutableParameterStoreProvider(
+  options: MockParameterStoreProviderOptions = {},
+): MutableParameterStoreProvider {
+  const providerId = options.providerId ?? "mock.mutable-parameter-store";
+  const parameters = new Map(Object.entries(options.parameters ?? {}));
+  return createMockProvider<MutableParameterStoreProvider>({
+    metadata: options.metadata ?? mockMetadata(providerId, "ParameterStoreProvider"),
+    capabilities: options.capabilities ?? mockCapabilities(4_096),
+    implementation: {
+      getParameter: async (name) => {
+        validateName(name);
+        const value = parameters.get(name);
+        if (value === undefined || value.length === 0) throw new Error("Parameter was not found");
+        return value;
+      },
+      putParameter: async (name, value) => {
+        validateName(name);
+        if (value.length === 0) throw new Error("Parameter value must be non-empty");
+        parameters.set(name, value);
+      },
+    },
+  });
+}
+
+function validateName(name: string): void {
+  if (name.length === 0 || name.trim() !== name) {
+    throw new Error("Parameter name must be non-empty and trimmed");
+  }
 }

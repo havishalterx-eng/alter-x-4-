@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { randomUUID } from "node:crypto";
 
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { NestFactory } from "@nestjs/core";
@@ -8,6 +9,7 @@ import {
   AwsAppConfigConfigProvider,
   AwsBedrockModelProvider,
   AwsSecretsManagerProvider,
+  AwsSsmParameterProvider,
   FailoverModelProvider,
   OpenAiModelProvider,
   PresidioPIIRedactionProvider,
@@ -20,13 +22,14 @@ import {
   createMockCacheProvider,
   createMockConfigProvider,
   createMockEmbeddingProvider,
+  createMockMutableParameterStoreProvider,
   createMockModelProvider,
   createMockPIIRedactionProvider,
   createMockQueueProvider,
   type CacheProvider,
   type ConfigProvider,
   type EmbeddingProvider,
-  type ModelProvider,
+  type MutableParameterStoreProvider,
   type PIIRedactionProvider,
   type QueueProvider,
 } from "@alterx/shared-clients";
@@ -37,26 +40,36 @@ import {
   type ModelGatewayAppConfigEnvironment,
 } from "./config/environment";
 import { MODELGW_PROTO_PATH } from "./gateway/grpc.constants";
+import { OperationalConfigProvider } from "./operations/operational-config-provider";
 
 function createConfigProvider(
   environment: ReturnType<typeof loadModelGatewayEnvironment>,
-): ConfigProvider {
-  if (environment.configSource === "mock") {
-    return createMockConfigProvider();
-  }
-  return new AwsAppConfigConfigProvider({
-    region: environment.region,
-    applicationIdentifier: environment.appConfigApplicationId,
-    environmentIdentifier: environment.appConfigEnvironmentId,
-    configurationProfileIdentifier: environment.appConfigConfigurationProfileId,
-  });
+  store: MutableParameterStoreProvider,
+): OperationalConfigProvider {
+  const baseline: ConfigProvider = environment.configSource === "mock"
+    ? createMockConfigProvider()
+    : new AwsAppConfigConfigProvider({
+        region: environment.region,
+        applicationIdentifier: environment.appConfigApplicationId,
+        environmentIdentifier: environment.appConfigEnvironmentId,
+        configurationProfileIdentifier: environment.appConfigConfigurationProfileId,
+      });
+  return new OperationalConfigProvider(
+    baseline,
+    store,
+    modelPolicyParameterName(environment),
+  );
 }
 
 async function createModelProvider(
   environment: ReturnType<typeof loadModelGatewayEnvironment>,
-): Promise<ModelProvider> {
+  store: MutableParameterStoreProvider,
+): Promise<FailoverModelProvider> {
   if (environment.configSource === "mock") {
-    return createMockModelProvider();
+    return new FailoverModelProvider(createMockModelProvider(), {}, {
+      store,
+      parameterName: providerControlParameterName(environment),
+    });
   }
 
   const appConfigEnvironment: ModelGatewayAppConfigEnvironment = environment;
@@ -77,10 +90,51 @@ async function createModelProvider(
     const anthropic = new AnthropicModelProvider({ apiKey: anthropicApiKey });
     const openai = new OpenAiModelProvider({ apiKey: openaiApiKey });
 
-    return new FailoverModelProvider(primary, { anthropic, openai });
+    return new FailoverModelProvider(primary, { anthropic, openai }, {
+      store,
+      parameterName: providerControlParameterName(environment),
+    });
   } finally {
     secretsProvider.close();
   }
+}
+
+function createParameterStore(
+  environment: ReturnType<typeof loadModelGatewayEnvironment>,
+): MutableParameterStoreProvider {
+  return environment.configSource === "mock"
+    ? createMockMutableParameterStoreProvider()
+    : new AwsSsmParameterProvider({ region: environment.region });
+}
+
+async function resolveAdminServiceToken(
+  environment: ReturnType<typeof loadModelGatewayEnvironment>,
+): Promise<string> {
+  if (environment.configSource === "mock") return randomUUID();
+  const secrets = new AwsSecretsManagerProvider({ region: environment.region });
+  try {
+    return await secrets.getSecret(
+      environment.platformAdminServiceTokenSecretReference,
+    );
+  } finally {
+    secrets.close();
+  }
+}
+
+function providerControlParameterName(
+  environment: ReturnType<typeof loadModelGatewayEnvironment>,
+): string {
+  return environment.configSource === "mock"
+    ? "/alter/local/model-gateway/provider-controls"
+    : environment.providerControlParameterName;
+}
+
+function modelPolicyParameterName(
+  environment: ReturnType<typeof loadModelGatewayEnvironment>,
+): string {
+  return environment.configSource === "mock"
+    ? "/alter/local/model-gateway/model-policy"
+    : environment.modelPolicyOverrideParameterName;
 }
 
 function createPIIRedactionProvider(
@@ -127,8 +181,11 @@ function createQueueProvider(
 
 async function bootstrap(): Promise<void> {
   const environment = loadModelGatewayEnvironment(process.env);
-  const configProvider = createConfigProvider(environment);
-  const modelProvider = await createModelProvider(environment);
+  const parameterStore = createParameterStore(environment);
+  const configProvider = createConfigProvider(environment, parameterStore);
+  const modelProvider = await createModelProvider(environment, parameterStore);
+  await modelProvider.hydrateControls();
+  const adminServiceToken = await resolveAdminServiceToken(environment);
   const piiRedactionProvider = createPIIRedactionProvider(environment);
   const embeddingProvider = createEmbeddingProvider(environment);
   const cacheProvider = createCacheProvider(environment);
@@ -144,6 +201,7 @@ async function bootstrap(): Promise<void> {
       cacheProvider,
       queueProvider,
       costEventsQueueName,
+      adminServiceToken,
     ),
     new FastifyAdapter(),
   );

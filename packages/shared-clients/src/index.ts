@@ -111,6 +111,7 @@ export {
   type MetricPoint,
   type MigrationSupport,
   type MutableSecretsProvider,
+  type MutableParameterStoreProvider,
   ModelAliasResolutionError,
   ModelGatewayCostLimitExceededError,
   ModelGatewayInvalidResponseError,
@@ -310,5 +311,6 @@ export {
 } from "./mocks/object-storage-provider";
 export {
   createMockParameterStoreProvider,
+  createMockMutableParameterStoreProvider,
   type MockParameterStoreProviderOptions,
 } from "./mocks/parameter-store-provider";

@@ -148,6 +148,13 @@
       "when": 1786481200000,
       "tag": "0016_incidents",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786567600000,
+      "tag": "0017_operations_controls",
+      "breakpoints": true
     }
   ]
 }

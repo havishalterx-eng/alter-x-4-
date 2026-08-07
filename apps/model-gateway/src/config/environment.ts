@@ -20,6 +20,9 @@ export interface ModelGatewayAppConfigEnvironment
   readonly presidioAnonymizerUrl: string;
   readonly cacheRedisHost: string;
   readonly cacheRedisPort: number;
+  readonly platformAdminServiceTokenSecretReference: string;
+  readonly providerControlParameterName: string;
+  readonly modelPolicyOverrideParameterName: string;
 }
 
 export interface ModelGatewayMockEnvironment
@@ -192,5 +195,15 @@ export function loadModelGatewayEnvironment(
       "CACHE_REDIS_PORT",
       requireValue(environment, "CACHE_REDIS_PORT"),
     ),
+    platformAdminServiceTokenSecretReference: requireValue(
+      environment,
+      "PLATFORM_ADMIN_SERVICE_TOKEN_SECRET_REF",
+    ),
+    providerControlParameterName:
+      environment.PROVIDER_CONTROL_PARAMETER_NAME?.trim() ||
+      `/alter/${alterEnvironment}/model-gateway/provider-controls`,
+    modelPolicyOverrideParameterName:
+      environment.MODEL_POLICY_OVERRIDE_PARAMETER_NAME?.trim() ||
+      `/alter/${alterEnvironment}/model-gateway/model-policy`,
   };
 }

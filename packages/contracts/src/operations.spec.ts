@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   CreateJitGrantRequestSchema,
+  FeatureFlagNameSchema,
   MarketplaceGovernanceActionRequestSchema,
   RefundPaymentRequestSchema,
   ResolveDisputeRequestSchema,
+  UpdateModelAliasRequestSchema,
   UpdateProviderControlRequestSchema,
 } from "./operations";
 
@@ -28,6 +30,20 @@ describe("Operations contracts", () => {
       active: false,
       reason: "provider incident",
     })).toMatchObject({ active: false });
+  });
+
+  it("validates separate feature-flag and model-policy writes", () => {
+    expect(FeatureFlagNameSchema.parse("operations.kill-switch")).toBe(
+      "operations.kill-switch",
+    );
+    expect(() => FeatureFlagNameSchema.parse("Operations flag")).toThrow();
+    expect(UpdateModelAliasRequestSchema.parse({
+      binding: {
+        model_id: "anthropic.claude-sonnet-5",
+        capability_tags: ["general"],
+      },
+      reason: "provider maintenance",
+    }).binding.model_id).toBe("anthropic.claude-sonnet-5");
   });
 
   it("requires positive minor units for refunds", () => {

@@ -39,6 +39,9 @@ export const platformApiEnvSchema = z
     STATUS_PAGE_PROVIDER: z.enum(["atlassian", "mock"]).default("mock"),
     STATUSPAGE_PAGE_ID: z.string().min(1).optional(),
     STATUSPAGE_API_TOKEN_SECRET_REF: z.string().min(1).optional(),
+    MODEL_GATEWAY_ADMIN_BASE_URL: z.string().url().optional(),
+    MODEL_GATEWAY_ADMIN_TOKEN_REF: z.string().min(1).optional(),
+    MODEL_GATEWAY_ADMIN_TIMEOUT_MS: z.string().regex(/^[1-9]\d*$/).optional(),
     GITHUB_OAUTH_CLIENT_ID_SECRET_REF: z.string().min(1).optional(),
     GITHUB_OAUTH_CLIENT_SECRET_REF: z.string().min(1).optional(),
     GOOGLE_OAUTH_CLIENT_ID_SECRET_REF: z.string().min(1).optional(),
@@ -104,6 +107,15 @@ export const platformApiEnvSchema = z
         ["STATUSPAGE_PAGE_ID", "STATUSPAGE_API_TOKEN_SECRET_REF"],
         "STATUS_PAGE_PROVIDER=atlassian",
       );
+    }
+    if (Boolean(env.MODEL_GATEWAY_ADMIN_BASE_URL) !== Boolean(env.MODEL_GATEWAY_ADMIN_TOKEN_REF)) {
+      context.addIssue({
+        code: "custom",
+        path: [env.MODEL_GATEWAY_ADMIN_BASE_URL
+          ? "MODEL_GATEWAY_ADMIN_TOKEN_REF"
+          : "MODEL_GATEWAY_ADMIN_BASE_URL"],
+        message: "MODEL_GATEWAY_ADMIN_BASE_URL and MODEL_GATEWAY_ADMIN_TOKEN_REF must be configured together",
+      });
     }
   });
 

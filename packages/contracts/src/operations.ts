@@ -1,5 +1,6 @@
 import { z } from "./zod";
 import { DeploymentIdSchema, IsoTimestampSchema } from "./ids";
+import { ModelAliasBindingSchema, ModelAliasSchema } from "./model-alias-policy";
 
 export const PlatformTenantIdSchema = z.string().uuid();
 export const StaffAccessScopeSchema = z.enum([
@@ -52,6 +53,26 @@ export const UpdateProviderControlRequestSchema = z
     (value) => value.active !== undefined || value.fallback_chain !== undefined,
     "At least one provider control must be supplied",
   );
+
+export const FeatureFlagNameSchema = z.string().trim().regex(/^[a-z][a-z0-9._-]{1,127}$/);
+export const FeatureFlagSchema = z.object({
+  name: FeatureFlagNameSchema,
+  enabled: z.boolean(),
+  description: z.string().trim().min(1).max(500),
+  revision: z.number().int().positive(),
+  updated_at: IsoTimestampSchema,
+  updated_by: z.string().trim().min(1),
+}).strict();
+export const UpsertFeatureFlagRequestSchema = z.object({
+  enabled: z.boolean(),
+  description: z.string().trim().min(1).max(500),
+  reason: z.string().trim().min(1).max(1_000),
+}).strict();
+export const UpdateModelAliasRequestSchema = z.object({
+  binding: ModelAliasBindingSchema,
+  reason: z.string().trim().min(1).max(1_000),
+}).strict();
+export const ModelAliasPathSchema = ModelAliasSchema;
 
 export const IncidentSeveritySchema = z.enum(["sev1", "sev2", "sev3"]);
 export const IncidentStatusSchema = z.enum([
@@ -180,6 +201,9 @@ export type StaffAccessScope = z.infer<typeof StaffAccessScopeSchema>;
 export type CreateJitGrantRequest = z.infer<typeof CreateJitGrantRequestSchema>;
 export type ProviderControl = z.infer<typeof ProviderControlSchema>;
 export type UpdateProviderControlRequest = z.infer<typeof UpdateProviderControlRequestSchema>;
+export type FeatureFlag = z.infer<typeof FeatureFlagSchema>;
+export type UpsertFeatureFlagRequest = z.infer<typeof UpsertFeatureFlagRequestSchema>;
+export type UpdateModelAliasRequest = z.infer<typeof UpdateModelAliasRequestSchema>;
 export type CreateIncidentRequest = z.infer<typeof CreateIncidentRequestSchema>;
 export type IncidentApprovalRequest = z.infer<typeof IncidentApprovalRequestSchema>;
 export type AdminIncident = z.infer<typeof AdminIncidentSchema>;

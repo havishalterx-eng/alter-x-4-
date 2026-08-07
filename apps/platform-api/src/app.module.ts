@@ -42,6 +42,7 @@ import { AdminPolicyModule } from "./admin-policy";
 import { BenchmarksModule } from "./benchmarks";
 import { AuditEventsModule } from "./audit-events";
 import { IncidentModule } from "./incidents";
+import { AdminControlsModule } from "./admin-controls";
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { IncidentModule } from "./incidents";
     BenchmarksModule,
     AuditEventsModule,
     IncidentModule,
+    AdminControlsModule,
   ],
   controllers: [HealthController],
 })

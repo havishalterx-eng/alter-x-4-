@@ -40,6 +40,7 @@ describe("loadModelGatewayEnvironment", () => {
           APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
           ANTHROPIC_API_KEY_SECRET_REF: "/alter/prod/model-gateway/system/anthropic_api_key",
           OPENAI_API_KEY_SECRET_REF: "/alter/prod/model-gateway/system/openai_api_key",
+          PLATFORM_ADMIN_SERVICE_TOKEN_SECRET_REF: "/alter/prod/model-gateway/platform-admin-token",
           PRESIDIO_ANALYZER_URL: "http://presidio-analyzer.local:5001",
           PRESIDIO_ANONYMIZER_URL: "http://presidio-anonymizer.local:5002",
           CACHE_REDIS_HOST: "cache.model-gateway.local",
@@ -55,6 +56,12 @@ describe("loadModelGatewayEnvironment", () => {
         "/alter/prod/model-gateway/system/anthropic_api_key",
       openaiApiKeySecretReference:
         "/alter/prod/model-gateway/system/openai_api_key",
+      platformAdminServiceTokenSecretReference:
+        "/alter/prod/model-gateway/platform-admin-token",
+      providerControlParameterName:
+        "/alter/prod/model-gateway/provider-controls",
+      modelPolicyOverrideParameterName:
+        "/alter/prod/model-gateway/model-policy",
       presidioAnalyzerUrl: "http://presidio-analyzer.local:5001",
       presidioAnonymizerUrl: "http://presidio-anonymizer.local:5002",
       cacheRedisHost: "cache.model-gateway.local",
@@ -150,6 +157,23 @@ describe("loadModelGatewayEnvironment", () => {
         APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
         ANTHROPIC_API_KEY_SECRET_REF: "/alter/dev/model-gateway/system/anthropic_api_key",
         OPENAI_API_KEY_SECRET_REF: "",
+      },
+    ],
+    [
+      "PLATFORM_ADMIN_SERVICE_TOKEN_SECRET_REF",
+      {
+        ALTER_ENV: "dev",
+        ALTER_CONFIG_SOURCE: "appconfig",
+        APPCONFIG_APPLICATION_ID: "app-1",
+        APPCONFIG_ENVIRONMENT_ID: "env-1",
+        APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+        ANTHROPIC_API_KEY_SECRET_REF: "/alter/dev/model-gateway/system/anthropic_api_key",
+        OPENAI_API_KEY_SECRET_REF: "/alter/dev/model-gateway/system/openai_api_key",
+        PRESIDIO_ANALYZER_URL: "http://presidio-analyzer.local:5001",
+        PRESIDIO_ANONYMIZER_URL: "http://presidio-anonymizer.local:5002",
+        CACHE_REDIS_HOST: "cache.model-gateway.local",
+        CACHE_REDIS_PORT: "6379",
+        PLATFORM_ADMIN_SERVICE_TOKEN_SECRET_REF: "",
       },
     ],
     [

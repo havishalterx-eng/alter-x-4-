@@ -110,6 +110,10 @@ export interface ParameterStoreProvider extends BaseProvider<"ParameterStoreProv
   getParameter(name: string): Promise<string>;
 }
 
+export interface MutableParameterStoreProvider extends ParameterStoreProvider {
+  putParameter(name: string, value: string): Promise<void>;
+}
+
 export interface Page<T> {
   readonly items: readonly T[];
   readonly nextCursor: string | null;

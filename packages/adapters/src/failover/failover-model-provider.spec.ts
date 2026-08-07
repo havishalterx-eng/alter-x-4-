@@ -1,4 +1,8 @@
-import { createMockModelProvider } from "@alterx/shared-clients";
+import {
+  createMockModelProvider,
+  createMockMutableParameterStoreProvider,
+  type ModelProvider,
+} from "@alterx/shared-clients";
 import { describe, expect, it, vi } from "vitest";
 
 import { FailoverModelProvider } from "./failover-model-provider";
@@ -235,4 +239,96 @@ describe("FailoverModelProvider", () => {
     );
     expect(fallbackStream).not.toHaveBeenCalled();
   });
+
+  it("persists provider activation and applies it to real invocation routing", async () => {
+    const store = createMockMutableParameterStoreProvider();
+    const primaryInvoke = vi.fn(async () => ({
+      outputJson: "primary",
+      usageJson: "{}",
+      servedBy: "aws-bedrock",
+    }));
+    const fallbackInvoke = vi.fn(async () => ({
+      outputJson: "fallback",
+      usageJson: "{}",
+      servedBy: "anthropic-direct",
+    }));
+    const options = { store, parameterName: "/controls" };
+    const provider = new FailoverModelProvider(
+      createMockModelProvider({ providerId: "aws-bedrock", invoke: primaryInvoke }),
+      {
+        anthropic: createMockModelProvider({
+          providerId: "anthropic-direct",
+          invoke: fallbackInvoke,
+        }),
+      },
+      options,
+    );
+
+    await provider.updateProviderControl("aws-bedrock", { active: false });
+    await expect(provider.invoke(request())).resolves.toMatchObject({
+      servedBy: "anthropic-direct",
+    });
+    expect(primaryInvoke).not.toHaveBeenCalled();
+
+    const reloaded = new FailoverModelProvider(
+      createMockModelProvider({ providerId: "aws-bedrock", invoke: primaryInvoke }),
+      {
+        anthropic: createMockModelProvider({
+          providerId: "anthropic-direct",
+          invoke: fallbackInvoke,
+        }),
+      },
+      options,
+    );
+    await reloaded.hydrateControls();
+    await reloaded.invoke(request());
+    expect(primaryInvoke).not.toHaveBeenCalled();
+    expect(fallbackInvoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("persists fallback order and probes every provider live", async () => {
+    const store = createMockMutableParameterStoreProvider();
+    const primaryBase = createMockModelProvider({
+      providerId: "aws-bedrock",
+      invoke: vi.fn(async () => { throw new Error("down"); }),
+    });
+    const anthropicBase = createMockModelProvider({
+      providerId: "anthropic-direct",
+      invoke: vi.fn(async () => ({ outputJson: "a", usageJson: "{}", servedBy: "anthropic-direct" })),
+    });
+    const openaiBase = createMockModelProvider({
+      providerId: "openai-direct",
+      invoke: vi.fn(async () => ({ outputJson: "o", usageJson: "{}", servedBy: "openai-direct" })),
+    });
+    const primaryHealth = vi.fn(() => primaryBase.healthCheck());
+    const anthropicHealth = vi.fn(() => anthropicBase.healthCheck());
+    const openaiHealth = vi.fn(() => openaiBase.healthCheck());
+    const primary = withHealth(primaryBase, primaryHealth);
+    const anthropic = withHealth(anthropicBase, anthropicHealth);
+    const openai = withHealth(openaiBase, openaiHealth);
+    const provider = new FailoverModelProvider(
+      primary,
+      { anthropic, openai },
+      { store, parameterName: "/controls" },
+    );
+
+    await provider.updateProviderControl("aws-bedrock", {
+      fallbackChain: ["openai-direct", "anthropic-direct"],
+    });
+    await expect(provider.invoke(request())).resolves.toMatchObject({
+      servedBy: "openai-direct",
+    });
+    await provider.getProviderControls();
+    await provider.getProviderControls();
+    expect(primaryHealth).toHaveBeenCalledTimes(3);
+    expect(anthropicHealth).toHaveBeenCalledTimes(3);
+    expect(openaiHealth).toHaveBeenCalledTimes(3);
+  });
 });
+
+function withHealth(
+  provider: ModelProvider,
+  healthCheck: ModelProvider["healthCheck"],
+): ModelProvider {
+  return { ...provider, healthCheck };
+}

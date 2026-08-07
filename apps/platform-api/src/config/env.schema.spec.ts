@@ -95,4 +95,24 @@ describe("platformApiEnvSchema", () => {
       STATUSPAGE_API_TOKEN_SECRET_REF: "/alter/statuspage/api-token",
     })).toMatchObject({ STATUS_PAGE_PROVIDER: "atlassian" });
   });
+
+  it("requires model gateway admin URL and token reference together", () => {
+    const base = {
+      DATABASE_URL: "postgres://localhost/platform_db",
+      MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db",
+      SIGNING_KEY_PROVIDER: "mock",
+    } as const;
+    expect(() => validatePlatformApiEnv({
+      ...base,
+      MODEL_GATEWAY_ADMIN_BASE_URL: "http://model-gateway.test",
+    })).toThrow("configured together");
+    expect(validatePlatformApiEnv({
+      ...base,
+      MODEL_GATEWAY_ADMIN_BASE_URL: "http://model-gateway.test",
+      MODEL_GATEWAY_ADMIN_TOKEN_REF: "/alter/model-gateway/admin-token",
+    })).toMatchObject({
+      MODEL_GATEWAY_ADMIN_BASE_URL: "http://model-gateway.test",
+      MODEL_GATEWAY_ADMIN_TOKEN_REF: "/alter/model-gateway/admin-token",
+    });
+  });
 });

@@ -1,9 +1,15 @@
 import "reflect-metadata";
+import { randomUUID } from "node:crypto";
 
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { NestFactory } from "@nestjs/core";
 
-import { AnthropicModelProvider, OpenAiModelProvider, startModelgwGrpcTransport } from "@alterx/adapters";
+import {
+  AnthropicModelProvider,
+  FailoverModelProvider,
+  OpenAiModelProvider,
+  startModelgwGrpcTransport,
+} from "@alterx/adapters";
 import {
   createMockCacheProvider,
   createMockConfigProvider,
@@ -16,6 +22,7 @@ import {
 import { AppModule } from "./app.module";
 import { loadModelGatewayEnvironment } from "./config/environment";
 import { MODELGW_PROTO_PATH } from "./gateway/grpc.constants";
+import { OperationalConfigProvider } from "./operations/operational-config-provider";
 
 /**
  * Real, disclosed eval-only entrypoint -- NOT apps/model-gateway's
@@ -64,8 +71,12 @@ async function bootstrap(): Promise<void> {
     );
   }
 
-  const configProvider = createMockConfigProvider();
-  const modelProvider = createEvalModelProvider();
+  const configProvider = new OperationalConfigProvider(
+    createMockConfigProvider(),
+    undefined,
+    "/alter/eval/model-policy",
+  );
+  const modelProvider = new FailoverModelProvider(createEvalModelProvider(), {});
   const piiRedactionProvider = createMockPIIRedactionProvider();
   const embeddingProvider = createMockEmbeddingProvider();
   const cacheProvider = createMockCacheProvider();
@@ -81,6 +92,7 @@ async function bootstrap(): Promise<void> {
       cacheProvider,
       queueProvider,
       costEventsQueueName,
+      randomUUID(),
     ),
     new FastifyAdapter(),
   );

@@ -1,8 +1,8 @@
-import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
+import { GetParameterCommand, PutParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 
 import type { ProviderCapabilities } from "@alterx/contracts";
 import type {
-  ParameterStoreProvider,
+  MutableParameterStoreProvider,
   ProviderHealth,
   ProviderMetadata,
 } from "@alterx/shared-clients";
@@ -12,7 +12,9 @@ export interface AwsSsmParameterProviderConfig {
 }
 
 export interface SsmParameterCommandClient {
-  send(command: GetParameterCommand): Promise<{ readonly Parameter?: { readonly Value?: string } }>;
+  send(command: GetParameterCommand | PutParameterCommand): Promise<{
+    readonly Parameter?: { readonly Value?: string };
+  }>;
   destroy?(): void;
 }
 
@@ -29,7 +31,7 @@ const METADATA: ProviderMetadata<"ParameterStoreProvider"> = {
   migration: { strategyVersion: "aws-ssm-parameter-store-v1", rollbackSupported: true },
 };
 
-export class AwsSsmParameterProvider implements ParameterStoreProvider {
+export class AwsSsmParameterProvider implements MutableParameterStoreProvider {
   readonly metadata = METADATA;
   readonly capabilities = CAPABILITIES;
   readonly #client: SsmParameterCommandClient;
@@ -46,6 +48,21 @@ export class AwsSsmParameterProvider implements ParameterStoreProvider {
     const value = (await this.#client.send(new GetParameterCommand({ Name: name }))).Parameter?.Value;
     if (value === undefined || value.length === 0) throw new Error("Resolved parameter contains no value");
     return value;
+  }
+
+  async putParameter(name: string, value: string): Promise<void> {
+    if (name.length === 0 || name.trim() !== name) {
+      throw new Error("Parameter name must be non-empty and trimmed");
+    }
+    if (value.length === 0 || Buffer.byteLength(value, "utf8") > 4_096) {
+      throw new Error("Parameter value must contain 1 to 4096 UTF-8 bytes");
+    }
+    await this.#client.send(new PutParameterCommand({
+      Name: name,
+      Value: value,
+      Type: "String",
+      Overwrite: true,
+    }));
   }
 
   async healthCheck(): Promise<ProviderHealth> {
