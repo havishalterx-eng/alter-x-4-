@@ -45,6 +45,7 @@ function fakeRepository(connections: Map<string, OAuthConnectionRecord>): Integr
       return updated;
     },
     recordUse: async () => "audit-id",
+    findConnectorConfig: async () => undefined,
   } as unknown as IntegrationRepository;
 }
 

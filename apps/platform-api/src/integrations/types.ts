@@ -1,4 +1,4 @@
-import type { ConnectorId } from "./connectors";
+import type { ConnectorId, ConnectorTenantConfig } from "./connectors";
 
 export interface ConnectorCatalogEntry {
   readonly id: ConnectorId;
@@ -10,6 +10,16 @@ export interface ConnectorCatalogEntry {
 
 export interface OAuthAuthorizeInput {
   readonly redirect_uri: string;
+  readonly tenant_config?: ConnectorTenantConfig;
+}
+
+export interface WorkspaceConnectorConfigRecord {
+  readonly tenantId: string;
+  readonly workspaceId: string;
+  readonly connector: ConnectorId;
+  readonly config: ConnectorTenantConfig;
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
 }
 
 export interface OAuthAuthorizeView {
@@ -106,15 +116,57 @@ export interface OAuthConnectionActivityPage {
 
 export const integrationDeferredCapabilities = [
   {
-    capability: "oauth_flows_non_launch_connectors",
-    status: "NOT_MET",
-    reason:
-      "Only GitHub and Google are built in this ticket. LinkedIn/X/Slack/HubSpot/Salesforce/Shopify/Zendesk/M365 deferred to a later ticket per product-owner scope decision 2026-08-04.",
-  },
-  {
     capability: "oauth_round_trip_verified",
     status: "NOT_MET",
     reason:
-      "Real client_id/client_secret for GitHub and Google are not provisioned yet in this environment. authorize/callback/health/revoke code paths are real (no mocks), but unexercised against live provider sandboxes. Flip to MET once GITHUB_OAUTH_CLIENT_ID_SECRET_REF/GITHUB_OAUTH_CLIENT_SECRET_REF and GOOGLE_OAUTH_CLIENT_ID_SECRET_REF/GOOGLE_OAUTH_CLIENT_SECRET_REF resolve to real credentials and a live round-trip test is run.",
+      "Real provider credentials are not provisioned in this environment. Unit paths are verified, while each new connector's real identity-endpoint harness remains skip-gated by its *_LIVE_TEST flag and access token.",
+  },
+  {
+    capability: "oauth_round_trip_verified_slack",
+    status: "NOT_MET",
+    reason:
+      "Uses Sign in with Slack (OIDC) endpoints, not the classic bot-install oauth.v2.access flow. authorize/callback/userinfo/revoke code paths are real, but unexercised against a live Slack app -- in particular unverified: whether PKCE is safe to enable for our app (left off pending confirmation) and whether auth.revoke's ok-field handling matches a real failure response. Flip to MET once SLACK_OAUTH_CLIENT_ID_SECRET_REF/SLACK_OAUTH_CLIENT_SECRET_REF resolve to real credentials and a live round-trip test is run.",
+  },
+  {
+    capability: "oauth_round_trip_verified_hubspot",
+    status: "NOT_MET",
+    reason:
+      "authorize/callback code paths are real, but unexercised against a live HubSpot app. In particular unverified: the hub_id extraction from GET /oauth/v1/access-tokens/{token}, and the legacy DELETE /oauth/v1/refresh-tokens/{token} revoke path (HubSpot documents this API as being replaced by a dated 2026-03+ revoke endpoint we have not adopted). Flip to MET once HUBSPOT_OAUTH_CLIENT_ID_SECRET_REF/HUBSPOT_OAUTH_CLIENT_SECRET_REF resolve to real credentials and a live round-trip test is run.",
+  },
+  {
+    capability: "oauth_round_trip_verified_linkedin",
+    status: "NOT_MET",
+    reason:
+      "authorize/callback/userinfo code paths are real, but unexercised against a live LinkedIn app. LinkedIn has no documented revoke endpoint at all -- revoke is local-invalidation-only by design, not a gap to close. Flip to MET once LINKEDIN_OAUTH_CLIENT_ID_SECRET_REF/LINKEDIN_OAUTH_CLIENT_SECRET_REF resolve to real credentials and a live round-trip test is run.",
+  },
+  {
+    capability: "oauth_round_trip_verified_zendesk",
+    status: "NOT_MET",
+    reason:
+      "authorize/callback/userinfo/revoke code paths are real, including per-tenant subdomain resolution, but unexercised against a live Zendesk app. Flip to MET once ZENDESK_OAUTH_CLIENT_ID_SECRET_REF/ZENDESK_OAUTH_CLIENT_SECRET_REF resolve to real credentials, a real subdomain is configured, and a live round-trip test is run.",
+  },
+  {
+    capability: "oauth_round_trip_verified_salesforce",
+    status: "NOT_MET",
+    reason:
+      "authorize/callback/userinfo/revoke code paths are real, including per-tenant login-host resolution, but unexercised against a live Salesforce org. Flip to MET once SALESFORCE_OAUTH_CLIENT_ID_SECRET_REF/SALESFORCE_OAUTH_CLIENT_SECRET_REF resolve to real credentials, a real login host is configured, and a live round-trip test is run.",
+  },
+  {
+    capability: "oauth_round_trip_verified_shopify",
+    status: "NOT_MET",
+    reason:
+      "authorize/callback/userinfo code paths are real, including per-tenant shop-domain resolution. Shopify has no documented OAuth revoke endpoint -- revoke is local-invalidation-only by design, not a gap to close. Flip to MET once SHOPIFY_OAUTH_CLIENT_ID_SECRET_REF/SHOPIFY_OAUTH_CLIENT_SECRET_REF resolve to real credentials, a real shop domain is configured, and a live round-trip test is run.",
+  },
+  {
+    capability: "oauth_round_trip_verified_x",
+    status: "NOT_MET",
+    reason:
+      "authorize/callback/userinfo/revoke code paths are real, including the Basic-auth client-credentials variant X requires. Flip to MET once X_OAUTH_CLIENT_ID_SECRET_REF/X_OAUTH_CLIENT_SECRET_REF resolve to real credentials and a live round-trip test is run.",
+  },
+  {
+    capability: "oauth_round_trip_verified_m365",
+    status: "NOT_MET",
+    reason:
+      "authorize/callback/userinfo code paths are real, including per-tenant identity-origin resolution. Microsoft Graph has no documented per-app OAuth revoke endpoint reachable from this flow -- revoke is local-invalidation-only by design, not a gap to close. Flip to MET once M365_OAUTH_CLIENT_ID_SECRET_REF/M365_OAUTH_CLIENT_SECRET_REF resolve to real credentials, a real tenant is configured, and a live round-trip test is run.",
   },
 ] as const;

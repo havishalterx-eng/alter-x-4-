@@ -31,6 +31,7 @@ import type {
   CreateOAuthConnectionInput,
   CreateOAuthStateInput,
 } from "./integration.repository";
+import type { ConnectorId, ConnectorTenantConfig } from "./connectors";
 import {
   ActivityCursorNotFoundError,
   IntegrationRepository,
@@ -47,6 +48,7 @@ import type {
   OAuthConnectionActivityRecord,
   OAuthConnectionRecord,
   OAuthStateRecord,
+  WorkspaceConnectorConfigRecord,
 } from "./types";
 
 const uuid = "018f47a5-7b2c-7d10-8f11-123456789abc";
@@ -65,11 +67,41 @@ class FakeIntegrationRepository {
   states = new Map<string, OAuthStateRecord>();
   connections = new Map<string, OAuthConnectionRecord>();
   activities: OAuthConnectionActivityRecord[] = [];
+  configs = new Map<string, WorkspaceConnectorConfigRecord>();
 
   reset(): void {
     this.states.clear();
     this.connections.clear();
     this.activities = [];
+    this.configs.clear();
+  }
+
+  async upsertConnectorConfig(
+    tenantId: string,
+    workspaceId: string,
+    connector: ConnectorId,
+    config: ConnectorTenantConfig,
+  ): Promise<WorkspaceConnectorConfigRecord> {
+    const now = new Date();
+    const key = `${tenantId}:${workspaceId}:${connector}`;
+    const record = {
+      tenantId,
+      workspaceId,
+      connector,
+      config,
+      createdAt: this.configs.get(key)?.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.configs.set(key, record);
+    return record;
+  }
+
+  async findConnectorConfig(
+    tenantId: string,
+    workspaceId: string,
+    connector: ConnectorId,
+  ) {
+    return this.configs.get(`${tenantId}:${workspaceId}:${connector}`);
   }
 
   async createState(
@@ -224,9 +256,20 @@ class FakeIntegrationRepository {
 
 class FakeOAuthHttpClient implements OAuthHttpClient {
   failExchange = false;
+  exchangeTokenUrl: string | null = null;
+  accountUrls: string[] = [];
+  revokeUrl: string | null = null;
 
-  async exchangeCode() {
+  reset(): void {
+    this.failExchange = false;
+    this.exchangeTokenUrl = null;
+    this.accountUrls = [];
+    this.revokeUrl = null;
+  }
+
+  async exchangeCode(params: Parameters<OAuthHttpClient["exchangeCode"]>[0]) {
     if (this.failExchange) throw new Error("token exchange failed");
+    this.exchangeTokenUrl = params.endpoints.tokenUrl;
     return {
       accessToken: "fake-access-token",
       refreshToken: "fake-refresh-token",
@@ -236,11 +279,16 @@ class FakeOAuthHttpClient implements OAuthHttpClient {
     };
   }
 
-  async fetchAccountId() {
+  async fetchAccountId(
+    _connector: ConnectorId,
+    userInfoUrl: string,
+  ) {
+    this.accountUrls.push(userInfoUrl);
     return "fake-account-id";
   }
 
-  async revoke() {
+  async revoke(params: Parameters<OAuthHttpClient["revoke"]>[0]) {
+    this.revokeUrl = params.endpoints.revokeUrl;
     return { revokedRemotely: true };
   }
 }
@@ -259,6 +307,8 @@ describe("Integration OAuth Hub routes", () => {
       secrets: {
         "/alter/integrations/github/client-id": "github-client-id",
         "/alter/integrations/github/client-secret": "github-client-secret",
+        "/alter/integrations/zendesk/client-id": "zendesk-client-id",
+        "/alter/integrations/zendesk/client-secret": "zendesk-client-secret",
       },
     });
 
@@ -307,6 +357,11 @@ describe("Integration OAuth Hub routes", () => {
               clientSecretSecretRef: "/alter/integrations/google/client-secret",
               configured: false,
             },
+            zendesk: {
+              clientIdSecretRef: "/alter/integrations/zendesk/client-id",
+              clientSecretSecretRef: "/alter/integrations/zendesk/client-secret",
+              configured: true,
+            },
           },
         },
         { provide: PgIdempotencyStore, useValue: store },
@@ -338,7 +393,7 @@ describe("Integration OAuth Hub routes", () => {
   beforeEach(() => {
     repository.reset();
     store.clear();
-    httpClient.failExchange = false;
+    httpClient.reset();
   });
 
   afterAll(async () => app.close());
@@ -350,10 +405,15 @@ describe("Integration OAuth Hub routes", () => {
       actor,
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual([
+    expect(response.json()).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "github", configured: true }),
       expect.objectContaining({ id: "google", configured: false }),
-    ]);
+      expect.objectContaining({ id: "slack", configured: false }),
+      expect.objectContaining({ id: "hubspot", configured: false }),
+      expect.objectContaining({ id: "linkedin", configured: false }),
+      expect.objectContaining({ id: "zendesk", configured: true }),
+    ]));
+    expect(response.json()).toHaveLength(10);
   });
 
   it("authorizes github, persists state, and builds a real authorize_url", async () => {
@@ -380,6 +440,75 @@ describe("Integration OAuth Hub routes", () => {
       headers: { "idempotency-key": "authorize-google" },
     });
     expectProblem(response, 409, "INTEGRATION_CONNECTOR_NOT_CONFIGURED");
+  });
+
+  it("persists Zendesk workspace config and never reuses it across workspaces", async () => {
+    const first = await request({
+      method: "POST",
+      url: "/api/v1/integrations/zendesk/actions/authorize",
+      body: {
+        redirect_uri: "https://app.alter.ai/integrations/callback",
+        tenant_config: { subdomain: "workspace-a" },
+      },
+      actor,
+      headers: { "idempotency-key": "authorize-zendesk-a" },
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = first.json() as { authorize_url: string; state: string };
+    expect(firstBody.authorize_url).toContain(
+      "https://workspace-a.zendesk.com/oauth/authorizations/new",
+    );
+
+    const callback = await request({
+      method: "POST",
+      url: "/api/v1/integrations/zendesk/actions/callback",
+      body: { code: "code", state: firstBody.state },
+      actor,
+      headers: { "idempotency-key": "callback-zendesk-a" },
+    });
+    expect(callback.statusCode).toBe(200);
+    expect(httpClient.exchangeTokenUrl).toBe(
+      "https://workspace-a.zendesk.com/oauth/tokens",
+    );
+    expect(httpClient.accountUrls).toContain(
+      "https://workspace-a.zendesk.com/api/v2/users/me.json",
+    );
+    const connectionId = (callback.json() as { id: string }).id;
+
+    await request({
+      method: "POST",
+      url: `/api/v1/integrations/connections/${connectionId}/actions/health`,
+      body: {},
+      actor,
+      headers: { "idempotency-key": "health-zendesk-a" },
+    });
+    await request({
+      method: "POST",
+      url: `/api/v1/integrations/connections/${connectionId}/actions/revoke`,
+      body: {},
+      actor,
+      headers: { "idempotency-key": "revoke-zendesk-a" },
+    });
+    expect(httpClient.revokeUrl).toBe(
+      "https://workspace-a.zendesk.com/api/v2/oauth/tokens/current.json",
+    );
+
+    const workspaceB = { ...actor, workspace_id: `ws_${uuid.slice(0, -1)}d` };
+    const missingConfig = await request({
+      method: "POST",
+      url: "/api/v1/integrations/zendesk/actions/authorize",
+      body: { redirect_uri: "https://app.alter.ai/integrations/callback" },
+      actor: workspaceB,
+      headers: { "idempotency-key": "authorize-zendesk-b" },
+    });
+    expectProblem(missingConfig, 400, "INTEGRATION_VALIDATION_FAILED");
+    expect(
+      await repository.findConnectorConfig(
+        actor.tenant_id,
+        workspaceB.workspace_id,
+        "zendesk",
+      ),
+    ).toBeUndefined();
   });
 
   it("completes callback end-to-end and lists the resulting connection", async () => {
@@ -766,11 +895,39 @@ describe("Integration OAuth Hub routes", () => {
   it("flags real remaining gaps and wires production module", () => {
     expect(integrationDeferredCapabilities).toEqual([
       expect.objectContaining({
-        capability: "oauth_flows_non_launch_connectors",
+        capability: "oauth_round_trip_verified",
         status: "NOT_MET",
       }),
       expect.objectContaining({
-        capability: "oauth_round_trip_verified",
+        capability: "oauth_round_trip_verified_slack",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_hubspot",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_linkedin",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_zendesk",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_salesforce",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_shopify",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_x",
+        status: "NOT_MET",
+      }),
+      expect.objectContaining({
+        capability: "oauth_round_trip_verified_m365",
         status: "NOT_MET",
       }),
     ]);

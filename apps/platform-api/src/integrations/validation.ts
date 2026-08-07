@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isConnectorId } from "./connectors";
+import type { ConnectorId, ConnectorTenantConfig } from "./connectors";
 import { IntegrationHttpError } from "./problem";
 import type {
   IntegrationActivityQuery,
@@ -10,11 +11,24 @@ import type {
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const authorizeSchema: z.ZodType<OAuthAuthorizeInput> = z
-  .object({
-    redirect_uri: z.url(),
-  })
-  .strict();
+const zendeskConfig = z.object({
+  subdomain: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/i),
+}).strict();
+const salesforceConfig = z.object({
+  login_host: z.string().refine(
+    (value) => value === "login.salesforce.com" || value === "test.salesforce.com" || /^[a-z0-9][a-z0-9.-]*\.(?:my|sandbox\.my)\.salesforce\.com$/i.test(value),
+    "Expected login.salesforce.com, test.salesforce.com, or Salesforce My Domain host",
+  ),
+}).strict();
+const shopifyConfig = z.object({
+  shop_domain: z.string().regex(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i),
+}).strict();
+const m365Config = z.object({
+  tenant: z.union([
+    z.literal("common"),
+    z.string().regex(uuidPattern, "Expected common or Microsoft tenant UUID"),
+  ]),
+}).strict();
 
 const callbackSchema: z.ZodType<OAuthCallbackInput> = z
   .object({
@@ -30,7 +44,7 @@ const activityQuerySchema: z.ZodType<IntegrationActivityQuery> = z
   })
   .strict();
 
-export function parseConnectorId(value: string, instance: string): string {
+export function parseConnectorId(value: string, instance: string): ConnectorId {
   if (!isConnectorId(value)) {
     throw validationError(instance, [
       { field: "connector", message: `Unsupported connector: ${value}` },
@@ -50,9 +64,52 @@ export function parseConnectionId(value: string, instance: string): string {
 
 export function parseOAuthAuthorizeInput(
   value: unknown,
+  connector: ConnectorId,
   instance: string,
 ): OAuthAuthorizeInput {
-  return parse(authorizeSchema, value, instance);
+  const base = z.object({ redirect_uri: z.url(), tenant_config: z.unknown().optional() }).strict();
+  const parsed = parse(base, value, instance);
+  const tenantConfig = parseTenantConfig(connector, parsed.tenant_config, instance);
+  return {
+    redirect_uri: parsed.redirect_uri,
+    ...(tenantConfig ? { tenant_config: tenantConfig } : {}),
+  };
+}
+
+function parseTenantConfig(
+  connector: ConnectorId,
+  value: unknown,
+  instance: string,
+): ConnectorTenantConfig | undefined {
+  if (value === undefined) {
+    if (["zendesk", "salesforce", "shopify", "m365"].includes(connector)) {
+      throw validationError(instance, [
+        {
+          field: "tenant_config",
+          message: `Tenant configuration required for ${connector}`,
+        },
+      ]);
+    }
+    return undefined;
+  }
+
+  switch (connector) {
+    case "zendesk":
+      return { connector, ...parse(zendeskConfig, value, instance) };
+    case "salesforce":
+      return { connector, ...parse(salesforceConfig, value, instance) };
+    case "shopify":
+      return { connector, ...parse(shopifyConfig, value, instance) };
+    case "m365":
+      return { connector, ...parse(m365Config, value, instance) };
+    default:
+      throw validationError(instance, [
+        {
+          field: "tenant_config",
+          message: `${connector} does not accept tenant configuration`,
+        },
+      ]);
+  }
 }
 
 export function parseOAuthCallbackInput(

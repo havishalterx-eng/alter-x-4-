@@ -31,6 +31,12 @@ describe.skipIf(!databaseUrl)("IntegrationRepository PostgreSQL RLS", () => {
        VALUES ($1, 'Tenant A', 'active'), ($2, 'Tenant B', 'active')`,
       [tenantA, tenantB],
     );
+    await admin.query(
+      `INSERT INTO workspaces (id, tenant_id, name, status)
+       VALUES ($1, $2, 'Workspace A', 'active'),
+              ('00000000-0000-7000-8000-000000000012', $2, 'Workspace B', 'active')`,
+      [workspaceA, tenantA],
+    );
     const password = randomUUID();
     await admin.query(`CREATE ROLE "${roleName}" LOGIN PASSWORD '${password}'`);
     await admin.query(`GRANT USAGE ON SCHEMA "${schemaName}" TO "${roleName}"`);
@@ -165,6 +171,42 @@ describe.skipIf(!databaseUrl)("IntegrationRepository PostgreSQL RLS", () => {
     expect(
       await repository.findConnection(tenantA, workspaceB, idA),
     ).toBeUndefined();
+  });
+
+  it("isolates workspace connector configuration by tenant and workspace", async () => {
+    const workspaceB = "00000000-0000-7000-8000-000000000012";
+    await repository.upsertConnectorConfig(tenantA, workspaceA, "zendesk", {
+      connector: "zendesk",
+      subdomain: "workspace-a",
+    });
+
+    expect(
+      await repository.findConnectorConfig(tenantA, workspaceA, "zendesk"),
+    ).toMatchObject({ config: { subdomain: "workspace-a" } });
+    expect(
+      await repository.findConnectorConfig(tenantA, workspaceB, "zendesk"),
+    ).toBeUndefined();
+    expect(
+      await repository.findConnectorConfig(tenantB, workspaceA, "zendesk"),
+    ).toBeUndefined();
+
+    const client = await pool.connect();
+    try {
+      await client.query("RESET app.current_tenant_id");
+      expect(
+        (await client.query("SELECT * FROM workspace_connector_configs")).rows,
+      ).toHaveLength(0);
+      await client.query(
+        "SELECT set_config('app.current_tenant_id', $1, false)",
+        [tenantB],
+      );
+      expect(
+        (await client.query("SELECT * FROM workspace_connector_configs")).rows,
+      ).toHaveLength(0);
+    } finally {
+      await client.query("RESET app.current_tenant_id");
+      client.release();
+    }
   });
 
   it("rolls back the transaction on a constraint violation", async () => {

@@ -332,6 +332,8 @@ export type {
 export type {
   BindNumberRequest as VoiceBindNumberRequest,
   BindNumberResponse as VoiceBindNumberResponse,
+  GetNumberBindingRequest as VoiceGetNumberBindingRequest,
+  GetNumberBindingResponse as VoiceGetNumberBindingResponse,
   ConfigureCallHandlingRequest as VoiceConfigureCallHandlingRequest,
   ConfigureCallHandlingResponse as VoiceConfigureCallHandlingResponse,
   GetAccountHealthRequest as VoiceGetAccountHealthRequest,

@@ -7,6 +7,7 @@ package alter.voice.v1;
 // never cross this interface.
 service VoiceService {
   rpc BindNumber(BindNumberRequest) returns (BindNumberResponse);
+  rpc GetNumberBinding(GetNumberBindingRequest) returns (GetNumberBindingResponse);
   rpc ConfigureCallHandling(ConfigureCallHandlingRequest) returns (ConfigureCallHandlingResponse);
   rpc InitiateCall(InitiateCallRequest) returns (InitiateCallResponse);
   rpc GetAccountHealth(GetAccountHealthRequest) returns (GetAccountHealthResponse);
@@ -27,6 +28,28 @@ message BindNumberRequest {
 }
 
 message BindNumberResponse {
+  reserved 100 to 199;
+
+  string voice_account_id = 1; // voc_ prefixed UUIDv7
+  string phone_number = 2; // E.164
+  string provider = 3;
+  string status = 4; // pending | active | suspended | failed
+}
+
+// Introduced by CONN-ISO: platform-api has no local record of who owns a
+// voice_account_id (there is no per-workspace ledger, unlike WhatsApp's
+// account list). Every by-id mutation must confirm ownership against Engine
+// first via this call before acting, closing the gap where a client-supplied
+// id from another workspace could reach a mutating route unchecked.
+message GetNumberBindingRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workspace_id = 2; // ws_ prefixed UUIDv7
+  string voice_account_id = 3; // voc_ prefixed UUIDv7
+}
+
+message GetNumberBindingResponse {
   reserved 100 to 199;
 
   string voice_account_id = 1; // voc_ prefixed UUIDv7

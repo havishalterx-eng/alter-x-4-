@@ -83,6 +83,7 @@ export class WhatsappService {
     context: EngineCallerContext,
     idempotencyKey: string,
   ): Promise<WhatsappAccount> {
+    await this.account(accountId, context);
     const response = await this.engine.post<JsonValue, WhatsappAccount>(
       `/api/v1/channels/whatsapp/accounts/${encodeURIComponent(accountId)}/configuration`,
       configuration as JsonValue,

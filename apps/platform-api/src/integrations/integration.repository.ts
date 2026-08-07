@@ -2,12 +2,23 @@ import { randomUUID } from "node:crypto";
 import { Injectable, type OnModuleDestroy } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
 import type { ConnectorId } from "./connectors";
+import type { ConnectorTenantConfig } from "./connectors";
 import type {
   IntegrationActivityQuery,
   OAuthConnectionActivityRecord,
   OAuthConnectionRecord,
   OAuthStateRecord,
+  WorkspaceConnectorConfigRecord,
 } from "./types";
+
+interface WorkspaceConnectorConfigRow {
+  tenant_id: string;
+  workspace_id: string;
+  connector: string;
+  config_json: ConnectorTenantConfig;
+  created_at: Date;
+  updated_at: Date;
+}
 
 interface OAuthStateRow {
   tenant_id: string;
@@ -76,6 +87,42 @@ export class IntegrationRepository implements OnModuleDestroy {
     private readonly pool: Pool,
     private readonly closePoolOnDestroy = false,
   ) {}
+
+  upsertConnectorConfig(
+    tenantId: string,
+    workspaceId: string,
+    connector: ConnectorId,
+    config: ConnectorTenantConfig,
+  ): Promise<WorkspaceConnectorConfigRecord> {
+    return this.withTenant(tenantId, async (client) => {
+      const result = await client.query<WorkspaceConnectorConfigRow>(
+        `INSERT INTO workspace_connector_configs
+           (tenant_id, workspace_id, connector, config_json)
+         VALUES ($1, $2, $3, $4::jsonb)
+         ON CONFLICT (tenant_id, workspace_id, connector) DO UPDATE
+         SET config_json = EXCLUDED.config_json,
+             updated_at = clock_timestamp()
+         RETURNING *`,
+        [tenantId, workspaceId, connector, JSON.stringify(config)],
+      );
+      return mapConnectorConfigRow(result.rows[0]!);
+    });
+  }
+
+  findConnectorConfig(
+    tenantId: string,
+    workspaceId: string,
+    connector: ConnectorId,
+  ): Promise<WorkspaceConnectorConfigRecord | undefined> {
+    return this.withTenant(tenantId, async (client) => {
+      const result = await client.query<WorkspaceConnectorConfigRow>(
+        `SELECT * FROM workspace_connector_configs
+         WHERE tenant_id = $1 AND workspace_id = $2 AND connector = $3`,
+        [tenantId, workspaceId, connector],
+      );
+      return result.rows[0] ? mapConnectorConfigRow(result.rows[0]) : undefined;
+    });
+  }
 
   createState(
     tenantId: string,
@@ -314,6 +361,19 @@ export class IntegrationRepository implements OnModuleDestroy {
       client.release();
     }
   }
+}
+
+function mapConnectorConfigRow(
+  row: WorkspaceConnectorConfigRow,
+): WorkspaceConnectorConfigRecord {
+  return {
+    tenantId: row.tenant_id,
+    workspaceId: row.workspace_id,
+    connector: row.connector as ConnectorId,
+    config: row.config_json,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 function mapStateRow(row: OAuthStateRow): OAuthStateRecord {
