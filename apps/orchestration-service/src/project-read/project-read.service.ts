@@ -36,7 +36,7 @@ export interface Deployment {
   readonly createdAt: string;
 }
 
-interface OrchestrationTransactionLike {
+export interface OrchestrationTransactionLike {
   query<TRow extends Record<string, unknown> = Record<string, unknown>>(
     statement: string,
     values?: readonly unknown[],

@@ -8,7 +8,7 @@ const migrationFiles = readdirSync(ORCHESTRATION_MIGRATIONS_PATH)
   .sort();
 const migrationSql = migrationFiles.map((file) => ({
   file,
-  sql: readFileSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, file), "utf8"),
+  sql: readFileSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, file), "utf8").replace(/\r\n/g, "\n"),
 }));
 const migrationJournal = JSON.parse(
   readFileSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "meta", "_journal.json"), "utf8"),
@@ -45,6 +45,7 @@ describe("orchestration migration files", () => {
       "0025_create_trigger_integration_bindings.sql",
       "0026_create_escalations.sql",
       "0027_create_trigger_webhook_secrets.sql",
+      "0028_create_project_plans.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -79,6 +80,7 @@ describe("orchestration migration files", () => {
       "0025_drop_trigger_integration_bindings.sql",
       "0026_drop_escalations.sql",
       "0027_drop_trigger_webhook_secrets.sql",
+      "0028_drop_project_plans.sql",
     ]);
   });
 
@@ -101,13 +103,13 @@ describe("orchestration migration files", () => {
     },
   );
 
-  it("defines immutability function once and reuses it twenty-seven times", () => {
+  it("defines immutability function once and reuses it twenty-eight times", () => {
     const allSql = migrationSql.map(({ sql }) => sql).join("\n");
 
     expect(allSql.match(/CREATE OR REPLACE FUNCTION reject_tenant_id_change/g))
       .toHaveLength(1);
     expect(allSql.match(/EXECUTE FUNCTION reject_tenant_id_change\(\)/g))
-      .toHaveLength(27);
+      .toHaveLength(28);
   });
 
   it("persists a bounded traffic percentage only for canary versions", () => {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Controller, Get, HttpException, Param, Post, Req } from "@nestjs/common";
+import { Body, Controller, Get, HttpException, Param, Post, Req } from "@nestjs/common";
 import type { SessionGatewayRequest } from "@alterx/auth";
 import type { ProblemDetails } from "@alterx/contracts";
 import {
@@ -7,6 +7,10 @@ import {
   ProjectReadService,
   ProjectValidationError,
 } from "./project-read.service";
+import {
+  ProjectDomainService,
+  ProjectStateConflictError,
+} from "./project-domain.service";
 
 function requiredTenantId(request: SessionGatewayRequest): string {
   const tenantId = request.actorContext?.tenant_id;
@@ -19,9 +23,46 @@ function requiredTenantId(request: SessionGatewayRequest): string {
   return tenantId;
 }
 
+function requiredWorkspaceId(request: SessionGatewayRequest): string {
+  const workspaceId = request.actorContext?.workspace_id;
+  if (workspaceId === undefined || workspaceId === null) {
+    throw new HttpException(
+      internalProblem(request.url, "Missing authenticated workspace context"),
+      500,
+    );
+  }
+  return workspaceId;
+}
+
+function requiredString(body: unknown, field: string): string {
+  const value = typeof body === "object" && body !== null
+    ? (body as Record<string, unknown>)[field]
+    : undefined;
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new ProjectValidationError(`${field} is required`);
+  }
+  return value;
+}
+
 @Controller("api/v1/projects")
 export class ProjectReadController {
-  constructor(private readonly service: ProjectReadService) {}
+  constructor(
+    private readonly service: ProjectReadService,
+    private readonly projects: ProjectDomainService,
+  ) {}
+
+  @Post()
+  async create(@Req() request: SessionGatewayRequest, @Body() body: unknown) {
+    try {
+      return await this.projects.create(
+        requiredTenantId(request),
+        requiredWorkspaceId(request),
+        requiredString(body, "brief"),
+      );
+    } catch (error: unknown) {
+      throw mapProjectError(error, request.url);
+    }
+  }
 
   @Get(":id")
   async get(@Req() request: SessionGatewayRequest, @Param("id") projectId: string) {
@@ -42,6 +83,68 @@ export class ProjectReadController {
       throw mapProjectError(error, request.url);
     }
   }
+
+  @Get(":id/clarifications")
+  async clarifications(@Req() request: SessionGatewayRequest, @Param("id") projectId: string) {
+    try {
+      return await this.projects.clarifications(requiredTenantId(request), projectId);
+    } catch (error: unknown) {
+      throw mapProjectError(error, request.url);
+    }
+  }
+
+  @Post(":id/clarifications/:clarificationId/answer")
+  async answerClarification(
+    @Req() request: SessionGatewayRequest,
+    @Param("id") projectId: string,
+    @Param("clarificationId") clarificationId: string,
+    @Body() body: unknown,
+  ) {
+    try {
+      return await this.projects.answerClarification(
+        requiredTenantId(request),
+        projectId,
+        clarificationId,
+        requiredString(body, "answer"),
+      );
+    } catch (error: unknown) {
+      throw mapProjectError(error, request.url);
+    }
+  }
+
+  @Get(":id/plan")
+  async plan(@Req() request: SessionGatewayRequest, @Param("id") projectId: string) {
+    try {
+      return await this.projects.plan(requiredTenantId(request), projectId);
+    } catch (error: unknown) {
+      throw mapProjectError(error, request.url);
+    }
+  }
+
+  @Post(":id/plan/actions/:action")
+  async reviewPlan(
+    @Req() request: SessionGatewayRequest,
+    @Param("id") projectId: string,
+    @Param("action") action: string,
+  ) {
+    if (action !== "approve" && action !== "reject" && action !== "request-changes") {
+      throw mapProjectError(new ProjectValidationError("unsupported plan action"), request.url);
+    }
+    try {
+      return await this.projects.reviewPlan(requiredTenantId(request), projectId, action);
+    } catch (error: unknown) {
+      throw mapProjectError(error, request.url);
+    }
+  }
+
+  @Post(":id/builds")
+  async startBuild(@Req() request: SessionGatewayRequest, @Param("id") projectId: string) {
+    try {
+      return await this.projects.startBuild(requiredTenantId(request), projectId);
+    } catch (error: unknown) {
+      throw mapProjectError(error, request.url);
+    }
+  }
 }
 
 function mapProjectError(error: unknown, requestUrl: string | undefined): HttpException {
@@ -51,6 +154,9 @@ function mapProjectError(error: unknown, requestUrl: string | undefined): HttpEx
   if (error instanceof ProjectValidationError) {
     return new HttpException(badRequestProblem(requestUrl, error.message), 400);
   }
+  if (error instanceof ProjectStateConflictError) {
+    return new HttpException(conflictProblem(requestUrl, error.message), 409);
+  }
   if (error instanceof HttpException) {
     return error;
   }
@@ -58,6 +164,22 @@ function mapProjectError(error: unknown, requestUrl: string | undefined): HttpEx
     internalProblem(requestUrl, "Project request could not be completed"),
     500,
   );
+}
+
+function conflictProblem(requestUrl: string | undefined, detail: string): ProblemDetails {
+  return {
+    type: "https://alter.dev/problems/project-state-conflict",
+    title: "Conflict",
+    status: 409,
+    detail,
+    instance: instanceOrRoot(requestUrl),
+    error_code: "PROJECT_STATE_CONFLICT",
+    trace_id: prefixedUuidV7("trc"),
+    request_id: prefixedUuidV7("req"),
+    retryable: false,
+    field_errors: [],
+    documentation_key: "projects.state-conflict",
+  };
 }
 
 function instanceOrRoot(requestUrl: string | undefined): string {

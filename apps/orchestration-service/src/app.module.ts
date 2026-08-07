@@ -102,6 +102,7 @@ import { ClarificationsController } from "./clarifications/clarifications.contro
 import { ClarificationsService } from "./clarifications/clarifications.service";
 import { ProjectReadController } from "./project-read/project-read.controller";
 import { ProjectReadService } from "./project-read/project-read.service";
+import { ProjectDomainService } from "./project-read/project-domain.service";
 import { TOOLGW_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
 import { ConversationDispatchService } from "./webhooks/conversation-dispatch.service";
 import { WhatsappWebhookController } from "./webhooks/whatsapp-webhook.controller";
@@ -415,6 +416,29 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
         return new ProjectReadService(store);
+      },
+    },
+    {
+      provide: ProjectDomainService,
+      inject: [RunLauncherService, CONVERSATION_HANDLER],
+      useFactory: (launcher: RunLauncherService, conversations: import("@alterx/adapters").ConversationHandler) => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider({
+          authentication: "iam",
+          host: dbConfig.databaseHost,
+          port: dbConfig.databasePort,
+          database: dbConfig.databaseName,
+          user: dbConfig.databaseUser,
+          region: dbConfig.awsRegion,
+          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+        });
+        const recoveryConfig = loadRecoveryEnvironment(process.env);
+        return new ProjectDomainService(
+          store,
+          new PlannerClient({ baseUrl: recoveryConfig.plannerBaseUrl }),
+          conversations,
+          launcher,
+        );
       },
     },
     {
