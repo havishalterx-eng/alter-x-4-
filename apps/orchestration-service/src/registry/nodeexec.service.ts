@@ -22,6 +22,7 @@ import type { RecoveryTriggerService } from "../recovery/recovery-trigger.servic
 import type { RunOutcomeService } from "../runs/run-outcome.service";
 import type { ProjectRunProvisioningService } from "../runs/project-run-provisioning.service";
 import type { GeneratedFileMaterializer } from "./generated-file-materializer";
+import { VerifyGateError, type VerifyGateService } from "./verify-gate.service";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -81,6 +82,7 @@ export class NodeexecService {
     private readonly runOutcomes?: RunOutcomeService,
     private readonly projectProvisioning?: ProjectRunProvisioningService,
     private readonly generatedFileMaterializer?: GeneratedFileMaterializer,
+    private readonly verifyGate?: VerifyGateService,
   ) {}
 
   async executeNode(
@@ -161,7 +163,7 @@ export class NodeexecService {
       }
 
       const outputJson = JSON.stringify(result.output);
-      const metadataJson = JSON.stringify(result.metadata ?? {});
+      let metadata = result.metadata ?? {};
 
       if (result.metadata?.["execution_status"] === "blocked_pending_recovery") {
         const reason = String(result.output["reason"] ?? "verification blocked external action");
@@ -170,7 +172,7 @@ export class NodeexecService {
           reason,
         );
         await this.#triggerRecoveryBestEffort(request, reason);
-        return { output_json: outputJson, metadata_json: metadataJson };
+        return { output_json: outputJson, metadata_json: JSON.stringify(metadata) };
       }
 
       if (result.metadata?.["execution_status"] === "pending_approval") {
@@ -192,7 +194,7 @@ export class NodeexecService {
             },
           }, request);
         }
-        return { output_json: outputJson, metadata_json: metadataJson };
+        return { output_json: outputJson, metadata_json: JSON.stringify(metadata) };
       }
 
       const problem = ProblemDetailsSchema.safeParse(result.output);
@@ -211,6 +213,32 @@ export class NodeexecService {
           retryable: problem.data.retryable,
         }), request);
       } else {
+        const verification = await this.verifyGate?.scoreNodeInline({
+          tenant_id: request.tenant_id,
+          run_id: request.run_id,
+          node_execution_id: request.node_execution_id,
+          node_key: request.node_key,
+          node_type: request.node_type,
+          config_json: JSON.stringify(executionConfig),
+          output_json: outputJson,
+        });
+        if (verification !== undefined) {
+          metadata = {
+            ...metadata,
+            verification: {
+              verdict: verification.verdict,
+              score: verification.score,
+              threshold: verification.threshold,
+              reviewer_model: verification.reviewer_model,
+            },
+          };
+          if (verification.verdict === "fail") {
+            throw new VerifyGateError(
+              "VERIFICATION_GATE_FAILED",
+              "Verify Gate rejected node output",
+            );
+          }
+        }
         const outputRef = generatedFileNode
           ? await this.#materializeGeneratedFiles(request, sandboxSessionId, result.output)
           : undefined;
@@ -224,9 +252,10 @@ export class NodeexecService {
           node_execution_id: request.node_execution_id, dag_node_key: request.node_key,
           node_type: nodeType.data, attempt: started.attempt,
           status: "succeeded", ended_at: new Date().toISOString(),
+          ...(verification === undefined ? {} : { verification_verdict: verification.verdict }),
         } }, request);
       }
-      return { output_json: outputJson, metadata_json: metadataJson };
+      return { output_json: outputJson, metadata_json: JSON.stringify(metadata) };
     } catch (error: unknown) {
       const failure = persistedError(error);
       await this.ledger.recordFailed(
@@ -553,6 +582,9 @@ function modelAliasFromConfigJson(configJson: string): { readonly modelAlias?: "
 }
 
 function persistedError(error: unknown): { readonly code: string; readonly detail: string } {
+  if (error instanceof VerifyGateError) {
+    return { code: error.code, detail: error.message };
+  }
   if (error instanceof NodeHandlerValidationError) {
     return { code: "NODE_HANDLER_VALIDATION_FAILED", detail: error.message };
   }

@@ -12,6 +12,7 @@ import type { GeneratedFileMaterializer } from "./generated-file-materializer";
 import { NodeExecutionLedgerService } from "../runs/node-execution-ledger.service";
 import { RunStreamEventService } from "../runs/run-stream-event.service";
 import type { RecoveryTriggerService } from "../recovery/recovery-trigger.service";
+import { VerifyGateService } from "./verify-gate.service";
 
 const TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const RUN_ID = "run_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
@@ -53,6 +54,105 @@ describe("NodeexecService.executeNode", () => {
     expect(JSON.parse(response.metadata_json)).toEqual({});
     expect(ledger.recordStarted).toHaveBeenCalledOnce();
     expect(ledger.recordSucceeded).toHaveBeenCalledOnce();
+  });
+
+  it("scores ordinary node output before recording success", async () => {
+    const ledger = fakeLedger();
+    const verifyGate = {
+      scoreNodeInline: vi.fn().mockResolvedValue({
+        verdict: "pass", score: 1, threshold: 0.8, reviewer_model: "deterministic", details_json: "{}",
+      }),
+    } as unknown as VerifyGateService;
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]), ledger, undefined, undefined, undefined,
+      undefined, undefined, verifyGate,
+    );
+
+    const response = await nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_merge", node_type: "Merge", config_json: "{}",
+      inputs_json: JSON.stringify({ node_a: { x: 1 } }),
+    });
+
+    expect(verifyGate.scoreNodeInline).toHaveBeenCalledWith({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_merge", node_type: "Merge", config_json: "{}", output_json: "{\"x\":1}",
+    });
+    expect(ledger.recordSucceeded).toHaveBeenCalledOnce();
+    expect(JSON.parse(response.metadata_json)).toMatchObject({ verification: { verdict: "pass" } });
+  });
+
+  it("records a warning verdict distinctly while preserving success", async () => {
+    const ledger = fakeLedger();
+    const verifyGate = {
+      scoreNodeInline: vi.fn().mockResolvedValue({
+        verdict: "warn", score: 0.81, threshold: 0.8, reviewer_model: "deterministic", details_json: "{}",
+      }),
+    } as unknown as VerifyGateService;
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]), ledger, undefined, undefined, undefined,
+      undefined, undefined, verifyGate,
+    );
+
+    const response = await nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_merge", node_type: "Merge", config_json: "{}", inputs_json: "{}",
+    });
+
+    expect(ledger.recordSucceeded).toHaveBeenCalledOnce();
+    expect(JSON.parse(response.metadata_json)).toMatchObject({ verification: { verdict: "warn" } });
+  });
+
+  it("fails closed and triggers recovery when Verify rejects node output", async () => {
+    const ledger = fakeLedger();
+    const recovery = {
+      triggerForBlockedNode: vi.fn().mockResolvedValue(undefined),
+      triggerForFailedNode: vi.fn().mockResolvedValue(undefined),
+    } as unknown as RecoveryTriggerService;
+    const verifyGate = {
+      scoreNodeInline: vi.fn().mockResolvedValue({
+        verdict: "fail", score: 0, threshold: 0.8, reviewer_model: "deterministic", details_json: "{}",
+      }),
+    } as unknown as VerifyGateService;
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]), ledger, undefined, recovery, undefined,
+      undefined, undefined, verifyGate,
+    );
+
+    await expect(nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_merge", node_type: "Merge", config_json: "{}", inputs_json: "{}",
+    })).rejects.toThrow(/Verify Gate rejected/);
+
+    expect(ledger.recordSucceeded).not.toHaveBeenCalled();
+    expect(ledger.recordFailed).toHaveBeenCalledWith(
+      expect.anything(),
+      { code: "VERIFICATION_GATE_FAILED", detail: "Verify Gate rejected node output" },
+    );
+    expect(recovery.triggerForFailedNode).toHaveBeenCalledWith(expect.objectContaining({
+      errorCode: "VERIFICATION_GATE_FAILED",
+    }));
+  });
+
+  it("fails closed when Verify Service is unavailable", async () => {
+    const ledger = fakeLedger();
+    const verifyGate = new VerifyGateService({
+      scoreNodeInline: vi.fn().mockRejectedValue(new Error("unavailable")),
+    });
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]), ledger, undefined, undefined, undefined,
+      undefined, undefined, verifyGate,
+    );
+
+    await expect(nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_merge", node_type: "Merge", config_json: "{}", inputs_json: "{}",
+    })).rejects.toThrow(/Verify Service is unavailable/);
+    expect(ledger.recordSucceeded).not.toHaveBeenCalled();
+    expect(ledger.recordFailed).toHaveBeenCalledWith(
+      expect.anything(),
+      { code: "VERIFY_SERVICE_UNAVAILABLE", detail: "Verify Service is unavailable" },
+    );
   });
 
   it("passes sandbox_session_id from compiled config through execution context", async () => {

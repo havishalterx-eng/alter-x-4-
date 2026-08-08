@@ -18,3 +18,12 @@ const workspaceToolgwProtoPath = resolve(
 export const TOOLGW_CLIENT_PROTO_PATH = existsSync(workspaceToolgwProtoPath)
   ? workspaceToolgwProtoPath
   : resolve(__dirname, "../../proto/toolgw.proto");
+
+const workspaceVerifyProtoPath = resolve(
+  process.cwd(),
+  "packages/contracts/proto/alter/verify/v1/verify.proto",
+);
+
+export const VERIFY_CLIENT_PROTO_PATH = existsSync(workspaceVerifyProtoPath)
+  ? workspaceVerifyProtoPath
+  : resolve(__dirname, "../../proto/verify.proto");

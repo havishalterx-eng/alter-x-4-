@@ -11,11 +11,13 @@ describe("loadNodeexecEnvironment", () => {
       loadNodeexecEnvironment({
         TOOL_GATEWAY_ADDRESS: "tool-gateway:50053",
         SANDBOX_SERVICE_ADDRESS: "sandbox-service:50057",
+        VERIFY_SERVICE_ADDRESS: "verification-service:50054",
       }),
     ).toEqual({
       grpcBindAddress: "0.0.0.0:50056",
       toolGatewayAddress: "tool-gateway:50053",
       sandboxServiceAddress: "sandbox-service:50057",
+      verifyServiceAddress: "verification-service:50054",
     });
   });
 
@@ -29,5 +31,11 @@ describe("loadNodeexecEnvironment", () => {
     expect(() =>
       loadNodeexecEnvironment({ TOOL_GATEWAY_ADDRESS: "tool-gateway:50053" }),
     ).toThrow(/SANDBOX_SERVICE_ADDRESS/);
+    expect(() =>
+      loadNodeexecEnvironment({
+        TOOL_GATEWAY_ADDRESS: "tool-gateway:50053",
+        SANDBOX_SERVICE_ADDRESS: "sandbox-service:50057",
+      }),
+    ).toThrow(/VERIFY_SERVICE_ADDRESS/);
   });
 });

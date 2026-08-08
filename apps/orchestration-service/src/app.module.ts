@@ -33,6 +33,7 @@ import {
   RunsGrpcController,
   TemporalDurableExecutionProvider,
   ToolGatewayClient,
+  VerifyServiceClient,
 } from "@alterx/adapters";
 import { createMockQueueProvider } from "@alterx/shared-clients";
 import {
@@ -110,7 +111,8 @@ import { ClarificationsService } from "./clarifications/clarifications.service";
 import { ProjectReadController } from "./project-read/project-read.controller";
 import { ProjectReadService } from "./project-read/project-read.service";
 import { ProjectDomainService } from "./project-read/project-domain.service";
-import { TOOLGW_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
+import { TOOLGW_CLIENT_PROTO_PATH, VERIFY_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
+import { VerifyGateService } from "./registry/verify-gate.service";
 import { ConversationDispatchService } from "./webhooks/conversation-dispatch.service";
 import { WhatsappWebhookController } from "./webhooks/whatsapp-webhook.controller";
 import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
@@ -584,6 +586,12 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           address: nodeexecConfig.sandboxServiceAddress,
           protoPath: SANDBOX_CLIENT_PROTO_PATH,
         });
+        const verifyGate = new VerifyGateService(
+          new VerifyServiceClient({
+            address: nodeexecConfig.verifyServiceAddress,
+            protoPath: VERIFY_CLIENT_PROTO_PATH,
+          }),
+        );
         // No real QueueProvider adapter exists yet -- PubSubHandler uses
         // the shared-clients mock here, same disclosed gap as EXEC-1.
         const queueProvider = createMockQueueProvider();
@@ -634,6 +642,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
             }),
           ),
           new GeneratedFileMaterializer(artifacts, sandboxService),
+          verifyGate,
         );
       },
       inject: [ArtifactsService],

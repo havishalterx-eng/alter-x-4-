@@ -199,6 +199,8 @@ export type {
   AssessSeverityResponse as VerifyAssessSeverityResponse,
   CheckHallucinationRequest as VerifyCheckHallucinationRequest,
   CheckHallucinationResponse as VerifyCheckHallucinationResponse,
+  ScoreNodeInlineRequest,
+  ScoreNodeInlineResponse,
 } from "./generated/alter/verify/v1/verify";
 export {
   CostLimitBindingSchema,

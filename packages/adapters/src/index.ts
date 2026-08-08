@@ -214,6 +214,12 @@ export {
   type EvalServiceHandlerClient,
 } from "./grpc/eval-client";
 export {
+  VerifyServiceClient,
+  VerifyServiceClientError,
+  type VerifyServiceClientConfig,
+  type VerifyServiceHandlerClient,
+} from "./grpc/verify-client";
+export {
   PROVISIONING_HANDLER,
   ProvisioningGrpcController,
   startProvisioningGrpcTransport,
