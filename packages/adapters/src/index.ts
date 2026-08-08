@@ -220,6 +220,14 @@ export {
   type VerifyServiceHandlerClient,
 } from "./grpc/verify-client";
 export {
+  MemoryServiceClient,
+  MemoryServiceClientError,
+  type MemoryServiceClientConfig,
+  type MemoryWritebackHandler,
+  type ProposeWritebackRequest,
+  type ProposeWritebackResponse,
+} from "./grpc/memory-client";
+export {
   PROVISIONING_HANDLER,
   ProvisioningGrpcController,
   startProvisioningGrpcTransport,

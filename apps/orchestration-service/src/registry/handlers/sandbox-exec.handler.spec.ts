@@ -7,7 +7,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { NodeHandlerValidationError } from "../handler";
 import { SandboxExecHandler } from "./sandbox-exec.handler";
-import { MemoryWriteHandler } from "./memory-write.handler";
 
 const context = {
   config: {
@@ -57,16 +56,5 @@ describe("SandboxExecHandler", () => {
     await expect(
       handler.execute({ ...context, sandbox_session_id: "e2b_ses_other" }),
     ).rejects.toBeInstanceOf(NodeHandlerValidationError);
-  });
-});
-
-describe("unimplemented execution handlers", () => {
-  it.each([
-    [new MemoryWriteHandler(), "memory_write_not_implemented", "Knowledge"],
-  ] as const)("returns honest non-success state for %s", async (handler, code, phase) => {
-    await expect(handler.execute({ config: {}, inputs: {} })).resolves.toEqual({
-      output: { stub: true, code, implementation_phase: phase },
-      metadata: { execution_status: "not_implemented" },
-    });
   });
 });

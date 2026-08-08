@@ -94,6 +94,15 @@ export const SandboxExecCompiledConfigSchema = z
   })
   .passthrough();
 
+/** References are supplied by the compiled node; MemoryWrite never invents them. */
+export const MemoryWriteCompiledConfigSchema = z
+  .object({
+    workspace_id: WorkspaceIdSchema.optional(),
+    verified_output_artifact_id: ArtifactIdSchema.optional(),
+    namespace: NonEmptyStringSchema.optional(),
+  })
+  .passthrough();
+
 const WorkflowDagNodeSchema = z
   .object({
     key: NodeKeySchema,
@@ -107,13 +116,15 @@ const WorkflowDagNodeSchema = z
   })
   .strict()
   .superRefine(({ type, config }, context) => {
-    if (type !== "ToolCall" && type !== "SandboxExec") {
+    if (type !== "ToolCall" && type !== "SandboxExec" && type !== "MemoryWrite") {
       return;
     }
-    const result = (type === "ToolCall"
+    const schema = type === "ToolCall"
       ? ToolCallCompiledConfigSchema
-      : SandboxExecCompiledConfigSchema
-    ).safeParse(config);
+      : type === "SandboxExec"
+        ? SandboxExecCompiledConfigSchema
+        : MemoryWriteCompiledConfigSchema;
+    const result = schema.safeParse(config);
     if (result.success) {
       return;
     }
@@ -354,6 +365,9 @@ export type ToolCallCompiledConfig = z.infer<
 >;
 export type SandboxExecCompiledConfig = z.infer<
   typeof SandboxExecCompiledConfigSchema
+>;
+export type MemoryWriteCompiledConfig = z.infer<
+  typeof MemoryWriteCompiledConfigSchema
 >;
 export type CompiledDag = z.infer<typeof CompiledDagSchema>;
 export type NodeRequirements = z.infer<typeof NodeRequirementsSchema>;

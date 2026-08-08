@@ -1,6 +1,7 @@
 import type { NodeType } from "@alterx/contracts";
 import type {
   ModelGatewayHandler,
+  MemoryWritebackHandler,
   SandboxExecuteHandler,
   ToolGatewayInvokeHandler,
 } from "@alterx/adapters";
@@ -84,6 +85,7 @@ export class NodeHandlerRegistry {
 
 export interface RuntimeNodeHandlerProviders {
   readonly modelGateway: ModelGatewayHandler;
+  readonly memoryService: MemoryWritebackHandler;
   readonly toolGateway: ToolGatewayInvokeHandler;
   readonly sandboxService: SandboxExecuteHandler;
   readonly queueProvider: QueueProvider;
@@ -106,6 +108,6 @@ export function createRuntimeNodeHandlerRegistry(
     new HumanApprovalHandler(providers.approvalRequester),
     new SandboxExecHandler(providers.sandboxService),
     new SynthesisHandler(providers.modelGateway, providers.verificationGateReader),
-    new MemoryWriteHandler(),
+    new MemoryWriteHandler(providers.memoryService),
   ]);
 }

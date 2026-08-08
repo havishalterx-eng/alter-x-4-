@@ -35,6 +35,8 @@ describe("GET /health", () => {
       TOOL_GATEWAY_ADDRESS: "127.0.0.1:50053",
       SANDBOX_SERVICE_ADDRESS: "127.0.0.1:50057",
       VERIFY_SERVICE_ADDRESS: "127.0.0.1:50054",
+      MEMORY_SERVICE_ADDRESS: "127.0.0.1:50060",
+      MEMORY_SERVICE_AUTHORIZATION: "Bearer test-service-token",
       PROVISIONING_SERVICE_ADDRESS: "127.0.0.1:50055",
       WHATSAPP_APP_SECRET: "test-app-secret",
       WHATSAPP_VERIFY_TOKEN: "test-verify-token",

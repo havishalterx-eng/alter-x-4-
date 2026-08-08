@@ -138,8 +138,16 @@ const CATALOG_ENTRIES: readonly CatalogEntry[] = [
     displayName: "Memory Write",
     description: "Writes a verified, scoped learning back to ADS memory or the Policy Store.",
     category: "knowledge",
-    configSchema: { type: "object", properties: {} },
-    handlerImplemented: false,
+    configSchema: {
+      type: "object",
+      properties: {
+        workspace_id: { type: "string" },
+        verified_output_artifact_id: { type: "string" },
+        namespace: { type: "string" },
+      },
+      required: ["workspace_id", "verified_output_artifact_id", "namespace"],
+    },
+    handlerImplemented: true,
   },
   {
     type: "PubSub",

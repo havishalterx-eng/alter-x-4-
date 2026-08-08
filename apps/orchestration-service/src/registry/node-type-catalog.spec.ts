@@ -27,6 +27,7 @@ const IMPLEMENTED_TYPES = [
   "SandboxExec",
   "HumanApproval",
   "Synthesis",
+  "MemoryWrite",
 ];
 
 describe("listNodeTypeDescriptors", () => {
@@ -36,7 +37,7 @@ describe("listNodeTypeDescriptors", () => {
     expect(descriptors.map((d) => d.type).sort()).toEqual([...ALL_11_TYPES].sort());
   });
 
-  it("marks real handlers implemented (MemoryWrite remains an explicit stub)", () => {
+  it("marks real handlers implemented", () => {
     const descriptors = listNodeTypeDescriptors();
 
     const implemented = descriptors.filter((d) => d.handler_implemented).map((d) => d.type);
@@ -63,6 +64,17 @@ describe("listNodeTypeDescriptors", () => {
 
     expect(schema.properties).toHaveProperty("sandbox_session_id");
     expect(schema.required).toContain("sandbox_session_id");
+  });
+
+  it("publishes required real MemoryWrite references", () => {
+    const descriptor = findNodeTypeDescriptor("MemoryWrite");
+    const schema = JSON.parse(descriptor?.config_schema_json ?? "{}") as {
+      readonly required?: readonly string[];
+    };
+
+    expect(schema.required).toEqual([
+      "workspace_id", "verified_output_artifact_id", "namespace",
+    ]);
   });
 
   it("every descriptor has non-empty display_name/description/category", () => {

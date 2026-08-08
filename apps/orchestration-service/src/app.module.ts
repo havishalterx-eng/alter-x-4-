@@ -17,6 +17,7 @@ import {
   ConversationGrpcController,
   DeployctlGrpcController,
   EvalServiceClient,
+  MemoryServiceClient,
   ModelGatewayClient,
   PlannerClient,
   PolicyStoreClient,
@@ -111,7 +112,7 @@ import { ClarificationsService } from "./clarifications/clarifications.service";
 import { ProjectReadController } from "./project-read/project-read.controller";
 import { ProjectReadService } from "./project-read/project-read.service";
 import { ProjectDomainService } from "./project-read/project-domain.service";
-import { TOOLGW_CLIENT_PROTO_PATH, VERIFY_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
+import { MEMORY_CLIENT_PROTO_PATH, TOOLGW_CLIENT_PROTO_PATH, VERIFY_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
 import { VerifyGateService } from "./registry/verify-gate.service";
 import { ConversationDispatchService } from "./webhooks/conversation-dispatch.service";
 import { WhatsappWebhookController } from "./webhooks/whatsapp-webhook.controller";
@@ -586,6 +587,11 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           address: nodeexecConfig.sandboxServiceAddress,
           protoPath: SANDBOX_CLIENT_PROTO_PATH,
         });
+        const memoryService = new MemoryServiceClient({
+          address: nodeexecConfig.memoryServiceAddress,
+          protoPath: MEMORY_CLIENT_PROTO_PATH,
+          authorization: nodeexecConfig.memoryServiceAuthorization,
+        });
         const verifyGate = new VerifyGateService(
           new VerifyServiceClient({
             address: nodeexecConfig.verifyServiceAddress,
@@ -614,6 +620,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         );
         const registry = createRuntimeNodeHandlerRegistry({
           modelGateway,
+          memoryService,
           toolGateway,
           sandboxService,
           queueProvider,

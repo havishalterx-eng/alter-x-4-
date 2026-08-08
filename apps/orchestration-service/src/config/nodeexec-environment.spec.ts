@@ -12,12 +12,16 @@ describe("loadNodeexecEnvironment", () => {
         TOOL_GATEWAY_ADDRESS: "tool-gateway:50053",
         SANDBOX_SERVICE_ADDRESS: "sandbox-service:50057",
         VERIFY_SERVICE_ADDRESS: "verification-service:50054",
+        MEMORY_SERVICE_ADDRESS: "memory-service:50060",
+        MEMORY_SERVICE_AUTHORIZATION: "Bearer service-token",
       }),
     ).toEqual({
       grpcBindAddress: "0.0.0.0:50056",
       toolGatewayAddress: "tool-gateway:50053",
       sandboxServiceAddress: "sandbox-service:50057",
       verifyServiceAddress: "verification-service:50054",
+      memoryServiceAddress: "memory-service:50060",
+      memoryServiceAuthorization: "Bearer service-token",
     });
   });
 
@@ -35,7 +39,9 @@ describe("loadNodeexecEnvironment", () => {
       loadNodeexecEnvironment({
         TOOL_GATEWAY_ADDRESS: "tool-gateway:50053",
         SANDBOX_SERVICE_ADDRESS: "sandbox-service:50057",
+        VERIFY_SERVICE_ADDRESS: "verification-service:50054",
+        MEMORY_SERVICE_ADDRESS: "memory-service:50060",
       }),
-    ).toThrow(/VERIFY_SERVICE_ADDRESS/);
+    ).toThrow(/MEMORY_SERVICE_AUTHORIZATION/);
   });
 });

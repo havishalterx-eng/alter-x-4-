@@ -7,6 +7,8 @@ export interface NodeexecEnvironment {
   readonly toolGatewayAddress: string;
   readonly sandboxServiceAddress: string;
   readonly verifyServiceAddress: string;
+  readonly memoryServiceAddress: string;
+  readonly memoryServiceAuthorization: string;
 }
 
 export class NodeexecConfigurationError extends Error {
@@ -58,10 +60,30 @@ export function loadNodeexecEnvironment(
       "a non-empty value is required",
     );
   }
+  const memoryServiceAddress = environment.MEMORY_SERVICE_ADDRESS?.trim();
+  if (memoryServiceAddress === undefined || memoryServiceAddress.length === 0) {
+    throw new NodeexecConfigurationError(
+      "MEMORY_SERVICE_ADDRESS",
+      "a non-empty value is required",
+    );
+  }
+  const memoryServiceAuthorization = environment.MEMORY_SERVICE_AUTHORIZATION?.trim();
+  if (
+    memoryServiceAuthorization === undefined ||
+    !memoryServiceAuthorization.startsWith("Bearer ") ||
+    memoryServiceAuthorization.slice("Bearer ".length).trim().length === 0
+  ) {
+    throw new NodeexecConfigurationError(
+      "MEMORY_SERVICE_AUTHORIZATION",
+      "a non-empty Bearer token is required",
+    );
+  }
   return {
     grpcBindAddress: parseGrpcAddress(environment.NODEEXEC_GRPC_BIND_ADDRESS),
     toolGatewayAddress,
     sandboxServiceAddress,
     verifyServiceAddress,
+    memoryServiceAddress,
+    memoryServiceAuthorization,
   };
 }

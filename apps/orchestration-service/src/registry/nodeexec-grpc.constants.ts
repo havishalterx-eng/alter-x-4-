@@ -27,3 +27,12 @@ const workspaceVerifyProtoPath = resolve(
 export const VERIFY_CLIENT_PROTO_PATH = existsSync(workspaceVerifyProtoPath)
   ? workspaceVerifyProtoPath
   : resolve(__dirname, "../../proto/verify.proto");
+
+const workspaceMemoryProtoPath = resolve(
+  process.cwd(),
+  "packages/contracts/proto/alter/memory/v1/memory.proto",
+);
+
+export const MEMORY_CLIENT_PROTO_PATH = existsSync(workspaceMemoryProtoPath)
+  ? workspaceMemoryProtoPath
+  : resolve(__dirname, "../../proto/memory.proto");
