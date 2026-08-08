@@ -23,3 +23,13 @@ class AgentPerformanceResponse(StrictModel):
     agent_id: str
     task_class: str
     observations: tuple[PerformanceObservation, ...]
+
+
+class DriftCandidate(StrictModel):
+    tenant_id: str
+    agent_id: str
+    task_class: str
+
+
+class DriftCandidateResponse(StrictModel):
+    candidates: tuple[DriftCandidate, ...]

@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 PerformanceVerdict = Literal["success", "failure", "partial", "escalated"]
-DriftAction = Literal["none", "flagged"]
+DriftAction = Literal["none", "flagged", "weight_decay"]
 
 
 class StrictModel(BaseModel):

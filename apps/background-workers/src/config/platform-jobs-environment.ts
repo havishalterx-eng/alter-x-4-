@@ -14,6 +14,11 @@ export interface PlatformJobsEnvironment {
   readonly orchestrationServiceInternalBaseUrl: string;
   readonly evalFacadeServiceTokenRef: string;
   readonly benchmarkSweepIntervalMs: number;
+  readonly intelligenceServiceInternalBaseUrl: string;
+  readonly memoryServiceInternalBaseUrl: string;
+  readonly driftSweepServiceTokenRef: string;
+  readonly driftSweepIntervalMs: number;
+  readonly driftSweepMinimumObservations: number;
 }
 
 export class PlatformJobsConfigurationError extends Error {
@@ -35,6 +40,8 @@ const DEFAULT_DIGEST_INTERVAL_MS = 60 * 60 * 1000; // hourly
 const DEFAULT_CONNECTOR_HEALTH_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // hourly
 const DEFAULT_RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
 const DEFAULT_BENCHMARK_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
+const DEFAULT_DRIFT_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // hourly
+const DEFAULT_DRIFT_SWEEP_MINIMUM_OBSERVATIONS = 40; // 2 * memory-service's default window size
 
 function parseIntervalMs(
   environment: NodeJS.ProcessEnv,
@@ -47,6 +54,19 @@ function parseIntervalMs(
     throw new PlatformJobsConfigurationError(field, "must be a positive number when set");
   }
   return intervalMs;
+}
+
+function parsePositiveInteger(
+  environment: NodeJS.ProcessEnv,
+  field: string,
+  defaultValue: number,
+): number {
+  const raw = environment[field]?.trim();
+  const value = raw ? Number(raw) : defaultValue;
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new PlatformJobsConfigurationError(field, "must be a positive integer when set");
+  }
+  return value;
 }
 
 export function loadPlatformJobsEnvironment(
@@ -91,6 +111,22 @@ export function loadPlatformJobsEnvironment(
       environment,
       "BENCHMARK_SWEEP_INTERVAL_MS",
       DEFAULT_BENCHMARK_SWEEP_INTERVAL_MS,
+    ),
+    intelligenceServiceInternalBaseUrl: requireValue(
+      environment,
+      "INTELLIGENCE_SERVICE_INTERNAL_BASE_URL",
+    ),
+    memoryServiceInternalBaseUrl: requireValue(environment, "MEMORY_SERVICE_INTERNAL_BASE_URL"),
+    driftSweepServiceTokenRef: requireValue(environment, "DRIFT_SWEEP_SERVICE_TOKEN_REF"),
+    driftSweepIntervalMs: parseIntervalMs(
+      environment,
+      "DRIFT_SWEEP_INTERVAL_MS",
+      DEFAULT_DRIFT_SWEEP_INTERVAL_MS,
+    ),
+    driftSweepMinimumObservations: parsePositiveInteger(
+      environment,
+      "DRIFT_SWEEP_MINIMUM_OBSERVATIONS",
+      DEFAULT_DRIFT_SWEEP_MINIMUM_OBSERVATIONS,
     ),
   };
 }

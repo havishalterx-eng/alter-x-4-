@@ -222,4 +222,45 @@ describe("createPlatformJobHandlers", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(4);
     expect(result).toEqual({ goldenSetsProcessed: 3, goldenSetsFailed: 1 });
   });
+
+  it("discovers and scores every eligible drift candidate", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [
+            { tenant_id: "ten_1", agent_id: "agent_1", task_class: "support" },
+            { tenant_id: "ten_2", agent_id: "agent_2", task_class: "sales" },
+          ],
+        }),
+        text: async () => "",
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => "" })
+      .mockResolvedValueOnce({ ok: false, status: 503, text: async () => "unavailable" }) as unknown as typeof fetch;
+    const handlers = createPlatformJobHandlers({
+      intelligenceServiceInternalBaseUrl: "http://intelligence-service.internal",
+      memoryServiceInternalBaseUrl: "http://memory-service.internal",
+      driftSweepServiceToken: "real-token",
+      driftSweepMinimumObservations: 40,
+      fetchImpl,
+    });
+
+    const result = await handlers.get("platform.drift-sweep")!({});
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      "http://intelligence-service.internal/internal/performance/drift-candidates?minimum_observations=40",
+      { headers: { authorization: "Bearer real-token" } },
+    );
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://memory-service.internal/drift/agents/score",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ tenant_id: "ten_1", agent_id: "agent_1", task_class: "support" }),
+      }),
+    );
+    expect(result).toEqual({ candidates: 2, scored: 1, failed: 1 });
+  });
 });

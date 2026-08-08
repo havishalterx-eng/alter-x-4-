@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import socket
 import subprocess
@@ -26,6 +27,9 @@ from src.drift.models import (
     ListAgentDriftRequest,
 )
 from src.drift.repository import SqlAlchemyDriftRepository
+from src.policy_store.models import GetActivePolicyRequest
+from src.policy_store.repository import SqlAlchemyPolicyStoreRepository
+from src.policy_store.service import PolicyStoreService
 
 MEMORY_ROOT = Path(__file__).parent.parent
 INTELLIGENCE_ROOT = MEMORY_ROOT.parent / "intelligence-service"
@@ -39,6 +43,7 @@ TASK_CLASS = "analysis"
 SYSTEM_PASSWORD = "know15-system-test-only"
 TENANT_ROLE = "know15_tenant_writer"
 TENANT_PASSWORD = "know15-tenant-test-only"
+DRIFT_READER_PASSWORD = "drift-reader-test-only"
 
 
 def _free_port() -> int:
@@ -133,6 +138,15 @@ def drift_stack() -> Generator[dict[str, str], None, None]:
         policy_admin_url = policy_postgres.get_connection_url()
         _migrate(INTELLIGENCE_ROOT, intelligence_url)
         _migrate(MEMORY_ROOT, policy_admin_url)
+        intelligence_admin = sa.create_engine(intelligence_url, isolation_level="AUTOCOMMIT")
+        with intelligence_admin.connect() as connection:
+            connection.execute(
+                sa.text(
+                    "ALTER ROLE intelligence_drift_reader LOGIN PASSWORD "
+                    f"'{DRIFT_READER_PASSWORD}'"
+                )
+            )
+        intelligence_admin.dispose()
         _seed_agent_performance(
             intelligence_url,
             agent_id=DRIFTED_AGENT_ID,
@@ -173,7 +187,13 @@ def drift_stack() -> Generator[dict[str, str], None, None]:
             )
             connection.execute(sa.text(f"GRANT USAGE ON SCHEMA public TO {TENANT_ROLE}"))
             connection.execute(
-                sa.text(f"GRANT SELECT ON drift_scores TO {TENANT_ROLE}")
+                sa.text(f"GRANT SELECT, INSERT ON drift_scores TO {TENANT_ROLE}")
+            )
+            connection.execute(
+                sa.text(
+                    f"GRANT SELECT, INSERT, UPDATE ON policies, policy_promotions "
+                    f"TO {TENANT_ROLE}"
+                )
             )
         policy_admin.dispose()
 
@@ -181,6 +201,13 @@ def drift_stack() -> Generator[dict[str, str], None, None]:
         environment = os.environ.copy()
         environment["INTELLIGENCE_DB_URL"] = _async_url(intelligence_url)
         environment["INTELLIGENCE_DB_URL_SYNC"] = intelligence_url
+        environment["INTELLIGENCE_DRIFT_READER_DB_URL"] = _async_url(
+            _role_url(
+                intelligence_url,
+                "intelligence_drift_reader",
+                DRIFT_READER_PASSWORD,
+            )
+        )
         process = subprocess.Popen(
             [
                 "uv",
@@ -248,12 +275,51 @@ def test_real_performance_http_projection_computes_and_persists_drift(
     assert cross_tenant.status_code == 200
     assert cross_tenant.json()["observations"] == []
 
+    candidates = httpx.get(
+        f"{drift_stack['intelligence_base_url']}/internal/performance/drift-candidates",
+        params={"minimum_observations": 8},
+        headers={"authorization": "Bearer integration-token"},
+        timeout=5,
+    )
+    assert candidates.status_code == 200
+    assert candidates.json()["candidates"] == [
+        {
+            "tenant_id": TENANT_ID,
+            "agent_id": DRIFTED_AGENT_ID,
+            "task_class": TASK_CLASS,
+        },
+        {
+            "tenant_id": TENANT_ID,
+            "agent_id": STABLE_AGENT_ID,
+            "task_class": TASK_CLASS,
+        },
+    ]
+
     system_engine = sa.create_engine(drift_stack["policy_system_url"])
     tenant_engine = sa.create_engine(drift_stack["policy_tenant_url"])
     repository = SqlAlchemyDriftRepository(
         sessionmaker(tenant_engine, class_=Session, expire_on_commit=False),
         sessionmaker(system_engine, class_=Session, expire_on_commit=False),
     )
+    policy_store = PolicyStoreService(
+        SqlAlchemyPolicyStoreRepository(
+            sessionmaker(tenant_engine, class_=Session, expire_on_commit=False),
+            sessionmaker(system_engine, class_=Session, expire_on_commit=False),
+        )
+    )
+    with tenant_engine.begin() as connection:
+        connection.execute(
+            sa.text("SELECT set_config('app.current_tenant_id', :tenant_id, true)"),
+            {"tenant_id": TENANT_UUID},
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO policies(id,scope,scope_id,kind,version,body,status,source) "
+                "VALUES ('pol_038f4d6e-2b4a-7a3e-8c1a-1234567890ff','tenant',CAST(:tenant AS uuid),"
+                "'routing_weights',1,CAST(:body AS jsonb),'active','human')"
+            ),
+            {"tenant": TENANT_UUID, "body": '{"similarity_weight": 0.8}'},
+        )
 
     async def compute() -> tuple[ComputeAgentDriftResponse, ComputeAgentDriftResponse]:
         client = HttpxIntelligencePerformanceClient(
@@ -262,6 +328,7 @@ def test_real_performance_http_projection_computes_and_persists_drift(
         detector = DriftDetector(
             client,
             repository,
+            policy_store,
             window_size=4,
             failure_threshold=0.2,
         )
@@ -289,15 +356,28 @@ def test_real_performance_http_projection_computes_and_persists_drift(
     drifted, stable = asyncio.run(compute())
     assert drifted.score == 1.0
     assert drifted.baseline == 0.0
-    assert drifted.action_taken == "flagged"
+    assert drifted.action_taken == "weight_decay"
     assert stable.score == 0.0
     assert stable.action_taken == "none"
+    active_policy = asyncio.run(
+        policy_store.get_active_policy(
+            GetActivePolicyRequest(tenant_id=TENANT_ID, kind="routing_weights"),
+            "Bearer integration-token",
+        )
+    )
+    assert json.loads(active_policy.body_json or "{}")["similarity_weight"] == 0.0
 
     async def list_scores(tenant_id: str) -> tuple[str, ...]:
         client = HttpxIntelligencePerformanceClient(
             drift_stack["intelligence_base_url"], timeout_seconds=5
         )
-        detector = DriftDetector(client, repository, window_size=4, failure_threshold=0.2)
+        detector = DriftDetector(
+            client,
+            repository,
+            policy_store,
+            window_size=4,
+            failure_threshold=0.2,
+        )
         try:
             response = await detector.list_agent_drift(
                 ListAgentDriftRequest(tenant_id=tenant_id, agent_id=DRIFTED_AGENT_ID),
@@ -324,8 +404,7 @@ def test_real_performance_http_projection_computes_and_persists_drift(
     admin.dispose()
     system_engine.dispose()
     assert len(rows) == 2
-    assert {row["action_taken"] for row in rows} == {"flagged", "none"}
-    assert all(row["action_taken"] != "weight_decay" for row in rows)
+    assert {row["action_taken"] for row in rows} == {"weight_decay", "none"}
     drifted_row = next(row for row in rows if row["subject_ref"] == DRIFTED_AGENT_ID)
     assert drifted_row["subject_type"] == "agent"
     assert drifted_row["task_class"] == TASK_CLASS

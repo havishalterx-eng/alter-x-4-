@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 from src.memory_learning.ids import raw_uuid7
+from src.policy_store.service import PolicyStoreService
 
 from .intelligence_client import IntelligencePerformanceClient
 from .models import (
@@ -30,6 +31,7 @@ class DriftDetector:
         self,
         client: IntelligencePerformanceClient,
         repository: SqlAlchemyDriftRepository,
+        policy_store: PolicyStoreService,
         *,
         window_size: int,
         failure_threshold: float,
@@ -40,6 +42,7 @@ class DriftDetector:
             raise ValueError("failure_threshold must be between 0 and 1")
         self._client = client
         self._repository = repository
+        self._policy_store = policy_store
         self._window_size = window_size
         self._failure_threshold = failure_threshold
 
@@ -72,9 +75,11 @@ class DriftDetector:
         recent_rate = _failure_rate(recent)
         baseline = _failure_rate(baseline_window)
         score = max(0.0, recent_rate - baseline)
-        action: Literal["none", "flagged"] = (
-            "flagged" if score > self._failure_threshold else "none"
-        )
+        action: Literal["none", "flagged", "weight_decay"] = "none"
+        if score > self._failure_threshold:
+            action = "weight_decay" if await self._policy_store.apply_drift_decay(
+                tenant_id=request.tenant_id, score=score, authorization=authorization
+            ) else "flagged"
         stored = await asyncio.to_thread(
             self._repository.record_agent_score,
             agent_id=request.agent_id,

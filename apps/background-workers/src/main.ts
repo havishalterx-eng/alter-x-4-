@@ -91,6 +91,9 @@ async function bootstrap(): Promise<void> {
   const evalFacadeServiceToken = await resolveRuntimeSecret(
     platformJobsConfig.evalFacadeServiceTokenRef,
   );
+  const driftSweepServiceToken = await resolveRuntimeSecret(
+    platformJobsConfig.driftSweepServiceTokenRef,
+  );
   const platformJobsWorker = await startPlatformJobsWorker(
     {
       temporal: {
@@ -110,6 +113,10 @@ async function bootstrap(): Promise<void> {
       retentionSweepServiceToken,
       orchestrationServiceInternalBaseUrl: platformJobsConfig.orchestrationServiceInternalBaseUrl,
       evalFacadeServiceToken,
+      intelligenceServiceInternalBaseUrl: platformJobsConfig.intelligenceServiceInternalBaseUrl,
+      memoryServiceInternalBaseUrl: platformJobsConfig.memoryServiceInternalBaseUrl,
+      driftSweepServiceToken,
+      driftSweepMinimumObservations: platformJobsConfig.driftSweepMinimumObservations,
     }),
   );
 
@@ -157,6 +164,14 @@ async function bootstrap(): Promise<void> {
   );
   benchmarkSweepRunner.start();
 
+  const driftSweepRunner = new IntervalJobSchedulerRunner(
+    digestDurableExecution,
+    "platform.drift-sweep",
+    "drift-sweep",
+    platformJobsConfig.driftSweepIntervalMs,
+  );
+  driftSweepRunner.start();
+
   app.enableShutdownHooks();
   app.getHttpAdapter().getInstance().addHook("onClose", () => {
     worker.shutdown();
@@ -166,6 +181,7 @@ async function bootstrap(): Promise<void> {
     void connectorHealthSweepRunner.stop();
     void retentionSweepRunner.stop();
     void benchmarkSweepRunner.stop();
+    void driftSweepRunner.stop();
   });
 
   await app.listen(3000, "0.0.0.0");

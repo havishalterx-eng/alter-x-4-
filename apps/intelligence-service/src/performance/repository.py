@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import cast
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import PerformanceRecord
 
-from .models import PerformanceObservation, PerformanceVerdict
+from .models import DriftCandidate, PerformanceObservation, PerformanceVerdict
 
 _SET_TENANT = text("SELECT set_config('app.current_tenant_id', :tenant_id, true)")
 
@@ -49,4 +49,38 @@ class PerformanceRepository:
                 recorded_at=row.recorded_at,
             )
             for row in rows
+        )
+
+    async def list_drift_candidates(
+        self, *, minimum_observations: int
+    ) -> tuple[DriftCandidate, ...]:
+        rows = (
+            await self._session.execute(
+                select(
+                    PerformanceRecord.tenant_id,
+                    PerformanceRecord.agent_id,
+                    PerformanceRecord.task_category,
+                )
+                .where(PerformanceRecord.task_category.is_not(None))
+                .group_by(
+                    PerformanceRecord.tenant_id,
+                    PerformanceRecord.agent_id,
+                    PerformanceRecord.task_category,
+                )
+                .having(func.count() >= minimum_observations)
+                .order_by(
+                    PerformanceRecord.tenant_id,
+                    PerformanceRecord.agent_id,
+                    PerformanceRecord.task_category,
+                )
+            )
+        ).all()
+        return tuple(
+            DriftCandidate(
+                tenant_id=f"ten_{tenant_id}",
+                agent_id=agent_id,
+                task_class=task_class,
+            )
+            for tenant_id, agent_id, task_class in rows
+            if task_class is not None
         )

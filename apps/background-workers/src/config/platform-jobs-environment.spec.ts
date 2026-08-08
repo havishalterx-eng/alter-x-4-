@@ -14,6 +14,9 @@ function environment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     RETENTION_SWEEP_SERVICE_TOKEN_REF: "env:RETENTION_SWEEP_TOKEN",
     ORCHESTRATION_SERVICE_INTERNAL_BASE_URL: "http://orchestration-service.internal",
     EVAL_FACADE_SERVICE_TOKEN_REF: "env:EVAL_FACADE_SERVICE_TOKEN",
+    INTELLIGENCE_SERVICE_INTERNAL_BASE_URL: "http://intelligence-service.internal",
+    MEMORY_SERVICE_INTERNAL_BASE_URL: "http://memory-service.internal",
+    DRIFT_SWEEP_SERVICE_TOKEN_REF: "env:DRIFT_SWEEP_SERVICE_TOKEN",
     ...overrides,
   };
 }
@@ -32,6 +35,11 @@ describe("loadPlatformJobsEnvironment", () => {
       orchestrationServiceInternalBaseUrl: "http://orchestration-service.internal",
       evalFacadeServiceTokenRef: "env:EVAL_FACADE_SERVICE_TOKEN",
       benchmarkSweepIntervalMs: 24 * 60 * 60 * 1000,
+      intelligenceServiceInternalBaseUrl: "http://intelligence-service.internal",
+      memoryServiceInternalBaseUrl: "http://memory-service.internal",
+      driftSweepServiceTokenRef: "env:DRIFT_SWEEP_SERVICE_TOKEN",
+      driftSweepIntervalMs: 60 * 60 * 1000,
+      driftSweepMinimumObservations: 40,
     });
   });
 
@@ -89,6 +97,19 @@ describe("loadPlatformJobsEnvironment", () => {
         environment({ BENCHMARK_SWEEP_INTERVAL_MS: "5000" }),
       ).benchmarkSweepIntervalMs,
     ).toBe(5000);
+  });
+
+  it("accepts a real custom drift sweep interval", () => {
+    expect(
+      loadPlatformJobsEnvironment(environment({ DRIFT_SWEEP_INTERVAL_MS: "5000" }))
+        .driftSweepIntervalMs,
+    ).toBe(5000);
+  });
+
+  it("rejects a non-integer drift candidate threshold", () => {
+    expect(() =>
+      loadPlatformJobsEnvironment(environment({ DRIFT_SWEEP_MINIMUM_OBSERVATIONS: "4.5" })),
+    ).toThrow(PlatformJobsConfigurationError);
   });
 });
 

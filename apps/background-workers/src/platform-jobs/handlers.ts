@@ -150,6 +150,51 @@ function createBenchmarkSweepHandler(
   };
 }
 
+interface DriftCandidate {
+  readonly tenant_id: string;
+  readonly agent_id: string;
+  readonly task_class: string;
+}
+
+function createDriftSweepHandler(
+  intelligenceBaseUrl: string,
+  memoryBaseUrl: string,
+  serviceToken: string,
+  minimumObservations: number,
+  fetchImpl: typeof fetch,
+): PlatformJobHandler {
+  return async (): Promise<JsonValue> => {
+    const candidatesResponse = await fetchImpl(
+      `${intelligenceBaseUrl}/internal/performance/drift-candidates?minimum_observations=${minimumObservations}`,
+      { headers: { authorization: `Bearer ${serviceToken}` } },
+    );
+    if (!candidatesResponse.ok) {
+      throw new Error(
+        `drift candidate discovery failed: HTTP ${candidatesResponse.status} ${await candidatesResponse.text()}`,
+      );
+    }
+    const payload = await candidatesResponse.json() as { candidates?: DriftCandidate[] };
+    let scored = 0;
+    let failed = 0;
+    for (const candidate of payload.candidates ?? []) {
+      const response = await fetchImpl(`${memoryBaseUrl}/drift/agents/score`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${serviceToken}`,
+        },
+        body: JSON.stringify(candidate),
+      });
+      if (response.ok) {
+        scored += 1;
+      } else {
+        failed += 1;
+      }
+    }
+    return { candidates: payload.candidates?.length ?? 0, scored, failed };
+  };
+}
+
 export interface PlatformJobHandlerDependencies {
   readonly platformApiInternalBaseUrl?: string;
   readonly notificationDigestServiceToken?: string;
@@ -158,6 +203,10 @@ export interface PlatformJobHandlerDependencies {
   readonly retentionSweepServiceToken?: string;
   readonly orchestrationServiceInternalBaseUrl?: string;
   readonly evalFacadeServiceToken?: string;
+  readonly intelligenceServiceInternalBaseUrl?: string;
+  readonly memoryServiceInternalBaseUrl?: string;
+  readonly driftSweepServiceToken?: string;
+  readonly driftSweepMinimumObservations?: number;
   readonly fetchImpl?: typeof fetch;
 }
 
@@ -204,6 +253,23 @@ export function createPlatformJobHandlers(
       createBenchmarkSweepHandler(
         dependencies.orchestrationServiceInternalBaseUrl,
         dependencies.evalFacadeServiceToken,
+        fetchImpl,
+      ),
+    );
+  }
+  if (
+    dependencies?.intelligenceServiceInternalBaseUrl &&
+    dependencies.memoryServiceInternalBaseUrl &&
+    dependencies.driftSweepServiceToken &&
+    dependencies.driftSweepMinimumObservations !== undefined
+  ) {
+    handlers.set(
+      "platform.drift-sweep",
+      createDriftSweepHandler(
+        dependencies.intelligenceServiceInternalBaseUrl,
+        dependencies.memoryServiceInternalBaseUrl,
+        dependencies.driftSweepServiceToken,
+        dependencies.driftSweepMinimumObservations,
         fetchImpl,
       ),
     );

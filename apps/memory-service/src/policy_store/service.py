@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 
 from pydantic import ValidationError
 
 from src.memory_learning.ids import raw_uuid7
 
 from .models import (
+    CreateDraftPolicyResponse,
     GetActivePolicyRequest,
     GetActivePolicyResponse,
     PolicyPatch,
@@ -60,6 +62,81 @@ class PolicyStoreService:
             policy_id=result.policy_id,
             new_version=str(result.new_version),
         )
+
+    async def create_draft_routing_policy(
+        self, *, tenant_id: str, body: dict[str, object], authorization: str
+    ) -> CreateDraftPolicyResponse:
+        self._validate_authorization(authorization)
+        tenant_uuid = self._raw_id(tenant_id, "ten")
+        return await asyncio.to_thread(
+            self._repository.create_draft_policy_from_active,
+            tenant_uuid=tenant_uuid,
+            kind="routing_weights",
+            body=body,
+        )
+
+    async def apply_drift_decay(
+        self,
+        *,
+        tenant_id: str,
+        score: float,
+        authorization: str,
+    ) -> bool:
+        active = await self.get_active_policy(
+            GetActivePolicyRequest(tenant_id=tenant_id, kind="routing_weights"),
+            authorization,
+        )
+        if (
+            not active.found
+            or active.policy_id is None
+            or active.version is None
+            or active.body_json is None
+        ):
+            return False
+        body = json.loads(active.body_json)
+        weight = body.get("similarity_weight") if isinstance(body, dict) else None
+        if isinstance(weight, bool) or not isinstance(weight, (int, float)):
+            return False
+        current = float(weight)
+        if not math.isfinite(current) or not 0 <= current <= 1:
+            return False
+        decayed_body = {
+            **body,
+            "similarity_weight": max(0.0, min(1.0, current * (1.0 - score))),
+        }
+        draft = await self.create_draft_routing_policy(
+            tenant_id=tenant_id,
+            body=decayed_body,
+            authorization=authorization,
+        )
+        canary = await self.update_policy(
+            UpdatePolicyRequest(
+                tenant_id=tenant_id,
+                policy_id=draft.policy_id,
+                current_version=str(draft.version),
+                patch_json='{"status":"canary","reason":"drift decay"}',
+            ),
+            authorization,
+        )
+        await self.update_policy(
+            UpdatePolicyRequest(
+                tenant_id=tenant_id,
+                policy_id=active.policy_id,
+                current_version=str(active.version),
+                patch_json='{"status":"rolled_back","reason":"superseded by drift decay"}',
+            ),
+            authorization,
+        )
+        await self.update_policy(
+            UpdatePolicyRequest(
+                tenant_id=tenant_id,
+                policy_id=draft.policy_id,
+                current_version=canary.new_version,
+                patch_json='{"status":"active","reason":"drift decay promoted"}',
+            ),
+            authorization,
+        )
+        return True
 
     async def promote_memory(
         self,

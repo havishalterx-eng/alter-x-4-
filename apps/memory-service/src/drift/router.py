@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import get_settings
+from src.policy_store.router import get_policy_store_service
 
 from .detector import DriftDetector, DriftValidationError, InsufficientPerformanceDataError
 from .intelligence_client import (
@@ -44,6 +45,7 @@ async def drift_lifespan(app: FastAPI) -> AsyncIterator[None]:
             sessionmaker(tenant_engine, class_=Session, expire_on_commit=False),
             sessionmaker(system_engine, class_=Session, expire_on_commit=False),
         ),
+        get_policy_store_service(),
         window_size=settings.drift_window_size,
         failure_threshold=settings.drift_failure_threshold,
     )

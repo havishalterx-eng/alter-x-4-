@@ -24,6 +24,11 @@ class UpdatePolicyResponse(StrictModel):
     new_version: str
 
 
+class CreateDraftPolicyResponse(StrictModel):
+    policy_id: str
+    version: int
+
+
 class PolicyPatch(StrictModel):
     status: PolicyStatus | None = None
     body: dict[str, object] | None = None

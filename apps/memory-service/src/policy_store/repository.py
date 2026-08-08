@@ -3,14 +3,20 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import case, select, text
+from sqlalchemy import case, func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.models import MemoryRecord, Policy, PolicyPromotion
 from src.memory_learning.ids import new_prefixed_uuid7
 
 from .anonymization import anonymize_global_content, anonymized_global_provenance
-from .models import PolicyPatch, PolicyStatus, StoredMemoryPromotion, StoredPolicyUpdate
+from .models import (
+    CreateDraftPolicyResponse,
+    PolicyPatch,
+    PolicyStatus,
+    StoredMemoryPromotion,
+    StoredPolicyUpdate,
+)
 
 _SET_TENANT = text("SELECT set_config('app.current_tenant_id', :tenant_id, true)")
 
@@ -108,6 +114,67 @@ class SqlAlchemyPolicyStoreRepository:
                 new_version=policy.version,
                 status=target_status,
             )
+
+    def create_draft_policy_from_active(
+        self, *, tenant_uuid: str, kind: str, body: dict[str, object]
+    ) -> CreateDraftPolicyResponse:
+        active_scope = self._active_policy_scope(tenant_uuid, kind)
+        sessions = (
+            self._system_sessions if active_scope == "global" else self._tenant_sessions
+        )
+        with sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            active = session.scalar(
+                select(Policy)
+                .where(Policy.kind == kind, Policy.status == "active")
+                .order_by(
+                    case((Policy.scope == "global", 0), else_=1).desc(),
+                    Policy.version.desc(),
+                )
+                .limit(1)
+                .with_for_update()
+            )
+            if active is None:
+                raise PolicyNotFoundError("No active policy exists for this kind")
+            next_version = session.scalar(
+                select(func.coalesce(func.max(Policy.version), 0) + 1).where(
+                    Policy.scope == active.scope,
+                    Policy.scope_id == active.scope_id,
+                    Policy.kind == active.kind,
+                )
+            )
+            policy = Policy(
+                id=new_prefixed_uuid7("pol"),
+                scope=active.scope,
+                scope_id=active.scope_id,
+                kind=active.kind,
+                version=next_version or 1,
+                body=body,
+                status="draft",
+                source="drift_detector",
+            )
+            session.add(policy)
+            session.flush()
+            return CreateDraftPolicyResponse(
+                policy_id=policy.id,
+                version=policy.version,
+            )
+
+    def _active_policy_scope(self, tenant_uuid: str, kind: str) -> str:
+        with self._tenant_sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            scope = session.scalar(
+                select(Policy.scope)
+                .where(Policy.kind == kind, Policy.status == "active")
+                .order_by(
+                    case((Policy.scope == "global", 0), else_=1).desc(),
+                    Policy.version.desc(),
+                )
+                .limit(1)
+            )
+        if scope is None:
+            raise PolicyNotFoundError("No active policy exists for this kind")
+        return scope
 
     def promote_memory(
         self,

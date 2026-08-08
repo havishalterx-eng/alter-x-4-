@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from .capability_resolver.grpc_server import start_capability_server
 from .config import get_settings
+from .performance.router import performance_lifespan
 from .performance.router import router as performance_router
 from .planner.router import planner_lifespan
 from .planner.router import router as planner_router
@@ -18,9 +19,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         get_settings().capability_grpc_bind_address
     )
     try:
-        async with planner_lifespan(app):
-            async with selection_binding_lifespan(app):
-                yield
+        async with performance_lifespan(app):
+            async with planner_lifespan(app):
+                async with selection_binding_lifespan(app):
+                    yield
     finally:
         await capability_server.stop(0)
 
