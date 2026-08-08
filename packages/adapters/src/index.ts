@@ -208,6 +208,13 @@ export {
 } from "./grpc/runs-grpc-transport";
 export { RunsClient, type RunsClientConfig, type RunsHandlerClient } from "./grpc/runs-client";
 export {
+  CapabilityServiceClient,
+  type CapabilityServiceClientConfig,
+  type CapabilityServiceHandlerClient,
+  type ResolveNodeRequirementsRequest,
+  type ResolveNodeRequirementsResponse,
+} from "./grpc/capability-client";
+export {
   EvalServiceClient,
   EvalServiceClientError,
   type EvalServiceClientConfig,

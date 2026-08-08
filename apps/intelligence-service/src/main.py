@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from .capability_resolver.grpc_server import start_capability_server
+from .config import get_settings
 from .performance.router import router as performance_router
 from .planner.router import planner_lifespan
 from .planner.router import router as planner_router
@@ -12,9 +14,15 @@ from .selection_binding.router import selection_binding_lifespan
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    async with planner_lifespan(app):
-        async with selection_binding_lifespan(app):
-            yield
+    capability_server = await start_capability_server(
+        get_settings().capability_grpc_bind_address
+    )
+    try:
+        async with planner_lifespan(app):
+            async with selection_binding_lifespan(app):
+                yield
+    finally:
+        await capability_server.stop(0)
 
 
 app = FastAPI(lifespan=lifespan)

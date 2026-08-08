@@ -16,6 +16,7 @@ export interface RecoveryEnvironment {
    * local `uv run uvicorn` dev port.
    */
   readonly memoryServiceBaseUrl: string;
+  readonly capabilityResolverAddress: string;
 }
 
 export class RecoveryConfigurationError extends Error {
@@ -55,5 +56,10 @@ export function loadRecoveryEnvironment(
   } catch {
     throw new RecoveryConfigurationError("MEMORY_SERVICE_BASE_URL must be a valid URL");
   }
-  return { grpcBindAddress, plannerBaseUrl, memoryServiceBaseUrl };
+  const capabilityResolverAddress =
+    environment.CAPABILITY_RESOLVER_ADDRESS?.trim() ?? "localhost:50061";
+  if (capabilityResolverAddress.length === 0) {
+    throw new RecoveryConfigurationError("CAPABILITY_RESOLVER_ADDRESS must be non-empty");
+  }
+  return { grpcBindAddress, plannerBaseUrl, memoryServiceBaseUrl, capabilityResolverAddress };
 }

@@ -6,7 +6,8 @@ import type {
   CompilerValidateWorkflowDagRequest,
   CompilerValidateWorkflowDagResponse,
 } from "@alterx/contracts";
-import { CompiledDagSchema } from "@alterx/contracts";
+import { CompiledDagSchema, NodeRequirementsSchema, type NodeRequirements } from "@alterx/contracts";
+import type { CapabilityServiceHandlerClient } from "@alterx/adapters";
 
 import {
   CompilerValidationError,
@@ -64,7 +65,10 @@ function prefixedUuidV7(prefix: string): string {
 }
 
 export class GraphCompilerService {
-  constructor(private readonly store: OrchestrationTenantStore) {}
+  constructor(
+    private readonly store: OrchestrationTenantStore,
+    private readonly capabilityService: CapabilityServiceHandlerClient,
+  ) {}
 
   async compileWorkflow(
     request: CompilerCompileWorkflowRequest,
@@ -88,11 +92,10 @@ export class GraphCompilerService {
         .digest("hex"),
       compiled_at: new Date().toISOString(),
     };
-    // Capability Resolver (PLAN-6) isn't wired into the compile path yet --
-    // node_requirements/policy_bindings are disclosed empty records rather
-    // than fabricated. See PR notes: cross-service (TS compiler ->
-    // Python intelligence-service) wiring is separate follow-up work.
-    const nodeRequirements = {};
+    const nodeRequirements = await this.#resolveNodeRequirements(
+      request.tenant_id,
+      compiledDag.nodes,
+    );
     const policyBindings = {};
 
     const workflowVersionId = prefixedUuidV7("wfv");
@@ -146,6 +149,36 @@ export class GraphCompilerService {
       node_requirements_json: JSON.stringify(nodeRequirements),
       policy_bindings_json: JSON.stringify(policyBindings),
     };
+  }
+
+  async #resolveNodeRequirements(
+    tenantId: string,
+    nodes: readonly { readonly key: string; readonly type: string; readonly config: Record<string, unknown> }[],
+  ): Promise<NodeRequirements> {
+    const entries = await Promise.all(nodes.map(async (node) => {
+      const response = await this.capabilityService.resolveNodeRequirements({
+        tenant_id: tenantId,
+        // Compilation happens before a run exists; the resolver does not use this field.
+        run_id: "",
+        node_key: node.key,
+        node_type: node.type,
+        node_config_json: JSON.stringify(node.config),
+      });
+      try {
+        return [node.key, JSON.parse(response.node_requirements_json)] as const;
+      } catch {
+        throw new CompilerValidationError(
+          `Capability Service returned invalid requirements for node ${node.key}`,
+        );
+      }
+    }));
+    const parsed = NodeRequirementsSchema.safeParse(Object.fromEntries(entries));
+    if (!parsed.success) {
+      throw new CompilerValidationError(
+        `Capability Service returned invalid requirements: ${parsed.error.message}`,
+      );
+    }
+    return parsed.data;
   }
 
   async validateWorkflowDag(

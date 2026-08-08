@@ -1,6 +1,7 @@
 """Generate the Python gRPC bindings consumed by intelligence-service.
 
-adsq.proto is Planning's real ADS Q client; modelgw.proto is the
+adsq.proto is Planning's real ADS Q client; capability.proto is Capability
+Resolver's real server contract; modelgw.proto is the
 embedding-transport follow-up's real Embed client (embedding_client.py's
 GrpcEmbeddingClient -- see that module's own doc), closing the gap
 flagged in selection_binding/embedding_client.py's NotImplementedEmbeddingClient.
@@ -20,6 +21,7 @@ REPO_ROOT = SERVICE_ROOT.parents[1]
 PROTO_ROOT = REPO_ROOT / "packages" / "contracts" / "proto"
 PROTO_FILES = (
     "alter/adsq/v1/adsq.proto",
+    "alter/capability/v1/capability.proto",
     "alter/modelgw/v1/modelgw.proto",
 )
 

@@ -10,7 +10,7 @@ message ResolveNodeRequirementsRequest {
   reserved 100 to 199;
 
   string tenant_id = 1; // ten_ prefixed UUIDv7
-  string run_id = 2; // run_ prefixed UUIDv7
+  string run_id = 2; // optional at compile time; resolver does not use it
   string node_key = 3;
   string node_type = 4;
   string node_config_json = 5;

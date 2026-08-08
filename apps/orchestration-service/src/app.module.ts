@@ -12,6 +12,7 @@ import {
   BlackboardGrpcController,
   ARTIFACT_CONTENT_HANDLER,
   ArtifactContentGrpcController,
+  CapabilityServiceClient,
   CompilerGrpcController,
   ConversationDispatchClient,
   ConversationGrpcController,
@@ -49,6 +50,7 @@ import {
 import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import { ConversationManagerService } from "./conversation/conversation-manager.service";
 import { GraphCompilerService } from "./compiler/graph-compiler.service";
+import { CAPABILITY_CLIENT_PROTO_PATH } from "./compiler/capability-client.constants";
 import { DeploymentControllerService } from "./deployment-controller/deployment-controller.service";
 import { WorkflowDeploymentController } from "./deployment-controller/workflow-deployment.controller";
 import {
@@ -513,7 +515,11 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           region: dbConfig.awsRegion,
           migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
         });
-        return new GraphCompilerService(store);
+        const recoveryConfig = loadRecoveryEnvironment(process.env);
+        return new GraphCompilerService(store, new CapabilityServiceClient({
+          address: recoveryConfig.capabilityResolverAddress,
+          protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+        }));
       },
     },
     {
@@ -967,7 +973,10 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
     protoPath: MODELGW_CLIENT_PROTO_PATH,
   });
   const recoveryConfig = loadRecoveryEnvironment(process.env);
-  const compiler = new GraphCompilerService(store);
+  const compiler = new GraphCompilerService(store, new CapabilityServiceClient({
+    address: recoveryConfig.capabilityResolverAddress,
+    protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+  }));
   const planner = new PlannerClient({ baseUrl: recoveryConfig.plannerBaseUrl });
   const policyStoreClient = new PolicyStoreClient({
     baseUrl: recoveryConfig.memoryServiceBaseUrl,
