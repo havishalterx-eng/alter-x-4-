@@ -1,4 +1,4 @@
-"""Locked CreatePersona protobuf mirrors and PLAN-8 outcome type."""
+"""PLAN-8 persona-creation inputs and outcome type."""
 
 from pydantic import BaseModel, ConfigDict
 

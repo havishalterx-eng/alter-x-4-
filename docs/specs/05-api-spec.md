@@ -225,7 +225,6 @@ Service-to-service only; not exposed at the edge. Proto packages live in `packag
 | `alter.conversation.v1` | intent classification, goal state, clarification merge |
 | `alter.planner.v1` | decompose, replan, strategy selection |
 | `alter.capability.v1` | resolve node requirements |
-| `alter.binding.v1` | agent/model/tool binding, persona auto-creation |
 | `alter.compiler.v1` | compile skeleton → typed WorkflowDAG, validate |
 | `alter.deployctl.v1` | version promotion, canary, rollback |
 | `alter.modelgw.v1` | invoke (alias-routed), stream, redact, fallback |
@@ -237,6 +236,13 @@ Service-to-service only; not exposed at the edge. Proto packages live in `packag
 | `alter.adsq.v1` | retrieval (hybrid search, rerank, provenance, confidence) |
 | `alter.cost.v1` | cost event ingest (also via queue), rollup queries |
 | `alter.eval.v1` | eval run execution, release-gate checks |
+
+`alter.binding.v1` is retired and retained only as a deprecated wire-compatibility
+contract. Selection and persona creation are implemented by the intelligence
+service's internal HTTP selection-binding path. The protobuf requests omit the
+trusted binding context and the required no-match precondition, so they must not
+be served or reintroduced without a versioned contract and a real orchestration
+caller.
 
 Async paths (cost telemetry, canonical events, drift schedules, PubSub node traffic) ride EventBridge/SQS with canonical Alter event envelopes — never raw provider payloads.
 

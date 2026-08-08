@@ -1,10 +1,4 @@
-"""Typed homes for PLAN-7 binding inputs, outputs, and no-match signals.
-
-The request/response field names mirror
-``packages/contracts/proto/alter/binding/v1/binding.proto``.  Workspace and
-performance context stay in a separate internal model because those fields do
-not exist on the locked protobuf request.
-"""
+"""Typed homes for PLAN-7 binding inputs, outputs, and no-match signals."""
 
 from typing import Annotated, Literal
 

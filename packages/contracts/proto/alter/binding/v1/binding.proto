@@ -2,7 +2,11 @@ syntax = "proto3";
 
 package alter.binding.v1;
 
+// Retained only for wire compatibility. The intelligence service does not
+// generate or serve this contract; see docs/specs/05-api-spec.md.
 service BindingService {
+  option deprecated = true;
+
   rpc BindAgentModelTool(BindAgentModelToolRequest) returns (BindAgentModelToolResponse);
   rpc CreatePersona(CreatePersonaRequest) returns (CreatePersonaResponse);
 }

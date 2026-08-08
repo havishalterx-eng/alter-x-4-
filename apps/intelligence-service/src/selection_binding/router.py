@@ -1,14 +1,11 @@
-"""FastAPI router exposing the BindingService contract as HTTP endpoints.
+"""FastAPI router for the real internal selection-binding path.
 
-Route paths mirror alter.binding.v1.BindingService RPC names:
-  POST /selection-binding/bind-agent-model-tool -> BindingService.BindAgentModelTool
+Route:
+  POST /selection-binding/bind-agent-model-tool
 
-Mirrors verification-service's router pattern (FastAPI HTTP, not raw gRPC,
-even though the locked .proto declares a gRPC service name/shape -- that is
-this repo's real, established convention for exposing a Python service:
-Planner and Verification both do the same). The engine needs a per-request
-AsyncSession (unlike verification's singleton kernel), so it is constructed
-per-request from injected dependencies rather than cached at app startup.
+The engine needs a per-request AsyncSession (unlike verification's singleton
+kernel), so it is constructed per-request from injected dependencies rather
+than cached at app startup.
 
 The embedding_client is a real GrpcEmbeddingClient (Model Gateway's Embed
 RPC), opened once at app startup and reused across requests -- same
