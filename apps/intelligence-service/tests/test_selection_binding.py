@@ -51,6 +51,15 @@ class FakeEmbeddingClient:
         return self.vector
 
 
+class MutableRoutingPolicyClient:
+    def __init__(self, weight: float | None) -> None:
+        self.weight = weight
+
+    async def similarity_weight(self, tenant_id: str) -> float | None:
+        assert tenant_id == TENANT_A
+        return self.weight
+
+
 def vector(first: float, second: float = 0.0) -> list[float]:
     return [first, second, *([0.0] * 510)]
 
@@ -284,6 +293,32 @@ class TestBindingContractModels:
 
 
 class TestSelectionBindingIntegration:
+    async def test_active_routing_policy_changes_the_next_ranked_selection(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        await seed_agent(db_session, agent_id=AGENT_A, embedding=vector(1.0))
+        await seed_agent(db_session, agent_id=AGENT_B, embedding=vector(0.98, 0.2))
+        await seed_performance(db_session, agent_id=AGENT_A, verdicts=["failure", "failure"])
+        await seed_performance(db_session, agent_id=AGENT_B, verdicts=["success", "success"])
+
+        policy = MutableRoutingPolicyClient(0.0)
+        engine = SelectionBindingEngine(
+            db_session,
+            FakeEmbeddingClient(vector(1.0)),
+            policy_client=policy,
+        )
+        request = request_for(NodeRequirement(capabilities=["text.generation"]))
+
+        first = await engine.bind(request, context())
+        policy.weight = 1.0
+        second = await engine.bind(request, context())
+
+        assert isinstance(first, BindAgentModelToolResponse)
+        assert isinstance(second, BindAgentModelToolResponse)
+        assert first.agent_id == AGENT_B
+        assert second.agent_id == AGENT_A
+
     async def test_similarity_and_matching_performance_jointly_rank_agents(
         self,
         db_session: AsyncSession,

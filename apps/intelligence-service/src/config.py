@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     adsq_grpc_timeout_seconds: float = 3.0
     model_gateway_grpc_target: str = "localhost:50051"
     model_gateway_grpc_timeout_seconds: float = 15.0
+    memory_service_base_url: str = "http://localhost:8002"
 
     model_config = SettingsConfigDict(
         env_file=".env.local",

@@ -44,14 +44,16 @@ from src.selection_binding.models import (
     TenantId,
     WorkspaceId,
 )
+from src.selection_binding.policy_client import HttpRoutingPolicyClient, RoutingPolicyClient
 
 _default_embedding_client: EmbeddingClient | None = None
+_default_policy_client: HttpRoutingPolicyClient | None = None
 
 
 @asynccontextmanager
 async def selection_binding_lifespan(app: FastAPI) -> AsyncIterator[None]:
     del app
-    global _default_embedding_client
+    global _default_embedding_client, _default_policy_client
 
     from ..config import get_settings
 
@@ -60,12 +62,19 @@ async def selection_binding_lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.model_gateway_grpc_target,
         timeout_seconds=settings.model_gateway_grpc_timeout_seconds,
     )
+    policy_client = HttpRoutingPolicyClient(
+        settings.memory_service_base_url,
+        "Bearer intelligence-service",
+    )
     _default_embedding_client = client
+    _default_policy_client = policy_client
     try:
         yield
     finally:
         await client.close()
         _default_embedding_client = None
+        await policy_client.close()
+        _default_policy_client = None
 
 
 def get_embedding_client() -> EmbeddingClient:
@@ -76,8 +85,17 @@ def get_embedding_client() -> EmbeddingClient:
     return _default_embedding_client
 
 
+def get_policy_client() -> RoutingPolicyClient:
+    if _default_policy_client is None:
+        raise RuntimeError(
+            "RoutingPolicyClient not initialised -- call selection_binding_lifespan first"
+        )
+    return _default_policy_client
+
+
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 EmbeddingClientDep = Annotated[EmbeddingClient, Depends(get_embedding_client)]
+PolicyClientDep = Annotated[RoutingPolicyClient, Depends(get_policy_client)]
 
 router = APIRouter(prefix="/selection-binding", tags=["selection-binding"])
 
@@ -109,8 +127,9 @@ async def bind_agent_model_tool(
     request: BindAgentModelToolHttpRequest,
     session: SessionDep,
     embedding_client: EmbeddingClientDep,
+    policy_client: PolicyClientDep,
 ) -> BindingOutcome:
-    engine = SelectionBindingEngine(session, embedding_client)
+    engine = SelectionBindingEngine(session, embedding_client, policy_client=policy_client)
     bind_request = BindAgentModelToolRequest(
         tenant_id=request.tenant_id,
         run_id=request.run_id,

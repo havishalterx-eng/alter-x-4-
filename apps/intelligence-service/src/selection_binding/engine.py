@@ -19,6 +19,7 @@ from src.selection_binding.models import (
     BindingOutcome,
     NoAgentMatch,
 )
+from src.selection_binding.policy_client import RoutingPolicyClient
 
 _EMBEDDING_DIMENSIONS = 512
 
@@ -181,6 +182,7 @@ class SelectionBindingEngine:
         similarity_weight: float = 0.8,
         minimum_capability_similarity: float = 0.6,
         minimum_combined_score: float = 0.7,
+        policy_client: RoutingPolicyClient | None = None,
     ) -> None:
         if not 0.0 <= similarity_weight <= 1.0:
             raise ValueError("similarity_weight must be between 0 and 1")
@@ -195,6 +197,7 @@ class SelectionBindingEngine:
         self._performance_weight = 1.0 - similarity_weight
         self._minimum_capability_similarity = minimum_capability_similarity
         self._minimum_combined_score = minimum_combined_score
+        self._policy_client = policy_client
 
     async def bind(
         self,
@@ -229,6 +232,7 @@ class SelectionBindingEngine:
             text="\n".join(requirement.capabilities),
         )
         query_embedding = embedding_vector_literal(raw_embedding)
+        similarity_weight = await self._load_similarity_weight(request.tenant_id)
         result = await self._session.execute(
             _RANKED_AGENT_QUERY,
             {
@@ -238,8 +242,8 @@ class SelectionBindingEngine:
                 "node_type": context.node_type,
                 "task_category": context.task_category,
                 "query_embedding": query_embedding,
-                "similarity_weight": self._similarity_weight,
-                "performance_weight": self._performance_weight,
+                "similarity_weight": similarity_weight,
+                "performance_weight": 1.0 - similarity_weight,
                 "minimum_capability_similarity": self._minimum_capability_similarity,
                 "minimum_combined_score": self._minimum_combined_score,
             },
@@ -252,6 +256,15 @@ class SelectionBindingEngine:
             )
 
         return _response(candidate, requirement)
+
+    async def _load_similarity_weight(self, tenant_id: str) -> float:
+        if self._policy_client is None:
+            return self._similarity_weight
+        try:
+            weight = await self._policy_client.similarity_weight(tenant_id)
+        except Exception:
+            return self._similarity_weight
+        return self._similarity_weight if weight is None else weight
 
     async def _bind_preferred(
         self,
