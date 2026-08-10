@@ -82,7 +82,7 @@ describe.sequential("KNOW-13 run learning summary", () => {
 
   afterAll(async () => {
     await store?.close();
-    await postgres?.stop();
+    await postgres?.stop({ remove: false });
   }, 60_000);
 
   it("reads seeded run_outcomes, node_executions, and recovery_actions", async () => {

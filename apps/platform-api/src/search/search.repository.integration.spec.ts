@@ -17,7 +17,9 @@ describe("MarketplaceSearchRepository PostgreSQL integration", () => {
   let schemaName: string;
   let roleName: string;
 
-  beforeAll(async () => { container = await new PostgreSqlContainer("postgres:16.6-alpine").start(); });
+  beforeAll(async () => {
+    container = await new PostgreSqlContainer("postgres:16.6-alpine").start();
+  }, 30_000);
   beforeEach(async () => {
     schemaName = `search_${randomUUID().replaceAll("-", "_")}`;
     roleName = `search_role_${randomUUID().replaceAll("-", "_")}`;
