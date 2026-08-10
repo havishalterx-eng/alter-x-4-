@@ -99,7 +99,11 @@ class IngestionEvalClient(httpx.Client):
         upload_key = f"tenants/{other_tenant_uuid}/uploads/{uuid.uuid4().hex}"
         response = super().post(
             "/ads/ingestion/uploads/complete",
-            json={"source_id": f"src_{uuid.uuid4().hex}", "upload_key": upload_key},
+            json={
+                "ingestion_job_id": f"ing_{uuid.uuid4().hex}",
+                "source_id": f"src_{uuid.uuid4().hex}",
+                "upload_key": upload_key,
+            },
             headers={"X-Alter-Tenant-Id": caller_tenant_id},
         )
         return UploadCompleteResult(denied=response.status_code == 403)

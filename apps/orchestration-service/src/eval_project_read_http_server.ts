@@ -8,6 +8,7 @@ import { PostgresOrchestrationStoreProvider } from "@alterx/adapters";
 import type { ActorContext, SessionGatewayRequest } from "@alterx/auth";
 
 import { ProjectReadController } from "./project-read/project-read.controller";
+import { ProjectDomainService } from "./project-read/project-domain.service";
 import { ProjectReadService } from "./project-read/project-read.service";
 
 /**
@@ -51,9 +52,31 @@ class EvalProjectReadModule {
     return {
       module: EvalProjectReadModule,
       controllers: [ProjectReadController],
-      providers: [{ provide: ProjectReadService, useValue: new ProjectReadService(store) }],
+      providers: [
+        { provide: ProjectReadService, useValue: new ProjectReadService(store) },
+        // The golden-set only exercises the controller's real get/deploy paths.
+        // Keep newly-added lifecycle routes explicitly unavailable here rather
+        // than silently replacing their production dependencies with fakes.
+        { provide: ProjectDomainService, useValue: unavailableProjectDomainService },
+      ],
     };
   }
+}
+
+const unavailableProjectDomainService: Pick<
+  ProjectDomainService,
+  "create" | "clarifications" | "answerClarification" | "plan" | "reviewPlan" | "startBuild"
+> = {
+  create: unavailableProjectLifecycle,
+  clarifications: unavailableProjectLifecycle,
+  answerClarification: unavailableProjectLifecycle,
+  plan: unavailableProjectLifecycle,
+  reviewPlan: unavailableProjectLifecycle,
+  startBuild: unavailableProjectLifecycle,
+};
+
+function unavailableProjectLifecycle(): never {
+  throw new Error("project lifecycle routes are unavailable in the read/deploy eval server");
 }
 
 async function bootstrap(): Promise<void> {
