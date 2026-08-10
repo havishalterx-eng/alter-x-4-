@@ -4,6 +4,7 @@ export const platformApiEnvSchema = z
   .object({
     DATABASE_URL: z.string().url(),
     MARKETPLACE_DATABASE_URL: z.string().url(),
+    MARKETPLACE_SEARCH_CURSOR_SECRET: z.string().min(1),
     OPERATIONS_PLATFORM_DATABASE_URL: z.string().url().optional(),
     OPERATIONS_MARKETPLACE_DATABASE_URL: z.string().url().optional(),
     // Reserved for platform cache wiring in a later ticket.

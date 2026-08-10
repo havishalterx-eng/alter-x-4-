@@ -28,16 +28,17 @@ interface UploadRequest extends SessionGatewayRequest {
   readonly headers: SessionGatewayRequest["headers"] & {
     readonly "content-type"?: string;
     readonly "content-length"?: string;
+    readonly "transfer-encoding"?: string;
   };
 }
 
+const BODY_BEARING_METHODS = new Set(["PATCH", "POST", "PUT"]);
+
 /**
  * Blocks any request whose Content-Type is not on the allowlist, or whose
- * declared Content-Length exceeds the configured maximum, before the body is
- * ever parsed further downstream. This is a declared-header check, not a
- * byte-sniffing content-type detector -- a client that lies about its
- * Content-Type header is a known limitation, documented in the ticket's
- * known gaps, not silently claimed as covered here.
+ * declared Content-Length exceeds the configured maximum. The service's
+ * Fastify adapter enforces the same byte limit while parsing, so chunked
+ * requests cannot bypass this guard by omitting Content-Length.
  */
 @Injectable()
 export class SessionGatewayUploadAllowlistGuard implements CanActivate {
@@ -64,6 +65,14 @@ export class SessionGatewayUploadAllowlistGuard implements CanActivate {
     const request = http.getRequest<UploadRequest>();
     const contentType = firstHeader(request.headers["content-type"]);
 
+    if (hasBody(request) && contentType === undefined) {
+      this.#reject(
+        http.getResponse<SessionGatewayResponse>(),
+        request.url,
+        "Content-Type is required for requests with a body.",
+      );
+    }
+
     if (contentType !== undefined) {
       const baseType = contentType.split(";")[0]?.trim().toLowerCase();
       if (
@@ -82,7 +91,8 @@ export class SessionGatewayUploadAllowlistGuard implements CanActivate {
     if (contentLengthHeader !== undefined) {
       const contentLength = Number(contentLengthHeader);
       if (
-        Number.isFinite(contentLength) &&
+        !Number.isSafeInteger(contentLength) ||
+        contentLength < 0 ||
         contentLength > this.#maxContentLengthBytes
       ) {
         this.#reject(
@@ -108,6 +118,17 @@ export class SessionGatewayUploadAllowlistGuard implements CanActivate {
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function hasBody(request: UploadRequest): boolean {
+  if (BODY_BEARING_METHODS.has(request.method?.toUpperCase() ?? "")) {
+    return true;
+  }
+  const contentLength = firstHeader(request.headers["content-length"]);
+  return (
+    (contentLength !== undefined && Number(contentLength) > 0) ||
+    firstHeader(request.headers["transfer-encoding"]) !== undefined
+  );
 }
 
 function setProblemContentType(response: SessionGatewayResponse): void {

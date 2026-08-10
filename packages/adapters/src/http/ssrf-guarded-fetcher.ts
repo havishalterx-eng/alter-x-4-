@@ -1,4 +1,7 @@
 import { lookup as dnsLookup } from "node:dns/promises";
+import { request as httpRequest, type RequestOptions } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { Readable } from "node:stream";
 
 import {
   assertHostnameNotLiteralBlockedIp,
@@ -14,10 +17,14 @@ export interface ResolvedAddress {
 
 export type DnsResolver = (hostname: string) => Promise<readonly ResolvedAddress[]>;
 
-export type FetchFn = (
-  url: string,
-  init: { readonly method: string; readonly redirect: "manual"; readonly signal: AbortSignal },
-) => Promise<{
+export interface FetchRequestInit {
+  readonly method: string;
+  readonly redirect: "manual";
+  readonly signal: AbortSignal;
+  readonly lookup: NonNullable<RequestOptions["lookup"]>;
+}
+
+export interface FetchResponse {
   readonly status: number;
   readonly headers: { get(name: string): string | null };
   readonly body: {
@@ -30,7 +37,12 @@ export type FetchFn = (
     };
   } | null | undefined;
   arrayBuffer(): Promise<ArrayBuffer>;
-}>;
+}
+
+export type FetchFn = (
+  url: string,
+  init: FetchRequestInit,
+) => Promise<FetchResponse>;
 
 export interface SsrfGuardedFetcherConfig {
   readonly maxRedirects?: number;
@@ -57,7 +69,65 @@ async function defaultDnsResolver(hostname: string): Promise<readonly ResolvedAd
 }
 
 function defaultFetchFn(): FetchFn {
-  return (url, init) => fetch(url, init) as unknown as ReturnType<FetchFn>;
+  return (rawUrl, init) => {
+    const url = new URL(rawUrl);
+    return new Promise((resolve, reject) => {
+      const request = url.protocol === "https:"
+        ? httpsRequest(url, {
+            method: init.method,
+            headers: { host: url.host },
+            lookup: init.lookup,
+          }, onResponse)
+        : httpRequest(url, {
+            method: init.method,
+            headers: { host: url.host },
+            lookup: init.lookup,
+          }, onResponse);
+
+      function onResponse(response: import("node:http").IncomingMessage): void {
+        init.signal.removeEventListener("abort", abort);
+        resolve({
+          status: response.statusCode ?? 0,
+          headers: {
+            get(name: string): string | null {
+              const value = response.headers[name.toLowerCase()];
+              if (value === undefined) return null;
+              return Array.isArray(value) ? value.join(", ") : value;
+            },
+          },
+          body: Readable.toWeb(response) as FetchResponse["body"],
+          arrayBuffer: async () => {
+            const chunks: Buffer[] = [];
+            for await (const chunk of response) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            }
+            return Buffer.concat(chunks).buffer;
+          },
+        });
+      }
+
+      function abort(): void {
+        request.destroy(new Error("URL fetch timed out"));
+      }
+
+      request.once("error", (error) => {
+        init.signal.removeEventListener("abort", abort);
+        reject(error);
+      });
+      if (init.signal.aborted) {
+        abort();
+      } else {
+        init.signal.addEventListener("abort", abort, { once: true });
+        request.end();
+      }
+    });
+  };
+}
+
+function pinnedLookup(address: ResolvedAddress): NonNullable<RequestOptions["lookup"]> {
+  return (_hostname, _options, callback) => {
+    callback(null, address.address, address.family);
+  };
 }
 
 export class SsrfGuardedFetcher {
@@ -91,7 +161,7 @@ export class SsrfGuardedFetcher {
   async fetch(rawUrl: string): Promise<SsrfGuardedFetchResult> {
     let currentUrl = rawUrl;
     for (let hop = 0; hop <= this.#maxRedirects; hop += 1) {
-      await this.assertAllowed(currentUrl);
+      const addresses = await this.#resolveAllowed(currentUrl);
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
       try {
@@ -99,6 +169,7 @@ export class SsrfGuardedFetcher {
           method: "GET",
           redirect: "manual",
           signal: controller.signal,
+          lookup: pinnedLookup(addresses[0]!),
         });
         if (response.status >= 300 && response.status < 400) {
           const location = response.headers.get("location");
@@ -123,6 +194,10 @@ export class SsrfGuardedFetcher {
   }
 
   async assertAllowed(rawUrl: string): Promise<void> {
+    await this.#resolveAllowed(rawUrl);
+  }
+
+  async #resolveAllowed(rawUrl: string): Promise<readonly ResolvedAddress[]> {
     const url = new URL(rawUrl);
     assertUrlSchemeAllowed(url, this.#policy);
     assertHostnameNotLiteralBlockedIp(url.hostname);
@@ -131,6 +206,7 @@ export class SsrfGuardedFetcher {
       throw new Error(`URL host ${url.hostname} did not resolve to any address`);
     }
     assertResolvedAddressesNotBlocked(addresses);
+    return addresses;
   }
 }
 

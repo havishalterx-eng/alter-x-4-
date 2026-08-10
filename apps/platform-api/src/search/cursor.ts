@@ -21,5 +21,9 @@ export function decodeSearchCursor(cursor: string | undefined, query: SearchQuer
   } catch { throw new SearchHttpError(instance, "Invalid or mismatched search cursor", "cursor"); }
 }
 
-function sign(value: string): string { return createHmac("sha256", process.env.MARKETPLACE_SEARCH_CURSOR_SECRET ?? process.env.MARKETPLACE_DATABASE_URL ?? "missing-marketplace-search-secret").update(value).digest("base64url"); }
+function sign(value: string): string {
+  const secret = process.env.MARKETPLACE_SEARCH_CURSOR_SECRET;
+  if (!secret) throw new Error("MARKETPLACE_SEARCH_CURSOR_SECRET is required");
+  return createHmac("sha256", secret).update(value).digest("base64url");
+}
 function safeEqual(left: string, right: string): boolean { const a = Buffer.from(left); const b = Buffer.from(right); return a.length === b.length && timingSafeEqual(a, b); }

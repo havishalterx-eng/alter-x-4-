@@ -132,7 +132,10 @@ USING (
     FROM "listings" AS "l"
     WHERE "l"."id" = "listing_versions"."listing_id"
       AND (
-        "l"."status" = 'published'
+        (
+          "l"."status" = 'published'
+          AND "listing_versions"."published_at" IS NOT NULL
+        )
         OR "l"."tenant_id" = NULLIF(current_setting('app.current_tenant_id', true), '')
       )
   )

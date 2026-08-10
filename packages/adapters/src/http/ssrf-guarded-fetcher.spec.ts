@@ -41,6 +41,40 @@ describe("SsrfGuardedFetcher", () => {
     );
   });
 
+  it("pins each request to the validated DNS address", async () => {
+    const fetchFn: FetchFn = vi.fn(async (_url, init) => {
+      const resolved = await new Promise<{ address: string; family: number }>(
+        (resolve, reject) => {
+          init.lookup("rebind.example.com", {}, (error: NodeJS.ErrnoException | null, address: string | import("node:dns").LookupAddress[], family?: number) => {
+            if (error || typeof address !== "string" || family === undefined) {
+              reject(error ?? new Error("lookup did not return an address"));
+              return;
+            }
+            resolve({ address, family });
+          });
+        },
+      );
+      expect(resolved).toEqual({ address: "93.184.216.34", family: 4 });
+      return {
+        status: 200,
+        headers: { get: () => null },
+        body: undefined,
+        arrayBuffer: async () => jsonBody({ ok: true }),
+      };
+    });
+    const resolveDns = vi.fn(
+      dnsResolverFor({
+        "rebind.example.com": [{ address: "93.184.216.34", family: 4 }],
+      }),
+    );
+    const fetcher = new SsrfGuardedFetcher({}, resolveDns, fetchFn);
+
+    await expect(fetcher.fetch("https://rebind.example.com/path")).resolves.toMatchObject({
+      statusCode: 200,
+    });
+    expect(resolveDns).toHaveBeenCalledTimes(1);
+  });
+
   it("blocks a URL whose hostname resolves to a private IP", async () => {
     const fetchFn: FetchFn = vi.fn();
     const fetcher = new SsrfGuardedFetcher(

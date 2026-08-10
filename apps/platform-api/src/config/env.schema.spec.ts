@@ -2,10 +2,22 @@ import { describe, expect, it } from "vitest";
 import { validatePlatformApiEnv } from "./env.schema";
 
 describe("platformApiEnvSchema", () => {
+  const cursorSecret = "test-search-cursor-secret";
+
   it("throws when DATABASE_URL is missing", () => {
     expect(() => validatePlatformApiEnv({})).toThrow(
       "Invalid platform-api environment",
     );
+  });
+
+  it("requires the marketplace cursor secret at startup", () => {
+    expect(() =>
+      validatePlatformApiEnv({
+        DATABASE_URL: "postgres://localhost/platform_db",
+        MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db",
+        SIGNING_KEY_PROVIDER: "mock",
+      }),
+    ).toThrow("MARKETPLACE_SEARCH_CURSOR_SECRET");
   });
 
   it("accepts local database URL and reserved Redis parameter", () => {
@@ -14,6 +26,7 @@ describe("platformApiEnvSchema", () => {
         DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
         MARKETPLACE_DATABASE_URL:
           "postgres://platform_api:platform_api_local@localhost:5432/marketplace_db",
+        MARKETPLACE_SEARCH_CURSOR_SECRET: cursorSecret,
         ACTOR_TOKEN_SIGNING_KEY_REF: "env:ACTOR_TOKEN_PRIVATE_KEY",
         REDIS_ENDPOINT_PARAM: "/alter/dev/platform-api/redis-endpoint",
         ALTER_CONFIG_SOURCE: "local-file",
@@ -22,6 +35,7 @@ describe("platformApiEnvSchema", () => {
       DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
       MARKETPLACE_DATABASE_URL:
         "postgres://platform_api:platform_api_local@localhost:5432/marketplace_db",
+      MARKETPLACE_SEARCH_CURSOR_SECRET: cursorSecret,
       ACTOR_TOKEN_SIGNING_KEY_REF: "env:ACTOR_TOKEN_PRIVATE_KEY",
       IDENTITY_PROVIDER: "mock",
       REDIS_ENDPOINT_PARAM: "/alter/dev/platform-api/redis-endpoint",
@@ -39,6 +53,7 @@ describe("platformApiEnvSchema", () => {
         DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
         MARKETPLACE_DATABASE_URL:
           "postgres://platform_api:platform_api_local@localhost:5432/marketplace_db",
+        MARKETPLACE_SEARCH_CURSOR_SECRET: cursorSecret,
         ACTOR_TOKEN_SIGNING_KEY_REF: "env:ACTOR_TOKEN_PRIVATE_KEY",
         IDENTITY_PROVIDER: "auth0",
       }),
@@ -51,6 +66,7 @@ describe("platformApiEnvSchema", () => {
         DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
         MARKETPLACE_DATABASE_URL:
           "postgres://platform_api:platform_api_local@localhost:5432/marketplace_db",
+        MARKETPLACE_SEARCH_CURSOR_SECRET: cursorSecret,
         SIGNING_KEY_PROVIDER: "mock",
       }),
     ).toMatchObject({ SIGNING_KEY_PROVIDER: "mock" });
@@ -61,13 +77,14 @@ describe("platformApiEnvSchema", () => {
       validatePlatformApiEnv({
         DATABASE_URL: "postgres://localhost/platform_db",
         MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db",
+        MARKETPLACE_SEARCH_CURSOR_SECRET: cursorSecret,
         ALTER_CONFIG_SOURCE: "appconfig",
       }),
     ).toThrow("APPCONFIG_APP_ID required");
   });
 
   it("selects marketplace object storage explicitly", () => {
-    const base = { DATABASE_URL: "postgres://localhost/platform_db", MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db", SIGNING_KEY_PROVIDER: "mock" };
+    const base = { DATABASE_URL: "postgres://localhost/platform_db", MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db", MARKETPLACE_SEARCH_CURSOR_SECRET: cursorSecret, SIGNING_KEY_PROVIDER: "mock" };
     expect(validatePlatformApiEnv(base).MARKETPLACE_OBJECT_STORAGE_PROVIDER).toBe("mock");
     expect(validatePlatformApiEnv({ ...base, MARKETPLACE_OBJECT_STORAGE_PROVIDER: "s3", AWS_REGION: "ap-south-1" }).MARKETPLACE_OBJECT_STORAGE_PROVIDER).toBe("s3");
     expect(() => validatePlatformApiEnv({ ...base, MARKETPLACE_OBJECT_STORAGE_PROVIDER: "gcs" })).toThrow("Invalid platform-api environment");
@@ -75,7 +92,7 @@ describe("platformApiEnvSchema", () => {
   });
 
   it("fails loudly until SCAN-1 when sandbox scanning is selected", () => {
-    const base = { DATABASE_URL: "postgres://localhost/platform_db", MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db", SIGNING_KEY_PROVIDER: "mock" };
+    const base = { DATABASE_URL: "postgres://localhost/platform_db", MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db", MARKETPLACE_SEARCH_CURSOR_SECRET: cursorSecret, SIGNING_KEY_PROVIDER: "mock" };
     expect(validatePlatformApiEnv(base).REGISTRY_SCAN_PROVIDER).toBe("mock");
     expect(() => validatePlatformApiEnv({ ...base, REGISTRY_SCAN_PROVIDER: "sandbox" })).toThrow("SCAN-1");
     expect(() => validatePlatformApiEnv({ ...base, REGISTRY_SCAN_PROVIDER: "other" })).toThrow("Invalid platform-api environment");
@@ -85,6 +102,7 @@ describe("platformApiEnvSchema", () => {
     const base = {
       DATABASE_URL: "postgres://localhost/platform_db",
       MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db",
+      MARKETPLACE_SEARCH_CURSOR_SECRET: cursorSecret,
       SIGNING_KEY_PROVIDER: "mock",
       STATUS_PAGE_PROVIDER: "atlassian",
     } as const;
@@ -100,6 +118,7 @@ describe("platformApiEnvSchema", () => {
     const base = {
       DATABASE_URL: "postgres://localhost/platform_db",
       MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db",
+      MARKETPLACE_SEARCH_CURSOR_SECRET: cursorSecret,
       SIGNING_KEY_PROVIDER: "mock",
     } as const;
     expect(() => validatePlatformApiEnv({
@@ -120,6 +139,7 @@ describe("platformApiEnvSchema", () => {
     const base = {
       DATABASE_URL: "postgres://localhost/platform_db",
       MARKETPLACE_DATABASE_URL: "postgres://localhost/marketplace_db",
+      MARKETPLACE_SEARCH_CURSOR_SECRET: cursorSecret,
       SIGNING_KEY_PROVIDER: "mock",
     } as const;
     expect(() => validatePlatformApiEnv({

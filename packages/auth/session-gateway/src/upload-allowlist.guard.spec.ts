@@ -7,9 +7,11 @@ import type { SessionGatewayRequest } from "./types";
 function contextFor(
   headers: Record<string, string | string[] | undefined>,
   publicRoute = false,
+  method = "POST",
 ): ExecutionContext {
   const request: SessionGatewayRequest = {
     headers,
+    method,
     url: "/v1/upload",
   };
   const handler = () => undefined;
@@ -34,9 +36,14 @@ describe("SessionGatewayUploadAllowlistGuard", () => {
     ).toBe(true);
   });
 
-  it("allows a request with no content-type header", () => {
+  it("rejects a body-bearing request with no content-type header", () => {
     const guard = new SessionGatewayUploadAllowlistGuard();
-    expect(guard.canActivate(contextFor({}))).toBe(true);
+    expect(() => guard.canActivate(contextFor({}))).toThrow(HttpException);
+  });
+
+  it("allows a bodyless request with no content-type header", () => {
+    const guard = new SessionGatewayUploadAllowlistGuard();
+    expect(guard.canActivate(contextFor({}, false, "GET"))).toBe(true);
   });
 
   it("allows an allowlisted content-type", () => {
@@ -106,6 +113,18 @@ describe("SessionGatewayUploadAllowlistGuard", () => {
         contextFor({
           "content-type": "application/json",
           "content-length": "100",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("allows a chunked request with an allowlisted content type", () => {
+    const guard = new SessionGatewayUploadAllowlistGuard();
+    expect(
+      guard.canActivate(
+        contextFor({
+          "content-type": "application/json",
+          "transfer-encoding": "chunked",
         }),
       ),
     ).toBe(true);

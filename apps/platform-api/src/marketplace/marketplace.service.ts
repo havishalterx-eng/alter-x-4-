@@ -56,6 +56,9 @@ export class MarketplaceService {
     if (entitlement.accessState !== "active") throw new MarketplaceHttpError(403, "MARKETPLACE_ENTITLEMENT_INACTIVE", `Marketplace install requires active entitlement; current state is ${entitlement.accessState}.`, `/api/v1/marketplace/listings/${listingId}/actions/install`);
     const version = await this.repository.findVersion(tenantId, listingId, input.listing_version_id);
     if (!version) throw this.notFound(input.listing_version_id);
+    if (version.publishedAt === null && listing.tenantId !== tenantId) {
+      throw this.notFound(input.listing_version_id);
+    }
     const compatibility = await this.compatibilityForVersion(tenantId, version);
     if (!compatibility.compatible) throw new MarketplaceHttpError(409, "MARKETPLACE_INCOMPATIBLE", "Listing version does not meet tenant requirements.", `/api/v1/marketplace/listings/${listingId}/actions/install`);
     const installedPayloadRef = await this.copyPayload(version, tenantId);

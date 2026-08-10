@@ -55,6 +55,7 @@ export interface TenantDatabaseScope {
 
 export interface SessionGatewayRequest {
   readonly headers: Record<string, string | string[] | undefined>;
+  readonly method?: string;
   readonly url?: string;
   actorContext?: ActorContext;
   /** Actor JWT expiry captured during initial validation; stream endpoints close at this instant. */

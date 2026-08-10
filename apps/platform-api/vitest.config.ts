@@ -2,6 +2,9 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    env: {
+      MARKETPLACE_SEARCH_CURSOR_SECRET: "test-search-cursor-secret",
+    },
     include: [
       "apps/platform-api/src/**/*.spec.ts",
       "tests/integration/rbac/**/*.spec.ts",

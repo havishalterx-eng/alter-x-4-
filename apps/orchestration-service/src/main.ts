@@ -45,7 +45,7 @@ async function bootstrap(): Promise<void> {
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter(),
+    new FastifyAdapter({ bodyLimit: 25 * 1024 * 1024 }),
     // rawBody: true makes Fastify retain the exact pre-parse body bytes on
     // request.rawBody for every route -- Nest/Fastify have no native
     // per-route scoping for this. Only the WhatsApp webhook route reads

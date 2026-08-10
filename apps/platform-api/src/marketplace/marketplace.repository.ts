@@ -181,8 +181,9 @@ export class MarketplaceRepository implements OnModuleDestroy {
         `SELECT v.* FROM listing_versions v
          JOIN listings l ON l.id = v.listing_id
          WHERE v.listing_id = $1
+           AND (v.published_at IS NOT NULL OR l.tenant_id = $2)
          ORDER BY v.published_at DESC NULLS LAST, v.version DESC, v.id DESC`,
-        [listingId],
+        [listingId, tenantId],
       );
       return result.rows.map(mapVersion);
     });

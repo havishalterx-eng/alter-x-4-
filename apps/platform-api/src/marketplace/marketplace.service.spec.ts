@@ -352,6 +352,41 @@ describe("MarketplaceService", () => {
     );
   });
 
+  it("rejects a non-owner install of an unreleased version", async () => {
+    h.repository.findListing.mockResolvedValueOnce(
+      listing({ tenantId: "ten_018f47a5-7b2c-7d10-8f11-1234567890bb", status: "published" }),
+    );
+    h.repository.findVersion.mockResolvedValueOnce(version({ publishedAt: null }));
+
+    await expect(
+      h.service.install(
+        tenantId,
+        workspaceId,
+        listingId,
+        { listing_version_id: versionId, confirmed: true },
+        "idem-unreleased-non-owner",
+      ),
+    ).rejects.toMatchObject({
+      response: { error_code: "MARKETPLACE_NOT_FOUND" },
+    });
+    expect(h.repository.createInstall).not.toHaveBeenCalled();
+    expect(h.putSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows an owner to install an unreleased version", async () => {
+    h.repository.findVersion.mockResolvedValueOnce(version({ publishedAt: null }));
+
+    await expect(
+      h.service.install(
+        tenantId,
+        workspaceId,
+        listingId,
+        { listing_version_id: versionId, confirmed: true },
+        "idem-unreleased-owner",
+      ),
+    ).resolves.toMatchObject({ listingVersionId: versionId });
+  });
+
   // Spec 6 — compatibility is re-checked server-side.
   it("blocks an incompatible install even when the caller confirms", async () => {
     h.setEntitlement(entitlement({ limits: { maxProjects: 0 } }));

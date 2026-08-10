@@ -28,6 +28,7 @@ jobs:
     env:
       DATABASE_URL: postgres://platform_api:platform_api_local@localhost:5432/platform_db
       MARKETPLACE_DATABASE_URL: postgres://platform_api:platform_api_local@localhost:5432/platform_db
+      MARKETPLACE_SEARCH_CURSOR_SECRET: ci-marketplace-search-cursor-secret
       SIGNING_KEY_PROVIDER: mock
     steps:
       - uses: actions/checkout@v4

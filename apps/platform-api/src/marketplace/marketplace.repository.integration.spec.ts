@@ -89,6 +89,37 @@ describe.skipIf(!databaseUrl)("MarketplaceRepository PostgreSQL RLS", () => {
     expect(await repository.findListing(tenantB, id)).toBeDefined();
   });
 
+  it("hides unreleased versions from non-owners while retaining them for the owner", async () => {
+    const id = listingId();
+    await repository.createListing(tenantA, id, {
+      type: "agent",
+      name: "Versioned shared agent",
+      license_type: "tenant_wide",
+    });
+    await repository.updateListing(tenantA, id, { status: "published" });
+    const released = await repository.createVersion(tenantA, `lsv_${randomUUID()}`, id, {
+      version: "1.0.0",
+      payload_ref: "s3://bucket/released.json",
+      compatibility,
+    });
+    const unreleased = await repository.createVersion(tenantA, `lsv_${randomUUID()}`, id, {
+      version: "2.0.0",
+      payload_ref: "s3://bucket/unreleased.json",
+      compatibility,
+    });
+    await admin.query(
+      "UPDATE listing_versions SET published_at = clock_timestamp() WHERE id = $1",
+      [released.id],
+    );
+
+    expect((await repository.listVersions(tenantB, id)).map((row) => row.id)).toEqual([
+      released.id,
+    ]);
+    expect((await repository.listVersions(tenantA, id)).map((row) => row.id)).toEqual(
+      expect.arrayContaining([released.id, unreleased.id]),
+    );
+  });
+
   // Spec 13 — installs never leak across tenants.
   it("scopes installs to the installing tenant", async () => {
     const id = listingId();
