@@ -1,7 +1,7 @@
 import type {
   Trigger,
   TriggerVersion,
-} from "@alterx/contracts/src/triggers";
+} from "@alterx/contracts";
 import type { JsonValue } from "@alterx/shared-clients";
 
 export type {

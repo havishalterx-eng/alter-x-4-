@@ -3,6 +3,21 @@ export {
   type ActorTokenClaims,
 } from "./actor-token";
 export {
+  TriggerStatusSchema,
+  TriggerTypeSchema,
+  TriggerVersionStatusSchema,
+  TriggerSchema,
+  TriggerVersionSchema,
+  RegisterTriggerResultSchema,
+  TriggerListResultSchema,
+  type Trigger,
+  type TriggerVersion,
+} from "./triggers";
+export {
+  SignedReferenceSchema,
+  type SignedReference,
+} from "./signed-reference";
+export {
   CanonicalEventSchema,
   SignatureStatusSchema,
   type CanonicalEvent,

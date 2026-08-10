@@ -1,7 +1,7 @@
 import {
   TriggerStatusSchema,
   TriggerTypeSchema,
-} from "@alterx/contracts/src/triggers";
+} from "@alterx/contracts";
 import { z } from "zod";
 import { TriggerHttpError } from "./problem";
 import type {
