@@ -43,13 +43,13 @@ variable "vpc_id" {
   type        = string
 }
 
-variable "vpc_cidr" {
-  description = "Environment VPC CIDR permitted to reach private data services."
-  type        = string
+variable "allowed_control_plane_security_group_ids" {
+  description = "Workload security groups permitted to reach the control-plane Aurora cluster and Redis. Named peers only -- never a CIDR."
+  type        = map(string)
 
   validation {
-    condition     = can(cidrhost(var.vpc_cidr, 0))
-    error_message = "vpc_cidr must be a valid CIDR."
+    condition     = length(var.allowed_control_plane_security_group_ids) > 0
+    error_message = "At least one control-plane client security group is required."
   }
 }
 

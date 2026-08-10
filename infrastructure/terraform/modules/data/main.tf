@@ -62,12 +62,13 @@ resource "aws_security_group" "postgres" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "postgres" {
-  security_group_id = aws_security_group.postgres.id
-  description       = "PostgreSQL from private environment workloads"
-  cidr_ipv4         = var.vpc_cidr
-  from_port         = 5432
-  ip_protocol       = "tcp"
-  to_port           = 5432
+  for_each                     = var.allowed_control_plane_security_group_ids
+  security_group_id            = aws_security_group.postgres.id
+  referenced_security_group_id = each.value
+  description                  = "PostgreSQL from approved control-plane workload ${each.key}"
+  from_port                    = 5432
+  ip_protocol                  = "tcp"
+  to_port                      = 5432
 }
 
 resource "aws_security_group" "ads_postgres" {
@@ -450,12 +451,13 @@ resource "aws_security_group" "redis" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "redis" {
-  security_group_id = aws_security_group.redis.id
-  description       = "Redis TLS from private environment workloads"
-  cidr_ipv4         = var.vpc_cidr
-  from_port         = 6379
-  ip_protocol       = "tcp"
-  to_port           = 6379
+  for_each                     = var.allowed_control_plane_security_group_ids
+  security_group_id            = aws_security_group.redis.id
+  referenced_security_group_id = each.value
+  description                  = "Redis TLS from approved control-plane workload ${each.key}"
+  from_port                    = 6379
+  ip_protocol                  = "tcp"
+  to_port                      = 6379
 }
 
 resource "aws_elasticache_user" "disabled_default" {

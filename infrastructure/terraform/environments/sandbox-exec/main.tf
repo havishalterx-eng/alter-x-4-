@@ -59,6 +59,7 @@ module "compute" {
 
   environment             = "sandbox-exec"
   environment_kms_key_arn = module.environment.kms_key_arn
+  vpc_id                  = module.environment.vpc_id
 }
 
 output "kms_key_arn" { value = module.environment.kms_key_arn }
