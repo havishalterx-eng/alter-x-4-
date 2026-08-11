@@ -12,16 +12,28 @@ export interface SandboxMockEnvironment extends SandboxEnvironmentBase {
   readonly localMock: true;
 }
 
-export interface SandboxAppConfigEnvironment extends SandboxEnvironmentBase {
+export type SandboxCodeExecutionProvider = "e2b" | "agentcore";
+
+interface SandboxAppConfigEnvironmentBase extends SandboxEnvironmentBase {
   readonly configSource: "appconfig";
   readonly localMock: false;
   readonly appConfigApplicationId: string;
   readonly appConfigEnvironmentId: string;
   readonly appConfigConfigurationProfileId: string;
-  readonly e2bApiKeyReference: string;
   readonly browserbaseApiKeyReference: string;
   readonly browserbaseProjectId: string;
 }
+
+export interface SandboxE2bEnvironment extends SandboxAppConfigEnvironmentBase {
+  readonly sandboxProvider: "e2b";
+  readonly e2bApiKeyReference: string;
+}
+
+export interface SandboxAgentCoreEnvironment extends SandboxAppConfigEnvironmentBase {
+  readonly sandboxProvider: "agentcore";
+}
+
+export type SandboxAppConfigEnvironment = SandboxE2bEnvironment | SandboxAgentCoreEnvironment;
 
 export type SandboxEnvironment =
   | SandboxMockEnvironment
@@ -69,22 +81,33 @@ export function loadSandboxEnvironment(
   if (source !== "appconfig") {
     throw new Error("ALTER_CONFIG_SOURCE must be appconfig or mock");
   }
-  return {
+  const appConfigBase = {
     ...base,
-    configSource: "appconfig",
-    localMock: false,
+    configSource: "appconfig" as const,
+    localMock: false as const,
     appConfigApplicationId: required(environment, "APPCONFIG_APPLICATION_ID"),
     appConfigEnvironmentId: required(environment, "APPCONFIG_ENVIRONMENT_ID"),
     appConfigConfigurationProfileId: required(
       environment,
       "APPCONFIG_CONFIGURATION_PROFILE_ID",
     ),
-    e2bApiKeyReference: required(environment, "E2B_API_KEY_REF"),
     browserbaseApiKeyReference: required(
       environment,
       "BROWSERBASE_API_KEY_REF",
     ),
     browserbaseProjectId: required(environment, "BROWSERBASE_PROJECT_ID"),
+  };
+  const sandboxProvider = environment.SANDBOX_PROVIDER?.trim() || "e2b";
+  if (sandboxProvider === "agentcore") {
+    return { ...appConfigBase, sandboxProvider: "agentcore" };
+  }
+  if (sandboxProvider !== "e2b") {
+    throw new Error("SANDBOX_PROVIDER must be e2b or agentcore");
+  }
+  return {
+    ...appConfigBase,
+    sandboxProvider: "e2b",
+    e2bApiKeyReference: required(environment, "E2B_API_KEY_REF"),
   };
 }
 

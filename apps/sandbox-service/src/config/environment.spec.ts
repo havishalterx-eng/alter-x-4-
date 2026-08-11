@@ -44,10 +44,46 @@ describe("loadSandboxEnvironment", () => {
 
     expect(environment).toMatchObject({
       configSource: "appconfig",
+      sandboxProvider: "e2b",
       browserbaseApiKeyReference:
         "/alter/prod/sandbox-service/system/browserbase-api-key",
       browserbaseProjectId: "browserbase-project",
     });
     expect(JSON.stringify(environment)).not.toContain("resolved-secret");
+  });
+
+  it("selects the AgentCore sandbox provider without requiring an E2B key", () => {
+    const environment = loadSandboxEnvironment({
+      ...BASE,
+      ALTER_ENV: "prod",
+      ALTER_CONFIG_SOURCE: "appconfig",
+      APPCONFIG_APPLICATION_ID: "app-id",
+      APPCONFIG_ENVIRONMENT_ID: "env-id",
+      APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-id",
+      SANDBOX_PROVIDER: "agentcore",
+      BROWSERBASE_API_KEY_REF:
+        "/alter/prod/sandbox-service/system/browserbase-api-key",
+      BROWSERBASE_PROJECT_ID: "browserbase-project",
+    });
+
+    expect(environment).toMatchObject({ sandboxProvider: "agentcore" });
+    expect(environment).not.toHaveProperty("e2bApiKeyReference");
+  });
+
+  it("rejects an unrecognized SANDBOX_PROVIDER value", () => {
+    expect(() =>
+      loadSandboxEnvironment({
+        ...BASE,
+        ALTER_ENV: "prod",
+        ALTER_CONFIG_SOURCE: "appconfig",
+        APPCONFIG_APPLICATION_ID: "app-id",
+        APPCONFIG_ENVIRONMENT_ID: "env-id",
+        APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-id",
+        SANDBOX_PROVIDER: "modal",
+        BROWSERBASE_API_KEY_REF:
+          "/alter/prod/sandbox-service/system/browserbase-api-key",
+        BROWSERBASE_PROJECT_ID: "browserbase-project",
+      }),
+    ).toThrow("SANDBOX_PROVIDER must be e2b or agentcore");
   });
 });

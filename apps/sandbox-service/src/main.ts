@@ -7,6 +7,7 @@ import {
 } from "@nestjs/platform-fastify";
 
 import {
+  AgentCoreSandboxProvider,
   AwsAppConfigConfigProvider,
   ArtifactContentClient,
   AwsSecretsManagerProvider,
@@ -49,6 +50,9 @@ async function createSandboxProvider(
   secrets: SecretsProvider,
 ): Promise<SandboxProvider> {
   if (environment.localMock) return createMockSandboxProvider();
+  if (environment.sandboxProvider === "agentcore") {
+    return new AgentCoreSandboxProvider({ region: environment.region });
+  }
   return new E2bSandboxProvider({
     apiKey: await secrets.getSecret(environment.e2bApiKeyReference),
   });

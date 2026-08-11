@@ -453,6 +453,11 @@ export {
   type E2bSandboxProviderConfig,
 } from "./e2b/e2b-sandbox-provider";
 export {
+  AgentCoreSandboxProvider,
+  type AgentCoreCommandClient,
+  type AgentCoreSandboxProviderConfig,
+} from "./agentcore/agentcore-sandbox-provider";
+export {
   S3ObjectStorageProvider,
   type S3CommandClient,
   type S3ObjectStorageProviderConfig,
