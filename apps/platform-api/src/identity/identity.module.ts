@@ -4,6 +4,10 @@ import {
   Auth0IdentityProvider,
   type Auth0IdentityProviderOptions,
 } from "./adapters/auth0/auth0-identity-provider";
+import {
+  GoogleIdentityProvider,
+  type GoogleIdentityProviderOptions,
+} from "./adapters/google/google-identity-provider";
 import { MockIdentityProvider } from "./adapters/mock/mock-identity-provider";
 import { IdentityController } from "./identity.controller";
 import type { IdentityProvider } from "./identity-provider.interface";
@@ -68,6 +72,19 @@ const databasePoolToken = Symbol("DatabasePool");
             options.m2mClientSecretRef = process.env.AUTH0_M2M_CLIENT_SECRET_REF;
           }
           return new Auth0IdentityProvider(options, sessionStore, ssoConfigStore);
+        }
+
+        if (
+          process.env.IDENTITY_PROVIDER === "google" &&
+          process.env.GOOGLE_CLIENT_ID &&
+          process.env.GOOGLE_CLIENT_SECRET_REF
+        ) {
+          const options: GoogleIdentityProviderOptions = {
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecretRef: process.env.GOOGLE_CLIENT_SECRET_REF,
+            resolveSecret: resolveRuntimeSecret,
+          };
+          return new GoogleIdentityProvider(options, sessionStore);
         }
 
         return new MockIdentityProvider(sessionStore, ssoConfigStore);

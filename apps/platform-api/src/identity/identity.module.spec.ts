@@ -39,4 +39,24 @@ describe("IdentityModule", () => {
     expect(moduleRef.get(IdentityService)).toBeInstanceOf(IdentityService);
     await moduleRef.close();
   });
+
+  it("builds the Google identity provider from runtime configuration", async () => {
+    delete process.env.DATABASE_URL;
+    process.env.IDENTITY_PROVIDER = "google";
+    process.env.GOOGLE_CLIENT_ID = "google-client-id";
+    process.env.GOOGLE_CLIENT_SECRET_REF = "env:GOOGLE_CLIENT_SECRET";
+    const moduleRef = await Test.createTestingModule({ imports: [IdentityModule] }).compile();
+    expect(moduleRef.get(IdentityService)).toBeInstanceOf(IdentityService);
+    await moduleRef.close();
+  });
+
+  it("falls back to the mock provider when IDENTITY_PROVIDER=google is missing credentials", async () => {
+    delete process.env.DATABASE_URL;
+    process.env.IDENTITY_PROVIDER = "google";
+    delete process.env.GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_CLIENT_SECRET_REF;
+    const moduleRef = await Test.createTestingModule({ imports: [IdentityModule] }).compile();
+    expect(moduleRef.get(IdentityService)).toBeInstanceOf(IdentityService);
+    await moduleRef.close();
+  });
 });
