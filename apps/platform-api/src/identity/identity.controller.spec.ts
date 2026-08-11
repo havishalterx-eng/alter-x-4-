@@ -34,7 +34,7 @@ describe("IdentityController", () => {
     errorSpy.mockClear();
   });
 
-  it("redirects login to Universal Login", async () => {
+  it("returns the Universal Login URL as JSON", async () => {
     const response = await app.getHttpAdapter().getInstance().inject({
       method: "POST",
       url: "/api/v1/auth/login",
@@ -46,8 +46,8 @@ describe("IdentityController", () => {
       },
     });
 
-    expect(response.statusCode).toBe(303);
-    expect(response.headers.location).toContain("mock.identity.local/authorize");
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload).url).toContain("mock.identity.local/authorize");
   });
 
   it("sets secure HttpOnly cookies on callback", async () => {

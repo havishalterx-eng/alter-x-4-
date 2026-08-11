@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   Headers,
+  Logger,
   Param,
   Post,
   Query,
@@ -29,6 +30,8 @@ const refreshCookieName = "alter_refresh";
 
 @Controller("/api/v1/auth")
 export class IdentityController {
+  private readonly logger = new Logger(IdentityController.name);
+
   constructor(private readonly identityService: IdentityService) {}
 
   @Post("login")
@@ -37,7 +40,7 @@ export class IdentityController {
     await this.safe(reply, "/api/v1/auth/login", async () => {
       requireFields(body, ["redirectUri", "state", "codeChallenge"]);
       const redirectUrl = await this.identityService.loginRedirectUrl(body);
-      reply.status(303).header("Location", redirectUrl).send();
+      reply.status(200).send({ url: redirectUrl });
     });
   }
 
@@ -75,7 +78,7 @@ export class IdentityController {
     @Res() reply: FastifyReply,
   ): Promise<void> {
     await this.safe(reply, "/api/v1/auth/refresh", async () => {
-      const refreshToken = body.refreshToken ?? readCookie(request, refreshCookieName);
+      const refreshToken = body?.refreshToken ?? readCookie(request, refreshCookieName);
       if (!refreshToken) {
         throw new IdentityHttpError(401, "REFRESH_TOKEN_REQUIRED", "Refresh token required");
       }
@@ -209,6 +212,11 @@ export class IdentityController {
     } catch (error) {
       const requestId = reply.getHeader("x-request-id")?.toString();
       const problem = problemDetails(error, instance, requestId);
+      if (problem.status >= 500) {
+        this.logger.error(
+          `${instance} failed: ${error instanceof Error ? error.stack : String(error)}`,
+        );
+      }
       reply.status(problem.status).type("application/problem+json").send(problem);
     }
   }
