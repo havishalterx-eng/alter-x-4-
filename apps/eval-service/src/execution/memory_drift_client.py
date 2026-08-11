@@ -39,8 +39,16 @@ class AgentDriftScoresLookupResult:
 
 
 class MemoryDriftEvalClient(httpx.Client):
-    def __init__(self, base_url: str, system_db_url: str, timeout_seconds: float = 30.0) -> None:
-        super().__init__(base_url=base_url, timeout=timeout_seconds)
+    def __init__(
+        self,
+        base_url: str,
+        system_db_url: str,
+        timeout_seconds: float = 30.0,
+        *,
+        service_token: str = "",
+    ) -> None:
+        headers = {"Authorization": f"Bearer {service_token}"} if service_token else None
+        super().__init__(base_url=base_url, timeout=timeout_seconds, headers=headers)
         self._system_db_url = system_db_url
 
     def seed_agent_drift_score(self) -> str:
@@ -65,7 +73,6 @@ class MemoryDriftEvalClient(httpx.Client):
         response = self.post(
             "/drift/agents/scores",
             json={"tenant_id": tenant_id, "agent_id": agent_id},
-            headers={"Authorization": "Bearer eval-harness-token"},
         )
         response.raise_for_status()
         return AgentDriftScoresLookupResult(empty=len(response.json()["scores"]) == 0)

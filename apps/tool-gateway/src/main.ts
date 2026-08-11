@@ -21,6 +21,7 @@ import {
   type SearchProvider,
   type SecretsProvider,
 } from "@alterx/shared-clients";
+import { lazyAuth0M2mTokenProviderFromEnvironment } from "@alterx/auth";
 
 import { AppModule } from "./app.module";
 import { loadToolGatewayEnvironment } from "./config/environment";
@@ -76,6 +77,7 @@ function createAuditClient(
   return new AuditServiceClient({
     address: environment.auditServiceGrpcAddress,
     protoPath: AUDIT_CLIENT_PROTO_PATH,
+    accessTokenProvider: lazyAuth0M2mTokenProviderFromEnvironment(process.env),
   });
 }
 

@@ -24,6 +24,8 @@ import grpc
 
 from alter.modelgw.v1 import modelgw_pb2, modelgw_pb2_grpc
 
+from .m2m_auth import AccessTokenProvider
+
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
@@ -33,10 +35,16 @@ class ModelCacheInvokeResult:
 
 
 class ModelGatewayCacheClient:
-    def __init__(self, target: str, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self,
+        target: str,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        access_token_provider: AccessTokenProvider | None = None,
+    ) -> None:
         self._channel = grpc.insecure_channel(target)
         self._stub = modelgw_pb2_grpc.ModelgwServiceStub(self._channel)  # type: ignore[no-untyped-call]
         self._timeout_seconds = timeout_seconds
+        self._access_token_provider = access_token_provider
 
     def invoke(
         self,
@@ -56,8 +64,14 @@ class ModelGatewayCacheClient:
                 input_json=input_json,
             ),
             timeout=self._timeout_seconds,
+            metadata=self._metadata(),
         )
         return ModelCacheInvokeResult(cache_hit=bool(response.cache_hit))
 
     def close(self) -> None:
         self._channel.close()
+
+    def _metadata(self) -> tuple[tuple[str, str], ...] | None:
+        if self._access_token_provider is None:
+            return None
+        return self._access_token_provider.metadata()

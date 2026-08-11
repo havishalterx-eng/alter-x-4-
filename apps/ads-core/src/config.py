@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     ads_ingestion_stub_bad_signatures: str = "EICAR-STANDARD-ANTIVIRUS-TEST-FILE"
     deletion_service_token_sha256: str = Field(default="", min_length=64, max_length=64)
     model_gateway_grpc_target: str = "localhost:50051"
+    auth0_m2m_token_url: str = ""
+    auth0_m2m_audience: str = ""
+    auth0_m2m_client_id: str = ""
+    auth0_m2m_client_secret: str = ""
 
     # KNOW-6: presigned uploads. Empty bucket name (default) means "no real
     # AWS/S3 config present" -- the app wires InMemoryObjectStorageProvider

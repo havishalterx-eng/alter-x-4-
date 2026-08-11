@@ -8,6 +8,7 @@ import {
   startExecutorWorker,
   startPlatformJobsWorker,
 } from "@alterx/adapters";
+import { lazyAuth0M2mTokenProviderFromEnvironment } from "@alterx/auth";
 import { AppModule } from "./app.module";
 import { loadExecutorWorkerEnvironment } from "./config/environment";
 import { loadCostEventConsumerEnvironment } from "./config/cost-event-consumer-environment";
@@ -66,6 +67,7 @@ async function bootstrap(): Promise<void> {
     new CostClient({
       address: costEventsConfig.costLedgerServiceAddress,
       protoPath: COST_PROTO_PATH,
+      accessTokenProvider: lazyAuth0M2mTokenProviderFromEnvironment(process.env),
     }),
   );
   const costEventRunner = new CostEventConsumerRunner(

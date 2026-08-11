@@ -3,6 +3,7 @@ import {
   loadPackageDefinition,
   status,
   type Client,
+  type Metadata,
 } from "@grpc/grpc-js";
 import { loadSync } from "@grpc/proto-loader";
 
@@ -10,11 +11,16 @@ import type {
   ToolgwInvokeToolRequest,
   ToolgwInvokeToolResponse,
 } from "@alterx/contracts";
+import {
+  serviceAuthorizationMetadata,
+  type ServiceAccessTokenProvider,
+} from "./service-auth";
 
 export interface ToolGatewayClientConfig {
   readonly address: string;
   readonly protoPath: string;
   readonly timeoutMs?: number;
+  readonly accessTokenProvider?: ServiceAccessTokenProvider;
 }
 
 export interface ToolGatewayInvokeHandler {
@@ -43,8 +49,10 @@ export class ToolGatewayClientError extends Error {
 }
 
 interface ToolgwGrpcClient extends Client {
+  invokeTool(request: ToolgwInvokeToolRequest, options: { readonly deadline: Date }, callback: (error: (Error & { readonly code?: number }) | null, response?: ToolgwInvokeToolResponse) => void): void;
   invokeTool(
     request: ToolgwInvokeToolRequest,
+    metadata: Metadata,
     options: { readonly deadline: Date },
     callback: (
       error: (Error & { readonly code?: number }) | null,
@@ -63,9 +71,11 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 export class ToolGatewayClient implements ToolGatewayInvokeHandler {
   readonly #client: ToolgwGrpcClient;
   readonly #timeoutMs: number;
+  readonly #accessTokenProvider: ServiceAccessTokenProvider | undefined;
 
   constructor(config: ToolGatewayClientConfig, client?: ToolgwGrpcClient) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#accessTokenProvider = config.accessTokenProvider;
     this.#client = client ?? ToolGatewayClient.#buildClient(config);
   }
 
@@ -100,7 +110,7 @@ export class ToolGatewayClient implements ToolGatewayInvokeHandler {
   ): Promise<ToolgwInvokeToolResponse> {
     return new Promise<ToolgwInvokeToolResponse>((resolve, reject) => {
       const deadline = new Date(Date.now() + this.#timeoutMs);
-      this.#client.invokeTool(request, { deadline }, (error, response) => {
+      const callback = (error: (Error & { readonly code?: number }) | null, response?: ToolgwInvokeToolResponse) => {
         if (error !== null) {
           reject(mapGrpcError(error));
           return;
@@ -112,7 +122,9 @@ export class ToolGatewayClient implements ToolGatewayInvokeHandler {
           return;
         }
         resolve(response);
-      });
+      };
+      if (this.#accessTokenProvider === undefined) this.#client.invokeTool(request, { deadline }, callback);
+      else void serviceAuthorizationMetadata(this.#accessTokenProvider).then((metadata) => this.#client.invokeTool(request, metadata, { deadline }, callback), reject);
     });
   }
 }

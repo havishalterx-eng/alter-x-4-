@@ -78,4 +78,29 @@ describe("ProvisioningClient", () => {
       retryable: true,
     });
   });
+
+  it("propagates an acquired M2M token", async () => {
+    const grpcClient = {
+      provision: vi.fn(
+        (_request: unknown, metadata: { get(key: string): readonly string[] }, _options: unknown, callback: ProvisionCallback) => {
+          expect(metadata.get("authorization")).toEqual(["Bearer signed-m2m-token"]);
+          callback(null, {
+            session_id: "ses_1",
+            project_directory: "/workspace/prj_1",
+            reused: false,
+          });
+        },
+      ),
+    };
+    const client = new ProvisioningClient(
+      {
+        address: "localhost:50055",
+        protoPath: "unused",
+        accessTokenProvider: { getAccessToken: async () => "signed-m2m-token" },
+      },
+      grpcClient as never,
+    );
+
+    await expect(client.provision(request)).resolves.toMatchObject({ session_id: "ses_1" });
+  });
 });

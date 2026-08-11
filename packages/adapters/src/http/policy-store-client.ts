@@ -9,14 +9,23 @@ export interface PolicyStoreHttpClient {
   postJson(url: string, body: unknown): Promise<unknown>;
 }
 
-export function createFetchPolicyStoreHttpClient(): PolicyStoreHttpClient {
+/**
+ * The credential is supplied by the caller and read from configuration at call
+ * time -- never a literal. The previous value, `Bearer orchestration-service`,
+ * was a non-secret string committed to the repository, which is what made the
+ * Policy Store's authentication unfalsifiable (Finding 1): there was no real
+ * token for the callee to verify.
+ */
+export function createFetchPolicyStoreHttpClient(
+  readServiceToken: () => string = defaultServiceToken,
+): PolicyStoreHttpClient {
   return {
     async postJson(url: string, body: unknown): Promise<unknown> {
       const response = await fetch(url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: "Bearer orchestration-service",
+          authorization: `Bearer ${readServiceToken()}`,
         },
         body: JSON.stringify(body),
       });
@@ -104,4 +113,16 @@ export class PolicyStoreClient implements PolicyStoreHandler {
     );
     return parseGetActivePolicyResponse(raw);
   }
+}
+
+function defaultServiceToken(): string {
+  const token = process.env["INTERNAL_SERVICE_TOKEN"]?.trim();
+  if (!token) {
+    // Fail closed and loudly: a missing credential must not degrade into an
+    // anonymous request that the callee then has to decide about.
+    throw new Error(
+      "INTERNAL_SERVICE_TOKEN is required to call the Policy Store",
+    );
+  }
+  return token;
 }

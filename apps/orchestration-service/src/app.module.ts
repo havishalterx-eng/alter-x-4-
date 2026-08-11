@@ -46,6 +46,7 @@ import {
   SessionGatewayGuard,
   SessionGatewayRateLimitGuard,
   SessionGatewayUploadAllowlistGuard,
+  lazyAuth0M2mTokenProviderFromEnvironment,
 } from "@alterx/auth";
 import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import { ConversationManagerService } from "./conversation/conversation-manager.service";
@@ -332,6 +333,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         const modelGateway = new ModelGatewayClient({
           address: conversationConfig.modelGatewayAddress,
           protoPath: MODELGW_CLIENT_PROTO_PATH,
+          accessTokenProvider: internalM2mTokenProvider(),
         });
         return new ConversationManagerService(store, modelGateway);
       },
@@ -583,15 +585,18 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         const modelGateway = new ModelGatewayClient({
           address: conversationConfig.modelGatewayAddress,
           protoPath: MODELGW_CLIENT_PROTO_PATH,
+          accessTokenProvider: internalM2mTokenProvider(),
         });
         const nodeexecConfig = loadNodeexecEnvironment(process.env);
         const toolGateway = new ToolGatewayClient({
           address: nodeexecConfig.toolGatewayAddress,
           protoPath: TOOLGW_CLIENT_PROTO_PATH,
+          accessTokenProvider: internalM2mTokenProvider(),
         });
         const sandboxService = new SandboxServiceClient({
           address: nodeexecConfig.sandboxServiceAddress,
           protoPath: SANDBOX_CLIENT_PROTO_PATH,
+          accessTokenProvider: internalM2mTokenProvider(),
         });
         const memoryService = new MemoryServiceClient({
           address: nodeexecConfig.memoryServiceAddress,
@@ -652,6 +657,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
             new ProvisioningClient({
               address: runLauncherConfig.provisioningServiceAddress,
               protoPath: PROVISIONING_CLIENT_PROTO_PATH,
+              accessTokenProvider: internalM2mTokenProvider(),
             }),
           ),
           new GeneratedFileMaterializer(artifacts, sandboxService),
@@ -773,6 +779,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
             new ProvisioningClient({
               address: runLauncherConfig.provisioningServiceAddress,
               protoPath: PROVISIONING_CLIENT_PROTO_PATH,
+              accessTokenProvider: internalM2mTokenProvider(),
             }),
           ),
         );
@@ -971,6 +978,7 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
   const modelGateway = new ModelGatewayClient({
     address: modelConfig.modelGatewayAddress,
     protoPath: MODELGW_CLIENT_PROTO_PATH,
+    accessTokenProvider: internalM2mTokenProvider(),
   });
   const recoveryConfig = loadRecoveryEnvironment(process.env);
   const compiler = new GraphCompilerService(store, new CapabilityServiceClient({
@@ -1019,6 +1027,10 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
     policyStoreClient,
     escalations,
   );
+}
+
+function internalM2mTokenProvider() {
+  return lazyAuth0M2mTokenProviderFromEnvironment(process.env);
 }
 
 function requireSha256Fingerprint(value: string | undefined, field: string): string {

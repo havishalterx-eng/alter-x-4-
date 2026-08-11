@@ -93,6 +93,6 @@ export async function startAuditGrpcTransport(
       // paper over the same real gap).
       loader: { keepCase: true, defaults: true },
     },
-  });
+  }, { inheritAppConfig: true });
   await app.startAllMicroservices();
 }

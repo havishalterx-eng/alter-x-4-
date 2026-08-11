@@ -1,10 +1,12 @@
 import { Module, type DynamicModule } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 
 import {
   SsrfGuardedFetcher,
   TOOLGW_HANDLER,
   ToolgwGrpcController,
 } from "@alterx/adapters";
+import { M2mValidator, ServiceAuthGuard } from "@alterx/auth";
 import type {
   AuditEventHandler,
   ConfigProvider,
@@ -28,6 +30,7 @@ export class AppModule {
       module: AppModule,
       controllers: [ToolgwGrpcController, HealthController],
       providers: [
+        serviceAuthGuardProvider(),
         {
           provide: TOOLGW_HANDLER,
           useValue: new ToolGatewayService(
@@ -41,4 +44,20 @@ export class AppModule {
       ],
     };
   }
+}
+
+function serviceAuthGuardProvider() {
+  return {
+    provide: APP_GUARD,
+    useFactory: () =>
+      new ServiceAuthGuard(
+        new M2mValidator({
+          auth0Domain: process.env["AUTH0_DOMAIN"] ?? "",
+          apiAudience: process.env["API_AUDIENCE"] ?? "",
+          ...(process.env["AUTH0_JWKS_URL"] === undefined
+            ? {}
+            : { jwksUrl: process.env["AUTH0_JWKS_URL"] }),
+        }),
+      ),
+  };
 }

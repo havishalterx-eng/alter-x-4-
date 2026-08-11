@@ -7,6 +7,7 @@ import math
 from pydantic import ValidationError
 
 from src.memory_learning.ids import raw_uuid7
+from src.service_auth import ServiceAuthError, verify_service_token
 
 from .models import (
     CreateDraftPolicyResponse,
@@ -185,7 +186,14 @@ class PolicyStoreService:
 
     @staticmethod
     def _validate_authorization(authorization: str) -> None:
-        if not authorization.startswith("Bearer ") or not authorization.removeprefix(
-            "Bearer "
-        ).strip():
-            raise PolicyStoreValidationError("valid bearer authorization is required")
+        """Verify the caller actually holds the internal service credential.
+
+        This previously checked only that the string began with "Bearer " and
+        had a non-space character after it, so `Bearer x` authenticated a caller
+        to read and write any tenant's policy, and to transition the global
+        recovery policy that governs every tenant.
+        """
+        try:
+            verify_service_token(authorization)
+        except ServiceAuthError as error:
+            raise PolicyStoreValidationError(str(error)) from error

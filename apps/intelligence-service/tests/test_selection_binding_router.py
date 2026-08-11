@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import (
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from src.config import get_settings
 from src.db.session import get_db_session
 from src.main import app
 from src.selection_binding.router import get_embedding_client
@@ -124,7 +125,7 @@ def seed(postgres_url: str) -> None:
 
 
 @pytest.fixture
-def client(postgres_url: str) -> Generator[TestClient, None, None]:
+def client(postgres_url: str, monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
     # TestClient runs the app's async routes on its own event loop (via a
     # thread-backed portal) -- reusing a connection created on the test
     # function's own asyncio loop crashes with "attached to a different
@@ -132,6 +133,11 @@ def client(postgres_url: str) -> Generator[TestClient, None, None]:
     # same real Postgres instance instead, matching what get_db_session
     # does in production.
     async_url = make_url(postgres_url).set(drivername="postgresql+asyncpg")
+    monkeypatch.setenv("AUTH0_M2M_TOKEN_URL", "http://127.0.0.1:9/oauth/token")
+    monkeypatch.setenv("AUTH0_M2M_AUDIENCE", "alter-engine")
+    monkeypatch.setenv("AUTH0_M2M_CLIENT_ID", "test-client")
+    monkeypatch.setenv("AUTH0_M2M_CLIENT_SECRET", "test-secret")
+    get_settings.cache_clear()
 
     async def override_session() -> AsyncGenerator[AsyncSession, None]:
         engine = create_async_engine(async_url)
@@ -144,6 +150,7 @@ def client(postgres_url: str) -> Generator[TestClient, None, None]:
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+    get_settings.cache_clear()
 
 
 class TestBindAgentModelToolRoute:

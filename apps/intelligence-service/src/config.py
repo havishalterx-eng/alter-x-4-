@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     adsq_grpc_timeout_seconds: float = 3.0
     model_gateway_grpc_target: str = "localhost:50051"
     model_gateway_grpc_timeout_seconds: float = 15.0
+    auth0_m2m_token_url: str = ""
+    auth0_m2m_audience: str = ""
+    auth0_m2m_client_id: str = ""
+    auth0_m2m_client_secret: str = ""
     memory_service_base_url: str = "http://localhost:8002"
     capability_grpc_bind_address: str = "0.0.0.0:50061"
 

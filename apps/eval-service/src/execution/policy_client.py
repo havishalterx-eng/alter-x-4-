@@ -26,8 +26,16 @@ class ActivePolicyLookupResult:
 
 
 class PolicyEvalClient(httpx.Client):
-    def __init__(self, base_url: str, db_url: str, timeout_seconds: float = 30.0) -> None:
-        super().__init__(base_url=base_url, timeout=timeout_seconds)
+    def __init__(
+        self,
+        base_url: str,
+        db_url: str,
+        timeout_seconds: float = 30.0,
+        *,
+        service_token: str = "",
+    ) -> None:
+        headers = {"Authorization": f"Bearer {service_token}"} if service_token else None
+        super().__init__(base_url=base_url, timeout=timeout_seconds, headers=headers)
         self._db_url = db_url
 
     def seed_cross_tenant_policy(self, *, other_tenant_uuid: str, kind: str) -> str:
@@ -51,7 +59,6 @@ class PolicyEvalClient(httpx.Client):
         response = self.post(
             "/memory/active-policy",
             json={"tenant_id": tenant_id, "kind": kind},
-            headers={"Authorization": "Bearer eval-harness-token"},
         )
         response.raise_for_status()
         return ActivePolicyLookupResult(found=bool(response.json()["found"]))

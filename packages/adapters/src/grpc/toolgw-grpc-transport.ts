@@ -122,7 +122,7 @@ export async function startToolgwGrpcTransport(
       url: config.bindAddress,
       loader: { keepCase: true },
     },
-  });
+  }, { inheritAppConfig: true });
   await app.startAllMicroservices();
 }
 

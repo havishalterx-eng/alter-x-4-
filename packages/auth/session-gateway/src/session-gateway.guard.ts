@@ -47,6 +47,19 @@ export class SessionGatewayGuard implements CanActivate {
       return true;
     }
 
+    // An RPC context is NOT an HTTP one: switchToHttp().getRequest() returns the
+    // decoded protobuf message, which has no `.headers`, so the HTTP path below
+    // throws a TypeError on every gRPC call and 401s the entire internal mesh.
+    // Internal RPCs carry a machine credential in gRPC metadata and have no user
+    // actor, so they take the M2M-only branch.
+    // Nest always supplies getType(). The fallback keeps direct unit-context
+    // doubles on the pre-existing HTTP path instead of throwing before auth.
+    const contextType =
+      typeof context.getType === "function" ? context.getType() : "http";
+    if (contextType === "rpc") {
+      return this.canActivateRpc(context);
+    }
+
     const http = context.switchToHttp();
     const request = http.getRequest<SessionGatewayRequest>();
     const response = http.getResponse<SessionGatewayResponse>();
@@ -78,6 +91,35 @@ export class SessionGatewayGuard implements CanActivate {
         problemBody(authError.errorCode, request.url),
         401,
       );
+    }
+  }
+
+  /**
+   * Internal service-to-service RPC. Only the machine credential is validated:
+   * there is no user actor and therefore no actor token, no replay key and no
+   * tenant database scope to attach. Fails closed on anything unparseable.
+   */
+  private async canActivateRpc(context: ExecutionContext): Promise<boolean> {
+    const metadata = context.switchToRpc().getContext<
+      { get(key: string): unknown } | undefined
+    >();
+    const raw =
+      metadata !== undefined && typeof metadata.get === "function"
+        ? metadata.get("authorization")
+        : undefined;
+    const authorization = Array.isArray(raw)
+      ? typeof raw[0] === "string"
+        ? raw[0]
+        : undefined
+      : typeof raw === "string"
+        ? raw
+        : undefined;
+
+    try {
+      await this.m2mValidator.validate(authorization);
+      return true;
+    } catch {
+      throw new HttpException(problemBody("AUTH_INVALID_M2M_TOKEN", "/"), 401);
     }
   }
 }

@@ -6,6 +6,7 @@ from typing import Literal, Protocol
 import grpc
 
 from alter.modelgw.v1 import modelgw_pb2, modelgw_pb2_grpc
+from src.m2m_auth import AccessTokenProvider
 
 EmbeddingDimensions = Literal[512, 1024]
 
@@ -49,6 +50,7 @@ class GrpcEmbeddingClient:
         *,
         timeout_seconds: float = 15,
         channel: grpc.Channel | None = None,
+        access_token_provider: AccessTokenProvider | None = None,
     ) -> None:
         self._channel = channel or grpc.insecure_channel(target)
         self._owns_channel = channel is None
@@ -56,6 +58,7 @@ class GrpcEmbeddingClient:
             self._channel
         )
         self._timeout_seconds = timeout_seconds
+        self._access_token_provider = access_token_provider
 
     def close(self) -> None:
         if self._owns_channel:
@@ -65,15 +68,18 @@ class GrpcEmbeddingClient:
         self, *, tenant_id: str, text: str, dimensions: EmbeddingDimensions
     ) -> EmbeddingResult:
         try:
+            kwargs: dict[str, object] = {"timeout": self._timeout_seconds}
+            if self._access_token_provider is not None:
+                kwargs["metadata"] = self._access_token_provider.metadata()
             response = self._stub.Embed(
                 modelgw_pb2.EmbedRequest(
                     tenant_id=tenant_id,
                     text=text,
                     dimensions=dimensions,
                 ),
-                timeout=self._timeout_seconds,
+                **kwargs,
             )
-        except grpc.RpcError as error:
+        except Exception as error:
             raise EmbeddingTransportError("Embed RPC call failed") from error
         vector = tuple(response.embedding)
         if len(vector) != dimensions:

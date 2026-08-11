@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +12,9 @@ describe("IdentityController", () => {
   beforeEach(async () => {
     delete process.env.DATABASE_URL;
     process.env.IDENTITY_PROVIDER = "mock";
+    process.env.INTERNAL_SERVICE_TOKEN_SHA256 = createHash("sha256")
+      .update("identity-controller-test-service-token")
+      .digest("hex");
 
     const moduleRef = await Test.createTestingModule({
       imports: [IdentityModule],
@@ -25,6 +29,7 @@ describe("IdentityController", () => {
 
   afterEach(async () => {
     await app.close();
+    delete process.env.INTERNAL_SERVICE_TOKEN_SHA256;
     logSpy.mockClear();
     errorSpy.mockClear();
   });
@@ -206,6 +211,17 @@ describe("IdentityController", () => {
     });
     expect(enrollment.statusCode).toBe(200);
 
+    const targetOverride = await app.getHttpAdapter().getInstance().inject({
+      method: "POST",
+      url: "/api/v1/auth/mfa/enroll",
+      headers: cookie,
+      payload: { userId: "00000000-0000-7000-8000-000000000999" },
+    });
+    expect(targetOverride.statusCode).toBe(400);
+    expect(targetOverride.json()).toMatchObject({
+      error_code: "MFA_TARGET_OVERRIDE_FORBIDDEN",
+    });
+
     const challenge = await app.getHttpAdapter().getInstance().inject({
       method: "POST",
       url: "/api/v1/auth/mfa/challenge",
@@ -214,6 +230,21 @@ describe("IdentityController", () => {
     });
     expect(challenge.json()).toMatchObject({ status: "rejected" });
 
+    const challengeTargetOverride = await app.getHttpAdapter().getInstance().inject({
+      method: "POST",
+      url: "/api/v1/auth/mfa/challenge",
+      headers: cookie,
+      payload: {
+        userId: "00000000-0000-7000-8000-000000000999",
+        enrollmentId: enrollment.json().enrollmentId,
+        otp: "000000",
+      },
+    });
+    expect(challengeTargetOverride.statusCode).toBe(400);
+    expect(challengeTargetOverride.json()).toMatchObject({
+      error_code: "MFA_TARGET_OVERRIDE_FORBIDDEN",
+    });
+
     const forbidden = await app.getHttpAdapter().getInstance().inject({
       method: "POST",
       url: "/api/v1/auth/sso/configure",
@@ -221,10 +252,21 @@ describe("IdentityController", () => {
     });
     expect(forbidden.statusCode).toBe(403);
 
-    const configured = await app.getHttpAdapter().getInstance().inject({
+    const spoofed = await app.getHttpAdapter().getInstance().inject({
       method: "POST",
       url: "/api/v1/auth/sso/configure",
       headers: { "x-alter-internal": "true" },
+      payload: {
+        tenantId: "00000000-0000-7000-8000-000000000001",
+        config: { type: "saml", metadataUrl: "https://idp.test/metadata" },
+      },
+    });
+    expect(spoofed.statusCode).toBe(403);
+
+    const configured = await app.getHttpAdapter().getInstance().inject({
+      method: "POST",
+      url: "/api/v1/auth/sso/configure",
+      headers: { authorization: "Bearer identity-controller-test-service-token" },
       payload: {
         tenantId: "00000000-0000-7000-8000-000000000001",
         config: { type: "saml", metadataUrl: "https://idp.test/metadata" },

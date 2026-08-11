@@ -366,6 +366,10 @@ export {
   type AuditServiceClientConfig,
 } from "./grpc/audit-client";
 export {
+  serviceAuthorizationMetadata,
+  type ServiceAccessTokenProvider,
+} from "./grpc/service-auth";
+export {
   ModelGatewayClient,
   type ModelGatewayClientConfig,
   type ModelGatewayHandler,

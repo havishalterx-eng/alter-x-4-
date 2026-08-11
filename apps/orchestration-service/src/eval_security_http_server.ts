@@ -3,7 +3,10 @@ import "reflect-metadata";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { lookup as dnsLookup } from "node:dns/promises";
 
-import { PromptInjectionClassifier } from "@alterx/auth";
+import {
+  PromptInjectionClassifier,
+  lazyAuth0M2mTokenProviderFromEnvironment,
+} from "@alterx/auth";
 import {
   ModelGatewayClient,
   SsrfBlockedError,
@@ -97,6 +100,7 @@ async function bootstrap(): Promise<void> {
   const modelGateway = new ModelGatewayClient({
     address: modelGatewayTarget,
     protoPath: MODELGW_CLIENT_PROTO_PATH,
+    accessTokenProvider: lazyAuth0M2mTokenProviderFromEnvironment(process.env),
   });
   const injectionClassifier = new PromptInjectionClassifier(modelGateway);
 

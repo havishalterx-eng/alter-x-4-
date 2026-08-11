@@ -3,6 +3,7 @@ name = "alterx-ads-core"
 version = "0.0.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+  "httpx>=0.28.0,<1.0.0",
   "fastapi>=0.116.0,<1.0.0",
   "pydantic>=2.11.0,<3.0.0",
   "pydantic-settings>=2.7.0,<3.0.0",

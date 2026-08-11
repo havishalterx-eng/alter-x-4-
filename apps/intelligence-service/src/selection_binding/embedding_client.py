@@ -13,6 +13,8 @@ async gRPC convention (see ads_client/client.py's GrpcAdsClient).
 from collections.abc import Sequence
 from typing import Any, Protocol, runtime_checkable
 
+from src.m2m_auth import AccessTokenProvider
+
 CAPABILITY_QUERY_DIMENSIONS = 512
 
 
@@ -58,6 +60,7 @@ class GrpcEmbeddingClient:
         *,
         timeout_seconds: float = 15.0,
         channel: Any | None = None,
+        access_token_provider: AccessTokenProvider | None = None,
     ) -> None:
         grpc, modelgw_pb2, modelgw_pb2_grpc = _load_grpc_bindings()
         self._grpc = grpc
@@ -65,21 +68,27 @@ class GrpcEmbeddingClient:
         self._timeout_seconds = timeout_seconds
         self._channel = channel or grpc.aio.insecure_channel(target)
         self._stub = modelgw_pb2_grpc.ModelgwServiceStub(self._channel)
+        self._access_token_provider = access_token_provider
 
     async def close(self) -> None:
         await self._channel.close()
 
     async def embed(self, *, tenant_id: str, text: str) -> Sequence[float]:
         try:
+            kwargs: dict[str, object] = {
+                "timeout": self._timeout_seconds,
+            }
+            if self._access_token_provider is not None:
+                kwargs["metadata"] = self._access_token_provider.metadata()
             response = await self._stub.Embed(
                 self._modelgw_pb2.EmbedRequest(
                     tenant_id=tenant_id,
                     text=text,
                     dimensions=CAPABILITY_QUERY_DIMENSIONS,
                 ),
-                timeout=self._timeout_seconds,
+                **kwargs,
             )
-        except self._grpc.aio.AioRpcError as exc:
+        except Exception as exc:
             raise EmbeddingTransportUnavailableError(
                 "Embed RPC call to Model Gateway failed"
             ) from exc

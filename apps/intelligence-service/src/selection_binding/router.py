@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.capability_resolver.models import NodeType
 from src.db.session import get_db_session
+from src.m2m_auth import lazy_auth0_m2m_token_provider_from_settings
 from src.selection_binding.embedding_client import (
     EmbeddingClient,
     EmbeddingTransportUnavailableError,
@@ -61,6 +62,7 @@ async def selection_binding_lifespan(app: FastAPI) -> AsyncIterator[None]:
     client = GrpcEmbeddingClient(
         settings.model_gateway_grpc_target,
         timeout_seconds=settings.model_gateway_grpc_timeout_seconds,
+        access_token_provider=lazy_auth0_m2m_token_provider_from_settings(settings),
     )
     policy_client = HttpRoutingPolicyClient(
         settings.memory_service_base_url,

@@ -15,9 +15,11 @@ from src.memory_learning.orchestration_client import HttpxOrchestrationRunClient
 from src.memory_learning.repository import SqlAlchemyMemoryCandidateRepository
 from src.policy_store.repository import SqlAlchemyPolicyStoreRepository
 from src.policy_store.service import PolicyStoreService
+from src.service_auth import ServiceAuthInterceptor, assert_configured_at_startup
 
 
 async def serve() -> None:
+    assert_configured_at_startup()
     settings = get_settings()
     tenant_engine = create_engine(settings.policy_db_url_sync, pool_pre_ping=True)
     system_engine = create_engine(settings.policy_db_system_url_sync, pool_pre_ping=True)
@@ -36,7 +38,10 @@ async def serve() -> None:
             SqlAlchemyPolicyStoreRepository(tenant_sessions, system_sessions),
         ),
     )
-    server = grpc.aio.server()
+    # Interceptor rather than a per-RPC check: MemoryService.UpdatePolicy,
+    # PromoteMemory and ProposeWriteback all took their tenant from the request
+    # message with no credential behind it.
+    server = grpc.aio.server(interceptors=[ServiceAuthInterceptor()])
     memory_pb2_grpc.add_MemoryServiceServicer_to_server(service, server)  # type: ignore[no-untyped-call]
     server.add_insecure_port(os.environ.get("MEMORY_GRPC_BIND_ADDRESS", "0.0.0.0:50060"))
     await server.start()

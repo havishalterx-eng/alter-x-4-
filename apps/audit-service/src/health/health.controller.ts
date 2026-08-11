@@ -4,6 +4,7 @@ import {
   Inject,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { Public } from "@alterx/auth";
 
 import {
   AUDIT_STORE_PROVIDER,
@@ -23,6 +24,7 @@ export class HealthController {
   ) {}
 
   @Get()
+  @Public()
   async getHealth(): Promise<AuditHealthResponse> {
     try {
       const health = await this.store.healthCheck();

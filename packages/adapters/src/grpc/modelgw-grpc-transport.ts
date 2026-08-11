@@ -160,6 +160,6 @@ export async function startModelgwGrpcTransport(
       url: config.bindAddress,
       loader: { keepCase: true },
     },
-  });
+  }, { inheritAppConfig: true });
   await app.startAllMicroservices();
 }

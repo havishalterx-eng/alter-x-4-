@@ -108,4 +108,28 @@ describe("ToolGatewayClient", () => {
       retryable: false,
     });
   });
+
+  it("propagates an acquired M2M token", async () => {
+    const grpcClient = {
+      invokeTool: vi.fn(
+        (_request: unknown, metadata: { get(key: string): readonly string[] }, _options: unknown, callback: (error: null, response: ToolgwInvokeToolResponse) => void) => {
+          expect(metadata.get("authorization")).toEqual(["Bearer signed-m2m-token"]);
+          callback(null, { output_json: JSON.stringify({ ok: true }), audit_id: "aud_1" });
+        },
+      ),
+    };
+    const client = new ToolGatewayClient(
+      {
+        address: "localhost:1234",
+        protoPath: "unused",
+        accessTokenProvider: { getAccessToken: async () => "signed-m2m-token" },
+      },
+      grpcClient as never,
+    );
+
+    await expect(client.invoke(REQUEST)).resolves.toEqual({
+      output_json: JSON.stringify({ ok: true }),
+      audit_id: "aud_1",
+    });
+  });
 });

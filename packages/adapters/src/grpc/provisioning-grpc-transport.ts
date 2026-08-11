@@ -63,7 +63,7 @@ export async function startProvisioningGrpcTransport(
       url: config.bindAddress,
       loader: { keepCase: true },
     },
-  });
+  }, { inheritAppConfig: true });
   await app.startAllMicroservices();
 }
 

@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from alter.modelgw.v1 import modelgw_pb2, modelgw_pb2_grpc
 
+from .m2m_auth import AccessTokenProvider
 from .models import HallucinationAssessment, SafetyAssessment
 
 
@@ -46,6 +47,7 @@ class GrpcModelGatewayClient:
         *,
         timeout_seconds: float = 15,
         channel: grpc.aio.Channel | None = None,
+        access_token_provider: AccessTokenProvider | None = None,
     ) -> None:
         self._channel = channel or grpc.aio.insecure_channel(target)
         self._owns_channel = channel is None
@@ -53,6 +55,7 @@ class GrpcModelGatewayClient:
             self._channel
         )
         self._timeout_seconds = timeout_seconds
+        self._access_token_provider = access_token_provider
 
     async def close(self) -> None:
         if self._owns_channel:
@@ -135,6 +138,9 @@ class GrpcModelGatewayClient:
             separators=(",", ":"),
         )
         try:
+            kwargs: dict[str, object] = {"timeout": self._timeout_seconds}
+            if self._access_token_provider is not None:
+                kwargs["metadata"] = self._access_token_provider.metadata()
             response = await self._stub.Invoke(
                 modelgw_pb2.InvokeRequest(
                     tenant_id=tenant_id,
@@ -143,9 +149,9 @@ class GrpcModelGatewayClient:
                     model_alias="FAST",
                     input_json=payload,
                 ),
-                timeout=self._timeout_seconds,
+                **kwargs,
             )
-        except grpc.aio.AioRpcError as error:
+        except Exception as error:
             raise ModelGatewayInvocationError("FAST classifier call failed") from error
         try:
             envelope = json.loads(response.output_json)

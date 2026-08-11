@@ -70,6 +70,9 @@ importers:
       '@alterx/adapters':
         specifier: workspace:*
         version: link:../../packages/adapters
+      '@alterx/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@alterx/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -137,6 +140,9 @@ importers:
       '@alterx/adapters':
         specifier: workspace:*
         version: link:../../packages/adapters
+      '@alterx/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@alterx/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -177,6 +183,9 @@ importers:
       '@alterx/adapters':
         specifier: workspace:*
         version: link:../../packages/adapters
+      '@alterx/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@alterx/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -334,6 +343,9 @@ importers:
       '@alterx/adapters':
         specifier: workspace:*
         version: link:../../packages/adapters
+      '@alterx/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@alterx/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -364,6 +376,9 @@ importers:
       '@alterx/adapters':
         specifier: workspace:*
         version: link:../../packages/adapters
+      '@alterx/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@alterx/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -394,6 +409,9 @@ importers:
       '@alterx/adapters':
         specifier: workspace:*
         version: link:../../packages/adapters
+      '@alterx/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@alterx/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -564,9 +582,15 @@ importers:
       '@alterx/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@grpc/grpc-js':
+        specifier: 1.14.4
+        version: 1.14.4
       '@nestjs/common':
         specifier: 11.1.28
         version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/microservices':
+        specifier: 11.1.28
+        version: 11.1.28(@grpc/grpc-js@1.14.4)(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.28)(ioredis@5.11.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
     devDependencies:
       '@alterx/adapters':
         specifier: workspace:*

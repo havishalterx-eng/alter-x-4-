@@ -70,7 +70,7 @@ export async function startCostGrpcTransport(
       url: config.bindAddress,
       loader: { keepCase: true },
     },
-  });
+  }, { inheritAppConfig: true });
   await app.startAllMicroservices();
 }
 

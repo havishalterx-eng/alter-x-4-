@@ -10,6 +10,7 @@ import {
   ModelGatewayClient,
   startConversationGrpcTransport,
 } from "@alterx/adapters";
+import { lazyAuth0M2mTokenProviderFromEnvironment } from "@alterx/auth";
 
 import { CONVERSATION_PROTO_PATH, MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import {
@@ -57,6 +58,7 @@ class EvalIntentModule {
     const modelGateway = new ModelGatewayClient({
       address: modelGatewayTarget,
       protoPath: MODELGW_CLIENT_PROTO_PATH,
+      accessTokenProvider: lazyAuth0M2mTokenProviderFromEnvironment(process.env),
     });
     return {
       module: EvalIntentModule,

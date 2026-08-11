@@ -71,4 +71,25 @@ describe("CostClient", () => {
       "Cost Service returned an empty response",
     );
   });
+
+  it("propagates an acquired M2M token", async () => {
+    const grpcClient = {
+      ingestCostEvent: vi.fn(
+        (_request: unknown, metadata: { get(key: string): readonly string[] }, _options: unknown, callback: (error: null, response: CostIngestCostEventResponse) => void) => {
+          expect(metadata.get("authorization")).toEqual(["Bearer signed-m2m-token"]);
+          callback(null, { accepted: true });
+        },
+      ),
+    };
+    const client = new CostClient(
+      {
+        address: "localhost:1234",
+        protoPath: "unused",
+        accessTokenProvider: { getAccessToken: async () => "signed-m2m-token" },
+      },
+      grpcClient as never,
+    );
+
+    await expect(client.ingestCostEvent(REQUEST)).resolves.toEqual({ accepted: true });
+  });
 });

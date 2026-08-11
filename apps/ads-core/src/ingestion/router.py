@@ -21,6 +21,7 @@ from src.connectors.providers import (
 from src.connectors.repository import SqlAlchemyConnectorSourceRepository
 from src.connectors.router import configure_connector_service
 from src.db.ids import new_prefixed_id, validate_prefixed_id
+from src.m2m_auth import lazy_auth0_m2m_token_provider_from_settings
 from src.query.repository import SqlAlchemyRetrievalRepository
 from src.query.router import configure_retrieval_service
 from src.query.service import RetrievalService
@@ -96,7 +97,10 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
     repository = SqlAlchemyIngestionRepository(sessions)
     _default_repository = repository
     _default_storage = _build_object_storage(settings)
-    _default_embedding_client = GrpcEmbeddingClient(settings.model_gateway_grpc_target)
+    _default_embedding_client = GrpcEmbeddingClient(
+        settings.model_gateway_grpc_target,
+        access_token_provider=lazy_auth0_m2m_token_provider_from_settings(settings),
+    )
     _default_pipeline = IngestionPipeline(
         repository=repository,
         validator=PayloadValidator(

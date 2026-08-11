@@ -17,8 +17,10 @@ import socket
 import subprocess
 import time
 from collections.abc import Generator
+from dataclasses import dataclass
 from pathlib import Path
 
+import grpc
 import psycopg2
 import pytest
 import sqlalchemy as sa
@@ -29,12 +31,14 @@ from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from alter.toolgw.v1 import toolgw_pb2, toolgw_pb2_grpc
 from src.execution.agent_binding_client import AgentBindingEvalClient
 from src.execution.audit_client import AuditEvalClient
 from src.execution.credential_client import CredentialEvalClient
 from src.execution.idempotency_client import IdempotencyReplayClient
 from src.execution.ingestion_client import IngestionEvalClient
 from src.execution.intent_client import IntentClient
+from src.execution.m2m_auth import Auth0M2mTokenProvider
 from src.execution.memory_drift_client import MemoryDriftEvalClient
 from src.execution.model_cache_client import ModelGatewayCacheClient
 from src.execution.orchestrator import (
@@ -101,6 +105,10 @@ _UNUSED_PROJECT_DB_URL = "postgresql://unused:unused@127.0.0.1:1/unused"
 _EVAL_ADS_TENANT_UUID = "018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 _EVAL_ADS_WORKSPACE_UUID = "018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
 _EVAL_ADS_SCOPE_ID = "scp_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee"
+_EVAL_INTERNAL_SERVICE_TOKEN = "eval-harness-internal-token"
+_EVAL_INTERNAL_SERVICE_TOKEN_SHA256 = hashlib.sha256(
+    _EVAL_INTERNAL_SERVICE_TOKEN.encode("utf-8")
+).hexdigest()
 
 
 @pytest.fixture(scope="module")
@@ -148,6 +156,55 @@ def _wait_for_port(port: int, timeout_seconds: float = 20.0) -> None:
                 return
         time.sleep(0.1)
     raise TimeoutError(f"downstream service did not bind port {port} in time")
+
+
+@dataclass(frozen=True)
+class LocalM2mIssuer:
+    port: int
+
+    def environment(self) -> dict[str, str]:
+        return {
+            "NODE_ENV": "test",
+            "AUTH0_DOMAIN": f"127.0.0.1:{self.port}",
+            "API_AUDIENCE": "alter-engine",
+            "AUTH0_JWKS_URL": f"http://127.0.0.1:{self.port}/.well-known/jwks.json",
+            "AUTH0_M2M_TOKEN_URL": f"http://127.0.0.1:{self.port}/oauth/token",
+            "AUTH0_M2M_AUDIENCE": "alter-engine",
+            "AUTH0_M2M_CLIENT_ID": "eval-service",
+            "AUTH0_M2M_CLIENT_SECRET": "test-only-client-secret",
+        }
+
+    def client(self) -> Auth0M2mTokenProvider:
+        return Auth0M2mTokenProvider(
+            token_url=f"http://127.0.0.1:{self.port}/oauth/token",
+            audience="alter-engine",
+            client_id="eval-service",
+            client_secret="test-only-client-secret",
+        )
+
+
+@pytest.fixture(scope="module")
+def local_m2m_issuer() -> Generator[LocalM2mIssuer, None, None]:
+    script = SERVICE_ROOT / "tests" / "fixtures" / "local_m2m_issuer.mjs"
+    process = subprocess.Popen(
+        ["node", str(script)],
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert process.stdout is not None
+    line = process.stdout.readline().strip()
+    if not line.isdigit():
+        process.terminate()
+        raise RuntimeError("local M2M issuer failed to start")
+    try:
+        yield LocalM2mIssuer(port=int(line))
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
 
 
 @pytest.fixture(scope="module")
@@ -263,7 +320,7 @@ def verification_severity_server_target() -> Generator[tuple[str, str], None, No
 
 
 @pytest.fixture(scope="module")
-def audit_server_target() -> Generator[str, None, None]:
+def audit_server_target(local_m2m_issuer: LocalM2mIssuer) -> Generator[str, None, None]:
     """Real, live audit-service eval-only gRPC server
     (eval_bootstrap.js) -- reuses AuditGrpcController/AuditService/
     PostgresAuditStoreProvider completely unmodified (see its own
@@ -292,6 +349,7 @@ def audit_server_target() -> Generator[str, None, None]:
                 ),
                 "EVAL_AUDIT_DB_URL": db_url,
                 "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+                **local_m2m_issuer.environment(),
             },
         )
         try:
@@ -401,7 +459,9 @@ def ads_core_server_target() -> Generator[str, None, None]:
 
 
 @pytest.fixture(scope="module")
-def orchestration_intent_server_target() -> Generator[str, None, None]:
+def orchestration_intent_server_target(
+    local_m2m_issuer: LocalM2mIssuer,
+) -> Generator[str, None, None]:
     """Real, live orchestration-service ConversationService.ClassifyIntent
     gRPC server (HARD-7e), chained to a real, live model-gateway
     (HARD-7d's eval_bootstrap.ts). Both are real Node/TypeScript builds --
@@ -455,6 +515,7 @@ def orchestration_intent_server_target() -> Generator[str, None, None]:
             "ALTER_CONFIG_SOURCE": "mock",
             "PORT": str(model_gateway_http_port),
             "GRPC_BIND_ADDRESS": f"127.0.0.1:{model_gateway_port}",
+            **local_m2m_issuer.environment(),
             **api_key_env,
         },
     )
@@ -467,6 +528,7 @@ def orchestration_intent_server_target() -> Generator[str, None, None]:
             "NODE_PATH": f"{orchestration_root / 'node_modules'}:{REPO_ROOT / 'node_modules'}",
             "MODEL_GATEWAY_GRPC_TARGET": f"127.0.0.1:{model_gateway_port}",
             "GRPC_BIND_ADDRESS": f"127.0.0.1:{intent_port}",
+            **local_m2m_issuer.environment(),
         },
     )
     try:
@@ -484,7 +546,9 @@ def orchestration_intent_server_target() -> Generator[str, None, None]:
 
 
 @pytest.fixture(scope="module")
-def model_cache_server_target() -> Generator[str | None, None, None]:
+def model_cache_server_target(
+    local_m2m_issuer: LocalM2mIssuer,
+) -> Generator[str | None, None, None]:
     """Real, live model-gateway (HARD-7d's eval_bootstrap.ts), reused
     unmodified -- same real, live-LLM-dependent target as
     orchestration_intent_server_target's own model-gateway leg, just
@@ -531,6 +595,7 @@ def model_cache_server_target() -> Generator[str | None, None, None]:
             "ALTER_CONFIG_SOURCE": "mock",
             "PORT": str(http_port),
             "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+            **local_m2m_issuer.environment(),
             **api_key_env,
         },
     )
@@ -1310,7 +1375,9 @@ def test_intent_golden_set_executes_for_real_against_a_live_llm(
 
 
 @pytest.fixture(scope="module")
-def security_eval_server_target() -> Generator[str, None, None]:
+def security_eval_server_target(
+    local_m2m_issuer: LocalM2mIssuer,
+) -> Generator[str, None, None]:
     """Real, live eval_security_http_server.ts (HARD-7f), chained to a
     real, live model-gateway (HARD-7d's eval_bootstrap.ts) for the
     injection/jailbreak suites. The ssrf suite needs no LLM at all --
@@ -1366,6 +1433,7 @@ def security_eval_server_target() -> Generator[str, None, None]:
             "ALTER_CONFIG_SOURCE": "mock",
             "PORT": str(model_gateway_http_port),
             "GRPC_BIND_ADDRESS": f"127.0.0.1:{model_gateway_port}",
+            **local_m2m_issuer.environment(),
             **api_key_env,
         },
     )
@@ -1378,6 +1446,7 @@ def security_eval_server_target() -> Generator[str, None, None]:
             "NODE_PATH": f"{orchestration_root / 'node_modules'}:{REPO_ROOT / 'node_modules'}",
             "MODEL_GATEWAY_GRPC_TARGET": f"127.0.0.1:{model_gateway_port}",
             "HTTP_PORT": str(security_port),
+            **local_m2m_issuer.environment(),
         },
     )
     try:
@@ -1423,10 +1492,11 @@ def ads_core_upload_server_target() -> Generator[str, None, None]:
             str(port),
         ],
         cwd=str(REPO_ROOT / "apps" / "ads-core"),
-        env={
-            "PATH": os.environ.get("PATH", ""),
-            "DELETION_SERVICE_TOKEN_SHA256": placeholder_token,
-        },
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "DELETION_SERVICE_TOKEN_SHA256": placeholder_token,
+                "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
+            },
     )
     try:
         _wait_for_port(port, timeout_seconds=30.0)
@@ -1452,7 +1522,10 @@ def test_injection_golden_set_executes_for_real(
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     security_client = SecurityEvalClient(security_eval_server_target)
-    upload_client = UploadEvalClient(ads_core_upload_server_target)
+    upload_client = UploadEvalClient(
+        ads_core_upload_server_target,
+        service_token=_EVAL_INTERNAL_SERVICE_TOKEN,
+    )
     tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
     tool_consume_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
@@ -1613,7 +1686,9 @@ def ads_isolation_server_target() -> Generator[str, None, None]:
 
 
 @pytest.fixture(scope="module")
-def tool_gateway_server_target() -> Generator[str, None, None]:
+def tool_gateway_server_target(
+    local_m2m_issuer: LocalM2mIssuer,
+) -> Generator[str, None, None]:
     """Real, live tool-gateway production gRPC server (main.js, unmodified)
     -- ResolveCredential's cross-tenant ownership check is real and pure,
     throws before ever touching a real secrets provider, so the sanctioned
@@ -1640,6 +1715,7 @@ def tool_gateway_server_target() -> Generator[str, None, None]:
             "ALTER_CONFIG_SOURCE": "mock",
             "PORT": str(http_port),
             "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+            **local_m2m_issuer.environment(),
         },
     )
     try:
@@ -1662,7 +1738,9 @@ _EVAL_TOOL_CONSUME_CREDENTIAL_REF = (
 
 
 @pytest.fixture(scope="module")
-def tool_gateway_consume_server_target() -> Generator[str, None, None]:
+def tool_gateway_consume_server_target(
+    local_m2m_issuer: LocalM2mIssuer,
+) -> Generator[str, None, None]:
     """Real, live tool-gateway eval-only gRPC server
     (eval_credential_grpc_server.js) for tool_consume_credential -- reuses
     AppModule.register()/ToolGatewayService completely unmodified, the
@@ -1693,6 +1771,7 @@ def tool_gateway_consume_server_target() -> Generator[str, None, None]:
             "HTTP_PORT": str(http_port),
             "EVAL_CREDENTIAL_REF": _EVAL_TOOL_CONSUME_CREDENTIAL_REF,
             "EVAL_SECRET_VALUE": "eval-secret-value",
+            **local_m2m_issuer.environment(),
         },
     )
     try:
@@ -1704,6 +1783,36 @@ def tool_gateway_consume_server_target() -> Generator[str, None, None]:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
+
+
+def test_tool_gateway_rejects_no_metadata_and_accepts_local_m2m(
+    tool_gateway_server_target: str,
+    local_m2m_issuer: LocalM2mIssuer,
+) -> None:
+    """Positive and negative Finding-8 proof against live guarded process."""
+    channel = grpc.insecure_channel(tool_gateway_server_target)
+    stub = toolgw_pb2_grpc.ToolgwServiceStub(channel)  # type: ignore[no-untyped-call]
+    request = toolgw_pb2.ResolveCredentialRequest(
+        tenant_id="ten_018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+        integration_id="itg_018f4d6e-eeee-7eee-8eee-eeeeeeeeeeee",
+        credential_ref="/alter/prod/tenant/ten_wrong/integration/itg_wrong/secret",
+    )
+    try:
+        with pytest.raises(grpc.RpcError) as rejected:
+            stub.ResolveCredential(request, timeout=5)
+        assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED
+
+        with pytest.raises(grpc.RpcError) as authenticated:
+            stub.ResolveCredential(
+                request,
+                timeout=5,
+                metadata=local_m2m_issuer.client().metadata(),
+            )
+        # Signed caller passed ServiceAuthGuard; real gateway then performed
+        # its credential-path ownership validation rather than returning 401.
+        assert authenticated.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+    finally:
+        channel.close()
 
 
 @pytest.fixture(scope="module")
@@ -1874,6 +1983,7 @@ def ingestion_server_target() -> Generator[tuple[str, str], None, None]:
             "ADS_DB_URL_SYNC": db_url,
             "ADS_DB_URL": db_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://"),
             "DELETION_SERVICE_TOKEN_SHA256": "0" * 64,
+            "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             "MODEL_GATEWAY_GRPC_TARGET": "127.0.0.1:1",
         }
         subprocess.run(  # noqa: S603 -- fixed argv, no shell, test-only
@@ -1999,6 +2109,7 @@ def policy_server_target() -> Generator[tuple[str, str], None, None]:
                 "PATH": os.environ.get("PATH", ""),
                 "POLICY_DB_URL_SYNC": tenant_url,
                 "POLICY_DB_SYSTEM_URL_SYNC": system_url,
+                "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             },
         )
         try:
@@ -2090,6 +2201,7 @@ def memory_drift_server_target() -> Generator[tuple[str, str], None, None]:
                 "PATH": os.environ.get("PATH", ""),
                 "POLICY_DB_URL_SYNC": tenant_url,
                 "POLICY_DB_SYSTEM_URL_SYNC": system_url,
+                "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             },
         )
         try:
@@ -2205,7 +2317,9 @@ def workflow_read_server_target() -> Generator[tuple[str, str], None, None]:
 
 
 @pytest.fixture(scope="module")
-def agent_binding_server_target() -> Generator[tuple[str, str], None, None]:
+def agent_binding_server_target(
+    local_m2m_issuer: LocalM2mIssuer,
+) -> Generator[tuple[str, str], None, None]:
     """Real, live intelligence-service production FastAPI app (src.main:app)
     for agent_selection_binding, backed by a real, live model-gateway
     (production main.ts, ALTER_CONFIG_SOURCE=mock) so
@@ -2256,8 +2370,9 @@ def agent_binding_server_target() -> Generator[tuple[str, str], None, None]:
                 "ALTER_SERVICE_NAME": "model-gateway",
                 "ALTER_REGION": "ap-south-1",
                 "ALTER_CONFIG_SOURCE": "mock",
-                "PORT": str(model_gateway_http_port),
-                "GRPC_BIND_ADDRESS": f"127.0.0.1:{model_gateway_grpc_port}",
+                    "PORT": str(model_gateway_http_port),
+                    "GRPC_BIND_ADDRESS": f"127.0.0.1:{model_gateway_grpc_port}",
+                    **local_m2m_issuer.environment(),
             },
         )
         try:
@@ -2282,6 +2397,7 @@ def agent_binding_server_target() -> Generator[tuple[str, str], None, None]:
                     "INTELLIGENCE_DB_URL_SYNC": sync_url,
                     "ADSQ_GRPC_TARGET": "127.0.0.1:1",
                     "MODEL_GATEWAY_GRPC_TARGET": f"127.0.0.1:{model_gateway_grpc_port}",
+                    **local_m2m_issuer.environment(),
                 },
             )
             try:
@@ -2367,6 +2483,7 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     workflow_read_server_target: tuple[str, str],
     agent_binding_server_target: tuple[str, str],
     project_read_server_target: tuple[str, str],
+    local_m2m_issuer: LocalM2mIssuer,
 ) -> None:
     credential_http_target, credential_db_url = platform_credential_server_target
     idempotency_tenant_a_url, idempotency_tenant_b_url, idempotency_db_url = (
@@ -2389,32 +2506,46 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
     security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
     upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
     tenant_isolation_retrieval_client = RetrievalClient(ads_isolation_server_target)
-    toolgw_client = ToolgwClient(tool_gateway_server_target)
+    m2m_client = local_m2m_issuer.client()
+    toolgw_client = ToolgwClient(tool_gateway_server_target, access_token_provider=m2m_client)
     recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
     trigger_registry_client = TriggerRegistryClient(
         _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
     )
     credential_client = CredentialEvalClient(credential_http_target, credential_db_url)
-    tool_consume_client = ToolgwClient(tool_gateway_consume_server_target)
+    tool_consume_client = ToolgwClient(
+        tool_gateway_consume_server_target, access_token_provider=m2m_client
+    )
     idempotency_replay_client = IdempotencyReplayClient(
         tenant_a_base_url=idempotency_tenant_a_url,
         tenant_b_base_url=idempotency_tenant_b_url,
         db_url=idempotency_db_url,
     )
-    ingestion_client = IngestionEvalClient(ingestion_http_target, ingestion_db_url)
-    policy_client = PolicyEvalClient(policy_http_target, policy_db_url)
+    ingestion_client = IngestionEvalClient(
+        ingestion_http_target,
+        ingestion_db_url,
+        service_token=_EVAL_INTERNAL_SERVICE_TOKEN,
+    )
+    policy_client = PolicyEvalClient(
+        policy_http_target,
+        policy_db_url,
+        service_token=_EVAL_INTERNAL_SERVICE_TOKEN,
+    )
     run_visibility_client = RunVisibilityEvalClient(
         run_visibility_http_target, run_visibility_db_url
     )
     model_cache_client = ModelGatewayCacheClient(
-        model_cache_server_target or _UNUSED_MODEL_CACHE_TARGET
+        model_cache_server_target or _UNUSED_MODEL_CACHE_TARGET,
+        access_token_provider=m2m_client,
     )
     verification_severity_client = VerificationSeverityEvalClient(
         verification_severity_http_target, verification_severity_db_url
     )
-    audit_client = AuditEvalClient(audit_server_target)
+    audit_client = AuditEvalClient(audit_server_target, access_token_provider=m2m_client)
     memory_drift_client = MemoryDriftEvalClient(
-        memory_drift_http_target, memory_drift_system_db_url
+        memory_drift_http_target,
+        memory_drift_system_db_url,
+        service_token=_EVAL_INTERNAL_SERVICE_TOKEN,
     )
     workflow_client = WorkflowEvalClient(workflow_read_http_target, workflow_read_db_url)
     agent_binding_client = AgentBindingEvalClient(agent_binding_http_target, agent_binding_db_url)

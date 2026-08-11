@@ -7,6 +7,13 @@ export {
   type SessionGatewayFeatureDecision,
 } from "./feature-decision";
 export { M2mValidator, type M2mValidatorConfig } from "./m2m-validator";
+export {
+  Auth0M2mTokenProvider,
+  auth0M2mTokenProviderFromEnvironment,
+  lazyAuth0M2mTokenProviderFromEnvironment,
+  type AccessTokenProvider,
+  type Auth0M2mTokenProviderOptions,
+} from "./auth0-m2m-token-provider";
 export { Public, PUBLIC_ROUTE_METADATA } from "./public-route";
 export {
   RedisReplayStore,
@@ -14,6 +21,7 @@ export {
 } from "./redis-replay-store";
 export { RedisRespSetClient } from "./redis-resp-client";
 export { SessionGatewayGuard } from "./session-gateway.guard";
+export { ServiceAuthGuard } from "./service-auth.guard";
 export {
   SessionGatewayRateLimitGuard,
   type RateLimitBucket,

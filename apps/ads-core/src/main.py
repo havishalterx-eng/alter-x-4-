@@ -10,16 +10,31 @@ from .deletion.router import router as deletion_router
 from .ingestion.router import ingestion_lifespan
 from .ingestion.router import router as ingestion_router
 from .query.router import router as query_router
+from .service_auth import assert_configured_at_startup, fastapi_dependency
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    assert_configured_at_startup()
     async with ingestion_lifespan(app):
         async with deletion_lifespan(app):
             yield
 
 
-app = FastAPI(lifespan=lifespan)
+# One application-level dependency covers ingestion, connectors and query --
+# the three routers that had no authentication at all -- as well as deletion,
+# which keeps its own stricter token check underneath.
+# Deletion routes retain their existing, purpose-specific authenticated router;
+# exempting only this prefix preserves its RFC 9457 response contract.
+app = FastAPI(
+    lifespan=lifespan,
+    dependencies=[
+        fastapi_dependency(
+            frozenset({"/health"}),
+            exempt_path_prefixes=("/internal/deletion/",),
+        )
+    ],
+)
 app.add_exception_handler(DeletionHttpError, deletion_exception_handler)  # type: ignore[arg-type]
 app.include_router(ingestion_router)
 app.include_router(connectors_router)
@@ -27,6 +42,6 @@ app.include_router(query_router)
 app.include_router(deletion_router)
 
 
-@app.get("/health")
+@app.get("/health", dependencies=[])
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "ads-core"}

@@ -90,6 +90,6 @@ export async function startSandboxGrpcTransport(
       url: config.bindAddress,
       loader: { keepCase: true },
     },
-  });
+  }, { inheritAppConfig: true });
   await app.startAllMicroservices();
 }

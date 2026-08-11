@@ -28,6 +28,8 @@ import grpc
 
 from alter.toolgw.v1 import toolgw_pb2, toolgw_pb2_grpc
 
+from .m2m_auth import AccessTokenProvider
+
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
@@ -44,10 +46,16 @@ class ConsumeCredentialOutcome:
 
 
 class ToolgwClient:
-    def __init__(self, target: str, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self,
+        target: str,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        access_token_provider: AccessTokenProvider | None = None,
+    ) -> None:
         self._channel = grpc.insecure_channel(target)
         self._stub = toolgw_pb2_grpc.ToolgwServiceStub(self._channel)  # type: ignore[no-untyped-call]
         self._timeout_seconds = timeout_seconds
+        self._access_token_provider = access_token_provider
 
     def resolve_credential(
         self, *, tenant_id: str, integration_id: str, credential_ref: str
@@ -60,6 +68,7 @@ class ToolgwClient:
                     credential_ref=credential_ref,
                 ),
                 timeout=self._timeout_seconds,
+                metadata=self._metadata(),
             )
             return ResolveCredentialOutcome(denied=False, error_message=None)
         except grpc.RpcError as error:
@@ -80,6 +89,7 @@ class ToolgwClient:
                 credential_ref=credential_ref,
             ),
             timeout=self._timeout_seconds,
+            metadata=self._metadata(),
         )
         return str(response.resolved_reference)
 
@@ -104,6 +114,7 @@ class ToolgwClient:
                     credential_ref=token,
                 ),
                 timeout=self._timeout_seconds,
+                metadata=self._metadata(),
             )
             return ConsumeCredentialOutcome(denied=False, error_message=None)
         except grpc.RpcError as error:
@@ -113,3 +124,8 @@ class ToolgwClient:
 
     def close(self) -> None:
         self._channel.close()
+
+    def _metadata(self) -> tuple[tuple[str, str], ...] | None:
+        if self._access_token_provider is None:
+            return None
+        return self._access_token_provider.metadata()

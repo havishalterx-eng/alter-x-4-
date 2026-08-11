@@ -32,7 +32,7 @@ class FakeKernel:
         self, request: object, authorization: str
     ) -> ProposeWritebackResponse:
         del request
-        assert authorization == "Bearer token"
+        assert authorization == "Bearer integration-token"
         if self.error is not None:
             raise self.error
         return ProposeWritebackResponse(
@@ -54,7 +54,7 @@ def post(kernel: FakeKernel) -> Response:
         TestClient(app).post(
             "/memory/propose-writeback",
             json=PAYLOAD,
-            headers={"authorization": "Bearer token"},
+            headers={"authorization": "Bearer integration-token"},
         ),
     )
 
@@ -83,6 +83,6 @@ def test_request_validation_rejects_bad_prefixed_ids() -> None:
     response = TestClient(app).post(
         "/memory/propose-writeback",
         json=payload,
-        headers={"authorization": "Bearer token"},
+        headers={"authorization": "Bearer integration-token"},
     )
     assert response.status_code == 422

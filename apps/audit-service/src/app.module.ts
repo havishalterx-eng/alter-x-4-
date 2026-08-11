@@ -1,6 +1,8 @@
 import { Module, type DynamicModule } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 
 import { AuditGrpcController } from "@alterx/adapters";
+import { M2mValidator, ServiceAuthGuard } from "@alterx/auth";
 import {
   AUDIT_EVENT_HANDLER,
   AUDIT_STORE_PROVIDER,
@@ -43,6 +45,7 @@ export class AppModule {
         ...(deletion === undefined ? [] : [DeletionController, AuditQueryController]),
       ],
       providers: [
+        serviceAuthGuardProvider(),
         { provide: AUDIT_STORE_PROVIDER, useValue: store },
         AuditService,
         { provide: AUDIT_EVENT_HANDLER, useExisting: AuditService },
@@ -58,4 +61,20 @@ export class AppModule {
       ],
     };
   }
+}
+
+function serviceAuthGuardProvider() {
+  return {
+    provide: APP_GUARD,
+    useFactory: () =>
+      new ServiceAuthGuard(
+        new M2mValidator({
+          auth0Domain: process.env["AUTH0_DOMAIN"] ?? "",
+          apiAudience: process.env["API_AUDIENCE"] ?? "",
+          ...(process.env["AUTH0_JWKS_URL"] === undefined
+            ? {}
+            : { jwksUrl: process.env["AUTH0_JWKS_URL"] }),
+        }),
+      ),
+  };
 }

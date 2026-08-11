@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "@alterx/adapters": "workspace:*",
+    "@alterx/auth": "workspace:*",
     "@alterx/contracts": "workspace:*",
     "@alterx/shared-clients": "workspace:*",
     "@nestjs/common": "11.1.28",

@@ -13,6 +13,8 @@ export interface M2mValidatorConfig {
   readonly auth0Domain: string;
   readonly apiAudience: string;
   readonly jwksCacheTtlMs?: number;
+  /** Test-only loopback issuer support; production uses Auth0's HTTPS JWKS. */
+  readonly jwksUrl?: string;
 }
 
 export class M2mValidator {
@@ -34,8 +36,12 @@ export class M2mValidator {
     }
     this.#issuer = `https://${domain}/`;
     this.#audience = config.apiAudience;
+    const jwksUrl = config.jwksUrl ?? `${this.#issuer}.well-known/jwks.json`;
+    if (!isAllowedJwksUrl(jwksUrl)) {
+      throw new Error("M2M JWKS URL must use HTTPS or loopback HTTP for tests");
+    }
     this.#jwks = new CachedJwks(
-      `${this.#issuer}.well-known/jwks.json`,
+      jwksUrl,
       dependencies.fetch,
       config.jwksCacheTtlMs,
     );
@@ -72,6 +78,19 @@ export class M2mValidator {
     } catch {
       throw new SessionGatewayAuthError("AUTH_INVALID_M2M_TOKEN");
     }
+  }
+}
+
+function isAllowedJwksUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" ||
+      (url.protocol === "http:" &&
+        (url.hostname === "127.0.0.1" || url.hostname === "::1" || url.hostname === "localhost"))
+    );
+  } catch {
+    return false;
   }
 }
 

@@ -1,4 +1,5 @@
 import { Module, type DynamicModule } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 
 import {
   COST_HANDLER,
@@ -6,6 +7,7 @@ import {
   CostGrpcController,
   type RunsHandlerClient,
 } from "@alterx/adapters";
+import { M2mValidator, ServiceAuthGuard } from "@alterx/auth";
 
 import { COST_STORE_PROVIDER, type CostStoreProvider } from "./database/cost-store.token";
 import { CostStoreLifecycle } from "./database/store.lifecycle";
@@ -37,6 +39,7 @@ export class AppModule {
         CostSummaryController,
       ],
       providers: [
+        serviceAuthGuardProvider(),
         { provide: COST_STORE_PROVIDER, useValue: store },
         EstimationService,
         NodeCostsService,
@@ -68,4 +71,20 @@ export class AppModule {
       ],
     };
   }
+}
+
+function serviceAuthGuardProvider() {
+  return {
+    provide: APP_GUARD,
+    useFactory: () =>
+      new ServiceAuthGuard(
+        new M2mValidator({
+          auth0Domain: process.env["AUTH0_DOMAIN"] ?? "",
+          apiAudience: process.env["API_AUDIENCE"] ?? "",
+          ...(process.env["AUTH0_JWKS_URL"] === undefined
+            ? {}
+            : { jwksUrl: process.env["AUTH0_JWKS_URL"] }),
+        }),
+      ),
+  };
 }

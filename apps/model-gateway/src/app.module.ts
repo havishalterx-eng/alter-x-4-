@@ -1,6 +1,8 @@
 import { Module, type DynamicModule } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 
 import { MODELGW_HANDLER, ModelgwGrpcController } from "@alterx/adapters";
+import { M2mValidator, ServiceAuthGuard } from "@alterx/auth";
 import type {
   CacheProvider,
   EmbeddingProvider,
@@ -37,6 +39,7 @@ export class AppModule {
         ModelGatewayOperationsController,
       ],
       providers: [
+        serviceAuthGuardProvider(),
         { provide: OperationalConfigProvider, useValue: configProvider },
         { provide: FailoverModelProvider, useValue: modelProvider },
         { provide: MODEL_GATEWAY_ADMIN_TOKEN, useValue: adminServiceToken },
@@ -55,4 +58,20 @@ export class AppModule {
       ],
     };
   }
+}
+
+function serviceAuthGuardProvider() {
+  return {
+    provide: APP_GUARD,
+    useFactory: () =>
+      new ServiceAuthGuard(
+        new M2mValidator({
+          auth0Domain: process.env["AUTH0_DOMAIN"] ?? "",
+          apiAudience: process.env["API_AUDIENCE"] ?? "",
+          ...(process.env["AUTH0_JWKS_URL"] === undefined
+            ? {}
+            : { jwksUrl: process.env["AUTH0_JWKS_URL"] }),
+        }),
+      ),
+  };
 }

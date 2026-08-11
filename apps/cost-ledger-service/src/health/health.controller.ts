@@ -1,4 +1,5 @@
 import { Controller, Get, Inject, ServiceUnavailableException } from "@nestjs/common";
+import { Public } from "@alterx/auth";
 
 import { COST_STORE_PROVIDER, type CostStoreProvider } from "../database/cost-store.token";
 
@@ -15,6 +16,7 @@ export class HealthController {
   ) {}
 
   @Get()
+  @Public()
   async getHealth(): Promise<CostLedgerHealthResponse> {
     try {
       const health = await this.store.healthCheck();

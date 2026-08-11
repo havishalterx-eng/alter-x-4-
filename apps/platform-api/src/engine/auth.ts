@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { z } from "zod";
+import { Auth0M2mTokenProvider } from "@alterx/auth";
 import { IdentityBrokerService } from "../identity-broker/identity-broker.service";
 import type { EngineAuthorization, EngineCallerContext } from "./types";
 
@@ -24,61 +24,23 @@ interface Auth0EngineM2mOptions {
   now?: () => number;
 }
 
-const tokenResponseSchema = z.object({
-  access_token: z.string().min(1),
-  expires_in: z.number().int().positive(),
-  token_type: z.string().min(1).optional(),
-});
-
 @Injectable()
 export class Auth0EngineM2mTokenProvider implements EngineM2mTokenProvider {
-  private readonly fetchImpl: typeof fetch;
-  private readonly now: () => number;
-  private readonly cache = new Map<
-    string,
-    { accessToken: string; expiresAt: number }
-  >();
+  private readonly provider: Auth0M2mTokenProvider;
 
   constructor(private readonly options: Auth0EngineM2mOptions) {
-    this.fetchImpl = options.fetchImpl ?? fetch;
-    this.now = options.now ?? Date.now;
+    this.provider = new Auth0M2mTokenProvider({
+      tokenUrl: options.tokenUrl,
+      audience: options.audience,
+      clientId: options.clientId,
+      resolveClientSecret: () => options.resolveSecret(options.clientSecretRef),
+      ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
+      ...(options.now === undefined ? {} : { now: options.now }),
+    });
   }
 
   async getAccessToken(tenantId: string): Promise<string> {
-    const cached = this.cache.get(tenantId);
-    if (cached && cached.expiresAt > this.now() + 60_000) {
-      return cached.accessToken;
-    }
-
-    const clientSecret = await this.options.resolveSecret(
-      this.options.clientSecretRef,
-    );
-    const response = await this.fetchImpl(this.options.tokenUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "client_credentials",
-        client_id: this.options.clientId,
-        client_secret: clientSecret,
-        audience: this.options.audience,
-        organization: tenantId,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`M2M token request failed with status ${response.status}`);
-    }
-
-    const parsed = tokenResponseSchema.safeParse(await response.json());
-    if (!parsed.success) {
-      throw new Error("M2M token response failed validation");
-    }
-
-    this.cache.set(tenantId, {
-      accessToken: parsed.data.access_token,
-      expiresAt: this.now() + parsed.data.expires_in * 1_000,
-    });
-    return parsed.data.access_token;
+    return this.provider.getAccessToken(tenantId);
   }
 }
 

@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     ads_db_url: str
     policy_db_url: str
     intelligence_db_url: str
+    auth0_m2m_token_url: str
+    auth0_m2m_audience: str
+    auth0_m2m_client_id: str
+    auth0_m2m_client_secret: str
+    internal_service_token: str
 
     model_config = SettingsConfigDict(
         env_file=".env.local",

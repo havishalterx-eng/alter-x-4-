@@ -64,6 +64,35 @@ describe("ModelGatewayClient", () => {
     );
   });
 
+  it("propagates an acquired M2M token in gRPC metadata", async () => {
+    const grpcClient = {
+      invoke: vi.fn(
+        (
+          _request: ModelgwInvokeRequest,
+          metadata: { get(key: string): readonly string[] },
+          _options: unknown,
+          callback: (error: Error | null, response?: ModelgwInvokeResponse) => void,
+        ) => {
+          expect(metadata.get("authorization")).toEqual(["Bearer signed-m2m-token"]);
+          callback(null, {
+            output_json: "{}",
+            usage_json: "{}",
+            resolved_capability: "FAST:test",
+            cache_hit: false,
+          });
+        },
+      ),
+    };
+    const provider = { getAccessToken: vi.fn().mockResolvedValue("signed-m2m-token") };
+    const client = new ModelGatewayClient(
+      { address: "localhost:1234", protoPath: "unused", accessTokenProvider: provider },
+      grpcClient as never,
+    );
+
+    await expect(client.invoke(REQUEST)).resolves.toMatchObject({ cache_hit: false });
+    expect(provider.getAccessToken).toHaveBeenCalledOnce();
+  });
+
   it("rejects when the gRPC call errors", async () => {
     const grpcClient = fakeGrpcClient(() => ({
       error: new Error("unavailable"),

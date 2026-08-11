@@ -82,4 +82,28 @@ describe("AuditServiceClient", () => {
       "empty response",
     );
   });
+
+  it("propagates an acquired M2M token", async () => {
+    const grpcClient = {
+      recordEvent: vi.fn(
+        (_request: unknown, metadata: { get(key: string): readonly string[] }, _options: unknown, callback: (error: null, response: RecordEventResponse) => void) => {
+          expect(metadata.get("authorization")).toEqual(["Bearer signed-m2m-token"]);
+          callback(null, { id: "aud_018f47a2", entry_hash: "deadbeef" });
+        },
+      ),
+    };
+    const client = new AuditServiceClient(
+      {
+        address: "localhost:1234",
+        protoPath: "unused",
+        accessTokenProvider: { getAccessToken: async () => "signed-m2m-token" },
+      },
+      grpcClient as never,
+    );
+
+    await expect(client.recordEvent(REQUEST)).resolves.toEqual({
+      id: "aud_018f47a2",
+      entry_hash: "deadbeef",
+    });
+  });
 });

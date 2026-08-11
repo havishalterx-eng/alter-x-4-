@@ -1,15 +1,17 @@
-import { credentials, loadPackageDefinition, type Client } from "@grpc/grpc-js";
+import { credentials, loadPackageDefinition, type Client, type Metadata } from "@grpc/grpc-js";
 import { loadSync } from "@grpc/proto-loader";
 
 import type {
   CostIngestCostEventRequest,
   CostIngestCostEventResponse,
 } from "@alterx/contracts";
+import { serviceAuthorizationMetadata, type ServiceAccessTokenProvider } from "./service-auth";
 
 export interface CostClientConfig {
   readonly address: string;
   readonly protoPath: string;
   readonly timeoutMs?: number;
+  readonly accessTokenProvider?: ServiceAccessTokenProvider;
 }
 
 export interface CostHandlerClient {
@@ -19,8 +21,10 @@ export interface CostHandlerClient {
 }
 
 interface CostGrpcClient extends Client {
+  ingestCostEvent(request: CostIngestCostEventRequest, options: { readonly deadline: Date }, callback: (error: Error | null, response?: CostIngestCostEventResponse) => void): void;
   ingestCostEvent(
     request: CostIngestCostEventRequest,
+    metadata: Metadata,
     options: { readonly deadline: Date },
     callback: (error: Error | null, response?: CostIngestCostEventResponse) => void,
   ): void;
@@ -31,9 +35,11 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 export class CostClient implements CostHandlerClient {
   readonly #client: CostGrpcClient;
   readonly #timeoutMs: number;
+  readonly #accessTokenProvider: ServiceAccessTokenProvider | undefined;
 
   constructor(config: CostClientConfig, client?: CostGrpcClient) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#accessTokenProvider = config.accessTokenProvider;
     this.#client = client ?? CostClient.#buildClient(config);
   }
 
@@ -68,7 +74,7 @@ export class CostClient implements CostHandlerClient {
   ): Promise<CostIngestCostEventResponse> {
     return new Promise<CostIngestCostEventResponse>((resolve, reject) => {
       const deadline = new Date(Date.now() + this.#timeoutMs);
-      this.#client.ingestCostEvent(request, { deadline }, (error, response) => {
+      const callback = (error: Error | null, response?: CostIngestCostEventResponse) => {
         if (error !== null) {
           reject(error);
           return;
@@ -78,7 +84,9 @@ export class CostClient implements CostHandlerClient {
           return;
         }
         resolve(response);
-      });
+      };
+      if (this.#accessTokenProvider === undefined) this.#client.ingestCostEvent(request, { deadline }, callback);
+      else void serviceAuthorizationMetadata(this.#accessTokenProvider).then((metadata) => this.#client.ingestCostEvent(request, metadata, { deadline }, callback), reject);
     });
   }
 }

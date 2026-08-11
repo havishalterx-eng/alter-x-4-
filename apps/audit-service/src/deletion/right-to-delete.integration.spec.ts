@@ -94,6 +94,7 @@ describe.sequential("KNOW-16 full right-to-delete flow", () => {
         ADS_DB_URL: adsSyncUrl.replace("postgresql://", "postgresql+asyncpg://"),
         ADS_DELETION_DB_URL_SYNC: adsSyncUrl,
         DELETION_SERVICE_TOKEN_SHA256: TOKEN_HASH,
+        INTERNAL_SERVICE_TOKEN_SHA256: TOKEN_HASH,
       },
       stdio: "ignore",
     });

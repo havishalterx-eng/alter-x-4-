@@ -12,8 +12,12 @@ import { AppModule } from "../app.module";
 
 describe("GET /health", () => {
   let app: NestFastifyApplication;
+  const originalAuth0Domain = process.env["AUTH0_DOMAIN"];
+  const originalApiAudience = process.env["API_AUDIENCE"];
 
   beforeEach(async () => {
+    process.env["AUTH0_DOMAIN"] = "auth0.test";
+    process.env["API_AUDIENCE"] = "alterx-test";
     const moduleRef = await Test.createTestingModule({
       imports: [
         AppModule.register(
@@ -44,6 +48,16 @@ describe("GET /health", () => {
 
   afterEach(async () => {
     await app.close();
+    if (originalAuth0Domain === undefined) {
+      delete process.env["AUTH0_DOMAIN"];
+    } else {
+      process.env["AUTH0_DOMAIN"] = originalAuth0Domain;
+    }
+    if (originalApiAudience === undefined) {
+      delete process.env["API_AUDIENCE"];
+    } else {
+      process.env["API_AUDIENCE"] = originalApiAudience;
+    }
   });
 
   it("returns the service health response", async () => {

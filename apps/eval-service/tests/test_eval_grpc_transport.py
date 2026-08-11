@@ -100,6 +100,11 @@ def _settings(eval_db_url_sync: str) -> Settings:
         ads_db_url=unused_db,
         policy_db_url=unused_db,
         intelligence_db_url=unused_db,
+        auth0_m2m_token_url="http://127.0.0.1:1/oauth/token",
+        auth0_m2m_audience="alter-engine",
+        auth0_m2m_client_id="eval-service",
+        auth0_m2m_client_secret="test-only",
+        internal_service_token="test-only-internal-token",
     )
 
 

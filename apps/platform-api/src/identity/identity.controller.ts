@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import {
   Body,
   Controller,
@@ -19,6 +20,7 @@ import type {
   MfaEnrollDto,
   RefreshDto,
 } from "./dto/auth.dto";
+import { Public, RequireTenantRole } from "../rbac/decorators";
 import { IdentityService, type IssuedSession } from "./identity.service";
 import { IdentityHttpError, problemDetails } from "./problem";
 
@@ -30,6 +32,7 @@ export class IdentityController {
   constructor(private readonly identityService: IdentityService) {}
 
   @Post("login")
+  @Public()
   async login(@Body() body: LoginDto, @Res() reply: FastifyReply): Promise<void> {
     await this.safe(reply, "/api/v1/auth/login", async () => {
       requireFields(body, ["redirectUri", "state", "codeChallenge"]);
@@ -39,6 +42,7 @@ export class IdentityController {
   }
 
   @Get("callback")
+  @Public()
   async callback(
     @Query() query: CallbackQueryDto,
     @Req() request: FastifyRequest,
@@ -64,6 +68,7 @@ export class IdentityController {
   }
 
   @Post("refresh")
+  @Public()
   async refresh(
     @Body() body: RefreshDto,
     @Req() request: FastifyRequest,
@@ -82,6 +87,7 @@ export class IdentityController {
   }
 
   @Post("logout")
+  @Public()
   async logout(@Req() request: FastifyRequest, @Res() reply: FastifyReply): Promise<void> {
     await this.safe(reply, "/api/v1/auth/logout", async () => {
       const accessToken = readCookie(request, accessCookieName);
@@ -99,6 +105,7 @@ export class IdentityController {
   }
 
   @Get("sessions")
+  @RequireTenantRole("member")
   async sessions(@Req() request: FastifyRequest, @Res() reply: FastifyReply): Promise<void> {
     await this.safe(reply, "/api/v1/auth/sessions", async () => {
       const session = await this.requireSession(request);
@@ -111,6 +118,7 @@ export class IdentityController {
   }
 
   @Delete("sessions/:id")
+  @RequireTenantRole("member")
   async revokeSession(
     @Param("id") sessionId: string,
     @Req() request: FastifyRequest,
@@ -124,6 +132,7 @@ export class IdentityController {
   }
 
   @Post("mfa/enroll")
+  @RequireTenantRole("member")
   async enrollMfa(
     @Body() body: MfaEnrollDto,
     @Req() request: FastifyRequest,
@@ -131,12 +140,16 @@ export class IdentityController {
   ): Promise<void> {
     await this.safe(reply, "/api/v1/auth/mfa/enroll", async () => {
       const session = await this.requireSession(request);
-      const enrollment = await this.identityService.enrollMfa(body.userId ?? session.userId);
+      rejectMfaTargetOverride(body.userId);
+      // The enrolling user is the authenticated session, full stop. Accepting
+      // body.userId let any session enrol an authenticator against any account.
+      const enrollment = await this.identityService.enrollMfa(session.userId);
       reply.status(200).send(enrollment);
     });
   }
 
   @Post("mfa/challenge")
+  @RequireTenantRole("member")
   async challengeMfa(
     @Body() body: MfaChallengeDto,
     @Req() request: FastifyRequest,
@@ -145,8 +158,9 @@ export class IdentityController {
     await this.safe(reply, "/api/v1/auth/mfa/challenge", async () => {
       requireFields(body, ["enrollmentId", "otp"]);
       const session = await this.requireSession(request);
+      rejectMfaTargetOverride(body.userId);
       const challenge = await this.identityService.challengeMfa(
-        body.userId ?? session.userId,
+        session.userId,
         body.enrollmentId,
         body.otp,
       );
@@ -154,16 +168,22 @@ export class IdentityController {
     });
   }
 
+  /**
+   * Internal, service-authenticated. `x-alter-internal: true` was a
+   * client-supplied header, so anyone could set it and configure SSO for any
+   * tenant via body.tenantId -- full takeover of that tenant. Replaced with the
+   * hashed shared-secret check already used by
+   * ConnectorHealthSweepController and NotificationDigestSchedulerController.
+   */
   @Post("sso/configure")
+  @Public()
   async configureSso(
     @Body() body: ConfigureSsoDto,
-    @Headers("x-alter-internal") internalHeader: string | undefined,
+    @Headers("authorization") authorization: string | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
     await this.safe(reply, "/api/v1/auth/sso/configure", async () => {
-      if (internalHeader !== "true") {
-        throw new IdentityHttpError(403, "SSO_CONFIG_FORBIDDEN", "SSO config forbidden");
-      }
+      authorizeInternalCaller(authorization);
       requireFields(body, ["tenantId", "config"]);
       const config = await this.identityService.configureSso(body.tenantId, body.config);
       reply.status(200).send({ config });
@@ -233,5 +253,35 @@ function requireFields<T extends object>(
     if (!body[field]) {
       throw new IdentityHttpError(400, "INVALID_REQUEST_BODY", `${String(field)} required`);
     }
+  }
+}
+
+/**
+ * Constant-time check of the shared internal service credential. Compares
+ * SHA-256 digests so a length difference cannot be probed, and fails closed
+ * when the secret is unset rather than degrading to "allow".
+ */
+function authorizeInternalCaller(authorization: string | undefined): void {
+  const configured = process.env["INTERNAL_SERVICE_TOKEN_SHA256"]?.trim() ?? "";
+  const token = authorization?.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+  if (configured.length !== 64 || !token) {
+    throw new IdentityHttpError(403, "SSO_CONFIG_FORBIDDEN", "SSO config forbidden");
+  }
+  const actual = createHash("sha256").update(token).digest();
+  const expected = Buffer.from(configured, "hex");
+  if (expected.length !== actual.length || !timingSafeEqual(actual, expected)) {
+    throw new IdentityHttpError(403, "SSO_CONFIG_FORBIDDEN", "SSO config forbidden");
+  }
+}
+
+function rejectMfaTargetOverride(userId: string | undefined): void {
+  if (userId !== undefined) {
+    throw new IdentityHttpError(
+      400,
+      "MFA_TARGET_OVERRIDE_FORBIDDEN",
+      "MFA enrollment and challenge always target the authenticated user",
+    );
   }
 }

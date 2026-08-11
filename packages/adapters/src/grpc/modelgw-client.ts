@@ -3,6 +3,7 @@ import {
   loadPackageDefinition,
   type Client,
   type ClientReadableStream,
+  type Metadata,
 } from "@grpc/grpc-js";
 import { loadSync } from "@grpc/proto-loader";
 
@@ -12,12 +13,17 @@ import type {
   ModelgwStreamRequest,
   ModelgwStreamResponse,
 } from "@alterx/contracts";
+import {
+  serviceAuthorizationMetadata,
+  type ServiceAccessTokenProvider,
+} from "./service-auth";
 
 export interface ModelGatewayClientConfig {
   readonly address: string;
   readonly protoPath: string;
   readonly timeoutMs?: number;
   readonly streamTimeoutMs?: number;
+  readonly accessTokenProvider?: ServiceAccessTokenProvider;
 }
 
 export interface ModelGatewayHandler {
@@ -34,8 +40,19 @@ interface ModelgwGrpcClient extends Client {
     options: { readonly deadline: Date },
     callback: (error: Error | null, response?: ModelgwInvokeResponse) => void,
   ): void;
+  invoke(
+    request: ModelgwInvokeRequest,
+    metadata: Metadata,
+    options: { readonly deadline: Date },
+    callback: (error: Error | null, response?: ModelgwInvokeResponse) => void,
+  ): void;
   stream(
     request: ModelgwStreamRequest,
+    options: { readonly deadline: Date },
+  ): ClientReadableStream<ModelgwStreamResponse>;
+  stream(
+    request: ModelgwStreamRequest,
+    metadata: Metadata,
     options: { readonly deadline: Date },
   ): ClientReadableStream<ModelgwStreamResponse>;
 }
@@ -49,11 +66,13 @@ export class ModelGatewayClient
   readonly #client: ModelgwGrpcClient;
   readonly #timeoutMs: number;
   readonly #streamTimeoutMs: number;
+  readonly #accessTokenProvider: ServiceAccessTokenProvider | undefined;
 
   constructor(config: ModelGatewayClientConfig, client?: ModelgwGrpcClient) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#streamTimeoutMs =
       config.streamTimeoutMs ?? DEFAULT_STREAM_TIMEOUT_MS;
+    this.#accessTokenProvider = config.accessTokenProvider;
     this.#client = client ?? ModelGatewayClient.#buildClient(config);
   }
 
@@ -86,7 +105,7 @@ export class ModelGatewayClient
   async invoke(request: ModelgwInvokeRequest): Promise<ModelgwInvokeResponse> {
     return new Promise<ModelgwInvokeResponse>((resolve, reject) => {
       const deadline = new Date(Date.now() + this.#timeoutMs);
-      this.#client.invoke(request, { deadline }, (error, response) => {
+      const callback = (error: Error | null, response?: ModelgwInvokeResponse) => {
         if (error !== null) {
           reject(error);
           return;
@@ -96,7 +115,9 @@ export class ModelGatewayClient
           return;
         }
         resolve(response);
-      });
+      };
+      if (this.#accessTokenProvider === undefined) this.#client.invoke(request, { deadline }, callback);
+      else void serviceAuthorizationMetadata(this.#accessTokenProvider).then((metadata) => this.#client.invoke(request, metadata, { deadline }, callback), reject);
     });
   }
 
@@ -104,7 +125,9 @@ export class ModelGatewayClient
     request: ModelgwStreamRequest,
   ): AsyncIterable<ModelgwStreamResponse> {
     const deadline = new Date(Date.now() + this.#streamTimeoutMs);
-    const call = this.#client.stream(request, { deadline });
+    const call = this.#accessTokenProvider === undefined
+      ? this.#client.stream(request, { deadline })
+      : this.#client.stream(request, await serviceAuthorizationMetadata(this.#accessTokenProvider), { deadline });
     let completed = false;
     try {
       for await (const response of call) {

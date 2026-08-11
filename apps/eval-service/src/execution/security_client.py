@@ -76,8 +76,15 @@ class UploadEvalClient(httpx.Client):
     """Real HTTP client to ads-core's real, existing production
     POST /ads/ingestion/uploads/presign route -- not eval-only scaffolding."""
 
-    def __init__(self, base_url: str, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> None:
-        super().__init__(base_url=base_url, timeout=timeout_seconds)
+    def __init__(
+        self,
+        base_url: str,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        *,
+        service_token: str = "",
+    ) -> None:
+        headers = {"Authorization": f"Bearer {service_token}"} if service_token else None
+        super().__init__(base_url=base_url, timeout=timeout_seconds, headers=headers)
 
     def check_upload(
         self, *, tenant_id: str, source_id: str, content_type: str

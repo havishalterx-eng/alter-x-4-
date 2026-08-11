@@ -6,7 +6,9 @@
   "types": "./dist/src/index.d.ts",
   "dependencies": {
     "@alterx/contracts": "workspace:*",
-    "@nestjs/common": "11.1.28"
+    "@grpc/grpc-js": "1.14.4",
+    "@nestjs/common": "11.1.28",
+    "@nestjs/microservices": "11.1.28"
   },
   "devDependencies": {
     "@alterx/adapters": "workspace:*",

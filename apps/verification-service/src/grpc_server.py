@@ -10,6 +10,7 @@ from alter.verify.v1 import verify_pb2_grpc
 from src.verification.grpc_service import VerifyGrpcService
 from src.verification.kernel import VerificationKernel
 from src.verification.llm_client import StubReviewerLlmClient
+from src.verification.m2m_auth import lazy_auth0_m2m_token_provider_from_environment
 from src.verification.model_gateway_client import GrpcModelGatewayClient
 
 
@@ -20,7 +21,10 @@ async def serve() -> None:
 
     engine = create_async_engine(database_url, pool_pre_ping=True)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
-    model_gateway = GrpcModelGatewayClient(model_gateway_target)
+    model_gateway = GrpcModelGatewayClient(
+        model_gateway_target,
+        access_token_provider=lazy_auth0_m2m_token_provider_from_environment(),
+    )
     # HARD-7: wires ScoreNodeInline for real. StubReviewerLlmClient is a
     # known, disclosed gap (kernel.py's own doc comment: "wire the stub
     # during development, swap in the real adapter at integration time") --

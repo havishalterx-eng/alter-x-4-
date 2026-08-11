@@ -3,6 +3,7 @@ import {
   loadPackageDefinition,
   status,
   type Client,
+  type Metadata,
 } from "@grpc/grpc-js";
 import { loadSync } from "@grpc/proto-loader";
 
@@ -14,11 +15,13 @@ import type {
   SandboxWriteFileRequest,
   SandboxWriteFileResponse,
 } from "@alterx/contracts";
+import { serviceAuthorizationMetadata, type ServiceAccessTokenProvider } from "./service-auth";
 
 export interface SandboxServiceClientConfig {
   readonly address: string;
   readonly protoPath: string;
   readonly timeoutMs?: number;
+  readonly accessTokenProvider?: ServiceAccessTokenProvider;
 }
 
 export interface SandboxExecuteHandler {
@@ -40,8 +43,10 @@ export class SandboxServiceClientError extends Error {
 }
 
 interface SandboxGrpcClient extends Client {
+  execute(request: SandboxExecuteRequest, options: { readonly deadline: Date }, callback: (error: (Error & { readonly code?: number }) | null, response?: SandboxExecuteResponse) => void): void;
   execute(
     request: SandboxExecuteRequest,
+    metadata: Metadata,
     options: { readonly deadline: Date },
     callback: (
       error: (Error & { readonly code?: number }) | null,
@@ -49,7 +54,9 @@ interface SandboxGrpcClient extends Client {
     ) => void,
   ): void;
   readFile(request: SandboxReadFileRequest, options: { readonly deadline: Date }, callback: (error: (Error & { readonly code?: number }) | null, response?: SandboxReadFileResponse) => void): void;
+  readFile(request: SandboxReadFileRequest, metadata: Metadata, options: { readonly deadline: Date }, callback: (error: (Error & { readonly code?: number }) | null, response?: SandboxReadFileResponse) => void): void;
   writeFile(request: SandboxWriteFileRequest, options: { readonly deadline: Date }, callback: (error: (Error & { readonly code?: number }) | null, response?: SandboxWriteFileResponse) => void): void;
+  writeFile(request: SandboxWriteFileRequest, metadata: Metadata, options: { readonly deadline: Date }, callback: (error: (Error & { readonly code?: number }) | null, response?: SandboxWriteFileResponse) => void): void;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -58,9 +65,11 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 export class SandboxServiceClient implements SandboxExecuteHandler, SandboxFileHandler {
   readonly #client: SandboxGrpcClient;
   readonly #timeoutMs: number;
+  readonly #accessTokenProvider: ServiceAccessTokenProvider | undefined;
 
   constructor(config: SandboxServiceClientConfig, client?: SandboxGrpcClient) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#accessTokenProvider = config.accessTokenProvider;
     this.#client = client ?? SandboxServiceClient.#buildClient(config);
   }
 
@@ -94,10 +103,8 @@ export class SandboxServiceClient implements SandboxExecuteHandler, SandboxFileH
     request: SandboxExecuteRequest,
   ): Promise<SandboxExecuteResponse> {
     return new Promise((resolve, reject) => {
-      this.#client.execute(
-        request,
-        { deadline: new Date(Date.now() + this.#timeoutMs) },
-        (error, response) => {
+      const options = { deadline: new Date(Date.now() + this.#timeoutMs) };
+      const callback = (error: (Error & { readonly code?: number }) | null, response?: SandboxExecuteResponse) => {
           if (error !== null) {
             reject(
               new SandboxServiceClientError(
@@ -113,8 +120,9 @@ export class SandboxServiceClient implements SandboxExecuteHandler, SandboxFileH
             return;
           }
           resolve(response);
-        },
-      );
+      };
+      if (this.#accessTokenProvider === undefined) this.#client.execute(request, options, callback);
+      else void serviceAuthorizationMetadata(this.#accessTokenProvider).then((metadata) => this.#client.execute(request, metadata, options, callback), reject);
     });
   }
 
@@ -125,7 +133,7 @@ export class SandboxServiceClient implements SandboxExecuteHandler, SandboxFileH
     this.#client.close();
   }
 
-  #call<TRequest, TResponse>(method: "readFile" | "writeFile", request: TRequest): Promise<TResponse> {
+  async #call<TRequest, TResponse>(method: "readFile" | "writeFile", request: TRequest): Promise<TResponse> {
     return new Promise((resolve, reject) => {
       const callback = (error: (Error & { readonly code?: number }) | null, response?: TResponse) => {
         if (error !== null) { reject(new SandboxServiceClientError(error.code === status.DEADLINE_EXCEEDED || error.code === status.UNAVAILABLE, { cause: error })); return; }
@@ -133,8 +141,10 @@ export class SandboxServiceClient implements SandboxExecuteHandler, SandboxFileH
         resolve(response);
       };
       const options = { deadline: new Date(Date.now() + this.#timeoutMs) };
-      if (method === "readFile") this.#client.readFile(request as SandboxReadFileRequest, options, callback as never);
-      else this.#client.writeFile(request as SandboxWriteFileRequest, options, callback as never);
+      if (this.#accessTokenProvider === undefined && method === "readFile") this.#client.readFile(request as SandboxReadFileRequest, options, callback as never);
+      else if (this.#accessTokenProvider === undefined) this.#client.writeFile(request as SandboxWriteFileRequest, options, callback as never);
+      else if (method === "readFile") void serviceAuthorizationMetadata(this.#accessTokenProvider).then((metadata) => this.#client.readFile(request as SandboxReadFileRequest, metadata, options, callback as never), reject);
+      else void serviceAuthorizationMetadata(this.#accessTokenProvider).then((metadata) => this.#client.writeFile(request as SandboxWriteFileRequest, metadata, options, callback as never), reject);
     });
   }
 }

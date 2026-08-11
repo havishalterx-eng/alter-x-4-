@@ -17,6 +17,7 @@ from src.execution.credential_client import CredentialEvalClient
 from src.execution.idempotency_client import IdempotencyReplayClient
 from src.execution.ingestion_client import IngestionEvalClient
 from src.execution.intent_client import IntentClient
+from src.execution.m2m_auth import Auth0M2mTokenProvider
 from src.execution.memory_drift_client import MemoryDriftEvalClient
 from src.execution.model_cache_client import ModelGatewayCacheClient
 from src.execution.orchestrator import EvalRunOrchestrator
@@ -41,6 +42,7 @@ class Closable(Protocol):
 
 def _build_service(settings: Settings) -> tuple[EvalGrpcService, Engine, tuple[Closable, ...]]:
     engine = create_engine(settings.eval_db_url_sync, pool_pre_ping=True)
+
     # eval_db is forced-RLS and its policy explicitly requires both this role
     # and context. The transport owns its database connection pool, so it must
     # establish the same service identity the integration fixture uses.
@@ -64,34 +66,55 @@ def _build_service(settings: Settings) -> tuple[EvalGrpcService, Engine, tuple[C
     retrieval_client = RetrievalClient(settings.retrieval_grpc_target)
     intent_client = IntentClient(settings.intent_grpc_target)
     security_client = SecurityEvalClient(settings.security_eval_base_url)
-    upload_client = UploadEvalClient(settings.upload_eval_base_url)
+    upload_client = UploadEvalClient(
+        settings.upload_eval_base_url,
+        service_token=settings.internal_service_token,
+    )
     tenant_isolation_retrieval_client = RetrievalClient(
         settings.tenant_isolation_retrieval_grpc_target
     )
-    toolgw_client = ToolgwClient(settings.toolgw_grpc_target)
+    m2m = Auth0M2mTokenProvider(
+        token_url=settings.auth0_m2m_token_url,
+        audience=settings.auth0_m2m_audience,
+        client_id=settings.auth0_m2m_client_id,
+        client_secret=settings.auth0_m2m_client_secret,
+    )
+    toolgw_client = ToolgwClient(settings.toolgw_grpc_target, access_token_provider=m2m)
     recovery_client = RecoveryClient(settings.recovery_grpc_target, settings.orchestration_db_url)
     trigger_registry_client = TriggerRegistryClient(
         settings.trigger_registry_base_url, settings.orchestration_db_url
     )
     credential_client = CredentialEvalClient(settings.credential_base_url, settings.platform_db_url)
-    tool_consume_client = ToolgwClient(settings.tool_consume_grpc_target)
+    tool_consume_client = ToolgwClient(settings.tool_consume_grpc_target, access_token_provider=m2m)
     idempotency_replay_client = IdempotencyReplayClient(
         tenant_a_base_url=settings.idempotency_tenant_a_base_url,
         tenant_b_base_url=settings.idempotency_tenant_b_base_url,
         db_url=settings.platform_db_url,
     )
-    ingestion_client = IngestionEvalClient(settings.ingestion_base_url, settings.ads_db_url)
-    policy_client = PolicyEvalClient(settings.policy_base_url, settings.policy_db_url)
+    ingestion_client = IngestionEvalClient(
+        settings.ingestion_base_url,
+        settings.ads_db_url,
+        service_token=settings.internal_service_token,
+    )
+    policy_client = PolicyEvalClient(
+        settings.policy_base_url,
+        settings.policy_db_url,
+        service_token=settings.internal_service_token,
+    )
     run_visibility_client = RunVisibilityEvalClient(
         settings.run_visibility_base_url, settings.orchestration_db_url
     )
-    model_cache_client = ModelGatewayCacheClient(settings.model_gateway_grpc_target)
+    model_cache_client = ModelGatewayCacheClient(
+        settings.model_gateway_grpc_target, access_token_provider=m2m
+    )
     verification_severity_client = VerificationSeverityEvalClient(
         settings.verification_severity_grpc_target, settings.orchestration_db_url
     )
-    audit_client = AuditEvalClient(settings.audit_grpc_target)
+    audit_client = AuditEvalClient(settings.audit_grpc_target, access_token_provider=m2m)
     memory_drift_client = MemoryDriftEvalClient(
-        settings.memory_drift_base_url, settings.policy_db_url
+        settings.memory_drift_base_url,
+        settings.policy_db_url,
+        service_token=settings.internal_service_token,
     )
     workflow_client = WorkflowEvalClient(settings.workflow_base_url, settings.orchestration_db_url)
     agent_binding_client = AgentBindingEvalClient(

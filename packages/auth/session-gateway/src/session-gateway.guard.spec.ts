@@ -144,6 +144,22 @@ describe("SessionGatewayGuard", () => {
     expect(actorTokenValidator.validate).not.toHaveBeenCalled();
   });
 
+  it("validates gRPC metadata without treating the protobuf message as an HTTP request", async () => {
+    const { guard, m2mValidator } = setup();
+    const executionContext = rpcContext(["Bearer machine"]);
+
+    await expect(guard.canActivate(executionContext)).resolves.toBe(true);
+    expect(m2mValidator.validate).toHaveBeenCalledWith("Bearer machine");
+  });
+
+  it("rejects gRPC calls without a machine credential", async () => {
+    const { guard } = setup({
+      m2mError: new SessionGatewayAuthError("AUTH_INVALID_M2M_TOKEN"),
+    });
+
+    await expectProblem(guard.canActivate(rpcContext(undefined)), "AUTH_INVALID_M2M_TOKEN");
+  });
+
   it("accepts array headers and preserves an unprefixed database tenant", async () => {
     const { databaseScope, executionContext, guard, request } = setup({
       serviceActor: {
@@ -247,4 +263,17 @@ async function captured(promise: Promise<unknown>): Promise<unknown> {
   } catch (error: unknown) {
     return error;
   }
+}
+
+function rpcContext(authorization: string[] | undefined): ExecutionContext {
+  return {
+    getType: () => "rpc",
+    getHandler: () => () => undefined,
+    getClass: () => class TestController {},
+    switchToRpc: () => ({
+      getContext: () => ({
+        get: (key: string) => (key === "authorization" ? authorization : undefined),
+      }),
+    }),
+  } as unknown as ExecutionContext;
 }
