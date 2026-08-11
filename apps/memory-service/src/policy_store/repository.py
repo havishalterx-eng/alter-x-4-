@@ -41,6 +41,10 @@ class MemoryPromotionConflictError(RuntimeError):
     pass
 
 
+class PolicyPermissionError(PermissionError):
+    pass
+
+
 _VALID_TRANSITIONS: dict[PolicyStatus, frozenset[PolicyStatus]] = {
     "draft": frozenset({"draft", "canary"}),
     "canary": frozenset({"canary", "active"}),
@@ -67,8 +71,13 @@ class SqlAlchemyPolicyStoreRepository:
         current_version: int,
         patch: PolicyPatch,
         actor: str,
+        global_write_authorized: bool = False,
     ) -> StoredPolicyUpdate:
         scope = self._visible_policy_scope(tenant_uuid, policy_id)
+        if scope == "global" and not global_write_authorized:
+            raise PolicyPermissionError(
+                "global-scope policy writes require the privileged write credential"
+            )
         sessions = self._system_sessions if scope == "global" else self._tenant_sessions
         with sessions.begin() as session:
             self._set_tenant(session, tenant_uuid)
@@ -182,8 +191,13 @@ class SqlAlchemyPolicyStoreRepository:
         tenant_uuid: str,
         memory_id: str,
         evaluation_run_id: str,
+        global_write_authorized: bool = False,
     ) -> StoredMemoryPromotion:
         scope = self._visible_memory_scope(tenant_uuid, memory_id)
+        if scope == "global" and not global_write_authorized:
+            raise PolicyPermissionError(
+                "global-scope memory promotion requires the privileged write credential"
+            )
         sessions = self._system_sessions if scope == "global" else self._tenant_sessions
         with sessions.begin() as session:
             self._set_tenant(session, tenant_uuid)

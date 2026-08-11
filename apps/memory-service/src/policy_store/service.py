@@ -7,7 +7,7 @@ import math
 from pydantic import ValidationError
 
 from src.memory_learning.ids import raw_uuid7
-from src.service_auth import ServiceAuthError, verify_service_token
+from src.service_auth import ServiceAuthError, verify_global_write_token, verify_service_token
 
 from .models import (
     CreateDraftPolicyResponse,
@@ -34,6 +34,7 @@ class PolicyStoreService:
         self,
         request: UpdatePolicyRequest,
         authorization: str,
+        global_write_token: str | None = None,
     ) -> UpdatePolicyResponse:
         self._validate_authorization(authorization)
         tenant_uuid = self._raw_id(request.tenant_id, "ten")
@@ -58,6 +59,7 @@ class PolicyStoreService:
             current_version=current_version,
             patch=patch,
             actor="memory-service",
+            global_write_authorized=verify_global_write_token(global_write_token),
         )
         return UpdatePolicyResponse(
             policy_id=result.policy_id,
@@ -143,6 +145,7 @@ class PolicyStoreService:
         self,
         request: PromoteMemoryRequest,
         authorization: str,
+        global_write_token: str | None = None,
     ) -> PromoteMemoryResponse:
         self._validate_authorization(authorization)
         tenant_uuid = self._raw_id(request.tenant_id, "ten")
@@ -153,6 +156,7 @@ class PolicyStoreService:
             tenant_uuid=tenant_uuid,
             memory_id=request.memory_id,
             evaluation_run_id=request.evaluation_run_id,
+            global_write_authorized=verify_global_write_token(global_write_token),
         )
         return PromoteMemoryResponse(promoted=True, promoted_at=result.promoted_at)
 

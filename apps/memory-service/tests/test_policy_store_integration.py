@@ -19,6 +19,7 @@ from src.policy_store.models import (
     UpdatePolicyRequest,
 )
 from src.policy_store.repository import (
+    PolicyPermissionError,
     PolicyVersionConflictError,
     SqlAlchemyPolicyStoreRepository,
 )
@@ -306,6 +307,8 @@ ON CONFLICT (id) DO NOTHING
                 patch_json='{"status":"canary","reason":"trial"}',
             ),
             "Bearer integration-token",
+            # global-scope row -- Finding 1's second half now gates this
+            global_write_token="integration-global-write-token",
         )
     )
     asyncio.run(
@@ -320,6 +323,7 @@ ON CONFLICT (id) DO NOTHING
                 ),
             ),
             "Bearer integration-token",
+            global_write_token="integration-global-write-token",
         )
     )
 
@@ -349,6 +353,8 @@ def test_global_and_non_global_memory_promotion_follow_distinct_paths(
                 evaluation_run_id=EVALUATION_RUN_ID,
             ),
             "Bearer integration-token",
+            # global-scope record -- Finding 1's second half now gates this
+            global_write_token="integration-global-write-token",
         )
     )
     project_result = asyncio.run(
@@ -359,6 +365,8 @@ def test_global_and_non_global_memory_promotion_follow_distinct_paths(
                 evaluation_run_id=EVALUATION_RUN_ID,
             ),
             "Bearer integration-token",
+            # project-scope record -- no privileged token needed, proves the
+            # gate is scope-specific rather than blanket
         )
     )
     assert global_result.promoted is True
@@ -371,6 +379,7 @@ def test_global_and_non_global_memory_promotion_follow_distinct_paths(
                 evaluation_run_id=SECOND_EVALUATION_RUN_ID,
             ),
             "Bearer integration-token",
+            global_write_token="integration-global-write-token",
         )
     )
     assert repeated_global.promoted_at == global_result.promoted_at
@@ -484,3 +493,167 @@ VALUES ('mem_tenant-global-denied',NULL,'global','{}','{}','candidate')
                 )
             )
     engine.dispose()
+
+
+def test_global_policy_write_rejected_without_privileged_credential(
+    policy_database: dict[str, str],
+    policy_service: PolicyStoreService,
+) -> None:
+    """Finding 1, second half: an authenticated-but-ordinary caller must not be
+    able to transition the platform-wide recovery_preferences policy just
+    because its own target row happens to be scope='global'."""
+    with pytest.raises(
+        PolicyPermissionError, match="privileged write credential"
+    ):
+        asyncio.run(
+            policy_service.update_policy(
+                UpdatePolicyRequest(
+                    tenant_id=TENANT_ID,
+                    policy_id="pol_00000000-0000-7000-8000-000000000001",
+                    current_version="1",
+                    patch_json='{"status":"rolled_back","reason":"attacker"}',
+                ),
+                "Bearer integration-token",
+                # no global_write_token
+            )
+        )
+
+    engine = sa.create_engine(policy_database["admin"])
+    with engine.connect() as connection:
+        row = connection.execute(
+            sa.text(
+                "SELECT version,status FROM policies "
+                "WHERE id='pol_00000000-0000-7000-8000-000000000001'"
+            )
+        ).mappings().one()
+    engine.dispose()
+    assert row == {"version": 1, "status": "active"}, (
+        "rejected write must not have touched the row at all"
+    )
+
+
+def test_global_policy_write_succeeds_with_privileged_credential(
+    policy_database: dict[str, str],
+    policy_service: PolicyStoreService,
+) -> None:
+    """Positive control: the privileged credential is not decorative -- a
+    caller that actually holds it can still perform the real, legitimate
+    operation the finding's fix must not break."""
+    result = asyncio.run(
+        policy_service.update_policy(
+            UpdatePolicyRequest(
+                tenant_id=TENANT_ID,
+                policy_id="pol_00000000-0000-7000-8000-000000000001",
+                current_version="1",
+                patch_json='{"status":"rolled_back","reason":"legitimate incident response"}',
+            ),
+            "Bearer integration-token",
+            global_write_token="integration-global-write-token",
+        )
+    )
+    assert result.new_version == "2"
+
+    engine = sa.create_engine(policy_database["admin"])
+    with engine.connect() as connection:
+        row = connection.execute(
+            sa.text(
+                "SELECT version,status FROM policies "
+                "WHERE id='pol_00000000-0000-7000-8000-000000000001'"
+            )
+        ).mappings().one()
+    engine.dispose()
+    assert row == {"version": 2, "status": "rolled_back"}
+
+
+TENANT_SCOPED_GATE_CHECK_POLICY_ID = "pol_018f4d6e-2b4a-7a3e-8c1a-1234567890fa"
+
+
+def test_global_memory_promotion_rejected_without_privileged_credential(
+    policy_database: dict[str, str],
+    policy_service: PolicyStoreService,
+) -> None:
+    """FINDINGS.md names repository.py:71-72 *and* :186-187 as the same
+    escalation -- promote_memory's global path must be gated too.
+
+    Seeds its own dedicated row rather than reusing GLOBAL_MEMORY_ID, which
+    another test in this module promotes (mutating its status).
+    """
+    dedicated_id = "mem_018f4d6e-2b4a-7a3e-8c1a-11111111b002"
+    engine = sa.create_engine(policy_database["admin"])
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                """
+INSERT INTO memory_records(id,tenant_id,scope,content,provenance,status)
+VALUES (:id,CAST(:tenant AS uuid),'global','{}','{}','candidate')
+ON CONFLICT (id) DO NOTHING
+"""
+            ),
+            {"id": dedicated_id, "tenant": TENANT_UUID},
+        )
+    engine.dispose()
+
+    with pytest.raises(
+        PolicyPermissionError, match="privileged write credential"
+    ):
+        asyncio.run(
+            policy_service.promote_memory(
+                PromoteMemoryRequest(
+                    tenant_id=TENANT_ID,
+                    memory_id=dedicated_id,
+                    evaluation_run_id=EVALUATION_RUN_ID,
+                ),
+                "Bearer integration-token",
+                # no global_write_token
+            )
+        )
+
+    engine = sa.create_engine(policy_database["admin"])
+    with engine.connect() as connection:
+        row = connection.execute(
+            sa.text("SELECT status FROM memory_records WHERE id=:id"),
+            {"id": dedicated_id},
+        ).mappings().one()
+    engine.dispose()
+    assert row["status"] == "candidate", (
+        "rejected promotion must not have touched the row at all"
+    )
+
+
+def test_ordinary_tenant_scoped_write_unaffected_by_global_write_gate(
+    policy_database: dict[str, str],
+    policy_service: PolicyStoreService,
+) -> None:
+    """Negative control: the new gate must only fire for scope='global' rows --
+    an ordinary tenant-scoped policy write needs no privileged credential.
+
+    Seeds its own dedicated row rather than reusing POLICY_ID, which earlier
+    tests in this module already mutate past version 1.
+    """
+    engine = sa.create_engine(policy_database["admin"])
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                """
+INSERT INTO policies(id,scope,scope_id,kind,version,body,status,source)
+VALUES (:id,'tenant',CAST(:tenant AS uuid),'routing_weights',1,'{}','draft','human')
+ON CONFLICT (id) DO NOTHING
+"""
+            ),
+            {"id": TENANT_SCOPED_GATE_CHECK_POLICY_ID, "tenant": TENANT_UUID},
+        )
+    engine.dispose()
+
+    result = asyncio.run(
+        policy_service.update_policy(
+            UpdatePolicyRequest(
+                tenant_id=TENANT_ID,
+                policy_id=TENANT_SCOPED_GATE_CHECK_POLICY_ID,
+                current_version="1",
+                patch_json='{"status":"canary","reason":"trial"}',
+            ),
+            "Bearer integration-token",
+            # no global_write_token -- must not matter, this policy is tenant-scoped
+        )
+    )
+    assert result.new_version == "2"

@@ -22,6 +22,7 @@ from .repository import (
     MemoryNotFoundError,
     MemoryPromotionConflictError,
     PolicyNotFoundError,
+    PolicyPermissionError,
     PolicyTransitionError,
     PolicyVersionConflictError,
     SqlAlchemyPolicyStoreRepository,
@@ -60,6 +61,9 @@ def get_policy_store_service() -> PolicyStoreService:
 
 ServiceDep = Annotated[PolicyStoreService, Depends(get_policy_store_service)]
 AuthorizationHeader = Annotated[str, Header(alias="Authorization")]
+GlobalWriteHeader = Annotated[
+    str | None, Header(alias="X-Alter-Policy-Global-Write")
+]
 router = APIRouter(prefix="/memory", tags=["policy-store"])
 
 
@@ -68,15 +72,20 @@ async def update_policy(
     request: UpdatePolicyRequest,
     service: ServiceDep,
     authorization: AuthorizationHeader,
+    x_alter_policy_global_write: GlobalWriteHeader = None,
 ) -> UpdatePolicyResponse:
     try:
-        return await service.update_policy(request, authorization)
+        return await service.update_policy(
+            request, authorization, global_write_token=x_alter_policy_global_write
+        )
     except (PolicyStoreValidationError, PolicyTransitionError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except PolicyNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except PolicyVersionConflictError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    except PolicyPermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
 
 
 @router.post("/promote-memory", response_model=PromoteMemoryResponse)
@@ -84,13 +93,18 @@ async def promote_memory(
     request: PromoteMemoryRequest,
     service: ServiceDep,
     authorization: AuthorizationHeader,
+    x_alter_policy_global_write: GlobalWriteHeader = None,
 ) -> PromoteMemoryResponse:
     try:
-        return await service.promote_memory(request, authorization)
+        return await service.promote_memory(
+            request, authorization, global_write_token=x_alter_policy_global_write
+        )
     except PolicyStoreValidationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except MemoryNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+    except PolicyPermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
     except MemoryPromotionConflictError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 

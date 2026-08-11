@@ -12,3 +12,7 @@ def _configure_internal_service_auth(monkeypatch: pytest.MonkeyPatch) -> None:
         "INTERNAL_SERVICE_TOKEN_SHA256",
         hashlib.sha256(b"integration-token").hexdigest(),
     )
+    monkeypatch.setenv(
+        "POLICY_GLOBAL_WRITE_TOKEN_SHA256",
+        hashlib.sha256(b"integration-global-write-token").hexdigest(),
+    )
