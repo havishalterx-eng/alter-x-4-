@@ -68,10 +68,23 @@ export class SessionGatewayGuard implements CanActivate {
       const machine = await this.m2mValidator.validate(
         firstHeader(request.headers.authorization),
       );
-      const actorValidation = machine.serviceActor
-        ? undefined
-        : await this.actorTokenValidator.validate(requiredActorToken(request.headers));
-      const actor = machine.serviceActor ?? actorValidation!.actorContext;
+      // A caller acting on behalf of a specific user always pairs the M2M
+      // credential with a delegation token, so that real, correctly-scoped
+      // actor identity must win whenever one is present -- the M2M token's
+      // own tenant_id is only a coarse machine-credential claim (and, for
+      // the local mock issuer, isn't even prefixed to the engine domain's
+      // ten_/UUIDv7 shape). Falling back to machine.serviceActor only when
+      // no actor token was sent at all preserves the genuine
+      // service-to-service path (internal RPC, background jobs), which
+      // never sends one.
+      const actorTokenHeader = firstHeader(request.headers["x-alter-actor-token"]);
+      const actorValidation = actorTokenHeader
+        ? await this.actorTokenValidator.validate(actorTokenHeader)
+        : undefined;
+      const actor = actorValidation?.actorContext ?? machine.serviceActor;
+      if (!actor) {
+        throw new SessionGatewayAuthError("AUTH_MISSING_ACTOR_TOKEN");
+      }
 
       request.actorContext = actor;
       if (actorValidation) {
@@ -122,16 +135,6 @@ export class SessionGatewayGuard implements CanActivate {
       throw new HttpException(problemBody("AUTH_INVALID_M2M_TOKEN", "/"), 401);
     }
   }
-}
-
-function requiredActorToken(
-  headers: SessionGatewayRequest["headers"],
-): string {
-  const token = firstHeader(headers["x-alter-actor-token"]);
-  if (!token) {
-    throw new SessionGatewayAuthError("AUTH_MISSING_ACTOR_TOKEN");
-  }
-  return token;
 }
 
 function firstHeader(value: string | string[] | undefined): string | undefined {

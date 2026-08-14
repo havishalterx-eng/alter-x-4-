@@ -12,6 +12,11 @@ import {
 interface UpdateWorkflowBody {
   readonly name?: string;
   readonly status?: WorkflowStatus;
+  readonly dag?: unknown;
+}
+
+interface SimulateWorkflowBody {
+  readonly input?: Record<string, unknown>;
 }
 
 interface CreateWorkflowBody {
@@ -100,7 +105,72 @@ export class WorkflowReadController {
         workflowId,
         ...(body.name === undefined ? {} : { name: body.name }),
         ...(body.status === undefined ? {} : { status: body.status }),
+        ...(body.dag === undefined ? {} : { dag: body.dag }),
       });
+    } catch (error: unknown) {
+      throw mapWorkflowError(error, request.url);
+    }
+  }
+
+  @Post(":id/actions/validate")
+  async validate(@Req() request: SessionGatewayRequest, @Param("id") workflowId: string) {
+    const tenantId = requiredTenantId(request);
+    try {
+      return await this.service.validateDraft(tenantId, workflowId);
+    } catch (error: unknown) {
+      throw mapWorkflowError(error, request.url);
+    }
+  }
+
+  @Post(":id/actions/compile")
+  async compile(@Req() request: SessionGatewayRequest, @Param("id") workflowId: string) {
+    const tenantId = requiredTenantId(request);
+    try {
+      return await this.service.compileWorkflow(tenantId, workflowId);
+    } catch (error: unknown) {
+      throw mapWorkflowError(error, request.url);
+    }
+  }
+
+  @Post(":id/actions/simulate")
+  async simulate(
+    @Req() request: SessionGatewayRequest,
+    @Param("id") workflowId: string,
+    @Body() body: SimulateWorkflowBody,
+  ) {
+    const tenantId = requiredTenantId(request);
+    try {
+      return await this.service.simulateWorkflow(tenantId, workflowId, body.input ?? {});
+    } catch (error: unknown) {
+      throw mapWorkflowError(error, request.url);
+    }
+  }
+
+  @Post(":id/actions/activate")
+  async activate(@Req() request: SessionGatewayRequest, @Param("id") workflowId: string) {
+    const tenantId = requiredTenantId(request);
+    try {
+      return await this.service.activateWorkflow(tenantId, workflowId);
+    } catch (error: unknown) {
+      throw mapWorkflowError(error, request.url);
+    }
+  }
+
+  @Post(":id/actions/pause")
+  async pause(@Req() request: SessionGatewayRequest, @Param("id") workflowId: string) {
+    const tenantId = requiredTenantId(request);
+    try {
+      return await this.service.pauseWorkflow(tenantId, workflowId);
+    } catch (error: unknown) {
+      throw mapWorkflowError(error, request.url);
+    }
+  }
+
+  @Post(":id/actions/resume")
+  async resume(@Req() request: SessionGatewayRequest, @Param("id") workflowId: string) {
+    const tenantId = requiredTenantId(request);
+    try {
+      return await this.service.resumeWorkflow(tenantId, workflowId);
     } catch (error: unknown) {
       throw mapWorkflowError(error, request.url);
     }

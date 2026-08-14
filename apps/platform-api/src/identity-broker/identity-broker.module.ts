@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import type { SecretsProvider } from "@alterx/shared-clients";
 import { validatePlatformApiEnv } from "../config/env.schema";
+import { IdentityBrokerJwksController } from "./identity-broker-jwks.controller";
 import { IdentityBrokerService } from "./identity-broker.service";
 import { EnvironmentSecretsProvider } from "./secrets-provider";
 import {
@@ -11,6 +12,7 @@ import {
 export const secretsProviderToken = Symbol("SecretsProvider");
 
 @Module({
+  controllers: [IdentityBrokerJwksController],
   providers: [
     {
       provide: secretsProviderToken,

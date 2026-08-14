@@ -16,7 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 
 from .kernel import PlannerKernel, PlannerValidationError
-from .llm_client import StubLlmClient
+from .model_gateway_llm_client import ModelGatewayLlmClient
 from .models import (
     DecomposeRequest,
     DecomposeResponse,
@@ -40,20 +40,27 @@ async def planner_lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     from ..ads_client.client import GrpcAdsClient
     from ..config import get_settings
+    from ..m2m_auth import lazy_auth0_m2m_token_provider_from_settings
 
     settings = get_settings()
     ads_client = GrpcAdsClient(
         settings.adsq_grpc_target,
         timeout_seconds=settings.adsq_grpc_timeout_seconds,
     )
+    llm_client = ModelGatewayLlmClient(
+        settings.model_gateway_grpc_target,
+        timeout_seconds=settings.model_gateway_grpc_timeout_seconds,
+        access_token_provider=lazy_auth0_m2m_token_provider_from_settings(settings),
+    )
     _default_kernel = PlannerKernel(
         ads_client=ads_client,
-        llm_client=StubLlmClient(),
+        llm_client=llm_client,
     )
     try:
         yield
     finally:
         await ads_client.close()
+        await llm_client.close()
         _default_kernel = None
 
 

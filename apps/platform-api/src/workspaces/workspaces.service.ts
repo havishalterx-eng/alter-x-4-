@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { v7 as uuidv7 } from "uuid";
 import type { ActorContext } from "../rbac/types";
 import { PlatformDb } from "../signup/platform-db";
 import { PlatformHttpError } from "../signup/problem";
@@ -41,7 +41,9 @@ export class WorkspacesService {
        VALUES ($1, $2, $3, 'active')
        RETURNING id, tenant_id AS "tenantId", name, status,
                  updated_at AS "updatedAt"`,
-      [randomUUID(), actor.tenant_id, name.trim()],
+      // Crosses into the workflow/orchestration engine domain, which enforces
+      // UUIDv7 bodies once "ws_" prefixed -- see signup.service.ts.
+      [uuidv7(), actor.tenant_id, name.trim()],
     );
     return required(rows[0], "WORKSPACE_CREATE_FAILED", "/api/v1/workspaces");
   }

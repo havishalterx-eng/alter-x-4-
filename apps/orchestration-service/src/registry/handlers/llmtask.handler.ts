@@ -55,7 +55,9 @@ export class LlmTaskHandler implements NodeHandler {
       run_id: context.run_id,
       node_execution_id: context.node_execution_id,
       model_alias: aliasResult.data,
-      input_json: JSON.stringify({ prompt, inputs: context.inputs }),
+      input_json: JSON.stringify({
+        messages: [{ role: "user", content: prompt }],
+      }),
     };
     const streaming = this.modelGateway as ModelGatewayHandler & Partial<ModelGatewayStreamHandler>;
     let outputJson: string;

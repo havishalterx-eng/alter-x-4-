@@ -187,7 +187,7 @@ export class AwsAppConfigConfigProvider implements ConfigProvider {
     );
     this.#sessionToken = response.NextPollConfigurationToken;
 
-    if (response.Configuration === undefined || response.Configuration.length === 0) {
+    if (response.Configuration == null || response.Configuration.length === 0) {
       // AppConfig returns an empty payload when the deployed configuration
       // has not changed since the last poll; the caller must keep using the
       // last-fetched policy in that case.

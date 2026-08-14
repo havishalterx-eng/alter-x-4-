@@ -145,6 +145,10 @@ function mapModelgwError(error: unknown, fallbackMessage: string): RpcException 
   if (error instanceof ModelGatewayInvalidResponseError) {
     return new RpcException({ code: status.INTERNAL, message: error.message });
   }
+  // Every other error type is collapsed into a generic client-safe message
+  // below (no internal detail over the wire) -- log the real cause here or
+  // it's gone.
+  console.error("modelgw invoke failed:", error);
   return new RpcException({ code: status.INTERNAL, message: fallbackMessage });
 }
 

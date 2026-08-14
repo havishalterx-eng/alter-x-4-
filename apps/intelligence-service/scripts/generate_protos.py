@@ -23,6 +23,7 @@ PROTO_FILES = (
     "alter/adsq/v1/adsq.proto",
     "alter/capability/v1/capability.proto",
     "alter/modelgw/v1/modelgw.proto",
+    "alter/planner/v1/planner.proto",
 )
 
 

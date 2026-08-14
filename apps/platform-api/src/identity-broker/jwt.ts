@@ -1,14 +1,20 @@
-import { createSign, createVerify } from "node:crypto";
+import { createPublicKey, createSign, createVerify } from "node:crypto";
 import type { ActorTokenClaims } from "./actor-token.types";
 
 const algorithm = "RS256";
+export const actorTokenKeyId = "actor-token-key-1";
 
 export function signActorToken(claims: ActorTokenClaims, privateKey: string): string {
-  const header = { alg: algorithm, typ: "JWT" };
+  const header = { alg: algorithm, typ: "JWT", kid: actorTokenKeyId };
   const signingInput = `${base64UrlJson(header)}.${base64UrlJson(claims)}`;
   const signature = createSign("RSA-SHA256").update(signingInput).sign(privateKey);
 
   return `${signingInput}.${signature.toString("base64url")}`;
+}
+
+export function actorTokenJwk(publicKey: string): Record<string, unknown> {
+  const jwk = createPublicKey(publicKey).export({ format: "jwk" });
+  return { ...jwk, kid: actorTokenKeyId, use: "sig", alg: algorithm };
 }
 
 export function decodeActorToken(token: string): ActorTokenClaims {

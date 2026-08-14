@@ -67,9 +67,9 @@ describe("IdentityBrokerService", () => {
       ].sort(),
     );
     expect(decoded).toMatchObject({
-      user_id: userId,
-      tenant_id: tenantId,
-      workspace_id: workspaceId,
+      user_id: `usr_${userId}`,
+      tenant_id: `ten_${tenantId}`,
+      workspace_id: `ws_${workspaceId}`,
       roles: ["owner"],
       permissions: ["workflow:read"],
       session_id: sessionId,
@@ -119,7 +119,7 @@ describe("IdentityBrokerService", () => {
       callingTenantId: tenantId,
     });
 
-    expect(minted.claims.workspace_id).toBe(workspaceId);
+    expect(minted.claims.workspace_id).toBe(`ws_${workspaceId}`);
     expect(minted.claims.permissions).toEqual([]);
   });
 

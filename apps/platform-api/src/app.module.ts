@@ -12,6 +12,7 @@ import { TenantsModule } from "./tenants/tenants.module";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
 import { OnboardingModule } from "./onboarding/onboarding.module";
 import { EngineModule } from "./engine/engine.module";
+import { PlannerFacadeModule } from "./planner-facade/planner-facade.module";
 import { IdempotencyModule } from "./idempotency/idempotency.module";
 import { StreamingModule } from "./streaming/streaming.module";
 import { WorkflowModule } from "./workflows/workflow.module";
@@ -60,6 +61,7 @@ import { AdminDeploymentModule } from "./admin-deployments";
     MembersModule,
     OnboardingModule,
     EngineModule,
+    PlannerFacadeModule,
     IdempotencyModule,
     StreamingModule,
     WorkflowModule,

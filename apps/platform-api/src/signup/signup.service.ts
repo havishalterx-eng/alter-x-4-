@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { v7 as uuidv7 } from "uuid";
 import type { EntitlementProvider } from "../entitlements/entitlement-provider.interface";
 import type { IdentityProvider } from "../identity/identity-provider.interface";
 import type { IdentityService } from "../identity/identity.service";
@@ -56,9 +56,13 @@ export class SignupService {
         );
       }
 
-      const userId = randomUUID();
-      const tenantId = randomUUID();
-      const workspaceId = randomUUID();
+      // These IDs get "usr_"/"ten_"/"ws_" prefixed and cross into the
+      // workflow/orchestration engine domain, which enforces UUIDv7 bodies
+      // (packages/contracts/src/ids.ts) -- crypto.randomUUID() is v4 and
+      // fails that check on every real workflow/run call downstream.
+      const userId = uuidv7();
+      const tenantId = uuidv7();
+      const workspaceId = uuidv7();
       const tenantName = `${identity.displayName ?? identity.email.split("@")[0] ?? "Personal"}'s Workspace`;
       const identityOrgRef = await this.identityProvider.getOrCreateOrgForTenant(
         tenantId,

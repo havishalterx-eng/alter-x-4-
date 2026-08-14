@@ -47,6 +47,8 @@ describe("orchestration migration files", () => {
       "0027_create_trigger_webhook_secrets.sql",
       "0028_create_project_plans.sql",
       "0029_add_deployment_suspended_status.sql",
+      "0030_add_workflow_paused_status.sql",
+      "0031_add_workflow_draft_dag.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -83,6 +85,8 @@ describe("orchestration migration files", () => {
       "0027_drop_trigger_webhook_secrets.sql",
       "0028_drop_project_plans.sql",
       "0029_remove_deployment_suspended_status.sql",
+      "0030_remove_workflow_paused_status.sql",
+      "0031_remove_workflow_draft_dag.sql",
     ]);
   });
 

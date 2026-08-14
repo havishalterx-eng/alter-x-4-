@@ -7,7 +7,8 @@ import type {
   MintServiceActorTokenInput,
 } from "./actor-token.types";
 import { IdentityBrokerError } from "./identity-broker.error";
-import { signActorToken } from "./jwt";
+import { toPrefixedUuidV7 } from "./id-compat";
+import { actorTokenJwk, signActorToken } from "./jwt";
 import type { SigningKeyResolver } from "./signing-key-resolver";
 
 const actorTokenLifetimeSeconds = 300;
@@ -27,9 +28,9 @@ export class IdentityBrokerService {
     this.assertTenantScope(input.tenantId, input.callingTenantId);
 
     return this.signClaims({
-      user_id: input.userId,
-      tenant_id: input.tenantId,
-      workspace_id: input.workspaceId,
+      user_id: prefixedId("usr", input.userId),
+      tenant_id: prefixedId("ten", input.tenantId),
+      workspace_id: prefixedId("ws", input.workspaceId),
       roles: [...input.roles],
       permissions: [...input.permissions],
       session_id: input.sessionId,
@@ -45,14 +46,19 @@ export class IdentityBrokerService {
 
     return this.signClaims({
       user_id: serviceUserId(input.serviceName),
-      tenant_id: input.tenantId,
-      workspace_id: input.workspaceId ?? serviceWorkspaceId,
+      tenant_id: prefixedId("ten", input.tenantId),
+      workspace_id: prefixedId("ws", input.workspaceId ?? serviceWorkspaceId),
       roles: ["service"],
       permissions: [...(input.permissions ?? [])],
       session_id: `svc_session_${input.serviceName}`,
       auth_time: this.nowSeconds(),
       ...this.freshRegisteredClaims(),
     });
+  }
+
+  async publicJwks(): Promise<{ keys: Record<string, unknown>[] }> {
+    const publicKey = await this.signingKeyResolver.resolvePublicKey(this.signingKeyRef);
+    return { keys: [actorTokenJwk(publicKey)] };
   }
 
   private async signClaims(claims: ActorTokenClaims): Promise<MintedActorToken> {
@@ -87,4 +93,17 @@ export class IdentityBrokerService {
 export function serviceUserId(serviceName: string): string {
   const normalized = serviceName.toLowerCase().replaceAll(/[^a-z0-9]/g, "_");
   return `svc_${normalized}`;
+}
+
+const uuidShape = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `workspace_system` (the fallback for service tokens with no real
+ * workspace) is not a UUID and was never going to satisfy
+ * WorkspaceIdSchema either way -- pass it through unwrapped rather than
+ * throwing, so an already-non-compliant sentinel doesn't turn into a hard
+ * crash.
+ */
+function prefixedId(prefix: string, id: string): string {
+  return uuidShape.test(id) ? toPrefixedUuidV7(prefix, id) : id;
 }

@@ -61,6 +61,17 @@ function createConfigProvider(
   );
 }
 
+async function getSecretOrUndefined(
+  secretsProvider: AwsSecretsManagerProvider,
+  referenceId: string,
+): Promise<string | undefined> {
+  try {
+    return await secretsProvider.getSecret(referenceId);
+  } catch {
+    return undefined;
+  }
+}
+
 async function createModelProvider(
   environment: ReturnType<typeof loadModelGatewayEnvironment>,
   store: MutableParameterStoreProvider,
@@ -77,23 +88,27 @@ async function createModelProvider(
     region: environment.region,
   });
   try {
+    // Bedrock is the real primary and needs no secret (IAM/AWS creds only).
+    // Anthropic/OpenAI are optional direct-API failovers whose keys are
+    // deliberately not provisioned yet -- a missing failover secret must not
+    // take down the whole service when the primary provider is fine.
     const [anthropicApiKey, openaiApiKey] = await Promise.all([
-      secretsProvider.getSecret(
-        appConfigEnvironment.anthropicApiKeySecretReference,
-      ),
-      secretsProvider.getSecret(
-        appConfigEnvironment.openaiApiKeySecretReference,
-      ),
+      getSecretOrUndefined(secretsProvider, appConfigEnvironment.anthropicApiKeySecretReference),
+      getSecretOrUndefined(secretsProvider, appConfigEnvironment.openaiApiKeySecretReference),
     ]);
 
     const primary = new AwsBedrockModelProvider({ region: environment.region });
-    const anthropic = new AnthropicModelProvider({ apiKey: anthropicApiKey });
-    const openai = new OpenAiModelProvider({ apiKey: openaiApiKey });
+    const anthropic = anthropicApiKey ? new AnthropicModelProvider({ apiKey: anthropicApiKey }) : undefined;
+    const openai = openaiApiKey ? new OpenAiModelProvider({ apiKey: openaiApiKey }) : undefined;
 
-    return new FailoverModelProvider(primary, { anthropic, openai }, {
-      store,
-      parameterName: providerControlParameterName(environment),
-    });
+    return new FailoverModelProvider(
+      primary,
+      { ...(anthropic ? { anthropic } : {}), ...(openai ? { openai } : {}) },
+      {
+        store,
+        parameterName: providerControlParameterName(environment),
+      },
+    );
   } finally {
     secretsProvider.close();
   }
