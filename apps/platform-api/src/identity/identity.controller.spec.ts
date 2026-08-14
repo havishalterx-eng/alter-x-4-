@@ -274,6 +274,31 @@ describe("IdentityController", () => {
     });
     expect(configured.statusCode).toBe(200);
     expect(configured.json().config).toMatchObject({ type: "saml" });
+
+    const wrongToken = await app.getHttpAdapter().getInstance().inject({
+      method: "POST",
+      url: "/api/v1/auth/sso/configure",
+      headers: { authorization: "Bearer some-other-well-formed-token" },
+      payload: {
+        tenantId: "00000000-0000-7000-8000-000000000001",
+        config: { type: "saml", metadataUrl: "https://idp.test/metadata" },
+      },
+    });
+    expect(wrongToken.statusCode).toBe(403);
+    expect(wrongToken.json()).toMatchObject({ error_code: "SSO_CONFIG_FORBIDDEN" });
+  });
+
+  it("returns 404 when the authenticated user has no profile row", async () => {
+    const session = await createSession("00000000-0000-7000-8000-000000000206");
+
+    const response = await app.getHttpAdapter().getInstance().inject({
+      method: "GET",
+      url: "/api/v1/auth/me",
+      headers: { cookie: `alter_access=${session.access}` },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({ error_code: "USER_NOT_FOUND" });
   });
 
   async function createSession(userId: string): Promise<{ access: string; refresh: string }> {

@@ -15,6 +15,7 @@ import {
   type ToolGatewayInvokeHandler,
 } from "@alterx/adapters";
 
+import { NodeHandlerValidationError } from "../handler";
 import type {
   NodeExecutionContext,
   NodeExecutionResult,
@@ -44,6 +45,11 @@ export class ToolCallHandler implements NodeHandler {
   async execute(context: NodeExecutionContext): Promise<NodeExecutionResult> {
     const validated = validateExecution(context);
     if ("detail" in validated) {
+      if (validated.field === "config.credential_ref") {
+        throw new NodeHandlerValidationError(
+          `CREDENTIAL_MISSING: ${validated.detail}`,
+        );
+      }
       return problemResult(
         problem({
           context,

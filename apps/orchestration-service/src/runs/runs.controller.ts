@@ -39,6 +39,10 @@ interface RetryNodeBody {
   readonly node_key: string;
 }
 
+interface RetrySignalBody {
+  readonly node_execution_id: string;
+}
+
 interface RunsQuery {
   readonly workflow_id?: string;
   readonly mode?: "workflow" | "project";
@@ -191,9 +195,29 @@ export class RunsController {
       throw mapRunError(error, request.url);
     }
   }
+
+  @Post(":id/actions/retry-signal")
+  @HttpCode(204)
+  async retrySignal(
+    @Req() request: SessionGatewayRequest,
+    @Param("id") runId: string,
+    @Body() body: RetrySignalBody,
+  ) {
+    const tenantIdInput = requiredTenantId(request);
+    const tenantId = tenantIdInput.startsWith("ten_") ? tenantIdInput : `ten_${tenantIdInput}`;
+    if (typeof body?.node_execution_id !== "string" || body.node_execution_id.trim().length === 0) {
+      throw badRequest(request.url, "node_execution_id is required");
+    }
+    try {
+      await this.launcher.retrySignal(tenantId, runId, body.node_execution_id);
+    } catch (error: unknown) {
+      throw mapRunError(error, request.url);
+    }
+  }
 }
 
 function mapRunError(error: unknown, requestUrl: string | undefined): HttpException {
+
   if (error instanceof HttpException) return error;
   if (error instanceof RunValidationError) {
     return badRequest(requestUrl, error.message);

@@ -16,6 +16,8 @@ import type {
 
 export interface SqsQueueProviderConfig {
   readonly region: string;
+  readonly endpoint?: string;
+  readonly useQueueUrlAsEndpoint?: boolean;
 }
 
 export interface SqsCommandClient {
@@ -72,7 +74,11 @@ export class SqsQueueProvider implements QueueProvider {
     now?: () => Date,
   ) {
     this.#client =
-      client ?? (new SQSClient({ region: config.region }) as unknown as SqsCommandClient);
+      client ?? (new SQSClient({
+        region: config.region,
+        ...(config.endpoint !== undefined ? { endpoint: config.endpoint } : {}),
+        ...(config.useQueueUrlAsEndpoint !== undefined ? { useQueueUrlAsEndpoint: config.useQueueUrlAsEndpoint } : {}),
+      }) as unknown as SqsCommandClient);
     this.#now = now ?? (() => new Date());
   }
 

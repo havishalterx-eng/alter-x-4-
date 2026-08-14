@@ -26,6 +26,15 @@ import { createPlatformJobHandlers } from "./platform-jobs/handlers";
 import { NotificationDigestSchedulerRunner } from "./platform-jobs/notification-digest-scheduler-runner";
 import { IntervalJobSchedulerRunner } from "./platform-jobs/interval-job-scheduler-runner";
 
+function parsePort(value: string | undefined): number {
+  if (value === undefined) return 3000;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("PORT must be an integer from 1 to 65535");
+  }
+  return port;
+}
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
@@ -62,7 +71,10 @@ async function bootstrap(): Promise<void> {
   const costEventsConfig = loadCostEventConsumerEnvironment(process.env);
   const costEventsQueueName = `alter-${costEventsConfig.alterEnvironment}-cost-events`;
   const costEventConsumer = new CostEventConsumerService(
-    new SqsQueueProvider({ region: costEventsConfig.region }),
+    new SqsQueueProvider({
+      region: costEventsConfig.region,
+      ...(process.env.AWS_ENDPOINT_URL ? { endpoint: process.env.AWS_ENDPOINT_URL, useQueueUrlAsEndpoint: false } : {}),
+    }),
     costEventsQueueName,
     new CostClient({
       address: costEventsConfig.costLedgerServiceAddress,
@@ -186,7 +198,7 @@ async function bootstrap(): Promise<void> {
     void driftSweepRunner.stop();
   });
 
-  await app.listen(3000, "0.0.0.0");
+  await app.listen(parsePort(process.env.PORT), "0.0.0.0");
 }
 
 void bootstrap();

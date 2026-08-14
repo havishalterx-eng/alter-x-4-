@@ -17,6 +17,7 @@ import {
   ArtifactNotFoundError,
   type ArtifactsService,
 } from "../artifacts/artifacts.service";
+import type { EvalFacadeService } from "../eval-facade/eval-facade.service";
 
 const TENANT_ID_PATTERN =
   /^ten_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -121,6 +122,12 @@ export class DeploymentNotFoundError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "DeploymentNotFoundError";
+  }
+}
+
+export class ReleaseGateFailedError extends Error {
+  constructor(readonly failedThresholds: readonly string[]) {
+    super("Workflow version failed the release evaluation gate");
   }
 }
 
@@ -384,6 +391,7 @@ function requireSingleWrite(rowCount: number): void {
 export class DeploymentControllerService {
   constructor(
     private readonly store: OrchestrationTenantStore,
+    private readonly evalFacade: EvalFacadeService,
     private readonly projectArtifactDependencies?: ProjectArtifactDeploymentDependencies,
   ) {}
 
@@ -480,6 +488,15 @@ export class DeploymentControllerService {
     );
     const tenantId = bareTenantUuid(request.tenant_id);
 
+    const evaluation = await this.evalFacade.runEvaluation({ golden_set_name: "workflow E2E" });
+    const gate = await this.evalFacade.checkReleaseGate({
+      release_gate_key: `workflow:${request.workflow_id}:${request.workflow_version_id}`,
+      evaluation_run_id: evaluation.evaluation_run_id,
+    });
+    if (!gate.passed) {
+      throw new ReleaseGateFailedError(gate.failed_thresholds);
+    }
+
     return this.withOptimisticRetry(tenantId, request.workflow_id, async (tx, revision) => {
       const snapshot = await readVersionSnapshot(
         tx,
@@ -543,6 +560,15 @@ export class DeploymentControllerService {
     );
     requireTrafficPercent(request.traffic_percent);
     const tenantId = bareTenantUuid(request.tenant_id);
+
+    const evaluation = await this.evalFacade.runEvaluation({ golden_set_name: "workflow E2E" });
+    const gate = await this.evalFacade.checkReleaseGate({
+      release_gate_key: `workflow:${request.workflow_id}:${request.workflow_version_id}`,
+      evaluation_run_id: evaluation.evaluation_run_id,
+    });
+    if (!gate.passed) {
+      throw new ReleaseGateFailedError(gate.failed_thresholds);
+    }
 
     return this.withOptimisticRetry(tenantId, request.workflow_id, async (tx, revision) => {
       const snapshot = await readVersionSnapshot(

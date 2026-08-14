@@ -7,7 +7,9 @@ import {
 } from "@alterx/shared-clients";
 import { CredentialRepository } from "./credential.repository";
 import { CredentialHttpError } from "./problem";
-import { CREDENTIAL_SECRETS_PROVIDER } from "./tokens";
+import { CREDENTIAL_AUDIT_CLIENT, CREDENTIAL_SECRETS_PROVIDER } from "./tokens";
+import { assertTenantRegion } from "./region-enforcement";
+import type { AuditEventHandler } from "@alterx/shared-clients";
 import type {
   CreateCredentialInput,
   CredentialRecord,
@@ -21,6 +23,8 @@ export class CredentialService {
     private readonly repository: CredentialRepository,
     @Inject(CREDENTIAL_SECRETS_PROVIDER)
     private readonly secrets: MutableSecretsProvider,
+    @Inject(CREDENTIAL_AUDIT_CLIENT)
+    private readonly auditClient: AuditEventHandler,
   ) {}
 
   async create(
@@ -29,6 +33,18 @@ export class CredentialService {
   ): Promise<CredentialView> {
     const id = randomUUID();
     const reference = secretReference(tenantId, id);
+
+    const tenantRegion = await this.repository.getTenantRegion(tenantId);
+    const destinationRegion = process.env.ALTER_REGION ?? process.env.AWS_REGION ?? "ap-south-1";
+    await assertTenantRegion(tenantRegion, destinationRegion, this.auditClient, {
+      tenantId,
+      actorType: "system",
+      actorRef: "platform-api",
+      action: "credential.write",
+      targetType: "credential",
+      targetRef: id,
+    });
+
     try {
       await this.secrets.putSecret(reference, input.value);
       const record = await this.repository.create(
@@ -67,6 +83,18 @@ export class CredentialService {
   ): Promise<CredentialView> {
     const instance = `/api/v1/credentials/${id}`;
     await this.requireRecord(tenantId, id, instance);
+
+    const tenantRegion = await this.repository.getTenantRegion(tenantId);
+    const destinationRegion = process.env.ALTER_REGION ?? process.env.AWS_REGION ?? "ap-south-1";
+    await assertTenantRegion(tenantRegion, destinationRegion, this.auditClient, {
+      tenantId,
+      actorType: "system",
+      actorRef: "platform-api",
+      action: "credential.write",
+      targetType: "credential",
+      targetRef: id,
+    });
+
     try {
       if (input.value !== undefined) {
         await this.secrets.putSecret(secretReference(tenantId, id), input.value);
@@ -119,6 +147,18 @@ export class CredentialService {
         instance,
       );
     }
+
+    const tenantRegion = await this.repository.getTenantRegion(tenantId);
+    const destinationRegion = process.env.ALTER_REGION ?? process.env.AWS_REGION ?? "ap-south-1";
+    await assertTenantRegion(tenantRegion, destinationRegion, this.auditClient, {
+      tenantId,
+      actorType: "user",
+      actorRef: actorId,
+      action: "credential.read",
+      targetType: "credential",
+      targetRef: id,
+    });
+
     try {
       const value = await this.secrets.getSecret(secretReference(tenantId, id));
       await this.repository.recordUse(tenantId, id, actorId);

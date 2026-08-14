@@ -207,8 +207,27 @@ def local_m2m_issuer() -> Generator[LocalM2mIssuer, None, None]:
             process.kill()
 
 
+def _real_llm_api_key_env() -> dict[str, str]:
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return {"ANTHROPIC_API_KEY": os.environ["ANTHROPIC_API_KEY"]}
+    if os.environ.get("OPENAI_API_KEY"):
+        return {"OPENAI_API_KEY": os.environ["OPENAI_API_KEY"]}
+    return {}
+
+
+def _skip_without_real_llm_key() -> None:
+    if not _real_llm_api_key_env():
+        pytest.skip(
+            "No ANTHROPIC_API_KEY or OPENAI_API_KEY set -- the ADVANCED-reviewer node "
+            "types have no real, live LLM path to test without one (same real, "
+            "disclosed structural blocker as orchestration_intent_server_target)."
+        )
+
+
 @pytest.fixture(scope="module")
-def verification_server_target() -> Generator[str, None, None]:
+def verification_server_target(
+    local_m2m_issuer: LocalM2mIssuer,
+) -> Generator[str, None, None]:
     """Real, live verification-service gRPC server, run as a real separate
     process (not an in-process import) -- both services use "src" as their
     top-level package name, which collides under a single Python
@@ -216,11 +235,19 @@ def verification_server_target() -> Generator[str, None, None]:
     two separate deployed services talking over gRPC, not one process
     pretending to be two.
 
-    ScoreNodeInline for deterministic/stub-reviewer node types never
-    queries Postgres or calls Model Gateway (see grpc_service.py/kernel.py)
-    -- the placeholder env vars below only need to be well-formed enough
-    for the server to *start* (engine/channel creation is lazy), not real,
-    connectable endpoints.
+    ScoreNodeInline for DETERMINISTIC_NODE_TYPES never queries Postgres or
+    calls Model Gateway (see grpc_service.py/kernel.py) -- those cases, and
+    tests that only exercise them (e.g. test_unknown_golden_set_raises),
+    work fine off the unused placeholder target below regardless. The
+    ADVANCED-reviewer node types (LLMTask/ToolCall/SandboxExec/Synthesis)
+    do call Model Gateway for real (HARD-7's grpc_server.py wires the real
+    GrpcModelGatewayClient, never StubReviewerLlmClient) -- when a real
+    ANTHROPIC_API_KEY/OPENAI_API_KEY is present, this spins up a real,
+    live model-gateway for them too (eval_bootstrap.js, same pattern as
+    orchestration_intent_server_target). Without one, reviewer-dependent
+    cases fail closed as before; tests that need them to pass call
+    _skip_without_real_llm_key() themselves rather than this fixture
+    skipping for every test that merely depends on it.
     """
     verification_root = REPO_ROOT / "apps" / "verification-service"
     verification_python = verification_root / ".venv" / "bin" / "python"
@@ -229,6 +256,35 @@ def verification_server_target() -> Generator[str, None, None]:
             "apps/verification-service/.venv not present -- run `uv sync` there first "
             "(same real dependency this test always needed, just not eval-service's own venv)"
         )
+
+    api_key_env = _real_llm_api_key_env()
+    model_gateway_root = REPO_ROOT / "apps" / "model-gateway"
+    model_gateway_dist = REPO_ROOT / "dist" / "apps" / "model-gateway" / "eval_bootstrap.js"
+    model_gateway_process: subprocess.Popen[bytes] | None = None
+    model_gateway_target = "127.0.0.1:1"
+
+    if api_key_env and model_gateway_dist.exists():
+        model_gateway_port = _free_port()
+        model_gateway_http_port = _free_port()
+        model_gateway_process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+            ["node", str(model_gateway_dist)],
+            cwd=str(REPO_ROOT),
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "NODE_PATH": f"{model_gateway_root / 'node_modules'}:{REPO_ROOT / 'node_modules'}",
+                "ALTER_ENV": "local",
+                "ALTER_SERVICE_NAME": "model-gateway",
+                "ALTER_REGION": "ap-south-1",
+                "ALTER_CONFIG_SOURCE": "mock",
+                "PORT": str(model_gateway_http_port),
+                "GRPC_BIND_ADDRESS": f"127.0.0.1:{model_gateway_port}",
+                **local_m2m_issuer.environment(),
+                **api_key_env,
+            },
+        )
+        _wait_for_port(model_gateway_port)
+        model_gateway_target = f"127.0.0.1:{model_gateway_port}"
+
     port = _free_port()
     process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
         [str(verification_python), "-m", "src.grpc_server"],
@@ -236,8 +292,9 @@ def verification_server_target() -> Generator[str, None, None]:
         env={
             "PATH": os.environ.get("PATH", ""),
             "ORCHESTRATION_DATABASE_URL": "postgresql+asyncpg://unused:unused@127.0.0.1:1/unused",
-            "MODEL_GATEWAY_GRPC_TARGET": "127.0.0.1:1",
+            "MODEL_GATEWAY_GRPC_TARGET": model_gateway_target,
             "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+            **local_m2m_issuer.environment(),
         },
     )
     try:
@@ -249,6 +306,12 @@ def verification_server_target() -> Generator[str, None, None]:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
+        if model_gateway_process is not None:
+            model_gateway_process.terminate()
+            try:
+                model_gateway_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                model_gateway_process.kill()
 
 
 @pytest.fixture(scope="module")
@@ -614,6 +677,7 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     sessions: sessionmaker[Session],
     verification_server_target: str,
 ) -> None:
+    _skip_without_real_llm_key()
     verification_client = VerificationClient(verification_server_target)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
@@ -731,6 +795,7 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
     sessions: sessionmaker[Session],
     verification_server_target: str,
 ) -> None:
+    _skip_without_real_llm_key()
     verification_client = VerificationClient(verification_server_target)
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)

@@ -9,14 +9,18 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from alter.verify.v1 import verify_pb2_grpc
 from src.verification.grpc_service import VerifyGrpcService
 from src.verification.kernel import VerificationKernel
-from src.verification.llm_client import StubReviewerLlmClient
 from src.verification.m2m_auth import lazy_auth0_m2m_token_provider_from_environment
 from src.verification.model_gateway_client import GrpcModelGatewayClient
 
 
 async def serve() -> None:
-    database_url = _required_environment("ORCHESTRATION_DATABASE_URL")
-    model_gateway_target = _required_environment("MODEL_GATEWAY_GRPC_TARGET")
+    database_url_raw = _required_environment("ORCHESTRATION_DATABASE_URL")
+    database_url = database_url_raw.replace("postgres://", "postgresql+asyncpg://").replace(
+        "postgresql://", "postgresql+asyncpg://"
+    )
+    model_gateway_target = os.environ.get("MODEL_GATEWAY_GRPC_TARGET") or _required_environment(
+        "MODEL_GATEWAY_ADDRESS"
+    )
     bind_address = os.environ.get("GRPC_BIND_ADDRESS", "0.0.0.0:50054")
 
     engine = create_async_engine(database_url, pool_pre_ping=True)
@@ -35,7 +39,7 @@ async def serve() -> None:
     # Synthesis) would get a synthetic, non-real score until a real
     # ADVANCED Model Gateway reviewer client is built (separate, real,
     # disclosed follow-up).
-    kernel = VerificationKernel(StubReviewerLlmClient())
+    kernel = VerificationKernel(model_gateway)
     server = grpc.aio.server()
     verify_pb2_grpc.add_VerifyServiceServicer_to_server(  # type: ignore[no-untyped-call]
         VerifyGrpcService(sessions, model_gateway, kernel), server

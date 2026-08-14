@@ -120,13 +120,13 @@ export class EngineClient {
             ...requestHeaders(context, authorization, {
               body: body as EngineRequestBody,
             }),
-            "X-Alter-Tenant-Id": context.tenantId,
+            "X-Alter-Tenant-Id": context.tenantId.startsWith("ten_") ? context.tenantId : `ten_${context.tenantId}`,
             "X-Alter-Workspace-Id": context.workspaceId,
             "X-Alter-Requester": context.userId,
           },
           body: JSON.stringify({
             ...body,
-            tenant_id: context.tenantId,
+            tenant_id: context.tenantId.startsWith("ten_") ? context.tenantId : `ten_${context.tenantId}`,
             workspace_id: context.workspaceId,
             requester: context.userId,
           }),
@@ -219,17 +219,20 @@ export class EngineClient {
     options: RequestOptions = {},
   ): Promise<EngineResponse<TResponse>> {
     assertEnginePath(path);
-    let authorization;
-    try {
-      authorization = await this.authProvider.authorize(context);
-    } catch {
-      throw new EngineProblemError(
-        upstreamProblem(502, path, "UPSTREAM_SERVICE_ERROR"),
-      );
-    }
     const attempts = method === "GET" ? 2 : 1;
 
     for (let attempt = 0; attempt < attempts; attempt += 1) {
+      // Actor tokens are single-use (replay-protected), so a retry must mint
+      // a fresh one -- reusing the same token across a GET retry always trips
+      // AUTH_ACTOR_TOKEN_REPLAY on the second attempt.
+      let authorization;
+      try {
+        authorization = await this.authProvider.authorize(context);
+      } catch {
+        throw new EngineProblemError(
+          upstreamProblem(502, path, "UPSTREAM_SERVICE_ERROR"),
+        );
+      }
       try {
         const response = await this.fetchWithTimeout(
           `${this.config.baseUrl}${path}`,
@@ -255,9 +258,8 @@ export class EngineClient {
           continue;
         }
 
-        throw new EngineProblemError(
-          await engineProblemFromResponse(response, path),
-        );
+        const problem = await engineProblemFromResponse(response, path);
+        throw new EngineProblemError(problem);
       } catch (error) {
         if (error instanceof EngineProblemError) {
           throw error;
@@ -318,9 +320,8 @@ export class EngineClient {
           await this.retryDelay(25);
           continue;
         }
-        throw new EngineProblemError(
-          await engineProblemFromResponse(response, path),
-        );
+        const problem = await engineProblemFromResponse(response, path);
+        throw new EngineProblemError(problem);
       } catch (error) {
         if (error instanceof EngineProblemError) {
           throw error;

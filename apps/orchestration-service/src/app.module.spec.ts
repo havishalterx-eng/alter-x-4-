@@ -28,6 +28,12 @@ function globalGuardProviders(): readonly GlobalGuardProvider[] {
 }
 
 const VALID_CONFIG = {
+  // Pinned so this test exercises the iam-auth branch regardless of a
+  // repo-root .env.local (Vite auto-loads it into every vitest run) --
+  // without this, an ambient ALTER_ENV=local would route sessionGatewayEnvironment()
+  // into the static-auth branch instead, which needs ORCHESTRATION_DATABASE_URL
+  // rather than the HOST/PORT/NAME/USER fields this test actually stubs.
+  ALTER_ENV: "dev",
   AUTH0_DOMAIN: "tenant.auth0.com",
   AUTH0_API_AUDIENCE: "alter-engine",
   ACTOR_TOKEN_ISSUER: "alter-platform-api.identity-broker",
@@ -94,7 +100,11 @@ describe("AppModule Session Gateway registration", () => {
   });
 
   it("fails closed when production feature flag is not enabled", () => {
-    stubConfig({ NODE_ENV: "production" });
+    // Explicitly cleared: a repo-root .env.local (Vite auto-loads it into
+    // every vitest run) may set this to "true" for local service boots,
+    // which would otherwise mask the "flag not enabled" case this test
+    // exists to cover.
+    stubConfig({ NODE_ENV: "production", INGRESS_SESSION_GATEWAY_CORE_ENABLED: "" });
     try {
       expect(globalGuardProviders()[0]!.useFactory).toThrow(
         "Production Session Gateway requires feature flag ingress.sessionGatewayCore",

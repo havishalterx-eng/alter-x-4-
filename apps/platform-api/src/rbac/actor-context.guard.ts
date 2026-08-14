@@ -1,31 +1,40 @@
-import { Injectable, type NestMiddleware } from "@nestjs/common";
-import type { FastifyReply, FastifyRequest } from "fastify";
+import type { CanActivate, ExecutionContext } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { IdentityService } from "../identity/identity.service";
-import type { RbacRequest } from "../rbac/types";
-import { PlatformDb } from "./platform-db";
+import { PlatformDb } from "../signup/platform-db";
+import type { RbacRequest } from "./types";
 
 interface RoleRow {
   role: string;
   workspaceId: string | null;
 }
 
+/**
+ * Populates request.actorContext ahead of RbacGuard. This used to be
+ * SignupActorContextMiddleware (a NestJS middleware, i.e. Fastify onRequest
+ * phase) -- Fastify gave middleware and guards different request object
+ * references here, so a plain `request.actorContext = ...` assignment in
+ * middleware never survived through to the guard phase, and every
+ * RequireWorkspaceRole/RequireTenantRole check failed closed with
+ * RBAC_ROLE_DENIED regardless of what roles the user actually had. Guards
+ * all run in the same phase against the same request object, so this fixes
+ * it structurally rather than chasing the Fastify request-identity mismatch
+ * further. Always returns true -- an absent/invalid token just leaves
+ * actorContext unset, and RbacGuard (registered after this one) is what
+ * actually denies the request.
+ */
 @Injectable()
-export class SignupActorContextMiddleware implements NestMiddleware {
+export class ActorContextGuard implements CanActivate {
   constructor(
     private readonly identityService: IdentityService,
     private readonly db: PlatformDb,
   ) {}
 
-  async use(
-    request: FastifyRequest & RbacRequest,
-    _reply: FastifyReply,
-    next: () => void,
-  ): Promise<void> {
-    void _reply;
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<RbacRequest & { headers: { cookie?: string } }>();
     const accessToken = readCookie(request.headers.cookie, "alter_access");
     if (!accessToken) {
-      next();
-      return;
+      return true;
     }
 
     try {
@@ -55,10 +64,13 @@ export class SignupActorContextMiddleware implements NestMiddleware {
         session_id: session.id,
         auth_time: Math.floor(session.createdAt.getTime() / 1000),
       };
-    } catch {
-      // RBAC guard returns standard denial for invalid or revoked sessions.
+    } catch (error) {
+      // RbacGuard returns the standard denial for invalid/revoked/expired
+      // sessions; logged so a real failure here is never silently
+      // indistinguishable from "not logged in".
+      console.error("ActorContextGuard failed:", error);
     }
-    next();
+    return true;
   }
 }
 

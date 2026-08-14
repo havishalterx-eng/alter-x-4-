@@ -101,13 +101,22 @@ function harness(options: {
     }
     if (options.modelFailure !== undefined) throw options.modelFailure;
     return {
-      output_json: JSON.stringify(
-        options.modelOutput ?? {
-          explanation: "The isolated sandbox runtime became unavailable.",
-          confidence: 0.96,
-          evidence: ["SANDBOX_BUILD_INFRA_FAILURE", "retryable=true"],
+      // Real provider responses (packages/adapters/src/aws/bedrock-model-provider.ts)
+      // wrap output_json as {message: {role, content}, stop_reason} -- content
+      // itself is the JSON-encoded root-cause payload.
+      output_json: JSON.stringify({
+        message: {
+          role: "assistant",
+          content: JSON.stringify(
+            options.modelOutput ?? {
+              explanation: "The isolated sandbox runtime became unavailable.",
+              confidence: 0.96,
+              evidence: ["SANDBOX_BUILD_INFRA_FAILURE", "retryable=true"],
+            },
+          ),
         },
-      ),
+        stop_reason: "end_turn",
+      }),
       usage_json: "{}",
       resolved_capability: "ADVANCED:anthropic.claude-sonnet",
     };
@@ -139,7 +148,8 @@ describe("RecoveryPolicyService", () => {
       expect.objectContaining({ model_alias: "ADVANCED" }),
     );
     const modelInput = JSON.parse(invoke.mock.calls[0]![0].input_json);
-    expect(modelInput.task).toContain("Do not select or recommend");
+    const userContent = JSON.parse(modelInput.messages[0].content);
+    expect(userContent.task).toContain("Do not select or recommend");
     const insert = query.mock.calls.find(([sql]) =>
       String(sql).includes("INSERT INTO recovery_actions"),
     );
@@ -194,9 +204,11 @@ describe("RecoveryPolicyService", () => {
     const { service, query } = harness({
       modelOutput: {
         explanation: "plausible",
-        confidence: 0.8,
+        // Out of the required [0, 1] range -- parseModelOutput's own shape
+        // check rejects this; extra unknown fields are silently ignored, so
+        // this has to violate a real constraint, not just add noise.
+        confidence: 1.5,
         evidence: ["one"],
-        strategy: "retry",
       },
     });
     await expect(service.classifyFailure(request())).rejects.toBeInstanceOf(

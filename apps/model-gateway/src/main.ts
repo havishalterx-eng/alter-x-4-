@@ -176,7 +176,10 @@ function createQueueProvider(
   if (environment.configSource === "mock") {
     return createMockQueueProvider();
   }
-  return new SqsQueueProvider({ region: environment.region });
+  return new SqsQueueProvider({
+    region: environment.region,
+    ...(process.env.AWS_ENDPOINT_URL ? { endpoint: process.env.AWS_ENDPOINT_URL, useQueueUrlAsEndpoint: false } : {}),
+  });
 }
 
 async function bootstrap(): Promise<void> {

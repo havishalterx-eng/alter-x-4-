@@ -294,3 +294,4 @@ export {
   type SentryFacade,
   type SentryProviderDependencies,
 } from "./sentry-provider";
+export { startNodeSdkTracing, type NodeSdkTracingConfig } from "./node-sdk-tracing";

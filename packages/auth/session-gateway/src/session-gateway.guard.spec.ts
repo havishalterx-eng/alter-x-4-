@@ -139,6 +139,7 @@ describe("SessionGatewayGuard", () => {
     const { actorTokenValidator, executionContext, guard, request } = setup({
       serviceActor,
     });
+    delete (request.headers as Record<string, unknown>)["x-alter-actor-token"];
     await expect(guard.canActivate(executionContext)).resolves.toBe(true);
     expect(request.actorContext).toEqual(serviceActor);
     expect(actorTokenValidator.validate).not.toHaveBeenCalled();

@@ -126,6 +126,19 @@ export class CredentialRepository implements OnModuleDestroy {
     });
   }
 
+  async getTenantRegion(tenantId: string): Promise<string> {
+    return this.withTenant(tenantId, async (client) => {
+      const result = await client.query<{ region: string }>(
+        `SELECT region FROM tenants WHERE id = $1`,
+        [tenantId],
+      );
+      if (!result.rows[0]) {
+        throw new Error(`Tenant not found: ${tenantId}`);
+      }
+      return result.rows[0].region;
+    });
+  }
+
   async onModuleDestroy(): Promise<void> {
     if (this.closePoolOnDestroy) await this.pool.end();
   }

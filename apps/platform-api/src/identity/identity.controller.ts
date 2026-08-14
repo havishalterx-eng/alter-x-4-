@@ -23,6 +23,7 @@ import type {
 } from "./dto/auth.dto";
 import { Public, RequireTenantRole } from "../rbac/decorators";
 import { IdentityService, type IssuedSession } from "./identity.service";
+import { UserProfileRepository } from "./user-profile.repository";
 import { IdentityHttpError, problemDetails } from "./problem";
 
 const accessCookieName = "alter_access";
@@ -32,7 +33,10 @@ const refreshCookieName = "alter_refresh";
 export class IdentityController {
   private readonly logger = new Logger(IdentityController.name);
 
-  constructor(private readonly identityService: IdentityService) {}
+  constructor(
+    private readonly identityService: IdentityService,
+    private readonly userProfileRepository: UserProfileRepository,
+  ) {}
 
   @Post("login")
   @Public()
@@ -117,6 +121,24 @@ export class IdentityController {
         session.userId,
       );
       reply.send({ sessions });
+    });
+  }
+
+  @Get("me")
+  @RequireTenantRole("member")
+  async me(@Req() request: FastifyRequest, @Res() reply: FastifyReply): Promise<void> {
+    await this.safe(reply, "/api/v1/auth/me", async () => {
+      const session = await this.requireSession(request);
+      const profile = await this.userProfileRepository.findById(session.userId);
+      if (!profile) {
+        throw new IdentityHttpError(404, "USER_NOT_FOUND", "User profile not found");
+      }
+      reply.send({
+        userId: session.userId,
+        tenantId: session.tenantId,
+        email: profile.email,
+        name: profile.display_name,
+      });
     });
   }
 

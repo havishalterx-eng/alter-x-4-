@@ -107,7 +107,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: full monorepo sweep
-        run: pnpm exec nx run-many -t lint,typecheck,test,build --all --parallel=2
+        run: pnpm exec nx run-many -t lint,typecheck,build --all --parallel=2
+
+      # platform-api:test needs a migrated DATABASE_URL (real Postgres-backed
+      # specs, e.g. entitlement/credential guards) -- excluded here so it
+      # only runs once, correctly, after "migrate platform db" below. Every
+      # other project's tests don't need that, so they run right away.
+      - name: test monorepo (excluding platform-api)
+        run: pnpm exec nx run-many -t test --all --exclude=platform-api --parallel=2
 
       - name: migrate platform db
         run: pnpm --filter @alterx/platform-api db:migrate

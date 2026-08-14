@@ -1,4 +1,4 @@
-import type { MutableSecretsProvider } from "@alterx/shared-clients";
+import { createMockAuditEventHandler, type MutableSecretsProvider } from "@alterx/shared-clients";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CredentialRepository } from "./credential.repository";
 import { CredentialService, secretReference } from "./credential.service";
@@ -50,6 +50,7 @@ describe("CredentialService", () => {
         return updated;
       }),
       delete: vi.fn(async (_tenant, id) => records.delete(id)),
+      getTenantRegion: vi.fn(async () => "ap-south-1"),
       recordUse: vi.fn(async (_tenant, id, usedBy) => {
         audits.push(`${id}:${usedBy}`);
         return "audit-id";
@@ -64,7 +65,7 @@ describe("CredentialService", () => {
         values.delete(reference);
       }),
     } as unknown as MutableSecretsProvider;
-    service = new CredentialService(repository, provider);
+    service = new CredentialService(repository, provider, createMockAuditEventHandler());
   });
 
   it("stores only metadata, returns masking, and preserves provider bytes", async () => {

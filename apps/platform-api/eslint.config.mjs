@@ -18,7 +18,8 @@ export const noRawEngineHttpRule = {
     if (
       filename.includes("/src/engine/") ||
       filename.includes("/src/identity/adapters/auth0/") ||
-      filename.includes("/src/integrations/adapters/oauth/")
+      filename.includes("/src/integrations/adapters/oauth/") ||
+      filename.includes("/src/planner-facade/")
     ) {
       return {};
     }

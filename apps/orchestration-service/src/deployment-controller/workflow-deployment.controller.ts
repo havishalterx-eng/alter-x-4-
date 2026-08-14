@@ -8,6 +8,7 @@ import {
   DeploymentNotFoundError,
   DeploymentStateTransitionError,
   DeploymentValidationError,
+  ReleaseGateFailedError,
 } from "./deployment-controller.service";
 
 interface VersionBody {
@@ -113,6 +114,12 @@ function mapError(error: unknown, requestUrl: string): HttpException {
   }
   if (error instanceof DeploymentNotFoundError) {
     return new HttpException(problem(requestUrl, 404, "WORKFLOW_DEPLOYMENT_NOT_FOUND", error.message), 404);
+  }
+  if (error instanceof ReleaseGateFailedError) {
+    return new HttpException(
+      problem(requestUrl, 409, "WORKFLOW_DEPLOYMENT_RELEASE_GATE_FAILED", error.message),
+      409,
+    );
   }
   if (error instanceof DeploymentStateTransitionError || error instanceof DeploymentConcurrencyError) {
     return new HttpException(problem(requestUrl, 409, "WORKFLOW_DEPLOYMENT_CONFLICT", error.message), 409);

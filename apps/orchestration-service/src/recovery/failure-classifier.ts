@@ -107,6 +107,9 @@ export function classifyNodeFailure(
   if (/timeout|timed out|deadline exceeded/i.test(detail)) {
     add(scores, evidence, "timeout", 75, "detail matched timeout signature");
   }
+  if (/CREDENTIAL_MISSING/i.test(detail)) {
+    add(scores, evidence, "credential_missing", 100, "detail matched CREDENTIAL_MISSING signature");
+  }
   if (
     node.nodeType === "SandboxExec" &&
     /sandbox.*(?:unavailable|crash|terminated|session.*(?:lost|missing|not found))/i.test(

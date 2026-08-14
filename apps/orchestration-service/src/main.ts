@@ -32,6 +32,15 @@ import { RECOVERY_PROTO_PATH } from "./recovery/grpc.constants";
 import { RUNS_PROTO_PATH } from "./runs/grpc.constants";
 import { ARTIFACT_CONTENT_PROTO_PATH } from "./artifacts/grpc.constants";
 
+function parsePort(value: string | undefined): number {
+  if (value === undefined) return 3000;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("PORT must be an integer from 1 to 65535");
+  }
+  return port;
+}
+
 async function bootstrap(): Promise<void> {
   const conversationConfig = loadConversationManagerEnvironment(process.env);
   const compilerConfig = loadCompilerEnvironment(process.env);
@@ -95,7 +104,7 @@ async function bootstrap(): Promise<void> {
     protoPath: CONVERSATION_PROTO_PATH,
   });
   app.enableShutdownHooks();
-  await app.listen(3000, "0.0.0.0");
+  await app.listen(parsePort(process.env.PORT), "0.0.0.0");
 }
 
 void bootstrap();

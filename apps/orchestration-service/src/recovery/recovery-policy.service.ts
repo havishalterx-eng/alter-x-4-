@@ -519,23 +519,30 @@ export class RecoveryPolicyService {
         node_execution_id: request.node_execution_id,
         model_alias: "ADVANCED",
         input_json: JSON.stringify({
-          task: "Estimate root cause only. Do not select or recommend a recovery strategy.",
-          output_schema: {
-            explanation: "non-empty string",
-            confidence: "number from 0 to 1",
-            evidence: "array of 1 to 8 non-empty strings",
-          },
-          deterministic_classification: {
-            failure_class: classification.failureClass,
-            confidence_ceiling: classification.confidenceCeiling,
-            evidence: classification.evidence,
-          },
-          node_execution: {
-            node_type: node.node_type,
-            attempt: node.attempt,
-            error: safeError(node.error ?? {}),
-          },
-          observation,
+          messages: [
+            {
+              role: "user",
+              content: JSON.stringify({
+                task: "Estimate root cause only. Do not select or recommend a recovery strategy.",
+                output_schema: {
+                  explanation: "non-empty string",
+                  confidence: "number from 0 to 1",
+                  evidence: "array of 1 to 8 non-empty strings",
+                },
+                deterministic_classification: {
+                  failure_class: classification.failureClass,
+                  confidence_ceiling: classification.confidenceCeiling,
+                  evidence: classification.evidence,
+                },
+                node_execution: {
+                  node_type: node.node_type,
+                  attempt: node.attempt,
+                  error: safeError(node.error ?? {}),
+                },
+                observation,
+              }),
+            },
+          ],
         }),
       });
       if (!response.resolved_capability.startsWith("ADVANCED:")) {
@@ -657,14 +664,28 @@ function parsePrefixedId<T>(
 }
 
 function parseModelOutput(outputJson: string): ModelRootCauseOutput {
-  const parsed = JSON.parse(outputJson) as unknown;
+  let envelope: { message?: { content?: string } };
+  try {
+    envelope = JSON.parse(outputJson);
+  } catch {
+    throw new Error("Model gateway response was not valid JSON");
+  }
+  
+  const content = envelope?.message?.content;
+  if (typeof content !== "string") {
+    throw new Error("Model gateway response did not contain message.content");
+  }
+
+  let cleanedJson = content.trim();
+  if (cleanedJson.startsWith("```")) {
+    cleanedJson = cleanedJson.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
+  }
+  const parsed = JSON.parse(cleanedJson) as unknown;
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error("root-cause output must be an object");
   }
   const record = parsed as Record<string, unknown>;
   if (
-    Object.keys(record).sort().join(",") !==
-      "confidence,evidence,explanation" ||
     typeof record["explanation"] !== "string" ||
     record["explanation"].trim().length === 0 ||
     record["explanation"].length > 2_048 ||

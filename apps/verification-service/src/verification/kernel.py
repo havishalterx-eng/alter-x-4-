@@ -147,6 +147,7 @@ class VerificationKernel:
         score, rationale = await self._llm.review(
             tenant_id=request.tenant_id,
             run_id=request.run_id,
+            node_execution_id=request.node_execution_id,
             node_type=request.node_type,
             rubric=rubric,
             config_json=request.config_json,

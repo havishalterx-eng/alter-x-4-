@@ -1,4 +1,4 @@
-import { MiddlewareConsumer, Module, type NestModule } from "@nestjs/common";
+import { Module } from "@nestjs/common";
 import { Pool } from "pg";
 import {
   ENTITLEMENT_PROVIDER,
@@ -21,7 +21,6 @@ import {
 } from "./idempotency-store";
 import { PlatformDb } from "./platform-db";
 import { SignupController } from "./signup.controller";
-import { SignupActorContextMiddleware } from "./signup-actor-context.middleware";
 import { SignupService } from "./signup.service";
 
 @Module({
@@ -38,7 +37,6 @@ import { SignupService } from "./signup.service";
       useFactory: () =>
         new PlatformDb(new Pool({ connectionString: process.env.DATABASE_URL })),
     },
-    SignupActorContextMiddleware,
     {
       provide: ProcessLocalSignupIdempotencyStore,
       useFactory: () => new ProcessLocalSignupIdempotencyStore(),
@@ -76,8 +74,4 @@ import { SignupService } from "./signup.service";
   ],
   exports: [PlatformDb],
 })
-export class SignupModule implements NestModule {
-  configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(SignupActorContextMiddleware).forRoutes("*");
-  }
-}
+export class SignupModule {}

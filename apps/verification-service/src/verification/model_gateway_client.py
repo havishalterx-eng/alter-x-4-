@@ -125,6 +125,7 @@ class GrpcModelGatewayClient:
         node_execution_id: str,
         instruction: str,
         subject: object,
+        model_alias: str = "FAST",
     ) -> str:
         payload = json.dumps(
             {
@@ -146,7 +147,7 @@ class GrpcModelGatewayClient:
                     tenant_id=tenant_id,
                     run_id=run_id,
                     node_execution_id=node_execution_id,
-                    model_alias="FAST",
+                    model_alias=model_alias,
                     input_json=payload,
                 ),
                 **kwargs,
@@ -163,3 +164,40 @@ class GrpcModelGatewayClient:
         if not isinstance(content, str) or not content:
             raise ModelGatewayInvocationError("FAST classifier response content is empty")
         return content
+
+    async def review(
+        self,
+        *,
+        tenant_id: str,
+        run_id: str,
+        node_execution_id: str,
+        node_type: str,
+        rubric: str,
+        config_json: str,
+        output_json: str,
+    ) -> tuple[float, str]:
+        content = await self._invoke_fast(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            node_execution_id=node_execution_id,
+            instruction=(
+                f"You are an ADVANCED-tier reviewer for a {node_type} node. "
+                f"Rubric: {rubric}\n"
+                "Score the output strictly against the rubric. "
+                "Return ONLY JSON: {\"score\": <float 0.0-1.0>, \"rationale\": <string>}."
+            ),
+            subject={
+                "config": json.loads(config_json) if config_json else {},
+                "output": json.loads(output_json) if output_json else {},
+            },
+            model_alias="ADVANCED",
+        )
+        try:
+            parsed = json.loads(content)
+            score = float(parsed["score"])
+            rationale = str(parsed["rationale"])
+            return score, rationale
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError) as error:
+            raise ModelGatewayInvocationError(
+                "ADVANCED reviewer returned invalid output"
+            ) from error

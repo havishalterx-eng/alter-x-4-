@@ -26,7 +26,7 @@
         "build"
       ],
       "options": {
-        "command": "node dist/apps/orchestration-service/main.js"
+        "command": "node -r ./dist/apps/orchestration-service/tracing.js dist/apps/orchestration-service/main.js"
       }
     },
     "lint": {

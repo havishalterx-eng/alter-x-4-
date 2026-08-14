@@ -99,10 +99,22 @@ async function createBrowserProvider(
 function createQueueProvider(environment: SandboxEnvironment): QueueProvider {
   return environment.localMock
     ? createMockQueueProvider()
-    : new SqsQueueProvider({ region: environment.region });
+    : new SqsQueueProvider({
+        region: environment.region,
+        ...(process.env.AWS_ENDPOINT_URL ? { endpoint: process.env.AWS_ENDPOINT_URL, useQueueUrlAsEndpoint: false } : {}),
+      });
 }
 import { SANDBOX_PROTO_PATH } from "./sandbox/grpc.constants";
 import { ARTIFACT_CONTENT_PROTO_PATH } from "./artifacts/grpc.constants";
+
+function parsePort(value: string | undefined): number {
+  if (value === undefined) return 3000;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("PORT must be an integer from 1 to 65535");
+  }
+  return port;
+}
 
 async function bootstrap(): Promise<void> {
   const environment = loadSandboxEnvironment(process.env);
@@ -140,7 +152,7 @@ async function bootstrap(): Promise<void> {
     bindAddress: environment.grpcBindAddress,
     protoPath: SANDBOX_PROTO_PATH,
   });
-  await app.listen(3000, "0.0.0.0");
+  await app.listen(parsePort(process.env.PORT), "0.0.0.0");
 }
 
 void bootstrap();

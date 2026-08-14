@@ -18,6 +18,7 @@ describe("recovery classification contracts", () => {
       "sandbox_crash",
       "rate_limit",
       "safety_violation",
+      "credential_missing",
       "unknown",
     ]);
   });

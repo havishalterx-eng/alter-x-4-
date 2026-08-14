@@ -103,32 +103,35 @@ services:
       retries: 30
       start_period: 10s
 
-  otel:
-    image: alterx/otel-collector-local:0.157.0
-    build:
-      context: .
-      dockerfile: infrastructure/local/otel/Dockerfile
-    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+  tempo:
+    image: grafana/tempo:2.4.1
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./infrastructure/local/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
     ports:
+      - "127.0.0.1:3200:3200"
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
-      - "127.0.0.1:13133:13133"
     healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--quiet",
-          "--tries=1",
-          "--spider",
-          "http://127.0.0.1:13133/",
-        ]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3200/ready"]
       interval: 5s
       timeout: 5s
       retries: 20
-      start_period: 5s
+      start_period: 10s
+
+  grafana:
+    image: grafana/grafana:10.4.1
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    ports:
+      - "127.0.0.1:3300:3000"
     volumes:
-      - ./infrastructure/local/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ./infrastructure/local/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+    depends_on:
+      tempo:
+        condition: service_healthy
 
   presidio-analyzer:
     image: mcr.microsoft.com/presidio-analyzer:2.2.360
@@ -171,3 +174,4 @@ services:
 volumes:
   platform_db_data:
   engine_db_data:
+  tempo_data:

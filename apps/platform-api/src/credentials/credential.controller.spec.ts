@@ -35,8 +35,9 @@ import { CredentialEtagResolver } from "./credential-etag.resolver";
 import { CredentialExceptionFilter } from "./credential-exception.filter";
 import { CredentialRepository } from "./credential.repository";
 import { CredentialService } from "./credential.service";
-import { CREDENTIAL_SECRETS_PROVIDER } from "./tokens";
+import { CREDENTIAL_AUDIT_CLIENT, CREDENTIAL_SECRETS_PROVIDER } from "./tokens";
 import type { CredentialRecord } from "./types";
+import { createMockAuditEventHandler } from "@alterx/shared-clients";
 
 const tenantId = "018f47a5-7b2c-7d10-8f11-123456789abc";
 const actor: ActorContextType = {
@@ -70,6 +71,7 @@ describe("credential routes", () => {
         ConcurrencyExceptionFilter,
         { provide: CredentialRepository, useValue: repository },
         { provide: CREDENTIAL_SECRETS_PROVIDER, useValue: provider },
+        { provide: CREDENTIAL_AUDIT_CLIENT, useValue: createMockAuditEventHandler() },
         { provide: PgIdempotencyStore, useValue: store },
         {
           provide: ETAG_RESOURCE_RESOLVER,
@@ -322,6 +324,10 @@ class MemoryCredentialRepository {
 
   async delete(_tenant: string, id: string): Promise<boolean> {
     return this.records.delete(id);
+  }
+
+  async getTenantRegion(): Promise<string> {
+    return "ap-south-1";
   }
 
   async recordUse(): Promise<string> {

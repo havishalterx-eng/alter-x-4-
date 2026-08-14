@@ -97,10 +97,19 @@ describe.sequential("RecoveryPolicyService PostgreSQL integration", () => {
   const role = `heal5_test_${randomBytes(6).toString("hex")}`;
   const password = randomBytes(24).toString("hex");
   const invoke = vi.fn(async () => ({
+    // Real provider responses (packages/adapters/src/aws/bedrock-model-provider.ts)
+    // wrap output_json as {message: {role, content}, stop_reason} -- content
+    // itself is the JSON-encoded root-cause payload.
     output_json: JSON.stringify({
-      explanation: "The observed execution signal identifies the failing layer.",
-      confidence: 0.95,
-      evidence: ["durable node error", "verification result"],
+      message: {
+        role: "assistant",
+        content: JSON.stringify({
+          explanation: "The observed execution signal identifies the failing layer.",
+          confidence: 0.95,
+          evidence: ["durable node error", "verification result"],
+        }),
+      },
+      stop_reason: "end_turn",
     }),
     usage_json: "{}",
     resolved_capability: "ADVANCED:test-model",

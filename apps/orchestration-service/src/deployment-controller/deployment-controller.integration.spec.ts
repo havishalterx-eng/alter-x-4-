@@ -13,6 +13,19 @@ import {
   DeploymentNotFoundError,
   DeploymentStateTransitionError,
 } from "./deployment-controller.service";
+import type { EvalFacadeService } from "../eval-facade/eval-facade.service";
+
+// promoteVersion/startCanary gate on a real release-gate check
+// (59ad276) -- this suite exercises the Postgres-backed state machine, not
+// the gate itself, so this fake always passes.
+const PASSING_EVAL_FACADE: EvalFacadeService = {
+  runEvaluation: async () => ({
+    evaluation_run_id: "evr_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+    status: "completed",
+    results_json: "{}",
+  }),
+  checkReleaseGate: async () => ({ passed: true, failed_thresholds: [] }),
+} as unknown as EvalFacadeService;
 
 const migrationsFolder = resolve(
   process.cwd(),
@@ -66,7 +79,7 @@ describe.sequential("DeploymentControllerService Postgres integration", () => {
       migrationsFolder,
     });
     await store.migrate();
-    service = new DeploymentControllerService(store);
+    service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
   }, 60_000);
 
   afterAll(async () => {

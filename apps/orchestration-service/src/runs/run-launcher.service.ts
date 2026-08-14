@@ -440,6 +440,31 @@ export class RunLauncherService {
     return row;
   }
 
+  async retrySignal(
+    tenantIdInput: string,
+    runId: string,
+    nodeExecutionId: string,
+  ): Promise<void> {
+    bareTenantUuid(tenantIdInput);
+    requireRunId(runId);
+    if (nodeExecutionId.trim().length === 0) {
+      throw new RunValidationError("node_execution_id is required");
+    }
+
+    const runRow = await this.getRun(tenantIdInput, runId);
+    if (runRow.status !== "running") {
+      throw new RunStateConflictError(
+        `retry-signal requires run status "running", got "${runRow.status}"`,
+      );
+    }
+
+    await this.durable.signalWorkflow({
+      workflowId: runId,
+      signalName: "nodeRetryDecided",
+      payload: { nodeExecutionId, action: "retry" },
+    });
+  }
+
   async retryNode(
     tenantIdInput: string,
     runId: string,

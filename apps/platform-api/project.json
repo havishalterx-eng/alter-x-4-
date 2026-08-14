@@ -19,7 +19,7 @@
         "build"
       ],
       "options": {
-        "command": "node dist/apps/platform-api/main.js"
+        "command": "node -r ./dist/apps/platform-api/tracing.js dist/apps/platform-api/main.js"
       }
     },
     "lint": {

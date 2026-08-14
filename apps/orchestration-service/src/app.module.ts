@@ -210,15 +210,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: DeploymentAdminService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        return new DeploymentAdminService(new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        }));
+        return new DeploymentAdminService(new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig)));
       },
     },
     {
@@ -230,11 +222,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: WhatsappAccountRegistryService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        return new WhatsappAccountRegistryService(new PostgresOrchestrationStoreProvider({
-          authentication: "iam", host: dbConfig.databaseHost, port: dbConfig.databasePort,
-          database: dbConfig.databaseName, user: dbConfig.databaseUser, region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        }));
+        return new WhatsappAccountRegistryService(new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig)));
       },
     },
     {
@@ -248,21 +236,12 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: OrchestrationDeletionService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const tenantStore = new PostgresOrchestrationStoreProvider({
-          authentication: "iam", host: dbConfig.databaseHost, port: dbConfig.databasePort,
-          database: dbConfig.databaseName, user: dbConfig.databaseUser, region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const tenantStore = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const deletionDatabaseUser = process.env.DELETION_DATABASE_USER?.trim();
         if (deletionDatabaseUser === undefined || deletionDatabaseUser.length === 0) {
           throw new Error("DELETION_DATABASE_USER is required for internal deletion sweeps");
         }
-        const systemStore = new PostgresOrchestrationStoreProvider({
-          authentication: "iam", host: dbConfig.databaseHost, port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: deletionDatabaseUser,
-          region: dbConfig.awsRegion, migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const systemStore = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig, deletionDatabaseUser));
         return new OrchestrationDeletionService(tenantStore, systemStore);
       },
     },
@@ -277,6 +256,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           new M2mValidator({
             auth0Domain: config.auth0Domain,
             apiAudience: config.apiAudience,
+            ...(config.auth0JwksUrl ? { jwksUrl: config.auth0JwksUrl } : {})
           }),
           new ActorTokenValidator(
             {
@@ -286,15 +266,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
             },
             replayStore,
           ),
-          new PostgresOrchestrationStoreProvider({
-            authentication: "iam",
-            host: config.databaseHost,
-            port: config.databasePort,
-            database: config.databaseName,
-            user: config.databaseUser,
-            region: config.awsRegion,
-            migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-          }),
+          new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(config)),
         );
       },
     },
@@ -321,15 +293,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         const conversationConfig = loadConversationManagerEnvironment(
           process.env,
         );
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const modelGateway = new ModelGatewayClient({
           address: conversationConfig.modelGatewayAddress,
           protoPath: MODELGW_CLIENT_PROTO_PATH,
@@ -346,15 +310,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // its own PostgresOrchestrationStoreProvider against the same
         // database rather than refactoring the guard wiring.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         return new TriggerRegistryService(store);
       },
     },
@@ -370,15 +326,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: TriggerBindingService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const bindingConfig = loadTriggerBindingEnvironment(process.env);
         return new TriggerBindingService(
           new PostgresTriggerBindingStore(store),
@@ -397,15 +345,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // own PostgresOrchestrationStoreProvider rather than reaching into
         // the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         return new WorkflowReadService(store);
       },
     },
@@ -413,30 +353,14 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: TemplateVariablesService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        return new TemplateVariablesService(new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        }));
+        return new TemplateVariablesService(new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig)));
       },
     },
     {
       provide: ClarificationsService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        return new ClarificationsService(new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        }));
+        return new ClarificationsService(new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig)));
       },
     },
     {
@@ -444,15 +368,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       useFactory: () => {
         // Same reasoning as WorkflowReadService above.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         return new ProjectReadService(store);
       },
     },
@@ -461,15 +377,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       inject: [RunLauncherService, CONVERSATION_HANDLER],
       useFactory: (launcher: RunLauncherService, conversations: import("@alterx/adapters").ConversationHandler) => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const recoveryConfig = loadRecoveryEnvironment(process.env);
         return new ProjectDomainService(
           store,
@@ -483,15 +391,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: ArtifactsService,
       useFactory: async () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const parameterStore = new AwsSsmParameterProvider({ region: dbConfig.awsRegion });
         try {
           const bucketName = await parameterStore.getParameter(dbConfig.artifactsBucketParameter);
@@ -508,15 +408,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // above: constructs its own PostgresOrchestrationStoreProvider
         // rather than reaching into the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const recoveryConfig = loadRecoveryEnvironment(process.env);
         return new GraphCompilerService(store, new CapabilityServiceClient({
           address: recoveryConfig.capabilityResolverAddress,
@@ -526,17 +418,9 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
     },
     {
       provide: DeploymentControllerService,
-      useFactory: async (artifacts: ArtifactsService) => {
+      useFactory: async (artifacts: ArtifactsService, evalFacade: EvalFacadeService) => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const parameterStore = new AwsSsmParameterProvider({
           region: dbConfig.awsRegion,
         });
@@ -544,7 +428,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           const staticDeploymentBucket = await parameterStore.getParameter(
             dbConfig.artifactsBucketParameter,
           );
-          return new DeploymentControllerService(store, {
+          return new DeploymentControllerService(store, evalFacade, {
             artifacts,
             objects: new S3ObjectStorageProvider({ region: dbConfig.awsRegion }),
             staticDeploymentBucket,
@@ -553,7 +437,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           parameterStore.close();
         }
       },
-      inject: [ArtifactsService],
+      inject: [ArtifactsService, EvalFacadeService],
     },
     {
       provide: DEPLOYCTL_HANDLER,
@@ -570,15 +454,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: NODEEXEC_HANDLER,
       useFactory: async (artifacts: ArtifactsService) => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const conversationConfig = loadConversationManagerEnvironment(
           process.env,
         );
@@ -677,15 +553,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // (see the ApprovalsService comment above): not maximally
         // efficient, but correct and isolated.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const lookup = new RunWorkspaceLookupService(store);
         return {
           getRunWorkspace: async (request: { tenant_id: string; run_id: string }) => {
@@ -711,15 +579,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: NodeExecutionLedgerService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         return new NodeExecutionLedgerService(store);
       },
     },
@@ -727,22 +587,14 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: RunStreamEventService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        return new RunStreamEventService(new PostgresOrchestrationStoreProvider({
-          authentication: "iam", host: dbConfig.databaseHost, port: dbConfig.databasePort,
-          database: dbConfig.databaseName, user: dbConfig.databaseUser, region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        }));
+        return new RunStreamEventService(new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig)));
       },
     },
     {
       provide: RunObservabilityService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        return new RunObservabilityService(new PostgresOrchestrationStoreProvider({
-          authentication: "iam", host: dbConfig.databaseHost, port: dbConfig.databasePort,
-          database: dbConfig.databaseName, user: dbConfig.databaseUser, region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        }));
+        return new RunObservabilityService(new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig)));
       },
     },
     {
@@ -752,15 +604,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // above: constructs its own PostgresOrchestrationStoreProvider
         // rather than reaching into the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const runLauncherConfig = loadRunLauncherEnvironment(process.env);
         const durable = new TemporalDurableExecutionProvider({
           address: runLauncherConfig.temporalAddress,
@@ -796,15 +640,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // above: constructs its own PostgresOrchestrationStoreProvider
         // rather than reaching into the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const runLauncherConfig = loadRunLauncherEnvironment(process.env);
         const durable = new TemporalDurableExecutionProvider({
           address: runLauncherConfig.temporalAddress,
@@ -824,15 +660,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // PostgresOrchestrationStoreProvider rather than reaching into the
         // guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         return new EscalationsService(store);
       },
     },
@@ -843,15 +671,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // above: constructs its own PostgresOrchestrationStoreProvider
         // rather than reaching into the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const cache = new RedisCacheProvider(
           parseRedisHostPort(dbConfig.redisUrl),
         );
@@ -866,15 +686,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // above: constructs its own PostgresOrchestrationStoreProvider
         // rather than reaching into the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const whatsappConfig = loadWhatsappWebhookEnvironment(process.env);
         return new WhatsappWebhookService(
           store,
@@ -891,15 +703,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // own PostgresOrchestrationStoreProvider rather than reaching into
         // the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider({
-          authentication: "iam",
-          host: dbConfig.databaseHost,
-          port: dbConfig.databasePort,
-          database: dbConfig.databaseName,
-          user: dbConfig.databaseUser,
-          region: dbConfig.awsRegion,
-          migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-        });
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const dispatchConfig = loadConversationDispatchEnvironment(process.env);
         const dispatchClient = new ConversationDispatchClient({
           address: dispatchConfig.temporalAddress,
@@ -926,12 +730,45 @@ interface SessionGatewayEnvironment {
   readonly actorTokenAudience: string;
   readonly actorTokenJwksUrl: string;
   readonly redisUrl: string;
+  readonly databaseAuthentication: "static" | "iam";
+  readonly databaseConnectionString: string;
   readonly databaseHost: string;
   readonly databasePort: number;
   readonly databaseName: string;
   readonly databaseUser: string;
   readonly awsRegion: string;
   readonly artifactsBucketParameter: string;
+  readonly auth0JwksUrl?: string;
+}
+
+/**
+ * Every PostgresOrchestrationStoreProvider call site in this file used to
+ * inline `authentication: "iam"` directly, which meant orchestration-service
+ * could only ever connect to a real AWS RDS instance -- never a local
+ * Postgres, even for local dev/testing. This mirrors audit-service's
+ * local (static) vs non-local (iam) branch so ALTER_ENV=local can run
+ * against a plain username/password Postgres instead.
+ */
+function orchestrationStoreConfig(
+  env: SessionGatewayEnvironment,
+  userOverride?: string,
+): import("@alterx/adapters").PostgresOrchestrationStoreConfig {
+  if (env.databaseAuthentication === "static") {
+    return {
+      authentication: "static",
+      connectionString: env.databaseConnectionString,
+      migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+    };
+  }
+  return {
+    authentication: "iam",
+    host: env.databaseHost,
+    port: env.databasePort,
+    database: env.databaseName,
+    user: userOverride ?? env.databaseUser,
+    region: env.awsRegion,
+    migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
+  };
 }
 
 /**
@@ -943,15 +780,7 @@ interface SessionGatewayEnvironment {
  */
 function buildRunOutcomeService(): RunOutcomeService {
   const dbConfig = sessionGatewayEnvironment(process.env);
-  const store = new PostgresOrchestrationStoreProvider({
-    authentication: "iam",
-    host: dbConfig.databaseHost,
-    port: dbConfig.databasePort,
-    database: dbConfig.databaseName,
-    user: dbConfig.databaseUser,
-    region: dbConfig.awsRegion,
-    migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-  });
+  const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
   return new RunOutcomeService(store);
 }
 
@@ -965,15 +794,7 @@ function buildRunOutcomeService(): RunOutcomeService {
  */
 function buildRecoveryPolicyService(): RecoveryPolicyService {
   const dbConfig = sessionGatewayEnvironment(process.env);
-  const store = new PostgresOrchestrationStoreProvider({
-    authentication: "iam",
-    host: dbConfig.databaseHost,
-    port: dbConfig.databasePort,
-    database: dbConfig.databaseName,
-    user: dbConfig.databaseUser,
-    region: dbConfig.awsRegion,
-    migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-  });
+  const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
   const modelConfig = loadConversationManagerEnvironment(process.env);
   const modelGateway = new ModelGatewayClient({
     address: modelConfig.modelGatewayAddress,
@@ -1046,19 +867,38 @@ function sessionGatewayEnvironment(
 ): SessionGatewayEnvironment {
   assertProductionSessionGatewayConfiguration(env);
 
-  return {
+  const base = {
     auth0Domain: requiredEnvironment(env, "AUTH0_DOMAIN"),
     apiAudience: requiredEnvironment(env, "AUTH0_API_AUDIENCE"),
     actorTokenIssuer: requiredEnvironment(env, "ACTOR_TOKEN_ISSUER"),
     actorTokenAudience: requiredEnvironment(env, "ACTOR_TOKEN_AUDIENCE"),
     actorTokenJwksUrl: requiredEnvironment(env, "ACTOR_TOKEN_JWKS_URL"),
     redisUrl: requiredEnvironment(env, "REDIS_ENDPOINT"),
+    awsRegion: requiredEnvironment(env, "AWS_REGION"),
+    artifactsBucketParameter: requiredEnvironment(env, "ALTER_ARTIFACTS_BUCKET_PARAM"),
+    ...(env.AUTH0_JWKS_URL ? { auth0JwksUrl: env.AUTH0_JWKS_URL } : {}),
+  };
+
+  if (env.ALTER_ENV?.trim() === "local") {
+    return {
+      ...base,
+      databaseAuthentication: "static",
+      databaseConnectionString: requiredEnvironment(env, "ORCHESTRATION_DATABASE_URL"),
+      databaseHost: "",
+      databasePort: 0,
+      databaseName: "",
+      databaseUser: "",
+    };
+  }
+
+  return {
+    ...base,
+    databaseAuthentication: "iam",
+    databaseConnectionString: "",
     databaseHost: requiredEnvironment(env, "ORCHESTRATION_DATABASE_HOST"),
     databasePort: requiredPort(env, "ORCHESTRATION_DATABASE_PORT"),
     databaseName: requiredEnvironment(env, "ORCHESTRATION_DATABASE_NAME"),
     databaseUser: requiredEnvironment(env, "ORCHESTRATION_DATABASE_USER"),
-    awsRegion: requiredEnvironment(env, "AWS_REGION"),
-    artifactsBucketParameter: requiredEnvironment(env, "ALTER_ARTIFACTS_BUCKET_PARAM"),
   };
 }
 

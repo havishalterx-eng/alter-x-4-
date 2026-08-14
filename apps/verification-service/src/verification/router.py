@@ -7,6 +7,7 @@ The kernel is injected via FastAPI's Depends mechanism so tests can swap in
 any VerificationKernel instance without app-level state mutation.
 """
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -14,7 +15,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 
 from .kernel import VerificationKernel, VerificationValidationError
-from .llm_client import StubReviewerLlmClient
+from .m2m_auth import lazy_auth0_m2m_token_provider_from_environment
+from .model_gateway_client import GrpcModelGatewayClient
 from .models import ScoreNodeRequest, ScoreNodeResponse
 
 # ---------------------------------------------------------------------------
@@ -29,8 +31,19 @@ async def verification_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise the default kernel on startup."""
     global _default_kernel
 
-    _default_kernel = VerificationKernel(llm_client=StubReviewerLlmClient())
+    model_gateway_target = os.environ.get("MODEL_GATEWAY_GRPC_TARGET") or os.environ.get(
+        "MODEL_GATEWAY_ADDRESS"
+    )
+    if not model_gateway_target:
+        raise RuntimeError("MODEL_GATEWAY_ADDRESS or MODEL_GATEWAY_GRPC_TARGET is required")
+    
+    model_gateway = GrpcModelGatewayClient(
+        model_gateway_target,
+        access_token_provider=lazy_auth0_m2m_token_provider_from_environment(),
+    )
+    _default_kernel = VerificationKernel(model_gateway)
     yield
+    await model_gateway.close()
     _default_kernel = None
 
 

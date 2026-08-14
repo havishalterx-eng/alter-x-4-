@@ -25,11 +25,19 @@ export interface EntitlementStore {
   ): Promise<EntitlementRow>;
 }
 
+// entitlements.tenant_id is a real `uuid` column; actorContext.tenant_id can
+// arrive `ten_` prefixed (the engine-wide convention -- see
+// packages/contracts/src/ids.ts) or bare (platform-api's own session, which
+// doesn't prefix). Accept either.
+function bareTenantId(tenantId: string): string {
+  return tenantId.startsWith("ten_") ? tenantId.slice("ten_".length) : tenantId;
+}
+
 export class PostgresEntitlementStore implements EntitlementStore {
   constructor(private readonly pool: Pool) {}
 
   async findEffective(tenantId: string): Promise<EntitlementRow | null> {
-    return this.inTenantTransaction(tenantId, async (client) => {
+    return this.inTenantTransaction(bareTenantId(tenantId), async (client, bareId) => {
       const result = await client.query<{
         tenant_id: string;
         plan: string;
@@ -43,7 +51,7 @@ export class PostgresEntitlementStore implements EntitlementStore {
             AND (effective_to IS NULL OR effective_to > now())
           ORDER BY effective_from DESC NULLS LAST, created_at DESC
           LIMIT 1`,
-        [tenantId],
+        [bareId],
       );
       const row = result.rows[0];
       return row
@@ -66,6 +74,7 @@ export class PostgresEntitlementStore implements EntitlementStore {
       limits?: Partial<EntitlementLimits>;
     } = {},
   ): Promise<EntitlementRow> {
+    const bareId = bareTenantId(tenantId);
     const insert = async (client: PoolClient): Promise<EntitlementRow> => {
       await client.query(
         `UPDATE entitlements
@@ -73,7 +82,7 @@ export class PostgresEntitlementStore implements EntitlementStore {
           WHERE tenant_id = $1
             AND (effective_from IS NULL OR effective_from <= clock_timestamp())
             AND (effective_to IS NULL OR effective_to > clock_timestamp())`,
-        [tenantId],
+        [bareId],
       );
       const result = await client.query<{
         tenant_id: string;
@@ -87,7 +96,7 @@ export class PostgresEntitlementStore implements EntitlementStore {
          RETURNING tenant_id, plan, limits, access_state`,
         [
           randomUUID(),
-          tenantId,
+          bareId,
           plan,
           JSON.stringify(options.limits ?? {}),
           options.accessState ?? "active",
@@ -107,12 +116,12 @@ export class PostgresEntitlementStore implements EntitlementStore {
 
     return transactionClient
       ? insert(transactionClient)
-      : this.inTenantTransaction(tenantId, insert);
+      : this.inTenantTransaction(bareId, (client) => insert(client));
   }
 
   private async inTenantTransaction<T>(
     tenantId: string,
-    operation: (client: PoolClient) => Promise<T>,
+    operation: (client: PoolClient, tenantId: string) => Promise<T>,
   ): Promise<T> {
     const client = await this.pool.connect();
     try {
@@ -120,7 +129,7 @@ export class PostgresEntitlementStore implements EntitlementStore {
       await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [
         tenantId,
       ]);
-      const value = await operation(client);
+      const value = await operation(client, tenantId);
       await client.query("COMMIT");
       return value;
     } catch (error) {

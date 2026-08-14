@@ -122,6 +122,17 @@ describe("RbacGuard", () => {
   let app: NestFastifyApplication;
 
   beforeEach(async () => {
+    // RbacModule now also registers ActorContextGuard (imports
+    // IdentityModule/SignupModule), which validates real env at
+    // DI-construction time. Every case here injects actorContext directly
+    // via the x-test-actor header (below) rather than a real session
+    // cookie, so ActorContextGuard itself never touches any of this --
+    // these are only here to satisfy construction.
+    process.env.DATABASE_URL = "postgres://test:test@localhost:5432/test";
+    process.env.MARKETPLACE_DATABASE_URL = "postgres://test:test@localhost:5432/test";
+    process.env.IDENTITY_PROVIDER = "mock";
+    process.env.SIGNING_KEY_PROVIDER = "mock";
+
     const moduleRef = await Test.createTestingModule({
       imports: [RbacTestModule],
     })
@@ -157,6 +168,10 @@ describe("RbacGuard", () => {
 
   afterEach(async () => {
     await app.close();
+    delete process.env.DATABASE_URL;
+    delete process.env.MARKETPLACE_DATABASE_URL;
+    delete process.env.IDENTITY_PROVIDER;
+    delete process.env.SIGNING_KEY_PROVIDER;
   });
 
   it("denies unclassified routes by default", async () => {
@@ -232,6 +247,21 @@ describe("RbacGuard", () => {
     const response = await get("/rbac-test/staff/any", actor(["owner"], tenantA));
     expect(response.statusCode).toBe(403);
     expect(response.json()).toMatchObject({ error_code: "RBAC_ROLE_DENIED" });
+  });
+
+  it("allows a matching workspace role and denies a non-matching one", async () => {
+    const allowed = await get(
+      `/rbac-test/workspaces/${workspaceA}/editor`,
+      actor(["editor"], tenantA, workspaceA),
+    );
+    expect(allowed.statusCode).toBe(200);
+
+    const denied = await get(
+      `/rbac-test/workspaces/${workspaceA}/editor`,
+      actor(["viewer"], tenantA, workspaceA),
+    );
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toMatchObject({ error_code: "RBAC_ROLE_DENIED" });
   });
 
   async function get(

@@ -181,6 +181,8 @@ export function selectRecoveryStrategy(
 
 function decide(failureClass: FailureClass, nodeAttempt: number): RecoveryStrategy {
   switch (failureClass) {
+    case "credential_missing":
+      return "repair";
     case "safety_violation":
       // See known-gap note above: severity isn't available here, so this
       // never auto-selects "terminate" -- a human decides that escalation.

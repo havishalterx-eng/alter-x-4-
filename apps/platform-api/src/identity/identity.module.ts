@@ -12,6 +12,7 @@ import { MockIdentityProvider } from "./adapters/mock/mock-identity-provider";
 import { IdentityController } from "./identity.controller";
 import type { IdentityProvider } from "./identity-provider.interface";
 import { IdentityService } from "./identity.service";
+import { UserProfileRepository } from "./user-profile.repository";
 import { InMemorySessionStore, PgSessionStore, type SessionStore } from "./session-store";
 import {
   InMemorySsoConfigStore,
@@ -44,6 +45,12 @@ const databasePoolToken = Symbol("DatabasePool");
       provide: ssoConfigStoreToken,
       useFactory: (pool: pg.Pool | undefined): SsoConfigStore =>
         pool ? new PgSsoConfigStore(pool) : new InMemorySsoConfigStore(),
+      inject: [databasePoolToken],
+    },
+    {
+      provide: UserProfileRepository,
+      useFactory: (pool: pg.Pool | undefined): UserProfileRepository =>
+        new UserProfileRepository(pool),
       inject: [databasePoolToken],
     },
     {
@@ -98,7 +105,7 @@ const databasePoolToken = Symbol("DatabasePool");
       inject: [IDENTITY_PROVIDER, sessionStoreToken],
     },
   ],
-  exports: [IDENTITY_PROVIDER, IdentityService],
+  exports: [IDENTITY_PROVIDER, IdentityService, UserProfileRepository],
 })
 export class IdentityModule {}
 

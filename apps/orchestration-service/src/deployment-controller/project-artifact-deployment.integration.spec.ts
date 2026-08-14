@@ -17,6 +17,19 @@ import {
   DeploymentControllerService,
   DeploymentNotFoundError,
 } from "./deployment-controller.service";
+import type { EvalFacadeService } from "../eval-facade/eval-facade.service";
+
+// This suite only exercises deployProjectArtifact, which doesn't touch the
+// release gate (59ad276 added evalFacade to promoteVersion/startCanary
+// only) -- fake is never called, just satisfies the constructor.
+const PASSING_EVAL_FACADE: EvalFacadeService = {
+  runEvaluation: async () => ({
+    evaluation_run_id: "evr_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+    status: "completed",
+    results_json: "{}",
+  }),
+  checkReleaseGate: async () => ({ passed: true, failed_thresholds: [] }),
+} as unknown as EvalFacadeService;
 
 const migrationsFolder = resolve(
   process.cwd(),
@@ -73,7 +86,7 @@ describe.sequential("project artifact deployment seam", () => {
   beforeEach(async () => {
     objects = createMockObjectStorageProvider();
     artifacts = new ArtifactsService(store, objects, SOURCE_BUCKET);
-    service = new DeploymentControllerService(store, {
+    service = new DeploymentControllerService(store, PASSING_EVAL_FACADE, {
       artifacts,
       objects,
       staticDeploymentBucket: DEPLOYMENT_BUCKET,
@@ -211,7 +224,7 @@ describe.sequential("project artifact deployment seam", () => {
         await objects.putObject(reference, body, contentType);
       },
     };
-    const failingService = new DeploymentControllerService(store, {
+    const failingService = new DeploymentControllerService(store, PASSING_EVAL_FACADE, {
       artifacts,
       objects: failingObjects,
       staticDeploymentBucket: DEPLOYMENT_BUCKET,

@@ -19,8 +19,8 @@ import { CredentialEtagResolver } from "./credentials/credential-etag.resolver";
 import { CredentialExceptionFilter } from "./credentials/credential-exception.filter";
 import { CredentialRepository } from "./credentials/credential.repository";
 import { CredentialService } from "./credentials/credential.service";
-import { CREDENTIAL_SECRETS_PROVIDER } from "./credentials/tokens";
-import { createMockMutableSecretsProvider } from "@alterx/shared-clients";
+import { CREDENTIAL_AUDIT_CLIENT, CREDENTIAL_SECRETS_PROVIDER } from "./credentials/tokens";
+import { createMockAuditEventHandler, createMockMutableSecretsProvider } from "@alterx/shared-clients";
 import type { ActorContextType, RbacRequest } from "./rbac";
 
 /**
@@ -30,9 +30,13 @@ import type { ActorContextType, RbacRequest } from "./rbac";
  * feature module together). Reuses CredentialController,
  * CredentialService, CredentialRepository, CredentialEtagResolver,
  * IdempotencyModule unmodified -- a near-verbatim copy of
- * credentials/credential.module.ts's own real provider wiring, with
- * exactly one swap: AwsSecretsManagerProvider (needs real AWS access,
- * unavailable here) -> createMockMutableSecretsProvider(). CredentialService
+ * credentials/credential.module.ts's own real provider wiring, with two
+ * swaps for dependencies unavailable here: AwsSecretsManagerProvider
+ * (needs real AWS access) -> createMockMutableSecretsProvider(), and
+ * AuditServiceClient (needs a live audit-service + real M2M creds) ->
+ * createMockAuditEventHandler() (same in-memory fake
+ * credential.controller.spec.ts already uses for CREDENTIAL_AUDIT_CLIENT).
+ * CredentialService
  * requires the wider MutableSecretsProvider interface (put/deleteSecret,
  * not just getSecret) for its real update()/delete() paths -- the
  * read-only createMockSecretsProvider() used here originally satisfied
@@ -87,6 +91,10 @@ class EvalCredentialModule {
         {
           provide: CREDENTIAL_SECRETS_PROVIDER,
           useFactory: () => createMockMutableSecretsProvider(),
+        },
+        {
+          provide: CREDENTIAL_AUDIT_CLIENT,
+          useFactory: () => createMockAuditEventHandler(),
         },
         CredentialService,
         CredentialEtagResolver,
