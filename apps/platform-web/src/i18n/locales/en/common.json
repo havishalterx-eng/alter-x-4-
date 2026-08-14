@@ -1,0 +1,25 @@
+{
+  "sidebar": {
+    "home": "Home",
+    "workflows": "Workflows",
+    "projects": "Projects",
+    "runs": "Runs",
+    "humanActions": "Human Actions",
+    "benchmarks": "Benchmarks",
+    "knowledge": "Knowledge Base",
+    "discover": "Discover",
+    "connections": "Connections",
+    "marketplace": "Marketplace",
+    "usage": "Usage & Billing"
+  },
+  "topbar": {
+    "search": "Search...",
+    "profile": "Profile",
+    "settings": "Settings",
+    "shortcuts": "Keyboard shortcuts",
+    "themeLight": "Light theme",
+    "themeDark": "Dark theme",
+    "themeSystem": "System theme",
+    "signOut": "Sign out"
+  }
+}

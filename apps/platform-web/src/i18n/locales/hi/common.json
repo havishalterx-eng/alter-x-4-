@@ -1,0 +1,25 @@
+{
+  "sidebar": {
+    "home": "होम",
+    "workflows": "वर्कफ़्लो",
+    "projects": "प्रोजेक्ट्स",
+    "runs": "रन्स",
+    "humanActions": "मानव क्रियाएं",
+    "benchmarks": "बेंचमार्क",
+    "knowledge": "नॉलेज बेस",
+    "discover": "डिस्कवर",
+    "connections": "कनेक्शन",
+    "marketplace": "मार्केटप्लेस",
+    "usage": "उपयोग और बिलिंग"
+  },
+  "topbar": {
+    "search": "खोजें...",
+    "profile": "प्रोफ़ाइल",
+    "settings": "सेटिंग्स",
+    "shortcuts": "कीबोर्ड शॉर्टकट",
+    "themeLight": "लाइट थीम",
+    "themeDark": "डार्क थीम",
+    "themeSystem": "सिस्टम थीम",
+    "signOut": "साइन आउट"
+  }
+}

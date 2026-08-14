@@ -1,0 +1,1193 @@
+export type WorkflowStatus = "draft" | "active" | "paused" | "archived"
+export type DisplayCurrency = "USD" | "INR"
+export type RunStatus = "queued" | "starting" | "running" | "waiting" | "completed" | "failed" | "cancelled" | "degraded"
+
+export interface Workspace {
+  id: string
+  name: string
+  slug: string
+  avatarUrl?: string
+  role: WorkspaceRole
+  memberCount: number
+  createdAt: string
+}
+
+export interface User {
+  id: string
+  name: string
+  email: string
+  avatarUrl?: string
+}
+
+export interface Workflow {
+  id: string
+  name: string
+  description?: string
+  status: WorkflowStatus
+  runs: number
+  successRate: number
+  updatedAt: string
+}
+
+export interface Run {
+  id: string
+  
+  workflowId?: string
+  workflowName?: string
+  
+  projectId?: string
+  projectName?: string
+  
+  mode: "workflow" | "project"
+  
+  status: RunStatus
+  
+  startedAt?: string
+  completedAt?: string
+  durationMs?: number
+  
+  triggeredBy?: {
+    id: string
+    name: string
+  }
+  
+  trigger?: {
+    type: string
+    name: string
+  }
+  
+  nodeCount?: number
+  currentNodeId?: string
+  
+  createdAt: string
+}
+
+export interface ApiError {
+  code: string
+  message: string
+  requestId?: string
+  details?: unknown
+}
+
+export interface DashboardSummary {
+  activeWorkflows: number
+  runsToday: number
+  successRate: number
+  needsAttention: number
+  recentWorkflows: Workflow[]
+  recentRuns: Run[]
+}
+
+export type WorkspaceRole = "owner" | "admin" | "member" | "viewer"
+
+export type MemberStatus = "active" | "invited" | "suspended"
+
+export interface Member {
+  id: string
+  name: string
+  email: string
+  role: WorkspaceRole
+  status: MemberStatus
+  joinedAt: string
+  avatarUrl?: string
+}
+
+export type Permission =
+  | "workspace.manage"
+  | "member.read"
+  | "member.invite"
+  | "member.update"
+  | "member.remove"
+  | "role.read"
+  | "role.manage"
+  | "workflow.read"
+  | "workflow.create"
+  | "workflow.update"
+  | "workflow.delete"
+  | "workflow.run"
+  | "project.read"
+  | "project.create"
+  | "project.update"
+  | "project.run"
+  | "run.read"
+  | "human_action.read"
+  | "human_action.claim"
+  | "human_action.decide"
+  | "human_action.annotate"
+  | "knowledge.read"
+  | "knowledge.manage"
+  | "connection.read"
+  | "connection.manage"
+  | "billing.read"
+  | "billing.manage"
+  | "admin.access"
+  | "conversation.read"
+  | "conversation.create"
+  | "trigger.read"
+  | "trigger.manage"
+  | "event.read"
+  | "event.replay"
+  | "webhook.read"
+  | "webhook.manage"
+  | "knowledge.test_retrieval"
+  | "knowledge.memory_manage"
+  | "connection.read"
+  | "connection.manage"
+  | "credential.read"
+  | "credential.manage"
+  | "channel.read"
+  | "channel.manage"
+  | "data.export"
+  | "data.delete"
+  | "seller.access"
+  | "benchmark.read"
+  | "benchmark.create"
+  | "notification.read"
+  | "notification.manage"
+  | "admin.tenant.read"
+  | "admin.tenant.manage"
+  | "admin.user.read"
+  | "admin.user.manage"
+  | "audit.read"
+  | "admin.audit.read"
+  | "admin.provider.read"
+  | "admin.provider.manage"
+  | "admin.incident.read"
+  | "admin.incident.manage"
+  | "admin.policy.read"
+  | "admin.policy.manage"
+  | "admin.security.read"
+  | "admin.security.manage"
+  | "admin.billing.read"
+  | "admin.billing.manage"
+  | "admin.marketplace.read"
+  | "admin.marketplace.manage"
+  | "admin.feature_flags.read"
+  | "admin.feature_flags.manage"
+  | "support.access"
+  | "support.impersonate"
+
+export interface Profile {
+  id: string
+  name: string
+  email: string
+  jobTitle?: string
+  avatarUrl?: string
+}
+
+export interface Session {
+  id: string
+  device: string
+  browser: string
+  location: string
+  ip: string
+  lastActive: string
+  isCurrent: boolean
+}
+
+// Phase 3 Types
+
+export interface WorkflowNode {
+  id: string
+  type: string
+  position: { x: number; y: number }
+  data: Record<string, any>
+  width?: number
+  height?: number
+  selected?: boolean
+}
+
+export interface WorkflowEdge {
+  id: string
+  source: string
+  target: string
+  sourceHandle?: string
+  targetHandle?: string
+  animated?: boolean
+  label?: string
+}
+
+export interface WorkflowVersion {
+  id: string
+  workflowId: string
+  version: number
+  createdAt: string
+  createdBy: {
+    id: string
+    name: string
+    avatarUrl?: string
+  }
+  summary?: string
+  nodes: WorkflowNode[]
+  edges: WorkflowEdge[]
+}
+
+export interface NodePortDefinition {
+  id: string
+  name: string
+  type: string
+}
+
+export interface NodeTypeDefinition {
+  type: string
+  name: string
+  description: string
+  category: string
+  icon?: string
+  inputs: NodePortDefinition[]
+  outputs: NodePortDefinition[]
+  configSchema?: any
+}
+
+export type MessageRole = "user" | "assistant" | "system"
+export type MessageType = "text" | "clarification" | "workflow_draft" | "project_brief" | "project_plan"
+
+export interface ChatMessage {
+  id: string
+  role: MessageRole
+  type: MessageType
+  content: string
+  data?: any
+  createdAt: string
+}
+
+export type ProjectStatus = "draft" | "clarifying" | "planning" | "ready" | "building" | "testing" | "completed" | "archived"
+
+export interface ProjectBrief {
+  goal: string
+  primaryUsers: string
+  coreCapabilities: string[]
+}
+
+export interface ProjectPlanTask {
+  id: string
+  title: string
+  description?: string
+  status: "pending" | "in_progress" | "done"
+  dependencies?: string[]
+}
+
+export interface ProjectPlanPhase {
+  id: string
+  title: string
+  description?: string
+  tasks: ProjectPlanTask[]
+}
+
+export interface ProjectPlan {
+  phases: ProjectPlanPhase[]
+}
+
+export interface Project {
+  id: string
+  name: string
+  status: ProjectStatus
+  brief?: ProjectBrief
+  plan?: ProjectPlan
+  createdAt: string
+  updatedAt: string
+}
+
+// Phase 4 Types
+
+export type NodeExecutionStatus = "pending" | "queued" | "running" | "waiting" | "completed" | "failed" | "skipped" | "cancelled"
+
+export interface DataReference {
+  id: string
+  kind: "json" | "text" | "file" | "artifact" | "binary"
+  label?: string
+  preview?: unknown
+  sizeBytes?: number
+}
+
+export interface RunError {
+  code: string
+  message: string
+  details?: any
+}
+
+export interface RunNodeExecution {
+  id: string
+  runId: string
+  nodeId: string
+  nodeName: string
+  nodeType: string
+  status: NodeExecutionStatus
+  attempt: number
+  startedAt?: string
+  completedAt?: string
+  durationMs?: number
+  inputRefs?: DataReference[]
+  outputRefs?: DataReference[]
+  error?: RunError
+  metadata?: Record<string, unknown>
+}
+
+export interface RunEventBase {
+  id: string
+  runId: string
+  sequence: number
+  timestamp: string
+}
+
+export interface RunStatusEvent extends RunEventBase {
+  type: "run.status" | "run.started" | "run.completed" | "run.failed"
+  status: RunStatus
+}
+
+export interface NodeStatusEvent extends RunEventBase {
+  type: "node.started" | "node.completed" | "node.failed" | "node.waiting" | "node.retrying"
+  nodeId: string
+  status: NodeExecutionStatus
+  attempt: number
+}
+
+export interface ModelDeltaEvent extends RunEventBase {
+  type: "model.delta"
+  nodeId: string
+  delta: string
+}
+
+export interface TerminalEvent extends RunEventBase {
+  type: "terminal.stdout" | "terminal.stderr"
+  content: string
+}
+
+export interface ArtifactCreatedEvent extends RunEventBase {
+  type: "artifact.created"
+  artifactId: string
+}
+
+export interface ProjectFileEvent extends RunEventBase {
+  type: "project.file.changed"
+  fileId: string
+  status: "created" | "modified" | "deleted"
+}
+
+export interface TestEvent extends RunEventBase {
+  type: "test.started" | "test.completed"
+  testId?: string
+}
+
+export interface HumanActionEvent extends RunEventBase {
+  type: "human_action.created" | "human_action.resolved"
+  actionId: string
+}
+
+export type RunEvent = 
+  | RunStatusEvent 
+  | NodeStatusEvent 
+  | ModelDeltaEvent 
+  | TerminalEvent 
+  | ArtifactCreatedEvent 
+  | ProjectFileEvent 
+  | TestEvent
+  | HumanActionEvent
+
+export interface Artifact {
+  id: string
+  runId: string
+  nodeId?: string
+  name: string
+  type: "file" | "report" | "image" | "json" | "archive" | "code" | "other"
+  mimeType?: string
+  sizeBytes?: number
+  createdAt: string
+  previewUrl?: string
+  downloadUrl?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface ProjectFile {
+  id: string
+  path: string
+  name: string
+  type: "file" | "directory"
+  language?: string
+  status?: "unchanged" | "created" | "modified" | "deleted"
+  content?: string
+}
+
+export interface TestResult {
+  id: string
+  name: string
+  suite?: string
+  status: "passed" | "failed" | "skipped"
+  durationMs?: number
+  error?: string
+}
+
+// Phase 5 Types
+
+export type HumanActionType = "approval" | "clarification" | "escalation"
+export type HumanActionStatus = "open" | "claimed" | "resolved" | "expired" | "cancelled"
+export type HumanActionResolution = "approved" | "rejected" | "answered" | "resolved" | "dismissed"
+export type HumanActionPriority = "low" | "normal" | "high" | "critical"
+
+export interface HumanActionOption {
+  id: string
+  label: string
+  value?: string
+}
+
+export interface HumanActionContext {
+  summary?: string
+  reason?: string
+  inputRefs?: DataReference[]
+  outputRefs?: DataReference[]
+  recommendation?: string
+  confidence?: number
+  risk?: string
+  options?: HumanActionOption[]
+}
+
+export interface UserSummary {
+  id: string
+  name: string
+  avatarUrl?: string
+}
+
+export interface HumanAction {
+  id: string
+  type: HumanActionType
+  status: HumanActionStatus
+  priority: HumanActionPriority
+  title: string
+  description?: string
+  workspaceId: string
+  runId: string
+  workflowId?: string
+  workflowName?: string
+  projectId?: string
+  projectName?: string
+  nodeId?: string
+  nodeName?: string
+  createdAt: string
+  dueAt?: string
+  claimedBy?: UserSummary
+  claimedAt?: string
+  resolvedBy?: UserSummary
+  resolvedAt?: string
+  resolution?: HumanActionResolution
+  context?: HumanActionContext
+  metadata?: Record<string, unknown>
+}
+
+export interface HumanAnnotation {
+  id: string
+  actionId: string
+  author: UserSummary
+  text: string
+  createdAt: string
+}
+
+export interface RecoveryEvent {
+  id: string
+  runId: string
+  nodeId?: string
+  type: "retry" | "skip" | "rollback" | "human_decision" | "manual_resume" | "abort"
+  actor: UserSummary | { type: "system"; name: "AlterX" }
+  summary: string
+  createdAt: string
+  metadata?: Record<string, unknown>
+}
+
+export type VerificationStatus = "not_run" | "running" | "passed" | "warning" | "failed"
+
+export interface VerificationCheck {
+  id: string
+  name: string
+  status: "passed" | "warning" | "failed"
+  message?: string
+  evidenceRefs?: DataReference[]
+}
+
+export interface NodeVerification {
+  status: VerificationStatus
+  summary?: string
+  checks: VerificationCheck[]
+}
+
+export interface HealthDimension {
+  score: number
+  status: "healthy" | "warning" | "critical"
+  summary: string
+  issues?: { id: string; message: string }[]
+}
+
+export interface WorkflowHealth {
+  workflowId: string
+  overallScore: number
+  status: "healthy" | "warning" | "critical"
+  dimensions: {
+    validation: HealthDimension
+    availability: HealthDimension
+    correctness: HealthDimension
+    reliability: HealthDimension
+  }
+  recentFailures: number
+  degradedRuns: number
+  lastEvaluatedAt: string
+}
+
+// Phase 6 Types
+
+export type ConversationType = "general" | "workflow_builder" | "project_builder" | "run_investigation"
+export type ConversationStatus = "active" | "archived"
+
+export interface Conversation {
+  id: string
+  title: string
+  type: ConversationType
+  status?: ConversationStatus
+  createdAt: string
+  updatedAt: string
+  createdBy: UserSummary
+  linkedWorkflowId?: string
+  linkedProjectId?: string
+  linkedRunId?: string
+  preview?: string
+}
+
+export type ConversationMessageRole = "user" | "assistant" | "system"
+export type ConversationMessageKind = "text" | "clarification" | "workflow" | "project" | "run" | "artifact" | "action"
+
+export interface ConversationMessage {
+  id: string
+  conversationId: string
+  role: ConversationMessageRole
+  kind: ConversationMessageKind
+  createdAt: string
+  content: any
+}
+
+export type TriggerType = "manual" | "webhook" | "schedule" | "event" | "email"
+export type TriggerStatus = "configured" | "needs_configuration" | "error"
+
+export interface Trigger {
+  id: string
+  workflowId: string
+  type: TriggerType
+  name: string
+  enabled: boolean
+  status: TriggerStatus
+  config: Record<string, unknown>
+  lastTriggeredAt?: string
+  lastTestedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type WebhookAuthentication = "none" | "secret" | "signature"
+
+export interface WebhookEndpoint {
+  id: string
+  name: string
+  workflowId: string
+  triggerId: string
+  path: string
+  url: string
+  method: string
+  enabled: boolean
+  authentication: WebhookAuthentication
+  createdAt: string
+  lastReceivedAt?: string
+}
+
+export type EventSource = "webhook" | "schedule" | "email" | "integration" | "internal"
+export type EventStatus = "received" | "matched" | "triggered" | "ignored" | "failed"
+
+export interface IncomingEvent {
+  id: string
+  source: EventSource
+  type: string
+  status: EventStatus
+  workflowId?: string
+  triggerId?: string
+  runId?: string
+  receivedAt: string
+  payloadRef?: DataReference
+  error?: ApiError
+}
+
+export interface DashboardOverview {
+  metrics: { activeWorkflows: number; runsToday: number; successRate: number; needsAttention: number }
+  liveRuns: Run[]
+  humanActions: { total: number; approvals: number; clarifications: number; escalations: number }
+  health: { healthy: number; warning: number; critical: number }
+  triggerSummary: { enabled: number; needsConfiguration: number; failing: number }
+  recentEvents: IncomingEvent[]
+  projectBuilds: Run[]
+}
+
+// Phase 7 Types
+
+export type KnowledgeSourceType = "file_upload" | "website" | "notion" | "google_drive" | "confluence" | "database" | "api"
+export type KnowledgeSourceStatus = "ready" | "syncing" | "processing" | "failed" | "paused"
+
+export interface KnowledgeSource {
+  id: string
+  name: string
+  type: KnowledgeSourceType
+  status: KnowledgeSourceStatus
+  documentCount: number
+  chunkCount: number
+  lastSyncedAt?: string
+  nextSyncAt?: string
+  createdAt: string
+  updatedAt: string
+  connectionId?: string
+  config?: Record<string, unknown>
+}
+
+export interface KnowledgeDocument {
+  id: string
+  sourceId: string
+  name: string
+  mimeType?: string
+  sizeBytes?: number
+  status: "queued" | "processing" | "indexed" | "failed" | "excluded"
+  chunkCount?: number
+  error?: ApiError
+  createdAt: string
+  indexedAt?: string
+}
+
+export interface KnowledgeChunk {
+  id: string
+  sourceId: string
+  documentId: string
+  index: number
+  contentPreview: string
+  tokenCount?: number
+  metadata?: Record<string, unknown>
+  embeddingStatus?: "indexed" | "failed"
+}
+
+export interface IngestionProgress {
+  stage: "uploading" | "extracting" | "chunking" | "embedding" | "indexing" | "complete" | "failed"
+  progress?: number
+  message?: string
+}
+
+export interface ProvenanceReference {
+  id: string
+  sourceId: string
+  sourceName: string
+  documentId?: string
+  documentName?: string
+  chunkId?: string
+  label?: string
+  confidence?: number
+  excerpt?: string
+}
+
+export interface RetrievalResult {
+  id: string
+  chunkId: string
+  sourceId: string
+  documentId: string
+  content: string
+  score: number
+  confidence?: "high" | "medium" | "low"
+  provenance: ProvenanceReference[]
+}
+
+export interface MemoryConfiguration {
+  conversationMemoryEnabled: boolean
+  workflowMemoryEnabled: boolean
+  workspaceMemoryEnabled: boolean
+  retentionDays?: number
+  allowSensitiveData?: boolean
+}
+
+export type IntegrationCategory = "Communication" | "Productivity" | "Development" | "Data" | "CRM" | "Storage" | "AI" | "Other"
+
+export interface IntegrationDefinition {
+  id: string
+  name: string
+  category: IntegrationCategory
+  description: string
+  icon?: string
+  capabilities: string[]
+  authType: "oauth" | "api_key" | "token" | "credentials" | "none"
+  available: boolean
+}
+
+export interface Connection {
+  id: string
+  integrationId: string
+  name: string
+  status: "connected" | "degraded" | "disconnected" | "expired" | "error"
+  createdAt: string
+  updatedAt: string
+  lastCheckedAt?: string
+  credentialId?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface Credential {
+  id: string
+  name: string
+  type: "api_key" | "oauth" | "token" | "username_password" | "secret"
+  provider?: string
+  maskedValue?: string
+  createdAt: string
+  updatedAt: string
+  lastUsedAt?: string
+  usedByConnectionIds: string[]
+}
+
+export interface WhatsAppChannel {
+  id: string
+  name: string
+  phoneNumber: string
+  status: "connected" | "pending" | "degraded" | "disconnected"
+  provider: "meta" | "twilio" | "mock"
+  connectionId?: string
+  createdAt: string
+}
+
+export interface VoiceChannel {
+  id: string
+  name: string
+  provider: "twilio" | "vonage" | "mock"
+  phoneNumber?: string
+  status: "connected" | "pending" | "degraded" | "disconnected"
+  voice?: string
+  language?: string
+  connectionId?: string
+  createdAt: string
+}
+
+
+
+// --- Phase 8: Money & Billing ---
+export interface UsageSummary {
+  periodStart: string;
+  periodEnd: string;
+  totalCost: number;
+  runs: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  computeSeconds?: number;
+  storageBytes?: number;
+  workflowCount?: number;
+  projectCount?: number;
+}
+
+export interface CostRecord {
+  id: string;
+  timestamp: string;
+  amount: number;
+  currency: string;
+  category: "model" | "compute" | "storage" | "integration" | "voice" | "other";
+  provider?: string;
+  model?: string;
+  workflowId?: string;
+  projectId?: string;
+  runId?: string;
+  nodeId?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ModelUsage {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cost: number;
+  runCount: number;
+}
+
+export interface BudgetThreshold {
+  percent: number;
+  action: "notify" | "warn" | "block";
+}
+
+export interface Budget {
+  id: string;
+  name: string;
+  scope: "workspace" | "workflow" | "project";
+  scopeId?: string;
+  amount: number;
+  currency: string;
+  period: "monthly" | "weekly";
+  currentSpend: number;
+  enabled: boolean;
+  thresholds: BudgetThreshold[];
+}
+
+export interface BillingPlan {
+  id: string;
+  name: string;
+  priceMonthly?: number;
+  description: string;
+  features: string[];
+  limits?: Record<string, number | string>;
+  current?: boolean;
+}
+
+export interface Invoice {
+  id: string;
+  number: string;
+  status: "paid" | "open" | "failed" | "void";
+  amount: number;
+  currency: string;
+  issuedAt: string;
+  dueAt?: string;
+  pdfUrl?: string;
+}
+
+export interface CostEstimateItem {
+  name: string;
+  amount: number;
+}
+
+export interface CostEstimate {
+  currency: string;
+  low: number;
+  expected: number;
+  high: number;
+  breakdown: CostEstimateItem[];
+  assumptions?: string[];
+  confidence?: "low" | "medium" | "high";
+}
+
+// --- Phase 8: Marketplace & Seller ---
+export type MarketplaceAssetType = "workflow_template" | "project_template" | "agent_pack" | "node_pack" | "knowledge_pack";
+
+export interface SellerSummary {
+  id: string;
+  displayName: string;
+  rating?: number;
+}
+
+export interface MarketplaceListing {
+  id: string;
+  slug: string;
+  title: string;
+  shortDescription: string;
+  description: string;
+  assetType: MarketplaceAssetType;
+  category: string;
+  seller: SellerSummary;
+  pricing: { type: "free" } | { type: "paid"; price: number; currency: string; };
+  rating?: number;
+  reviewCount?: number;
+  installCount?: number;
+  tags: string[];
+  status: "published" | "draft" | "review" | "rejected" | "archived";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MarketplaceAssetInstallation {
+  id: string;
+  listingId: string;
+  workspaceId: string;
+  installedAt: string;
+  installedVersion?: string;
+  createdWorkflowId?: string;
+  createdProjectId?: string;
+}
+
+
+export interface MarketplaceReview {
+  id: string;
+  listingId: string;
+  author: UserSummary;
+  rating: number;
+  title?: string;
+  body?: string;
+  createdAt: string;
+}
+
+export interface SellerProfile {
+  id: string;
+  displayName: string;
+  status: "not_started" | "pending" | "verified" | "restricted";
+  joinedAt: string;
+  rating?: number;
+  listingCount?: number;
+}
+
+export interface MarketplaceTransaction {
+  id: string;
+  listingId: string;
+  amount: number;
+  currency: string;
+  sellerEarnings: number;
+  createdAt: string;
+  status: "completed" | "refunded" | "pending";
+}
+
+export interface MarketplacePayout {
+  id: string;
+  amount: number;
+  currency: string;
+  status: "pending" | "processing" | "paid" | "failed";
+  createdAt: string;
+  paidAt?: string;
+}
+
+export interface GlobalSearchResult {
+  id: string;
+  type: "workflow" | "project" | "run" | "conversation" | "knowledge_source" | "connection" | "marketplace_listing";
+  title: string;
+  description?: string;
+  url: string;
+  metadata?: Record<string, unknown>;
+}
+
+// --- Phase 9: Notifications, Discovery, Benchmarking ---
+
+export type NotificationType =
+  | 'run'
+  | 'workflow'
+  | 'project'
+  | 'human_action'
+  | 'knowledge'
+  | 'connection'
+  | 'billing'
+  | 'marketplace'
+  | 'system';
+
+export type NotificationStatus = 'unread' | 'read';
+
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message?: string;
+  status: NotificationStatus;
+  priority?: 'normal' | 'high';
+  createdAt: string;
+  url?: string;
+  entity?: {
+    type: string;
+    id: string;
+  };
+}
+
+export interface NotificationPreference {
+  category: NotificationType;
+  inApp: boolean;
+  email: boolean;
+  importantOnly?: boolean;
+}
+
+export interface UseCase {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  audience?: string[];
+  outcome?: string[];
+  difficulty?: 'starter' | 'intermediate' | 'advanced';
+  estimatedSetupMinutes?: number;
+  workflowTemplateId?: string;
+  projectTemplateId?: string;
+  starterPrompt?: string;
+}
+
+export type BenchmarkMetricType =
+  | 'accuracy'
+  | 'success_rate'
+  | 'latency'
+  | 'cost'
+  | 'verification_rate'
+  | 'custom';
+
+export interface BenchmarkMetricDefinition {
+  id: string;
+  name: string;
+  type: BenchmarkMetricType;
+  higherIsBetter: boolean;
+}
+
+export interface BenchmarkDataset {
+  id: string;
+  name: string;
+  caseCount: number;
+  description?: string;
+}
+
+export interface Benchmark {
+  id: string;
+  name: string;
+  description?: string;
+  targetType: 'workflow' | 'workflow_version' | 'project';
+  targetId: string;
+  datasetId?: string;
+  metrics: BenchmarkMetricDefinition[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BenchmarkMetricResult {
+  metricId: string;
+  value: number;
+}
+
+export interface BenchmarkResult {
+  id: string;
+  benchmarkId: string;
+  targetId: string;
+  version?: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  metrics: BenchmarkMetricResult[];
+  caseCount: number;
+  passedCases: number;
+  failedCases: number;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+// --- Phase 10: Admin & Operations ---
+
+export interface AdminTenant {
+  id: string;
+  name: string;
+  slug: string;
+  status: "active" | "suspended" | "restricted" | "trial" | "closed";
+  plan: string;
+  memberCount: number;
+  workflowCount: number;
+  runCount30d: number;
+  currentSpend?: number;
+  createdAt: string;
+  lastActiveAt?: string;
+  region?: string;
+  riskState?: "normal" | "review" | "restricted";
+}
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  status: "active" | "suspended" | "invited" | "locked";
+  tenantIds: string[];
+  createdAt: string;
+  lastActiveAt?: string;
+  mfaEnabled?: boolean;
+  riskState?: "normal" | "review" | "restricted";
+}
+
+export interface AdminNote {
+  id: string;
+  tenantId?: string;
+  userId?: string;
+  author: UserSummary;
+  body: string;
+  createdAt: string;
+}
+
+export interface SupportAccessRequest {
+  id: string;
+  tenantId: string;
+  requestedBy: UserSummary;
+  reason: string;
+  status: "pending" | "approved" | "denied" | "active" | "expired" | "revoked";
+  requestedAt: string;
+  approvedAt?: string;
+  expiresAt?: string;
+  approvedBy?: UserSummary;
+  scope?: string[];
+}
+
+export interface AuditEvent {
+  id: string;
+  timestamp: string;
+  actor: {
+    type: "user" | "admin" | "system" | "support";
+    id?: string;
+    name: string;
+  };
+  action: string;
+  category: "authentication" | "workspace" | "workflow" | "run" | "human_action" | "connection" | "knowledge" | "billing" | "marketplace" | "support" | "security" | "admin";
+  tenantId?: string;
+  target?: {
+    type: string;
+    id: string;
+    label?: string;
+  };
+  outcome: "success" | "failure" | "denied";
+  requestId?: string;
+  ipAddress?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProviderDefinition {
+  id: string;
+  name: string;
+  type: "model" | "compute" | "storage" | "email" | "messaging" | "voice" | "other";
+  status: "healthy" | "degraded" | "outage" | "maintenance" | "disabled";
+  enabled: boolean;
+  lastCheckedAt?: string;
+  latencyMs?: number;
+  errorRate?: number;
+  region?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PlatformDeployment {
+  id: string;
+  environment: "development" | "staging" | "production";
+  version: string;
+  status: "deploying" | "healthy" | "degraded" | "failed" | "rolled_back";
+  startedAt?: string;
+  completedAt?: string;
+  deployedBy?: UserSummary;
+  commit?: string;
+}
+
+export interface Incident {
+  id: string;
+  title: string;
+  severity: "sev1" | "sev2" | "sev3" | "sev4";
+  status: "investigating" | "identified" | "monitoring" | "resolved";
+  startedAt: string;
+  resolvedAt?: string;
+  commander?: UserSummary;
+  affectedSystems: string[];
+  summary?: string;
+}
+
+export interface PlatformPolicy {
+  id: string;
+  name: string;
+  category: "execution" | "security" | "data" | "billing" | "marketplace";
+  status: "active" | "draft" | "disabled";
+  description: string;
+  scope: "global" | "tenant";
+  config: Record<string, unknown>;
+  updatedAt: string;
+  updatedBy: UserSummary;
+}
+
+export interface SecurityReviewItem {
+  id: string;
+  type: "suspicious_login" | "abuse" | "credential_issue" | "rate_anomaly" | "policy_violation";
+  severity: "low" | "medium" | "high" | "critical";
+  status: "open" | "investigating" | "resolved" | "dismissed";
+  tenantId?: string;
+  userId?: string;
+  title: string;
+  summary: string;
+  createdAt: string;
+}
+
+export interface FeatureFlag {
+  id: string;
+  key: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  scope: "global" | "tenant";
+  tenantIds?: string[];
+  updatedAt: string;
+  updatedBy: UserSummary;
+}

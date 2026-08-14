@@ -1,0 +1,281 @@
+@import "./tokens.css";
+
+@layer base {
+  :root {
+    --ax-motion-instant: 100ms;
+    --ax-motion-fast: 160ms;
+    --ax-motion-base: 220ms;
+    --ax-motion-slow: 320ms;
+    --ax-motion-float: 420ms;
+    --ax-motion-relax: 560ms;
+    --ax-ease-standard: cubic-bezier(.22,.61,.36,1);
+    --ax-ease-out: cubic-bezier(.16,1,.3,1);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  * {
+    @apply border-ax-border;
+  }
+  
+  body {
+    @apply bg-ax-bg text-ax-text font-sans antialiased;
+  }
+
+  /* Custom Scrollbars */
+  ::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  /* Dark Mode Scrollbars */
+  .dark ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.10);
+    border-radius: 9999px;
+  }
+  
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: rgba(249, 115, 22, 0.30);
+  }
+
+  /* Light Mode Scrollbars */
+  :root:not(.dark) ::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.14);
+    border-radius: 9999px;
+  }
+  
+  :root:not(.dark) ::-webkit-scrollbar-thumb:hover {
+    background: rgba(249, 115, 22, 0.35);
+  }
+
+  /* Reduce Motion Override */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  .ax-scroll-container {
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  /* Page Mount Transition */
+  .ax-page-enter {
+    animation: ax-page-enter 260ms var(--ax-ease-standard) forwards;
+  }
+
+  @keyframes ax-page-enter {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Interaction Utilities */
+  
+  /* 3. Global Orange Hover Fill System */
+  .ax-hover-fill {
+    position: relative;
+    overflow: hidden; /* Keep it contained */
+  }
+
+  /* Ensure content stays above the fill */
+  .ax-hover-fill > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .ax-hover-fill::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      110deg,
+      rgba(249,115,22,0.00),
+      rgba(249,115,22,0.09),
+      rgba(249,115,22,0.17)
+    );
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 480ms cubic-bezier(.22,.61,.36,1);
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .ax-hover-fill:hover::before {
+    transform: scaleX(1);
+    transition-duration: 420ms;
+  }
+
+  /* Sidebar Hover */
+  .ax-sidebar-hover {
+    transition: transform var(--ax-motion-slow) var(--ax-ease-standard);
+  }
+
+  .ax-sidebar-hover:hover {
+    transform: scale(1.025) translateX(3px);
+  }
+
+  /* Workflow Card Hover */
+  .ax-workflow-card {
+    position: relative;
+    overflow: hidden;
+    transition: transform var(--ax-motion-float) var(--ax-ease-standard),
+                border-color var(--ax-motion-float) var(--ax-ease-standard);
+  }
+
+  .ax-workflow-card > * { position: relative; z-index: 1; }
+  
+  .ax-workflow-card::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(110deg, rgba(249,115,22,0.00), rgba(249,115,22,0.09), rgba(249,115,22,0.17));
+    transform: scaleX(0); transform-origin: left center;
+    transition: transform 480ms cubic-bezier(.22,.61,.36,1); z-index: 0; pointer-events: none;
+  }
+
+  .ax-workflow-card:hover {
+    transform: translateY(-3px) scale(1.025);
+    border-color: rgba(249, 115, 22, 0.30);
+  }
+  
+  .ax-workflow-card:hover::before {
+    transform: scaleX(1); transition-duration: 420ms;
+  }
+
+  /* Project Card Hover */
+  .ax-project-card {
+    position: relative; overflow: hidden;
+    transition: transform var(--ax-motion-float) var(--ax-ease-standard);
+  }
+
+  .ax-project-card > * { position: relative; z-index: 1; }
+  
+  .ax-project-card::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(110deg, rgba(249,115,22,0.00), rgba(249,115,22,0.09), rgba(249,115,22,0.17));
+    transform: scaleX(0); transform-origin: left center;
+    transition: transform 480ms cubic-bezier(.22,.61,.36,1); z-index: 0; pointer-events: none;
+  }
+
+  .ax-project-card:hover {
+    transform: translateY(-2px) scale(1.02);
+  }
+  
+  .ax-project-card:hover::before {
+    transform: scaleX(1); transition-duration: 420ms;
+  }
+
+  /* Marketplace Card Hover */
+  .ax-marketplace-card {
+    position: relative; overflow: hidden;
+    transition: transform var(--ax-motion-float) var(--ax-ease-standard);
+  }
+  
+  .ax-marketplace-card > * { position: relative; z-index: 1; }
+  
+  .ax-marketplace-card::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(110deg, rgba(249,115,22,0.00), rgba(249,115,22,0.09), rgba(249,115,22,0.17));
+    transform: scaleX(0); transform-origin: left center;
+    transition: transform 480ms cubic-bezier(.22,.61,.36,1); z-index: 0; pointer-events: none;
+  }
+
+  .ax-marketplace-card:hover {
+    transform: scale(1.025);
+  }
+  
+  .ax-marketplace-card:hover::before {
+    transform: scaleX(1); transition-duration: 420ms;
+  }
+
+  /* Command Row Hover */
+  .ax-command-row {
+    transition: transform var(--ax-motion-slow) var(--ax-ease-standard);
+  }
+  
+  .ax-command-row:hover,
+  .ax-command-row[aria-selected="true"] {
+    transform: scale(1.012) translateX(3px);
+  }
+
+  /* Buttons */
+  .ax-btn-primary {
+    background: var(--ax-orange);
+    color: var(--ax-bg); /* Use background as text color (black on light, white on dark doesn't work, wait, user said "orange fill black text" for primary) */
+    transition: background 380ms var(--ax-ease-standard), transform 380ms var(--ax-ease-standard);
+  }
+  
+  /* Strictly black text on primary button as requested: "orange fill black text" */
+  .ax-btn-primary {
+    color: #000 !important; 
+  }
+
+  .ax-btn-primary:hover:not(:disabled) {
+    background: linear-gradient(110deg, var(--ax-orange-light), var(--ax-orange-hot));
+    transform: scale(1.015);
+  }
+
+  .ax-btn-primary:hover:not(:disabled) svg {
+    transform: translateX(2px);
+    transition: transform 380ms var(--ax-ease-standard);
+  }
+
+  .ax-btn-secondary {
+    position: relative;
+    overflow: hidden;
+    background: transparent;
+    color: var(--ax-text);
+    border: 1px solid var(--ax-border);
+    transition: border-color 380ms var(--ax-ease-standard);
+  }
+
+  .ax-btn-secondary > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .ax-btn-secondary::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--ax-orange-mid);
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 380ms cubic-bezier(.22,.61,.36,1);
+    z-index: 0;
+  }
+
+  .ax-btn-secondary:hover:not(:disabled) {
+    border-color: var(--ax-orange);
+  }
+
+  .ax-btn-secondary:hover:not(:disabled)::before {
+    transform: scaleX(1);
+  }
+}

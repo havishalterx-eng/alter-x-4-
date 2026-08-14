@@ -1,0 +1,323 @@
+import { createBrowserRouter, Navigate } from "react-router-dom"
+import { AppShell } from "@/layout/app-shell"
+import { AuthLayout } from "@/layout/auth-layout"
+import { SignIn } from "@/features/auth/pages/sign-in"
+import { SignUp } from "@/features/auth/pages/sign-up"
+import { AuthCallback } from "@/features/auth/pages/auth-callback"
+import { OnboardingWizard } from "@/features/onboarding/pages/onboarding-wizard"
+import { Dashboard } from "@/features/dashboard/pages"
+import { Home, ConversationsList, ConversationDetail } from "@/features/conversations/pages"
+import { EventList, EventDetail } from "@/features/events/pages"
+import { WorkflowsList } from "@/features/workflows/pages"
+import { WorkflowCreate } from "@/features/workflows/pages/workflow-create"
+import { WorkflowBuilder } from "@/features/workflows/pages/workflow-builder"
+import { WorkflowDetail } from "@/features/workflows/pages/workflow-detail"
+import { WorkflowReview } from "@/features/workflows/pages/workflow-review"
+import { WorkflowVersions } from "@/features/workflows/pages/workflow-versions"
+import { WorkflowSimulation } from "@/features/workflows/pages/workflow-simulation"
+import { ProjectsList } from "@/features/projects/pages/projects-list"
+import { ProjectCreate } from "@/features/projects/pages/project-create"
+import { ProjectDetail } from "@/features/projects/pages/project-detail"
+import { ProjectBuild } from "@/features/projects/pages/project-build"
+import { RunsList } from "@/features/runs/pages/runs-list"
+import { RunDetail } from "@/features/runs/pages/run-detail"
+import { ArtifactsList } from "@/features/artifacts/pages/artifacts-list"
+import { HumanActionsList } from "@/features/human-actions/pages/human-actions-list"
+import { HumanActionDetail } from "@/features/human-actions/pages/human-action-detail"
+import { WorkflowHealthList } from "@/features/workflows/pages/workflow-health"
+import { RequirePermission } from "@/features/permissions/components/require-permission"
+
+import { ComponentTestPage } from "@/features/dev/components"
+import { SettingsLayout } from "@/features/settings/layout/settings-layout"
+import { WorkspaceSettings } from "@/features/workspace/pages/workspace-settings"
+import { MembersPage } from "@/features/members/pages/members-page"
+import { RolesPage } from "@/features/roles/pages/roles-page"
+import { ProfileSettings } from "@/features/settings/pages/profile-settings"
+import { SecuritySettings } from "@/features/settings/pages/security-settings"
+import { SessionsPage } from "@/features/settings/pages/sessions-page"
+import { WebhooksPage } from "@/features/settings/pages/webhooks-page"
+import { LanguageSettings } from "@/features/settings/pages/language-settings"
+import { KnowledgeListPage } from "@/features/knowledge/pages/knowledge-list"
+import { SourceDetailPage } from "@/features/knowledge/pages/source-detail"
+import { RetrievalTestPage } from "@/features/knowledge/pages/retrieval-test"
+import { MemorySettingsPage } from "@/features/knowledge/pages/memory-settings"
+import { DataControlsPage } from "@/features/knowledge/pages/data-controls"
+import { IntegrationCatalogPage } from "@/features/connections/pages/catalog"
+import { ConnectionDetailPage } from "@/features/connections/pages/connection-detail"
+import { CredentialsVaultPage } from "@/features/connections/pages/credentials-vault"
+import { WhatsAppChannelPage } from "@/features/connections/pages/whatsapp-channel"
+import { VoiceChannelPage } from "@/features/connections/pages/voice-channel"
+import { MoneyLayout } from "@/features/money/layout/money-layout"
+import { UsageOverviewPage } from "@/features/money/pages/usage-overview"
+import { UsageCostsPage } from "@/features/money/pages/usage-costs"
+import { BudgetsPage } from "@/features/money/pages/budgets"
+import { BillingOverviewPage } from "@/features/money/pages/billing-overview"
+import { BillingPlansPage } from "@/features/money/pages/billing-plans"
+import { PaymentMethodPage } from "@/features/money/pages/payment-method"
+import { InvoicesPage } from "@/features/money/pages/invoices"
+import { MarketplaceLayout } from "@/features/marketplace/layout/marketplace-layout"
+import { MarketplaceHomePage } from "@/features/marketplace/pages/marketplace-home"
+import { MarketplaceSearchPage } from "@/features/marketplace/pages/marketplace-search"
+import { ListingDetailPage } from "@/features/marketplace/pages/listing-detail"
+import { MyAssetsPage } from "@/features/marketplace/pages/my-assets"
+import { SellerLayout } from "@/features/seller/layout/seller-layout"
+import { SellerDashboardPage } from "@/features/seller/pages/seller-dashboard"
+import { SellerListingsPage } from "@/features/seller/pages/seller-listings"
+import { NewListingPage } from "@/features/seller/pages/new-listing"
+import { EarningsPage } from "@/features/seller/pages/earnings"
+import { PayoutsPage } from "@/features/seller/pages/payouts"
+import { KycPage } from "@/features/seller/pages/kyc"
+import { NotificationCentrePage } from "@/features/notifications/pages/notification-centre"
+import { NotificationPreferencesPage } from "@/features/settings/pages/notification-preferences"
+import { DiscoveryPage } from "@/features/discovery/pages/discovery-page"
+import { BenchmarkListPage } from "@/features/benchmarks/pages/benchmark-list"
+import { CreateBenchmarkPage } from "@/features/benchmarks/pages/create-benchmark"
+import { BenchmarkDetailPage } from "@/features/benchmarks/pages/benchmark-detail"
+import { AdminLayout } from "@/features/admin/layout/admin-layout"
+import { AdminHome } from "@/features/admin/pages/admin-home"
+import { TenantList } from "@/features/admin/pages/tenants/tenant-list"
+import { TenantDetail } from "@/features/admin/pages/tenants/tenant-detail"
+import { UserList } from "@/features/admin/pages/users/user-list"
+import { UserDetail } from "@/features/admin/pages/users/user-detail"
+import { SupportQueue } from "@/features/admin/pages/support-queue"
+import { ProvidersList } from "@/features/admin/pages/operations/providers-list"
+import { DeploymentsList } from "@/features/admin/pages/operations/deployments-list"
+import { IncidentsList } from "@/features/admin/pages/operations/incidents-list"
+import { IncidentDetail } from "@/features/admin/pages/operations/incident-detail"
+import { SystemStatusPage } from "@/features/admin/pages/operations/system-status"
+import { AuditExplorer } from "@/features/admin/pages/governance/audit-explorer"
+import { PoliciesList } from "@/features/admin/pages/governance/policies-list"
+import { SecurityQueue } from "@/features/admin/pages/governance/security-queue"
+import { BillingOpsQueue } from "@/features/admin/pages/platform/billing-ops"
+import { MarketplaceAdmin } from "@/features/admin/pages/platform/marketplace-admin"
+import { FeatureFlagsPage } from "@/features/admin/pages/platform/feature-flags"
+import { SettingsAudit } from "@/features/settings/pages/audit"
+import { SettingsSupport } from "@/features/settings/pages/support"
+import { NotFound } from "@/components/feedback/not-found"
+
+export const router = createBrowserRouter([
+  {
+    path: "/",
+    element: <Navigate to="/app/home" replace />,
+  },
+  {
+    path: "/auth",
+    element: <AuthLayout />,
+    children: [
+      { path: "sign-in", element: <SignIn /> },
+      { path: "sign-up", element: <SignUp /> },
+      { path: "callback", element: <AuthCallback /> },
+      { path: "", element: <Navigate to="/auth/sign-in" replace /> },
+    ],
+  },
+  {
+    path: "/onboarding",
+    element: <OnboardingWizard />,
+  },
+  {
+    path: "/app",
+    element: <AppShell />,
+    children: [
+      { path: "", element: <Navigate to="/app/home" replace /> },
+      { path: "home", element: <Home /> },
+      { path: "dashboard", element: <Dashboard /> },
+      { path: "workflows", element: <WorkflowsList /> },
+      { 
+        path: "workflows/new", 
+        element: <RequirePermission permission="workflow.create"><WorkflowCreate /></RequirePermission> 
+      },
+      { path: "workflows/:workflowId", element: <WorkflowDetail /> },
+      { 
+        path: "workflows/:workflowId/build", 
+        element: <RequirePermission permission="workflow.update"><WorkflowBuilder /></RequirePermission> 
+      },
+      { 
+        path: "workflows/:workflowId/review", 
+        element: <RequirePermission permission="workflow.update"><WorkflowReview /></RequirePermission> 
+      },
+      { 
+        path: "workflows/:workflowId/versions", 
+        element: <RequirePermission permission="workflow.update"><WorkflowVersions /></RequirePermission> 
+      },
+      { 
+        path: "workflows/:workflowId/simulation", 
+        element: <RequirePermission permission="workflow.run"><WorkflowSimulation /></RequirePermission> 
+      },
+      {
+        path: "workflows/health",
+        element: <RequirePermission permission="workflow.read"><WorkflowHealthList /></RequirePermission>
+      },
+      { path: "projects", element: <ProjectsList /> },
+      { 
+        path: "projects/new", 
+        element: <RequirePermission permission="project.create"><ProjectCreate /></RequirePermission> 
+      },
+      { path: "projects/:projectId", element: <ProjectDetail /> },
+      { 
+        path: "projects/:projectId/build", 
+        element: <RequirePermission permission="project.run"><ProjectBuild /></RequirePermission> 
+      },
+      { path: "runs", element: <RequirePermission permission="run.read"><RunsList /></RequirePermission> },
+      { path: "runs/:runId", element: <RequirePermission permission="run.read"><RunDetail /></RequirePermission> },
+      { path: "artifacts", element: <RequirePermission permission="run.read"><ArtifactsList /></RequirePermission> },
+      { 
+        path: "human-actions", 
+        element: <RequirePermission permission="human_action.read"><HumanActionsList /></RequirePermission> 
+      },
+      {
+        path: "human-actions/:actionId",
+        element: <RequirePermission permission="human_action.read"><HumanActionDetail /></RequirePermission>
+      },
+      { 
+        path: "conversations", 
+        element: <RequirePermission permission="conversation.read"><ConversationsList /></RequirePermission> 
+      },
+      { 
+        path: "conversations/:conversationId", 
+        element: <RequirePermission permission="conversation.read"><ConversationDetail /></RequirePermission> 
+      },
+      {
+        path: "events",
+        element: <RequirePermission permission="event.read"><EventList /></RequirePermission>
+      },
+      {
+        path: "events/:eventId",
+        element: <RequirePermission permission="event.read"><EventDetail /></RequirePermission>
+      },
+      { 
+        path: "knowledge/sources", 
+        element: <RequirePermission permission="knowledge.read"><KnowledgeListPage /></RequirePermission> 
+      },
+      { 
+        path: "knowledge/sources/:id", 
+        element: <RequirePermission permission="knowledge.read"><SourceDetailPage /></RequirePermission> 
+      },
+      { 
+        path: "knowledge/retrieval", 
+        element: <RequirePermission permission="knowledge.test_retrieval"><RetrievalTestPage /></RequirePermission> 
+      },
+      { 
+        path: "knowledge/memory", 
+        element: <RequirePermission permission="knowledge.memory_manage"><MemorySettingsPage /></RequirePermission> 
+      },
+      { 
+        path: "knowledge/data", 
+        element: <RequirePermission permission="data.export"><DataControlsPage /></RequirePermission> 
+      },
+      {
+        path: "connections",
+        element: <RequirePermission permission="connection.read"><IntegrationCatalogPage /></RequirePermission>
+      },
+      {
+        path: "connections/whatsapp",
+        element: <RequirePermission permission="channel.read"><WhatsAppChannelPage /></RequirePermission>
+      },
+      {
+        path: "connections/voice",
+        element: <RequirePermission permission="channel.read"><VoiceChannelPage /></RequirePermission>
+      },
+      {
+        path: "connections/:id",
+        element: <RequirePermission permission="connection.read"><ConnectionDetailPage /></RequirePermission>
+      },
+      { 
+        path: "marketplace", 
+        element: <MarketplaceLayout />,
+        children: [
+          { path: "", element: <MarketplaceHomePage /> },
+          { path: "search", element: <MarketplaceSearchPage /> },
+          { path: "listings/:listingId", element: <ListingDetailPage /> },
+          { path: "my-assets", element: <MyAssetsPage /> },
+        ]
+      },
+      { 
+        path: "seller", 
+        element: <RequirePermission permission="seller.access"><SellerLayout /></RequirePermission>,
+        children: [
+          { path: "", element: <SellerDashboardPage /> },
+          { path: "listings", element: <SellerListingsPage /> },
+          { path: "listings/new", element: <NewListingPage /> },
+          { path: "earnings", element: <EarningsPage /> },
+          { path: "payouts", element: <PayoutsPage /> },
+          { path: "kyc", element: <KycPage /> },
+        ]
+      },
+      { 
+        path: "usage", 
+        element: <MoneyLayout />,
+        children: [
+          { path: "", element: <UsageOverviewPage /> },
+          { path: "costs", element: <UsageCostsPage /> },
+          { path: "budgets", element: <BudgetsPage /> },
+        ]
+      },
+      { 
+        path: "billing", 
+        element: <MoneyLayout />,
+        children: [
+          { path: "", element: <BillingOverviewPage /> },
+          { path: "plans", element: <BillingPlansPage /> },
+          { path: "payment-method", element: <PaymentMethodPage /> },
+          { path: "invoices", element: <InvoicesPage /> },
+        ]
+      },
+      { 
+        path: "settings", 
+        element: <SettingsLayout />,
+        children: [
+          { path: "", element: <Navigate to="profile" replace /> },
+          { path: "profile", element: <ProfileSettings /> },
+          { path: "security", element: <SecuritySettings /> },
+          { path: "sessions", element: <SessionsPage /> },
+          { path: "language", element: <LanguageSettings /> },
+          { path: "notifications", element: <NotificationPreferencesPage /> },
+          { path: "credentials", element: <RequirePermission permission="credential.read"><CredentialsVaultPage /></RequirePermission> },
+          { path: "webhooks", element: <RequirePermission permission="webhook.read"><WebhooksPage /></RequirePermission> },
+          { path: "workspace", element: <WorkspaceSettings /> },
+          { path: "members", element: <MembersPage /> },
+          { path: "roles", element: <RolesPage /> },
+          { path: "audit", element: <RequirePermission permission="audit.read"><SettingsAudit /></RequirePermission> },
+          { path: "support", element: <SettingsSupport /> },
+        ]
+      },
+
+      { path: "notifications", element: <NotificationCentrePage /> },
+      { path: "discover", element: <DiscoveryPage /> },
+      { path: "benchmarks", element: <BenchmarkListPage /> },
+      { path: "benchmarks/new", element: <RequirePermission permission="benchmark.create"><CreateBenchmarkPage /></RequirePermission> },
+      { path: "benchmarks/:benchmarkId", element: <BenchmarkDetailPage /> },
+      { path: "*", element: <NotFound /> },
+    ],
+  },
+  { 
+    path: "/app/admin", 
+    element: <AdminLayout />,
+    children: [
+      { path: "", element: <AdminHome /> },
+      { path: "tenants", element: <TenantList /> },
+      { path: "tenants/:tenantId", element: <TenantDetail /> },
+      { path: "users", element: <UserList /> },
+      { path: "users/:userId", element: <UserDetail /> },
+      { path: "support", element: <SupportQueue /> },
+      { path: "providers", element: <ProvidersList /> },
+      { path: "deployments", element: <DeploymentsList /> },
+      { path: "incidents", element: <IncidentsList /> },
+      { path: "incidents/:incidentId", element: <IncidentDetail /> },
+      { path: "system-status", element: <SystemStatusPage /> },
+      { path: "audit", element: <AuditExplorer /> },
+      { path: "policies", element: <PoliciesList /> },
+      { path: "security", element: <SecurityQueue /> },
+      { path: "billing", element: <BillingOpsQueue /> },
+      { path: "marketplace", element: <MarketplaceAdmin /> },
+      { path: "feature-flags", element: <FeatureFlagsPage /> },
+    ]
+  },
+  {
+    path: "/dev/components",
+    element: <ComponentTestPage />,
+  },
+  {
+    path: "*",
+    element: <NotFound />,
+  },
+])

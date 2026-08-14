@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: var(--ax-bg);
+  --color-surface: var(--ax-surface-0);
+  --color-surface-raised: var(--ax-surface-1);
+  --color-surface-hover: var(--ax-surface-hover);
+  
+  --color-border: var(--ax-border);
+  --color-border-subtle: var(--ax-border-subtle);
+  --color-border-strong: var(--ax-border-strong);
+  
+  --color-text-primary: var(--ax-text);
+  --color-text-secondary: var(--ax-text-secondary);
+  --color-text-muted: var(--ax-text-muted);
+  
+  --color-primary: var(--ax-orange);
+  --color-primary-hover: var(--ax-orange-light);
+  --color-primary-active: var(--ax-orange-hot);
+  --color-primary-soft: var(--ax-orange-soft);
+  
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #dc2626;
+  --color-info: var(--ax-orange);
+
+  --color-workflow: var(--ax-orange);
+  --color-project: var(--ax-orange);
+  --color-run: var(--ax-orange);
+  --color-human-action: var(--ax-orange);
+  --color-knowledge: var(--ax-orange);
+  --color-connection: var(--ax-orange);
+
+  --color-ax-bg: var(--ax-bg);
+  --color-ax-shell: var(--ax-shell);
+  --color-ax-surface-0: var(--ax-surface-0);
+  --color-ax-surface-1: var(--ax-surface-1);
+  --color-ax-surface-2: var(--ax-surface-2);
+  --color-ax-surface-3: var(--ax-surface-3);
+  --color-ax-surface-hover: var(--ax-surface-hover);
+  
+  --color-ax-text: var(--ax-text);
+  --color-ax-text-secondary: var(--ax-text-secondary);
+  --color-ax-text-muted: var(--ax-text-muted);
+  
+  --color-ax-border-subtle: var(--ax-border-subtle);
+  --color-ax-border: var(--ax-border);
+  --color-ax-border-strong: var(--ax-border-strong);
+  
+  --color-ax-orange: var(--ax-orange);
+  --color-ax-orange-hot: var(--ax-orange-hot);
+  --color-ax-orange-light: var(--ax-orange-light);
+  --color-ax-orange-dark: var(--ax-orange-dark);
+  --color-ax-orange-deep: var(--ax-orange-deep);
+  --color-ax-orange-soft: var(--ax-orange-soft);
+  --color-ax-orange-mid: var(--ax-orange-mid);
+  --color-ax-orange-strong: var(--ax-orange-strong);
+
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  :root {
+    /* Light Mode Tokens */
+    --ax-bg: #FFFFFF;
+    --ax-shell: #FBFAF7;
+
+    --ax-surface-0: #FFFFFF;
+    --ax-surface-1: #FAF8F4;
+    --ax-surface-2: #F4F1EB;
+    --ax-surface-3: #EDE9E1;
+    --ax-surface-hover: #F7F5F0;
+
+    --ax-text: #050505;
+    --ax-text-secondary: #34312E;
+    --ax-text-muted: #746F68;
+
+    --ax-border-subtle: rgba(0,0,0,.055);
+    --ax-border: rgba(0,0,0,.10);
+    --ax-border-strong: rgba(0,0,0,.16);
+
+    --ax-orange: #F97316;
+    --ax-orange-hot: #FF641D;
+    --ax-orange-light: #FF8A45;
+    --ax-orange-dark: #C94312;
+    --ax-orange-deep: #8A2B09;
+    --ax-orange-soft: rgba(249,115,22,.08);
+    --ax-orange-mid: rgba(249,115,22,.14);
+    --ax-orange-strong: rgba(249,115,22,.24);
+  }
+
+  .dark {
+    /* Dark Mode Tokens */
+    --ax-bg: #000000;
+    --ax-shell: #030303;
+
+    --ax-surface-0: #050505;
+    --ax-surface-1: #090909;
+    --ax-surface-2: #0D0D0D;
+    --ax-surface-3: #121212;
+    --ax-surface-hover: #171717;
+
+    --ax-text: #F9F9F7;
+    --ax-text-secondary: #B9B6B0;
+    --ax-text-muted: #74716D;
+
+    --ax-border-subtle: rgba(255,255,255,.055);
+    --ax-border: rgba(255,255,255,.09);
+    --ax-border-strong: rgba(255,255,255,.15);
+
+    --ax-orange: #F97316;
+    --ax-orange-hot: #FF641D;
+    --ax-orange-light: #FF8A45;
+    --ax-orange-dark: #C94312;
+    --ax-orange-deep: #8A2B09;
+    --ax-orange-soft: rgba(249,115,22,.08);
+    --ax-orange-mid: rgba(249,115,22,.14);
+    --ax-orange-strong: rgba(249,115,22,.24);
+  }
+}
