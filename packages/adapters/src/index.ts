@@ -66,6 +66,13 @@ export {
   type PlatformJobHandlerResult,
 } from "./temporal/activities/platform-job-activities";
 export {
+  createTriggerDispatchActivities,
+  type TriggerDispatchActivities,
+} from "./temporal/activities/trigger-dispatch-activities";
+export {
+  triggerDispatchWorkflow,
+} from "./temporal/workflows/trigger-dispatch-workflow";
+export {
   executorWorkflow,
   type ExecutorWorkflowInput,
   type ExecutorWorkflowResult,
@@ -78,6 +85,7 @@ export {
 export {
   startExecutorWorker,
   type ExecutorWorkerBootstrapConfig,
+  type ExecutorWorkerBootstrapOptions,
   type ExecutorWorkerHandle,
 } from "./temporal/executor-bootstrap";
 export {
@@ -201,12 +209,28 @@ export {
 } from "./grpc/recovery-grpc-transport";
 export {
   RUNS_HANDLER,
+  RUNS_DISPATCH_HANDLER,
+  RunDispatchGrpcController,
   RunsGrpcController,
   connectRunsGrpcTransport,
+  type RunDispatchHandler,
   type RunsGrpcTransportConfig,
   type RunsHandler,
 } from "./grpc/runs-grpc-transport";
 export { RunsClient, type RunsClientConfig, type RunsHandlerClient } from "./grpc/runs-client";
+export {
+  RunDispatchClient,
+  type RunDispatchClientConfig,
+  type RunDispatchHandlerClient,
+} from "./grpc/run-dispatch-client";
+export {
+  EventBridgeEventPublisher,
+  EventBridgePublishFailedError,
+  EVENTBRIDGE_PUBLISHER_CAPABILITIES,
+  type EventBridgeCommandClient,
+  type EventBridgeEventPublisherConfig,
+  type EventBridgePublishRequest,
+} from "./aws/eventbridge-event-publisher";
 export {
   CapabilityServiceClient,
   type CapabilityServiceClientConfig,

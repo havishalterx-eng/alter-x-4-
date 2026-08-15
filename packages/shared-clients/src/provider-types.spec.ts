@@ -66,7 +66,7 @@ type MarkerProviders =
   | VoiceProvider;
 
 describe("canonical provider interface surface", () => {
-  it("locks all 34 provider interface names exactly once", () => {
+  it("locks all 36 provider interface names exactly once", () => {
     expect(CANONICAL_PROVIDER_INTERFACES).toEqual([
       "DurableExecutionProvider",
       "ComputeProvider",
@@ -82,6 +82,8 @@ describe("canonical provider interface surface", () => {
       "DeploymentProvider",
       "ObjectStorageProvider",
       "QueueProvider",
+      "QueueMessageConsumer",
+      "CronScheduleManager",
       "SecretsProvider",
       "ParameterStoreProvider",
       "BillingProvider",
@@ -103,7 +105,7 @@ describe("canonical provider interface surface", () => {
       "EmailProvider",
       "StatusPageProvider",
     ]);
-    expect(new Set(CANONICAL_PROVIDER_INTERFACES)).toHaveLength(34);
+    expect(new Set(CANONICAL_PROVIDER_INTERFACES)).toHaveLength(36);
     expectTypeOf<MarkerProviders>().toMatchTypeOf<BaseProvider>();
   });
 

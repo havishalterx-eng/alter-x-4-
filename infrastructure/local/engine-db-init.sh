@@ -45,6 +45,12 @@ WHERE NOT EXISTS (
 
 ALTER ROLE orchestration_service WITH LOGIN PASSWORD :'orchestration_db_password';
 
+-- resolve_webhook_endpoint is SECURITY DEFINER but the webhook tables use
+-- FORCE ROW LEVEL SECURITY, so the defining role must be able to read
+-- across tenants to resolve a path token; the app still scopes every other
+-- query with set_config('app.current_tenant_id', ...) inside withTenant.
+ALTER ROLE orchestration_service BYPASSRLS;
+
 SELECT 'CREATE DATABASE orchestration_db OWNER orchestration_service'
 WHERE NOT EXISTS (
   SELECT 1 FROM pg_database WHERE datname = 'orchestration_db'

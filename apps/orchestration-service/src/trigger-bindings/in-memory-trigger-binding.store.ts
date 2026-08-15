@@ -5,6 +5,7 @@ import type {
   RotationOutcome,
   TriggerBindingRecord,
   TriggerBindingStore,
+  TriggerDispatchInfo,
   TriggerScope,
   UpsertBindingInput,
   WebhookEndpointRecord,
@@ -17,6 +18,9 @@ export interface SeedTrigger {
   readonly triggerId: string;
   readonly workspaceId: string;
   readonly type: string;
+  readonly status?: string;
+  readonly activeVersion?: number;
+  readonly dlqMaxReceiveCount?: number;
 }
 
 /**
@@ -27,7 +31,7 @@ export interface SeedTrigger {
  * exercises the real service logic, not a permissive stub.
  */
 export class InMemoryTriggerBindingStore implements TriggerBindingStore {
-  readonly #triggers = new Map<string, TriggerScope>();
+  readonly #triggers = new Map<string, TriggerDispatchInfo>();
   readonly #endpoints = new Map<string, WebhookEndpointRecord>();
   readonly #secrets: WebhookSecretRecord[] = [];
   readonly #bindings = new Map<string, TriggerBindingRecord>();
@@ -38,6 +42,9 @@ export class InMemoryTriggerBindingStore implements TriggerBindingStore {
         triggerId: trigger.triggerId,
         workspaceId: trigger.workspaceId,
         type: trigger.type,
+        status: trigger.status ?? "enabled",
+        activeVersion: trigger.activeVersion ?? null,
+        dlqMaxReceiveCount: trigger.dlqMaxReceiveCount ?? null,
       });
     }
   }
@@ -51,6 +58,20 @@ export class InMemoryTriggerBindingStore implements TriggerBindingStore {
     tenantId: string,
     triggerId: string,
   ): Promise<TriggerScope | null> {
+    const info = this.#triggers.get(`${tenantId}:${triggerId}`);
+    return info === undefined
+      ? null
+      : {
+          triggerId: info.triggerId,
+          workspaceId: info.workspaceId,
+          type: info.type,
+        };
+  }
+
+  async findTriggerDispatchInfo(
+    tenantId: string,
+    triggerId: string,
+  ): Promise<TriggerDispatchInfo | null> {
     return this.#triggers.get(`${tenantId}:${triggerId}`) ?? null;
   }
 

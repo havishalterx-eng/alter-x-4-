@@ -26,6 +26,8 @@ export const CANONICAL_PROVIDER_INTERFACES = [
   "DeploymentProvider",
   "ObjectStorageProvider",
   "QueueProvider",
+  "QueueMessageConsumer",
+  "CronScheduleManager",
   "SecretsProvider",
   "ParameterStoreProvider",
   "BillingProvider",
@@ -691,6 +693,41 @@ export interface ObjectStorageProvider
 export interface QueueProvider extends BaseProvider<"QueueProvider"> {
   publish(queueName: string, message: JsonValue): Promise<void>;
   consume(queueName: string): Promise<JsonValue | undefined>;
+}
+
+/**
+ * INGR-7: visibility-timeout-based SQS receipt for the canonical-events
+ * consumer. Unlike QueueProvider.consume() (which deletes on receipt),
+ * receive() leaves the message in flight so a failed delivery is
+ * redelivered by SQS itself, and carries ApproximateReceiveCount so the
+ * consumer can enforce per-trigger DlqPolicy bounds.
+ */
+export interface QueueMessageReceipt {
+  readonly receiptHandle: string;
+  readonly body: JsonValue;
+  readonly approximateReceiveCount: number;
+}
+
+export interface QueueMessageConsumer extends BaseProvider<"QueueMessageConsumer"> {
+  receive(queueName: string): Promise<QueueMessageReceipt | undefined>;
+  delete(queueName: string, receiptHandle: string): Promise<void>;
+}
+
+export interface CronScheduleUpsertRequest {
+  readonly scheduleId: string;
+  readonly cronExpression: string;
+  readonly workflowType: string;
+  readonly input: JsonValue;
+}
+
+/**
+ * INGR-7: cron-trigger scheduling owned by the durable execution provider.
+ * One schedule per trigger id; upsert replaces in place (Temporal schedules
+ * with the same id are updated, not duplicated), delete removes it.
+ */
+export interface CronScheduleManager extends BaseProvider<"CronScheduleManager"> {
+  upsertCronSchedule(request: CronScheduleUpsertRequest): Promise<void>;
+  deleteCronSchedule(scheduleId: string): Promise<void>;
 }
 export interface SandboxSessionCreateRequest {
   readonly tenantId: string;

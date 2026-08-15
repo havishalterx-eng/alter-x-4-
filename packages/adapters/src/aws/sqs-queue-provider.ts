@@ -11,6 +11,7 @@ import type {
   JsonValue,
   ProviderHealth,
   ProviderMetadata,
+  QueueMessageReceipt,
   QueueProvider,
 } from "@alterx/shared-clients";
 
@@ -27,6 +28,7 @@ export interface SqsCommandClient {
     readonly Messages?: readonly {
       readonly Body?: string;
       readonly ReceiptHandle?: string;
+      readonly Attributes?: Record<string, string>;
     }[];
   }>;
   send(command: DeleteMessageCommand): Promise<unknown>;
@@ -113,6 +115,48 @@ export class SqsQueueProvider implements QueueProvider {
       );
     }
     return JSON.parse(message.Body) as JsonValue;
+  }
+
+  /**
+   * INGR-7: receive WITHOUT deleting. The message stays in flight until its
+   * visibility timeout expires, so a failed dispatch is redelivered by SQS
+   * itself (ApproximateReceiveCount increments each time) instead of being
+   * re-published by the caller. The caller must call delete() with the
+   * returned receipt handle once processing succeeds.
+   */
+  async receive(queueName: string): Promise<QueueMessageReceipt | undefined> {
+    const queueUrl = await this.#resolveQueueUrl(queueName);
+    const response = await this.#client.send(
+      new ReceiveMessageCommand({
+        QueueUrl: queueUrl,
+        MaxNumberOfMessages: 1,
+        MessageSystemAttributeNames: ["ApproximateReceiveCount"],
+      }),
+    );
+    const message = response.Messages?.[0];
+    if (message?.Body === undefined || message.ReceiptHandle === undefined) {
+      return undefined;
+    }
+    const approximateReceiveCount = Number(
+      message.Attributes?.ApproximateReceiveCount ?? "1",
+    );
+    return {
+      receiptHandle: message.ReceiptHandle,
+      body: JSON.parse(message.Body) as JsonValue,
+      approximateReceiveCount: Number.isInteger(approximateReceiveCount)
+        ? approximateReceiveCount
+        : 1,
+    };
+  }
+
+  async delete(queueName: string, receiptHandle: string): Promise<void> {
+    const queueUrl = await this.#resolveQueueUrl(queueName);
+    await this.#client.send(
+      new DeleteMessageCommand({
+        QueueUrl: queueUrl,
+        ReceiptHandle: receiptHandle,
+      }),
+    );
   }
 
   async healthCheck(): Promise<ProviderHealth> {

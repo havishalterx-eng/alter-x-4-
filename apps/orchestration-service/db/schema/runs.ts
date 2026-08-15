@@ -10,6 +10,7 @@ import {
   uuid,
 } from "@alterx/adapters";
 import { conversations } from "./conversations";
+import { events } from "./events";
 import { projects } from "./projects";
 import { triggers } from "./triggers";
 import { workflowVersions } from "./workflow_versions";
@@ -27,6 +28,7 @@ export const runs = pgTable(
     workflowVersionId: text("workflow_version_id"),
     conversationId: text("conversation_id"),
     triggerId: text("trigger_id"),
+    triggeringEventId: text("triggering_event_id"),
     provisioningSessionId: text("provisioning_session_id"),
     provisioningCycleId: text("provisioning_cycle_id"),
     provisioningTemplateId: text("provisioning_template_id"),
@@ -72,9 +74,18 @@ export const runs = pgTable(
       columns: [table.tenantId, table.triggerId],
       foreignColumns: [triggers.tenantId, triggers.id],
     }),
+    foreignKey({
+      name: "runs_triggering_event_tenant_fk",
+      columns: [table.tenantId, table.triggeringEventId],
+      foreignColumns: [events.tenantId, events.eventId],
+    }),
     index("idx_runs_workflow").on(table.workflowId),
     index("idx_runs_tenant_project").on(table.tenantId, table.projectId),
     index("idx_runs_conversation").on(table.conversationId),
     index("idx_runs_tenant_status").on(table.tenantId, table.status),
+    index("idx_runs_triggering_event").on(
+      table.tenantId,
+      table.triggeringEventId,
+    ),
   ],
 );

@@ -225,6 +225,13 @@
       "when": 1784861031000,
       "tag": "0031_add_workflow_draft_dag",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1784861032000,
+      "tag": "0032_add_run_triggering_event",
+      "breakpoints": true
     }
   ]
 }

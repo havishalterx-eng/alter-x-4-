@@ -4,6 +4,7 @@ import {
   WEBHOOK_SIGNATURE_PAYLOAD_TEMPLATE,
   WEBHOOK_SIGNATURE_HEADER,
   WEBHOOK_TIMESTAMP_HEADER,
+  TriggerDispatchDetailSchema,
   type RotateWebhookSecretResult,
   type TriggerBinding,
   type TriggerBindingConfig,
@@ -11,6 +12,7 @@ import {
   type WebhookEndpoint,
 } from "@alterx/contracts";
 import type { MutableSecretsProvider } from "@alterx/shared-clients";
+import { createHash } from "node:crypto";
 import {
   bindingId as mintBindingId,
   secretReference,
@@ -23,6 +25,7 @@ import type {
   TriggerBindingRecord,
   TriggerBindingStore,
   WebhookEndpointRecord,
+  WebhookRouting,
 } from "./types";
 import {
   TriggerBindingNotFoundError,
@@ -57,7 +60,29 @@ export class WebhookDeliveryRejectedError extends Error {
   }
 }
 
+/**
+ * INGR-7: the outbound side of dispatch. Implemented by the EventBridge
+ * adapter in production; the eval harnesses simply leave the service
+ * without a publisher (deliveries are accepted but not dispatched).
+ */
+export interface TriggerEventPublisher {
+  publish(request: {
+    readonly source: string;
+    readonly detailType: string;
+    readonly detail: unknown;
+  }): Promise<void>;
+}
+
 const DEFAULT_MAX_SKEW_SECONDS = 300;
+
+/**
+ * Wire facts carried on every webhook-dispatched detail. The EventBridge
+ * canonical rule matches the `alter.` source prefix.
+ */
+const TRIGGER_DELIVERY_SOURCE = "alter.trigger.delivered";
+const TRIGGER_DELIVERY_DETAIL_TYPE = "trigger.delivered";
+const TRIGGER_DELIVERY_EVENT_TYPE = "trigger.delivered";
+const TRIGGER_DELIVERY_SCHEMA_VERSION = "v1";
 
 export interface TriggerBindingServiceOptions {
   /** Public origin the webhook URLs are built from, e.g. https://hooks.alter.ai */
@@ -105,16 +130,19 @@ export class TriggerBindingService {
   readonly #secrets: MutableSecretsProvider;
   readonly #webhookBaseUrl: string;
   readonly #maxSkewSeconds: number;
+  readonly #publisher: TriggerEventPublisher | undefined;
 
   constructor(
     store: TriggerBindingStore,
     secrets: MutableSecretsProvider,
     options: TriggerBindingServiceOptions,
+    publisher?: TriggerEventPublisher,
   ) {
     this.#store = store;
     this.#secrets = secrets;
     this.#webhookBaseUrl = options.webhookBaseUrl.replace(/\/+$/, "");
     this.#maxSkewSeconds = options.maxSkewSeconds ?? DEFAULT_MAX_SKEW_SECONDS;
+    this.#publisher = publisher;
   }
 
   /**
@@ -305,6 +333,12 @@ export class TriggerBindingService {
    * token, skewed timestamp, bad signature -- surfaces the same opaque
    * error, so the receiver cannot be used as an oracle for which endpoints
    * exist or which secret is current.
+   *
+   * INGR-7: every matched binding whose trigger is `enabled` with an active
+   * version is published to the event bus (deduped by trigger id -- two
+   * bindings matching the same delivery produce ONE dispatch per trigger).
+   * The response contract is unchanged: the receiver still returns the
+   * matched binding ids, and dispatch happens asynchronously via the queue.
    */
   async receiveDelivery(
     request: WebhookDeliveryRequest,
@@ -335,12 +369,66 @@ export class TriggerBindingService {
     const matched = bindings.filter((binding) =>
       matchesBinding(binding.config, payload),
     );
+    const uniqueTriggerIds = [...new Set(matched.map((binding) => binding.triggerId))];
+
+    if (this.#publisher !== undefined) {
+      await this.#dispatchTriggeredDeliveries(
+        routing,
+        uniqueTriggerIds,
+        payload,
+        request.rawBody,
+      );
+    }
 
     return {
       endpointId: routing.endpointId,
       accepted: true,
       matchedBindingIds: matched.map((binding) => binding.id),
     };
+  }
+
+  async #dispatchTriggeredDeliveries(
+    routing: WebhookRouting,
+    triggerIds: readonly string[],
+    payload: Record<string, unknown>,
+    rawBody: Buffer,
+  ): Promise<void> {
+    for (const triggerId of triggerIds) {
+      const info = await this.#store.findTriggerDispatchInfo(
+        routing.tenantId,
+        triggerId,
+      );
+      if (
+        info === null ||
+        info.status !== "enabled" ||
+        info.type !== "webhook" ||
+        info.activeVersion === null ||
+        info.dlqMaxReceiveCount === null ||
+        this.#publisher === undefined
+      ) {
+        continue;
+      }
+      const detail = TriggerDispatchDetailSchema.parse({
+        source: TRIGGER_DELIVERY_SOURCE,
+        detail_type: TRIGGER_DELIVERY_DETAIL_TYPE,
+        event_type: TRIGGER_DELIVERY_EVENT_TYPE,
+        schema_version: TRIGGER_DELIVERY_SCHEMA_VERSION,
+        tenant_id: `ten_${routing.tenantId}`,
+        workspace_id: info.workspaceId.startsWith("ws_")
+          ? info.workspaceId
+          : `ws_${info.workspaceId}`,
+        trigger_id: triggerId,
+        trigger_version: info.activeVersion,
+        idempotency_key: webhookIdempotencyKey(routing.endpointId, rawBody),
+        payload,
+        dlq_max_receive_count: info.dlqMaxReceiveCount,
+      });
+      await this.#publisher.publish({
+        source: detail.source,
+        detailType: detail.detail_type,
+        detail,
+      });
+    }
   }
 
   async #ensureEndpoint(
@@ -410,6 +498,19 @@ function projectBinding(record: TriggerBindingRecord): TriggerBinding {
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   };
+}
+
+/**
+ * Deterministic per-(endpoint, raw body) idempotency key. A redelivery of
+ * the same bytes (SQS already-deduplicated, or a sender retry with an
+ * identical body) maps to the same key and is dropped by the unique
+ * (tenant, idempotency_key) index on events.
+ */
+function webhookIdempotencyKey(endpointId: string, rawBody: Buffer): string {
+  return createHash("sha256")
+    .update(`${endpointId}\n`)
+    .update(rawBody)
+    .digest("hex");
 }
 
 function decodePayload(rawBody: Buffer): Record<string, unknown> {

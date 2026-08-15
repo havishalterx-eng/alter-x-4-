@@ -99,6 +99,7 @@ export interface RunRow extends Record<string, unknown> {
   readonly started_at: string | null;
   readonly ended_at: string | null;
   readonly created_at: string;
+  readonly triggering_event_id?: string | null;
 }
 
 export interface CreateProjectRunInput extends ProjectRunProvisioningInput {
@@ -174,7 +175,7 @@ function normalizeLimit(limit: number | undefined): number {
 const RUN_SELECT_COLUMNS = `id, workflow_id, project_id, workflow_version_id,
        provisioning_session_id, provisioning_cycle_id, provisioning_template_id,
        provisioning_closed_at::text, parent_kind, status, started_at::text,
-       ended_at::text, created_at::text`;
+       ended_at::text, created_at::text, triggering_event_id`;
 
 /**
  * Owns the run's actual lifecycle: creating the durable `runs` row,
@@ -194,11 +195,17 @@ export class RunLauncherService {
     tenantIdInput: string,
     workflowId: string,
     workflowVersionId?: string,
+    triggeringEventId?: string,
   ): Promise<RunRow> {
     const tenantId = bareTenantUuid(tenantIdInput);
     requireWorkflowId(workflowId);
     if (workflowVersionId !== undefined) {
       requireWorkflowVersionId(workflowVersionId);
+    }
+    if (triggeringEventId !== undefined && !/^evt_/.test(triggeringEventId)) {
+      throw new RunValidationError(
+        "triggeringEventId must be an evt_ prefixed event id",
+      );
     }
 
     const created = await this.store.withTenant(tenantId, async (tx) => {
@@ -214,11 +221,12 @@ export class RunLauncherService {
       const runId = newRunId();
 
       const inserted = await tx.query<RunRow>(
-        `INSERT INTO runs (id, tenant_id, workspace_id, parent_kind, workflow_id, workflow_version_id, status)
-         SELECT $3, $1, workspace_id, 'workflow', $2, $4, 'pending'
+        `INSERT INTO runs (id, tenant_id, workspace_id, parent_kind, workflow_id,
+                           workflow_version_id, status, triggering_event_id)
+         SELECT $3, $1, workspace_id, 'workflow', $2, $4, 'pending', $5
          FROM workflows WHERE tenant_id = $1 AND id = $2
          RETURNING ${RUN_SELECT_COLUMNS}`,
-        [tenantId, workflowId, runId, version.id],
+        [tenantId, workflowId, runId, version.id, triggeringEventId ?? null],
       );
       return { row: inserted.rows[0]!, compiledDag: version.compiledDag };
     });
@@ -584,7 +592,14 @@ export class RunLauncherService {
     return { id: row.id, compiledDag: parseCompiledDag(row.compiled_dag) };
   }
 
-  private async startAndTransition(
+  /**
+   * Starts the Executor's Temporal workflow for an already-created run row
+   * and transitions it to `running`. Public because the dispatch path
+   * (TriggerEventDispatchService) inserts its own run row in the same
+   * transaction as the `events` row and reuses this exact start/transition
+   * sequence afterwards.
+   */
+  async startAndTransition(
     tenantId: string,
     row: RunRow,
     compiledDag: CompiledDag,

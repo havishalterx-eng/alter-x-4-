@@ -113,6 +113,16 @@ describe.sequential("TemporalDurableExecutionProvider", () => {
     }
   });
 
+  it("deletes a cron schedule idempotently when it does not exist", async () => {
+    const provider = new TemporalDurableExecutionProvider(
+      config("foundation-schedule"),
+      environment.connection,
+    );
+    await expect(
+      provider.deleteCronSchedule("alter-trigger-never-created"),
+    ).resolves.toBeUndefined();
+  });
+
   it("reports live namespace connectivity and fails fast when unreachable", async () => {
     const liveProvider = new TemporalDurableExecutionProvider(
       config("foundation-health"),

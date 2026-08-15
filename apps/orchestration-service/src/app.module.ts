@@ -9,6 +9,7 @@ import {
   RECOVERY_HANDLER,
   REGISTRY_HANDLER,
   RUNS_HANDLER,
+  RUNS_DISPATCH_HANDLER,
   BlackboardGrpcController,
   ARTIFACT_CONTENT_HANDLER,
   ArtifactContentGrpcController,
@@ -18,11 +19,13 @@ import {
   ConversationGrpcController,
   DeployctlGrpcController,
   EvalServiceClient,
+  EventBridgeEventPublisher,
   MemoryServiceClient,
   ModelGatewayClient,
   PlannerClient,
   PolicyStoreClient,
   ProvisioningClient,
+  RunDispatchGrpcController,
   SandboxServiceClient,
   AwsSecretsManagerProvider,
   AwsSsmParameterProvider,
@@ -98,6 +101,8 @@ import { RecoveryTriggerService } from "./recovery/recovery-trigger.service";
 import { loadRecoveryEnvironment } from "./config/recovery-environment";
 import { TriggerRegistryController } from "./trigger-registry/trigger-registry.controller";
 import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
+import { TriggerEventDispatchService } from "./trigger-registry/trigger-event-dispatch.service";
+import { loadTriggerDispatchEnvironment } from "./config/trigger-dispatch-environment";
 import {
   IntegrationWebhookController,
   PostgresTriggerBindingStore,
@@ -155,6 +160,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
     BlackboardGrpcController,
     RecoveryGrpcController,
     RunsGrpcController,
+    RunDispatchGrpcController,
     ArtifactContentGrpcController,
     NodeExecutionsController,
     RunStreamController,
@@ -311,7 +317,24 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // database rather than refactoring the guard wiring.
         const dbConfig = sessionGatewayEnvironment(process.env);
         const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
-        return new TriggerRegistryService(store);
+        const runLauncherConfig = loadRunLauncherEnvironment(process.env);
+        const durable = new TemporalDurableExecutionProvider({
+          address: runLauncherConfig.temporalAddress,
+          namespace: runLauncherConfig.temporalNamespace,
+          taskQueue: runLauncherConfig.taskQueue,
+          ...(runLauncherConfig.temporalApiKey === undefined
+            ? {}
+            : { apiKey: runLauncherConfig.temporalApiKey }),
+        });
+        // INGR-7: the same Temporal provider also owns cron trigger
+        // Schedules. Its metadata claims the primary canonical interface
+        // (DurableExecutionProvider); the CronScheduleManager capability
+        // rides along structurally, so this is a boundary cast.
+        return new TriggerRegistryService(
+          store,
+          undefined,
+          durable as unknown as import("@alterx/shared-clients").CronScheduleManager,
+        );
       },
     },
     {
@@ -328,6 +351,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         const dbConfig = sessionGatewayEnvironment(process.env);
         const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
         const bindingConfig = loadTriggerBindingEnvironment(process.env);
+        const dispatchConfig = loadTriggerDispatchEnvironment(process.env);
         return new TriggerBindingService(
           new PostgresTriggerBindingStore(store),
           new AwsSecretsManagerProvider({ region: dbConfig.awsRegion }),
@@ -335,7 +359,25 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
             webhookBaseUrl: bindingConfig.webhookBaseUrl,
             maxSkewSeconds: bindingConfig.maxSkewSeconds,
           },
+          new EventBridgeEventPublisher({
+            region: dbConfig.awsRegion,
+            busName: dispatchConfig.eventBridgeBusName,
+            ...(dispatchConfig.eventBridgeEndpoint === undefined
+              ? {}
+              : { endpoint: dispatchConfig.eventBridgeEndpoint }),
+          }),
         );
+      },
+    },
+    {
+      provide: RUNS_DISPATCH_HANDLER,
+      inject: [RunLauncherService],
+      useFactory: (launcher: RunLauncherService) => {
+        // Same reasoning as RUNS_HANDLER above: its own store instance,
+        // isolated from the guard's.
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        return new TriggerEventDispatchService(store, launcher);
       },
     },
     {

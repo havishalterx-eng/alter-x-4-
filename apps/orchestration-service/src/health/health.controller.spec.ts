@@ -30,6 +30,7 @@ describe("GET /health", () => {
       EVAL_FACADE_TOKEN_SHA256: "b".repeat(64),
       AWS_REGION: "ap-south-1",
       ALTER_ENV: "prod",
+      EVENTBRIDGE_BUS_NAME: "alter-prod",
       ALTER_ARTIFACTS_BUCKET_PARAM: "/alter/prod/orchestration/artifacts-bucket",
       MODEL_GATEWAY_ADDRESS: "127.0.0.1:50051",
       TOOL_GATEWAY_ADDRESS: "127.0.0.1:50053",

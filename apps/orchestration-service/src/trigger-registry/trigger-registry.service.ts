@@ -1,8 +1,20 @@
 import { TenantIdSchema } from "@alterx/contracts";
+import type {
+  CronScheduleManager,
+  CronScheduleUpsertRequest,
+} from "@alterx/shared-clients";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { computeNextCronFireTime, validateCronExpression } from "./cron-validator";
 import { defaultDlqPolicy, validateDlqPolicy, type DlqPolicy } from "./dlq-policy";
+import {
+  TRIGGER_CRON_FIRE_DETAIL_TYPE,
+  TRIGGER_CRON_FIRE_EVENT_TYPE,
+  TRIGGER_CRON_FIRE_SOURCE,
+  TRIGGER_DISPATCH_SCHEMA_VERSION,
+  TRIGGER_DISPATCH_WORKFLOW_TYPE,
+  triggerScheduleId,
+} from "./trigger-dispatch.constants";
 
 export class TriggerValidationError extends Error {
   constructor(message: string) {
@@ -165,7 +177,8 @@ function computeNextFireAt(config: TriggerVersionConfig): string | null {
 export class TriggerRegistryService {
   constructor(
     private readonly store: OrchestrationTenantStore,
-    private readonly mintId: () => string = () => randomUUID(),
+    private readonly mintId: () => string = mintV7Id,
+    private readonly scheduleManager?: CronScheduleManager,
   ) {}
 
   async registerTrigger(
@@ -248,9 +261,13 @@ export class TriggerRegistryService {
     requireValidWorkflowVersionId(request.workflowVersionId);
     const tenantId = bareTenantUuid(request.tenantId);
 
-    return this.store.withTenant(tenantId, async (tx) => {
-      const triggerResult = await tx.query<{ type: TriggerType }>(
-        `SELECT type FROM triggers WHERE tenant_id = $1 AND id = $2`,
+    const created = await this.store.withTenant(tenantId, async (tx) => {
+      const triggerResult = await tx.query<{
+        type: TriggerType;
+        status: TriggerStatus;
+        workspace_id: string;
+      }>(
+        `SELECT type, status, workspace_id FROM triggers WHERE tenant_id = $1 AND id = $2`,
         [tenantId, request.triggerId],
       );
       const triggerRow = triggerResult.rows[0];
@@ -290,16 +307,40 @@ export class TriggerRegistryService {
       );
 
       return {
-        id: triggerVersionId,
-        tenantId: request.tenantId,
-        triggerId: request.triggerId,
-        version: nextVersion,
-        workflowVersionId: request.workflowVersionId ?? null,
-        config,
-        status: "active" as const,
-        nextFireAt,
+        version: {
+          id: triggerVersionId,
+          tenantId: request.tenantId,
+          triggerId: request.triggerId,
+          version: nextVersion,
+          workflowVersionId: request.workflowVersionId ?? null,
+          config,
+          status: "active" as const,
+          nextFireAt,
+        },
+        type: triggerRow.type,
+        triggerStatus: triggerRow.status,
+        workspaceId: triggerRow.workspace_id,
       };
     });
+
+    if (
+      created.type === "cron" &&
+      created.triggerStatus === "enabled" &&
+      this.scheduleManager !== undefined
+    ) {
+      await this.scheduleManager.upsertCronSchedule(
+        buildCronScheduleUpsert(
+          tenantId,
+          request.tenantId,
+          created.workspaceId,
+          request.triggerId,
+          created.version.version,
+          created.version.config,
+        ),
+      );
+    }
+
+    return created.version;
   }
 
   async setTriggerStatus(
@@ -311,7 +352,7 @@ export class TriggerRegistryService {
     requireNonEmpty("triggerId", triggerId);
     const tenantId = bareTenantUuid(tenantIdInput);
 
-    return this.store.withTenant(tenantId, async (tx) => {
+    const outcome = await this.store.withTenant(tenantId, async (tx) => {
       const result = await tx.query<{
         id: string;
         workspace_id: string;
@@ -320,9 +361,17 @@ export class TriggerRegistryService {
         type: TriggerType;
         status: TriggerStatus;
         provider: string | null;
+        active_version: number | null;
+        active_config: unknown;
       }>(
-        `SELECT id, workspace_id, workflow_id, name, type, status, provider
-         FROM triggers WHERE tenant_id = $1 AND id = $2`,
+        `SELECT t.id, t.workspace_id, t.workflow_id, t.name, t.type, t.status,
+                t.provider, tv.version AS active_version, tv.config AS active_config
+         FROM triggers t
+         LEFT JOIN trigger_versions tv
+           ON tv.tenant_id = t.tenant_id AND tv.trigger_id = t.id
+          AND tv.status = 'active'
+         WHERE t.tenant_id = $1 AND t.id = $2
+         ORDER BY tv.version DESC LIMIT 1`,
         [tenantId, triggerId],
       );
       const row = result.rows[0];
@@ -338,16 +387,80 @@ export class TriggerRegistryService {
       );
 
       return {
-        id: row.id,
-        tenantId: tenantIdInput,
-        workspaceId: row.workspace_id,
-        workflowId: row.workflow_id,
-        name: row.name,
+        trigger: {
+          id: row.id,
+          tenantId: tenantIdInput,
+          workspaceId: row.workspace_id,
+          workflowId: row.workflow_id,
+          name: row.name,
+          type: row.type,
+          status: targetStatus,
+          provider: row.provider,
+        },
         type: row.type,
-        status: targetStatus,
-        provider: row.provider,
+        workspaceId: row.workspace_id,
+        activeVersion: row.active_version,
+        activeConfig: parseVersionConfig(row.active_config),
       };
     });
+
+    await this.#syncCronSchedule(tenantIdInput, tenantId, {
+      type: outcome.type,
+      workspaceId: outcome.workspaceId,
+      triggerId,
+      targetStatus,
+      activeVersion: outcome.activeVersion,
+      activeConfig: outcome.activeConfig,
+    });
+
+    return outcome.trigger;
+  }
+
+  /**
+   * INGR-7: keeps the Temporal cron Schedule in step with the trigger's
+   * committed lifecycle. Only cron triggers get schedules; enabling one
+   * upserts (replaces) the schedule with the active version's expression,
+   * disabling/archiving deletes it. Runs after the DB commit; a failure is
+   * NOT swallowed -- the DB state is already committed, and throwing lets
+   * the caller see that the schedule side of the transition did not land.
+   */
+  async #syncCronSchedule(
+    tenantIdInput: string,
+    tenantId: string,
+    context: {
+      readonly type: TriggerType;
+      readonly workspaceId: string;
+      readonly triggerId: string;
+      readonly targetStatus: TriggerStatus;
+      readonly activeVersion: number | null;
+      readonly activeConfig: TriggerVersionConfig | null;
+    },
+  ): Promise<void> {
+    if (this.scheduleManager === undefined || context.type !== "cron") {
+      return;
+    }
+    if (context.targetStatus === "disabled" || context.targetStatus === "archived") {
+      await this.scheduleManager.deleteCronSchedule(
+        triggerScheduleId(tenantId, context.triggerId),
+      );
+      return;
+    }
+    if (
+      context.targetStatus === "enabled" &&
+      context.activeVersion !== null &&
+      context.activeConfig !== null
+    ) {
+      await this.scheduleManager.upsertCronSchedule(
+        buildCronScheduleUpsert(
+          tenantId,
+          tenantIdInput,
+          context.workspaceId,
+          context.triggerId,
+          context.activeVersion,
+          context.activeConfig,
+        ),
+      );
+    }
   }
 
   async testTrigger(
@@ -532,4 +645,58 @@ function assertValidStatusTransition(
   }
 }
 
+function parseVersionConfig(value: unknown): TriggerVersionConfig | null {
+  const raw: unknown = typeof value === "string" ? JSON.parse(value) : value;
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  return raw as TriggerVersionConfig;
+}
+
+function buildCronScheduleUpsert(
+  tenantId: string,
+  tenantIdInput: string,
+  workspaceId: string,
+  triggerId: string,
+  triggerVersion: number,
+  config: TriggerVersionConfig,
+): CronScheduleUpsertRequest {
+  const cronExpression = config.cronExpression;
+  if (cronExpression === undefined) {
+    throw new TriggerValidationError(
+      "cron trigger's active version has no cronExpression to schedule",
+    );
+  }
+  return {
+    scheduleId: triggerScheduleId(tenantId, triggerId),
+    cronExpression,
+    workflowType: TRIGGER_DISPATCH_WORKFLOW_TYPE,
+    input: {
+      source: TRIGGER_CRON_FIRE_SOURCE,
+      detail_type: TRIGGER_CRON_FIRE_DETAIL_TYPE,
+      event_type: TRIGGER_CRON_FIRE_EVENT_TYPE,
+      schema_version: TRIGGER_DISPATCH_SCHEMA_VERSION,
+      tenant_id: tenantIdInput,
+      workspace_id: workspaceId.startsWith("ws_")
+        ? workspaceId
+        : `ws_${workspaceId}`,
+      trigger_id: triggerId,
+      trigger_version: triggerVersion,
+      payload: {},
+      dlq_max_receive_count: config.dlqPolicy.maxReceiveCount,
+    },
+  };
+}
+
 export { defaultDlqPolicy };
+
+/**
+ * UUIDv7-forced id, matching the run/event id conventions elsewhere and
+ * the prefixedUuidV7 contract the dispatch detail carries. The registry
+ * mints trigger/version ids with this so every id the dispatch pipeline
+ * sees is schema-valid.
+ */
+function mintV7Id(): string {
+  const id = randomUUID();
+  return `${id.slice(0, 14)}7${id.slice(15)}`;
+}

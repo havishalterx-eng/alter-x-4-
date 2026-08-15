@@ -15,6 +15,46 @@ service RunLookupService {
       returns (GetNodeExecutionRecoveryInfoResponse);
 }
 
+// INGR-7: the canonical-event consumer (background-workers) calls this with
+// a validated EventBridge detail so the orchestration service can durably
+// write the `events` row and create the run -- the only writer of both.
+service RunDispatchService {
+  // Create a run (and its triggering `events` row) from a dispatched
+  // trigger delivery. Idempotent per idempotency_key: a re-delivered
+  // message for the same key returns the original run without a second
+  // events row. A trigger that is no longer enabled returns an empty
+  // response (terminal -- the message is dropped, not redelivered).
+  rpc CreateRun(CreateRunRequest) returns (CreateRunResponse);
+}
+
+message CreateRunRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string workspace_id = 2; // ws_ prefixed UUIDv7
+  string trigger_id = 3; // trg_ prefixed UUIDv7
+  // The trigger version that fired at publish time. The `events` row records
+  // it; the run itself resolves the trigger's active version at dispatch
+  // time (see TriggerEventDispatchService).
+  int32 trigger_version = 4;
+  string event_type = 5;
+  string schema_version = 6; // e.g. "v1"
+  string source = 7; // e.g. "alter.trigger-registry"
+  string idempotency_key = 8;
+  string payload_json = 9; // JSON object serialized by the publisher
+}
+
+message CreateRunResponse {
+  reserved 100 to 199;
+
+  // run_ prefixed UUIDv7 when an events row was inserted and a run was
+  // created; empty when the delivery is a terminal no-op (trigger missing,
+  // disabled, or the idempotency_key was already handled).
+  string run_id = 1;
+  // true iff a NEW events row was inserted by this call.
+  bool event_inserted = 2;
+}
+
 message GetRunWorkspaceRequest {
   reserved 100 to 199;
 

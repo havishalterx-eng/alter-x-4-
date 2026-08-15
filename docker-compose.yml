@@ -45,7 +45,7 @@ services:
   localstack:
     image: localstack/localstack:4.14.0
     environment:
-      SERVICES: s3,sqs,secretsmanager,events
+      SERVICES: s3,sqs,secretsmanager,ssm,events
       AWS_DEFAULT_REGION: ap-south-1
       EAGER_SERVICE_LOADING: "1"
       LS_LOG: warn
@@ -61,7 +61,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "awslocal sqs get-queue-url --queue-name alter-local-cost-events >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${DATABASE_SECRET_REF}\" >/dev/null 2>&1",
+          "awslocal sqs get-queue-url --queue-name alter-local-cost-events >/dev/null 2>&1 && awslocal sqs get-queue-url --queue-name alter-local-events.fifo >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${DATABASE_SECRET_REF}\" >/dev/null 2>&1",
         ]
       interval: 5s
       timeout: 5s

@@ -3,8 +3,11 @@ import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fa
 import { NestFactory } from "@nestjs/core";
 import {
   CostClient,
+  EventBridgeEventPublisher,
+  RunDispatchClient,
   SqsQueueProvider,
   TemporalDurableExecutionProvider,
+  createTriggerDispatchActivities,
   startExecutorWorker,
   startPlatformJobsWorker,
 } from "@alterx/adapters";
@@ -12,6 +15,7 @@ import { lazyAuth0M2mTokenProviderFromEnvironment } from "@alterx/auth";
 import { AppModule } from "./app.module";
 import { loadExecutorWorkerEnvironment } from "./config/environment";
 import { loadCostEventConsumerEnvironment } from "./config/cost-event-consumer-environment";
+import { loadCanonicalEventConsumerEnvironment } from "./config/canonical-event-consumer-environment";
 import { loadPlatformJobWorkerEnvironment } from "./config/platform-job-worker-environment";
 import {
   loadPlatformJobsEnvironment,
@@ -22,6 +26,9 @@ import { NODEEXEC_PROTO_PATH } from "./executor/nodeexec-proto-path";
 import { COST_PROTO_PATH } from "./cost-events/cost-proto-path";
 import { CostEventConsumerService } from "./cost-events/cost-event-consumer.service";
 import { CostEventConsumerRunner } from "./cost-events/cost-event-consumer-runner";
+import { RUNS_PROTO_PATH } from "./canonical-events/canonical-event-proto-path";
+import { CanonicalEventConsumerService } from "./canonical-events/canonical-event-consumer.service";
+import { CanonicalEventConsumerRunner } from "./canonical-events/canonical-event-consumer-runner";
 import { createPlatformJobHandlers } from "./platform-jobs/handlers";
 import { NotificationDigestSchedulerRunner } from "./platform-jobs/notification-digest-scheduler-runner";
 import { IntervalJobSchedulerRunner } from "./platform-jobs/interval-job-scheduler-runner";
@@ -46,24 +53,40 @@ async function bootstrap(): Promise<void> {
   // no HTTP surface of its own. All vendor SDK usage (Temporal, gRPC) is
   // hidden inside startExecutorWorker (packages/adapters) -- adapter law.
   const environment = loadExecutorWorkerEnvironment(process.env);
-  const worker = await startExecutorWorker({
-    temporal: {
-      address: environment.temporalAddress,
-      namespace: environment.temporalNamespace,
-      taskQueue: environment.taskQueue,
-      ...(environment.temporalApiKey === undefined
-        ? {}
-        : { apiKey: environment.temporalApiKey }),
-    },
-    nodeexec: {
-      address: environment.nodeexecAddress,
-      protoPath: NODEEXEC_PROTO_PATH,
-    },
-    blackboard: {
-      address: environment.blackboardAddress,
-      protoPath: BLACKBOARD_PROTO_PATH,
-    },
+  // ALTER_REGION/ALTER_ENV are canonical-events config; the cron-trigger
+  // workflow activity publishes through the same EventBridge bus the
+  // orchestration webhook path uses, so the worker reuses those values.
+  const canonicalEventsConfig = loadCanonicalEventConsumerEnvironment(process.env);
+  const eventBridgePublisher = new EventBridgeEventPublisher({
+    region: canonicalEventsConfig.region,
+    busName: `alter-${canonicalEventsConfig.alterEnvironment}`,
+    ...(process.env.AWS_ENDPOINT_URL
+      ? { endpoint: process.env.AWS_ENDPOINT_URL }
+      : {}),
   });
+  const worker = await startExecutorWorker(
+    {
+      temporal: {
+        address: environment.temporalAddress,
+        namespace: environment.temporalNamespace,
+        taskQueue: environment.taskQueue,
+        ...(environment.temporalApiKey === undefined
+          ? {}
+          : { apiKey: environment.temporalApiKey }),
+      },
+      nodeexec: {
+        address: environment.nodeexecAddress,
+        protoPath: NODEEXEC_PROTO_PATH,
+      },
+      blackboard: {
+        address: environment.blackboardAddress,
+        protoPath: BLACKBOARD_PROTO_PATH,
+      },
+    },
+    {
+      triggerDispatch: createTriggerDispatchActivities(eventBridgePublisher),
+    },
+  );
 
   // Cost-events consumer (OUT-4): an independent background loop in this
   // same process, same reasoning as the Executor worker above -- it owns
@@ -87,6 +110,32 @@ async function bootstrap(): Promise<void> {
     costEventsConfig.pollIntervalMs,
   );
   costEventRunner.start();
+
+  // Canonical-events consumer (INGR-7): drains the FIFO queue the
+  // EventBridge canonical rule feeds, calling the orchestration
+  // RunDispatchService.CreateRun RPC per message -- same no-HTTP-surface
+  // reasoning as the cost-events loop above. Visibility-timeout based:
+  // receive() leaves messages in flight for SQS to redeliver on failure.
+  const canonicalEventQueueName = `alter-${canonicalEventsConfig.alterEnvironment}-events.fifo`;
+  const canonicalEventSqs = new SqsQueueProvider({
+    region: canonicalEventsConfig.region,
+    ...(process.env.AWS_ENDPOINT_URL
+      ? { endpoint: process.env.AWS_ENDPOINT_URL, useQueueUrlAsEndpoint: false }
+      : {}),
+  });
+  const canonicalEventConsumer = new CanonicalEventConsumerService(
+    canonicalEventSqs as unknown as import("@alterx/shared-clients").QueueMessageConsumer,
+    canonicalEventQueueName,
+    new RunDispatchClient({
+      address: canonicalEventsConfig.orchestrationRunsAddress,
+      protoPath: RUNS_PROTO_PATH,
+    }),
+  );
+  const canonicalEventRunner = new CanonicalEventConsumerRunner(
+    canonicalEventConsumer,
+    canonicalEventsConfig.pollIntervalMs,
+  );
+  canonicalEventRunner.start();
 
   // Platform Jobs worker (Engagement Phase, doc 12): real `platform`
   // Temporal namespace, independent of the Executor worker's `engine`
@@ -190,6 +239,7 @@ async function bootstrap(): Promise<void> {
   app.getHttpAdapter().getInstance().addHook("onClose", () => {
     worker.shutdown();
     void costEventRunner.stop();
+    void canonicalEventRunner.stop();
     platformJobsWorker.shutdown();
     void digestSchedulerRunner.stop();
     void connectorHealthSweepRunner.stop();

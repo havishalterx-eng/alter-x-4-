@@ -8,6 +8,7 @@ import {
   sql,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "@alterx/adapters";
@@ -76,6 +77,10 @@ export const events = pgTable(
     uniqueIndex("idx_events_tenant_idempotency").on(
       table.tenantId,
       table.idempotencyKey,
+    ),
+    unique("events_tenant_id_event_id_unique").on(
+      table.tenantId,
+      table.eventId,
     ),
     index("idx_events_correlation").on(table.correlationId),
     index("idx_events_conversation").on(table.conversationId),

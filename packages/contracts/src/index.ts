@@ -24,6 +24,12 @@ export {
   type SignatureStatus,
 } from "./canonical-event";
 export {
+  TriggerDispatchDetailSchema,
+  TriggerDispatchScheduleInputSchema,
+  type TriggerDispatchDetail,
+  type TriggerDispatchScheduleInput,
+} from "./trigger-dispatch";
+export {
   FieldErrorSchema,
   ProblemDetailsSchema,
   type FieldError,
@@ -411,6 +417,8 @@ export type {
   InitiateCallResponse as VoiceInitiateCallResponse,
 } from "./generated/alter/voice/v1/voice";
 export type {
+  CreateRunRequest as RunsCreateRunRequest,
+  CreateRunResponse as RunsCreateRunResponse,
   GetRunWorkspaceRequest as RunsGetRunWorkspaceRequest,
   GetRunWorkspaceResponse as RunsGetRunWorkspaceResponse,
   GetNodeExecutionRecoveryInfoRequest as RunsGetNodeExecutionRecoveryInfoRequest,

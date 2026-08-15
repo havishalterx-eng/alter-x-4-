@@ -1,7 +1,13 @@
-import { Client, Connection } from "@temporalio/client";
+import {
+  Client,
+  Connection,
+  ScheduleAlreadyRunning,
+  type ScheduleOptions,
+} from "@temporalio/client";
 
 import type { ProviderCapabilities } from "@alterx/contracts";
 import type {
+  CronScheduleUpsertRequest,
   DurableExecutionProvider,
   DurableWorkflowHandle,
   ProviderHealth,
@@ -134,6 +140,59 @@ export class TemporalDurableExecutionProvider
   async terminateWorkflow(request: TerminateWorkflowRequest): Promise<void> {
     const client = await this.#getClient();
     await client.workflow.getHandle(request.workflowId).terminate(request.reason);
+  }
+
+  /**
+   * INGR-7: create-or-update a cron Schedule. Same schedule id means the
+   * same trigger; Temporal enforces schedule ids are unique, so a schedule
+   * that already exists is updated in place (never duplicated). The action
+   * always starts the caller's workflowType without a fixed workflowId, so
+   * consecutive fires produce independent workflow executions.
+   */
+  async upsertCronSchedule(request: CronScheduleUpsertRequest): Promise<void> {
+    const client = await this.#getClient();
+    const options: ScheduleOptions = {
+      scheduleId: request.scheduleId,
+      spec: { cronExpressions: [request.cronExpression] },
+      action: {
+        type: "startWorkflow",
+        workflowType: request.workflowType,
+        taskQueue: this.#config.taskQueue,
+        args: [request.input],
+      },
+    };
+    try {
+      await client.schedule.create(options);
+    } catch (error: unknown) {
+      if (!(error instanceof ScheduleAlreadyRunning)) {
+        throw error;
+      }
+      await client.schedule.getHandle(request.scheduleId).update((previous) => ({
+        ...previous,
+        spec: options.spec,
+        action: options.action,
+      }));
+    }
+  }
+
+  async deleteCronSchedule(scheduleId: string): Promise<void> {
+    const client = await this.#getClient();
+    try {
+      await client.schedule.getHandle(scheduleId).delete();
+    } catch (error: unknown) {
+      // Deleting a schedule that no longer exists is the idempotent
+      // no-op, not a failure: a trigger disabled twice, or a schedule
+      // removed out-of-band, must not make the registry's committed
+      // transition look like it did not land.
+      if (
+        error instanceof Error &&
+        (error.message.includes("already completed") ||
+          error.name === "ScheduleNotFoundError")
+      ) {
+        return;
+      }
+      throw error;
+    }
   }
 
   async healthCheck(): Promise<ProviderHealth> {

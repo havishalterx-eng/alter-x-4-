@@ -4,6 +4,7 @@ import type {
   RotationOutcome,
   TriggerBindingRecord,
   TriggerBindingStore,
+  TriggerDispatchInfo,
   TriggerScope,
   UpsertBindingInput,
   WebhookEndpointRecord,
@@ -11,6 +12,7 @@ import type {
   WebhookSecretRecord,
 } from "./types";
 import type { TriggerBindingConfig, TriggerBindingStatus } from "@alterx/contracts";
+import { defaultDlqPolicy } from "../trigger-registry/dlq-policy";
 
 interface Transaction {
   query<TRow extends Record<string, unknown> = Record<string, unknown>>(
@@ -50,6 +52,45 @@ export class PostgresTriggerBindingStore implements TriggerBindingStore {
       return row === undefined
         ? null
         : { triggerId, workspaceId: row.workspace_id, type: row.type };
+    });
+  }
+
+  async findTriggerDispatchInfo(
+    tenantId: string,
+    triggerId: string,
+  ): Promise<TriggerDispatchInfo | null> {
+    return this.store.withTenant(tenantId, async (tx) => {
+      const result = await tx.query<{
+        workspace_id: string;
+        type: string;
+        status: string;
+        active_version: number | null;
+        version_config: unknown;
+      }>(
+        `SELECT t.workspace_id, t.type, t.status,
+                tv.version AS active_version, tv.config AS version_config
+         FROM triggers t
+         LEFT JOIN trigger_versions tv
+           ON tv.tenant_id = t.tenant_id AND tv.trigger_id = t.id
+          AND tv.status = 'active'
+         WHERE t.tenant_id = $1 AND t.id = $2`,
+        [tenantId, triggerId],
+      );
+      const row = result.rows[0];
+      if (row === undefined) {
+        return null;
+      }
+      return {
+        triggerId,
+        workspaceId: row.workspace_id,
+        type: row.type,
+        status: row.status,
+        activeVersion: row.active_version === null ? null : Number(row.active_version),
+        dlqMaxReceiveCount:
+          row.active_version === null
+            ? null
+            : readDlqMaxReceiveCount(row.version_config),
+      };
     });
   }
 
@@ -376,6 +417,22 @@ function parseConfig(value: unknown): TriggerBindingConfig {
       ? { filter: filter as TriggerBindingConfig["filter"] }
       : {}),
   };
+}
+
+function readDlqMaxReceiveCount(versionConfig: unknown): number {
+  const raw: unknown =
+    typeof versionConfig === "string" ? JSON.parse(versionConfig) : versionConfig;
+  const config = (typeof raw === "object" && raw !== null ? raw : {}) as Record<
+    string,
+    unknown
+  >;
+  const dlqPolicy = (typeof config.dlqPolicy === "object" && config.dlqPolicy !== null
+    ? config.dlqPolicy
+    : {}) as Record<string, unknown>;
+  const maxReceiveCount = Number(dlqPolicy.maxReceiveCount);
+  return Number.isInteger(maxReceiveCount) && maxReceiveCount >= 1
+    ? maxReceiveCount
+    : defaultDlqPolicy().maxReceiveCount;
 }
 
 function toDate(value: string | Date): Date {

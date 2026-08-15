@@ -5,6 +5,7 @@ import { Worker, type NativeConnection } from "@temporalio/worker";
 
 import type { ExecutorActivities } from "./activities/executor-activities";
 import type { PlatformJobActivities } from "./activities/platform-job-activities";
+import type { TriggerDispatchActivities } from "./activities/trigger-dispatch-activities";
 import type { TemporalConnectionConfig } from "./durable-execution-provider";
 
 function foundationWorkflowsPath(): string {
@@ -52,7 +53,7 @@ export function createConversationLifecycleWorker(
 }
 
 function executorWorkflowsPath(): string {
-  const basePath = join(__dirname, "workflows", "executor-workflow");
+  const basePath = join(__dirname, "workflows", "executor-worker-workflows");
   const compiledPath = `${basePath}.js`;
   return existsSync(compiledPath) ? compiledPath : `${basePath}.ts`;
 }
@@ -63,11 +64,15 @@ function executorWorkflowsPath(): string {
  * activities (all real I/O: the Node Execution Service gRPC call). The
  * workflow file itself stays activity-implementation-free (type-only
  * import), keeping it deterministic/sandboxable.
+ *
+ * INGR-7: the same worker also serves triggerDispatchWorkflow (cron
+ * trigger fires) -- Temporal 1.20.3 takes a single workflowsPath, so the
+ * executor-worker-workflows barrel re-exports both workflows.
  */
 export function createExecutorWorker(
   config: TemporalConnectionConfig,
   connection: NativeConnection,
-  activities: ExecutorActivities,
+  activities: ExecutorActivities & Partial<TriggerDispatchActivities>,
 ): Promise<Worker> {
   return Worker.create({
     connection,

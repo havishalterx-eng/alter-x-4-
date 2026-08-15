@@ -87,6 +87,8 @@ export {
   type ConfigProvider,
   type CostLimitBinding,
   type CostLimitRequest,
+  type CronScheduleManager,
+  type CronScheduleUpsertRequest,
   type DeploymentProvider,
   type EmailProvider,
   type EmailSendResult,
@@ -132,6 +134,8 @@ export {
   type PIIRedactionResult,
   type ProviderHealth,
   type ProviderMetadata,
+  type QueueMessageConsumer,
+  type QueueMessageReceipt,
   type QueueProvider,
   type RelationalDatabaseProvider,
   type RepositoryProvider,
@@ -245,6 +249,18 @@ export {
   createMockQueueProvider,
   type MockQueueProviderOptions,
 } from "./mocks/queue-provider";
+export {
+  MOCK_QUEUE_MESSAGE_CONSUMER_CAPABILITIES,
+  createMockQueueMessageConsumer,
+  type MockQueueMessageConsumer,
+  type MockQueueMessageConsumerOptions,
+} from "./mocks/queue-message-consumer";
+export {
+  MOCK_CRON_SCHEDULE_MANAGER_CAPABILITIES,
+  createMockCronScheduleManager,
+  type MockCronScheduleManager,
+  type MockCronScheduleManagerOptions,
+} from "./mocks/cron-schedule-manager";
 export {
   MOCK_EMBEDDING_CAPABILITIES,
   createMockEmbeddingProvider,

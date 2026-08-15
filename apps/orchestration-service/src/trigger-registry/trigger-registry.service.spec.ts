@@ -108,6 +108,58 @@ function createFakeStore(): {
             };
           }
 
+          if (sql.startsWith("SELECT type, status, workspace_id FROM triggers")) {
+            const [tenantId, triggerId] = values as [string, string];
+            const row = triggers.get(triggerId);
+            const match =
+              row !== undefined && row.tenant_id === tenantId
+                ? [
+                    {
+                      type: row.type,
+                      status: row.status,
+                      workspace_id: row.workspace_id,
+                    },
+                  ]
+                : [];
+            return {
+              rowCount: match.length,
+              rows: match as unknown as readonly TRow[],
+            };
+          }
+
+          if (sql.startsWith("SELECT t.id, t.workspace_id, t.workflow_id")) {
+            const [tenantId, triggerId] = values as [string, string];
+            const row = triggers.get(triggerId);
+            const active = triggerVersions
+              .filter(
+                (v) =>
+                  v.tenant_id === tenantId &&
+                  v.trigger_id === triggerId &&
+                  v.status === "active",
+              )
+              .sort((a, b) => b.version - a.version)[0];
+            const match =
+              row !== undefined && row.tenant_id === tenantId
+                ? [
+                    {
+                      id: row.id,
+                      workspace_id: row.workspace_id,
+                      workflow_id: row.workflow_id,
+                      name: row.name,
+                      type: row.type,
+                      status: row.status,
+                      provider: row.provider,
+                      active_version: active?.version ?? null,
+                      active_config: active?.config ?? null,
+                    },
+                  ]
+                : [];
+            return {
+              rowCount: match.length,
+              rows: match as unknown as readonly TRow[],
+            };
+          }
+
           if (sql.startsWith("SELECT id, workspace_id FROM triggers")) {
             const [tenantId, triggerId] = values as [string, string];
             const row = triggers.get(triggerId);

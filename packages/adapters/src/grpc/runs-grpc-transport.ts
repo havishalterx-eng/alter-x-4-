@@ -8,6 +8,8 @@ import {
 } from "@nestjs/microservices";
 
 import type {
+  RunsCreateRunRequest,
+  RunsCreateRunResponse,
   RunsGetNodeExecutionRecoveryInfoRequest,
   RunsGetNodeExecutionRecoveryInfoResponse,
   RunsGetRunWorkspaceRequest,
@@ -16,6 +18,8 @@ import type {
 
 export const RUNS_HANDLER = Symbol("RUNS_HANDLER");
 
+export const RUNS_DISPATCH_HANDLER = Symbol("RUNS_DISPATCH_HANDLER");
+
 export interface RunsHandler {
   getRunWorkspace(
     request: RunsGetRunWorkspaceRequest,
@@ -23,6 +27,10 @@ export interface RunsHandler {
   getNodeExecutionRecoveryInfo(
     request: RunsGetNodeExecutionRecoveryInfoRequest,
   ): Promise<RunsGetNodeExecutionRecoveryInfoResponse>;
+}
+
+export interface RunDispatchHandler {
+  createRun(request: RunsCreateRunRequest): Promise<RunsCreateRunResponse>;
 }
 
 export interface RunsGrpcTransportConfig {
@@ -57,6 +65,29 @@ export class RunsGrpcController {
   }
 }
 
+/**
+ * INGR-7: gRPC surface for RunDispatchService.CreateRun (the canonical
+ * event path). Same package alter.runs.v1 as RunLookupService, so the same
+ * transport connection serves both -- this controller only adds the RPC.
+ */
+@Controller()
+export class RunDispatchGrpcController {
+  constructor(
+    @Inject(RUNS_DISPATCH_HANDLER) private readonly handler: RunDispatchHandler,
+  ) {}
+
+  @GrpcMethod("RunDispatchService", "CreateRun")
+  async createRun(
+    request: RunsCreateRunRequest,
+  ): Promise<RunsCreateRunResponse> {
+    try {
+      return await this.handler.createRun(request);
+    } catch (error: unknown) {
+      throw mapRunsError(error);
+    }
+  }
+}
+
 /** Connect-only: orchestration bootstrap starts all transports once. */
 export function connectRunsGrpcTransport(
   app: INestApplication,
@@ -74,13 +105,17 @@ export function connectRunsGrpcTransport(
 }
 
 function mapRunsError(error: unknown): RpcException {
-  if (isNamedError(error, "RunValidationError")) {
+  if (isNamedError(error, "RunValidationError") || isNamedError(error, "TriggerEventValidationError")) {
     return new RpcException({
       code: status.INVALID_ARGUMENT,
       message: error.message,
     });
   }
-  if (isNamedError(error, "RunNotFoundError") || isNamedError(error, "NodeExecutionNotFoundError")) {
+  if (
+    isNamedError(error, "RunNotFoundError") ||
+    isNamedError(error, "NodeExecutionNotFoundError") ||
+    isNamedError(error, "TriggerEventNotFoundError")
+  ) {
     return new RpcException({
       code: status.NOT_FOUND,
       message: error.message,

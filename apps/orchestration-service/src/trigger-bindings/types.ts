@@ -55,6 +55,22 @@ export interface TriggerScope {
 }
 
 /**
+ * INGR-7: dispatch-time trigger facts resolved after a delivery matches a
+ * binding. `status` gates the webhook path (only `enabled` triggers are
+ * dispatched), `activeVersion` is the version whose workflow is run, and
+ * `dlqMaxReceiveCount` is the snapshot of the active version's dlqPolicy
+ * the published detail carries for the consumer's per-trigger DLQ check.
+ */
+export interface TriggerDispatchInfo {
+  readonly triggerId: string;
+  readonly workspaceId: string;
+  readonly type: string;
+  readonly status: string;
+  readonly activeVersion: number | null;
+  readonly dlqMaxReceiveCount: number | null;
+}
+
+/**
  * What the public receiver needs to verify and route a delivery, resolved
  * without tenant context (the caller is not authenticated yet). Only the
  * currently-active secret is ever resolvable here.
@@ -109,6 +125,11 @@ export interface TriggerBindingStore {
     tenantId: string,
     triggerId: string,
   ): Promise<TriggerScope | null>;
+
+  findTriggerDispatchInfo(
+    tenantId: string,
+    triggerId: string,
+  ): Promise<TriggerDispatchInfo | null>;
 
   findEndpointByIntegration(
     tenantId: string,

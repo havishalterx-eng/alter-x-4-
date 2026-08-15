@@ -8,6 +8,40 @@
 
 export const protobufPackage = "alter.runs.v1";
 
+export interface CreateRunRequest {
+  /** ten_ prefixed UUIDv7 */
+  tenant_id: string;
+  /** ws_ prefixed UUIDv7 */
+  workspace_id: string;
+  /** trg_ prefixed UUIDv7 */
+  trigger_id: string;
+  /**
+   * The trigger version that fired at publish time. The `events` row records
+   * it; the run itself resolves the trigger's active version at dispatch
+   * time (see TriggerEventDispatchService).
+   */
+  trigger_version: number;
+  event_type: string;
+  /** e.g. "v1" */
+  schema_version: string;
+  /** e.g. "alter.trigger-registry" */
+  source: string;
+  idempotency_key: string;
+  /** JSON object serialized by the publisher */
+  payload_json: string;
+}
+
+export interface CreateRunResponse {
+  /**
+   * run_ prefixed UUIDv7 when an events row was inserted and a run was
+   * created; empty when the delivery is a terminal no-op (trigger missing,
+   * disabled, or the idempotency_key was already handled).
+   */
+  run_id: string;
+  /** true iff a NEW events row was inserted by this call. */
+  event_inserted: boolean;
+}
+
 export interface GetRunWorkspaceRequest {
   /** ten_ prefixed UUIDv7 */
   tenant_id: string;
