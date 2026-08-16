@@ -37,6 +37,7 @@ class TestMigrationFileStructure:
         assert py_files == [
             "0001_create_intelligence_tables.py",
             "0002_create_drift_reader.py",
+            "0003_create_capability_registry.py",
         ]
 
     def test_all_tables_defined(self) -> None:
