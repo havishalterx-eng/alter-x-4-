@@ -3,6 +3,8 @@ import type {
   SandboxExecuteResponse,
   SandboxReadFileRequest,
   SandboxReadFileResponse,
+  SandboxRunVerificationSuiteRequest,
+  SandboxRunVerificationSuiteResponse,
   SandboxWriteFileRequest,
   SandboxWriteFileResponse,
 } from "@alterx/contracts";
@@ -15,7 +17,7 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 /** Maps public gRPC request to service's intentionally single-command API. */
 export class SandboxServiceGrpcHandler {
   constructor(
-    private readonly sandboxService: Pick<SandboxService, "execute" | "readFile" | "writeFiles">,
+    private readonly sandboxService: Pick<SandboxService, "execute" | "readFile" | "writeFiles" | "verifyBuild">,
     private readonly artifacts: ArtifactContentClientHandler,
   ) {}
 
@@ -59,6 +61,49 @@ export class SandboxServiceGrpcHandler {
     const content = new TextDecoder().decode(artifact.content);
     await this.sandboxService.writeFiles(request.session_id, [{ path: request.path, content }]);
     return { written: true, size_bytes: artifact.size_bytes };
+  }
+
+  async runVerificationSuite(
+    request: SandboxRunVerificationSuiteRequest,
+  ): Promise<SandboxRunVerificationSuiteResponse> {
+    requireValue(request.tenant_id, "tenant_id");
+    requireValue(request.run_id, "run_id");
+    requireValue(request.node_execution_id, "node_execution_id");
+    requireValue(request.session_id, "session_id");
+    if (request.checks.length === 0) {
+      throw new SandboxGrpcValidationError(
+        "RunVerificationSuite requires at least one check",
+      );
+    }
+
+    const report: Record<string, unknown> = {};
+    let passed = true;
+    for (const check of request.checks) {
+      if (check === "build") {
+        const result = await this.sandboxService.verifyBuild(request.session_id);
+        report[check] = result.output.verification;
+        if (result.output.verification.status !== "passed") passed = false;
+      } else {
+        // "render" is a real, existing SandboxService capability
+        // (verifyRender) but needs a previewUrl that
+        // RunVerificationSuiteRequest's locked proto shape has no field
+        // for -- honestly reported as unsupported here rather than
+        // silently skipped or faked as passed.
+        report[check] = {
+          status: "unsupported",
+          detail: `check "${check}" has no real RunVerificationSuite dispatch -- only "build" is wired today`,
+        };
+        passed = false;
+      }
+    }
+
+    const artifact = await this.artifacts.createContent({
+      tenant_id: request.tenant_id,
+      run_id: request.run_id,
+      content_type: "application/json",
+      content: new TextEncoder().encode(JSON.stringify(report)),
+    });
+    return { passed, report_artifact_id: artifact.artifact_id };
   }
 }
 

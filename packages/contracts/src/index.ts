@@ -211,6 +211,8 @@ export type {
   ReadFileResponse as SandboxReadFileResponse,
   WriteFileRequest as SandboxWriteFileRequest,
   WriteFileResponse as SandboxWriteFileResponse,
+  RunVerificationSuiteRequest as SandboxRunVerificationSuiteRequest,
+  RunVerificationSuiteResponse as SandboxRunVerificationSuiteResponse,
 } from "./generated/alter/sandbox/v1/sandbox";
 export {
   SafetySeverity as VerifySafetySeverity,

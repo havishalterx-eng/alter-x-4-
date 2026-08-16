@@ -12,6 +12,8 @@ import type {
   SandboxExecuteResponse,
   SandboxReadFileRequest,
   SandboxReadFileResponse,
+  SandboxRunVerificationSuiteRequest,
+  SandboxRunVerificationSuiteResponse,
   SandboxWriteFileRequest,
   SandboxWriteFileResponse,
 } from "@alterx/contracts";
@@ -29,6 +31,9 @@ export interface SandboxGrpcHandler {
   execute(request: SandboxExecuteRequest): Promise<SandboxExecuteResponse>;
   readFile(request: SandboxReadFileRequest): Promise<SandboxReadFileResponse>;
   writeFile(request: SandboxWriteFileRequest): Promise<SandboxWriteFileResponse>;
+  runVerificationSuite(
+    request: SandboxRunVerificationSuiteRequest,
+  ): Promise<SandboxRunVerificationSuiteResponse>;
 }
 
 export interface SandboxGrpcTransportConfig {
@@ -70,6 +75,13 @@ export class SandboxGrpcController {
   @GrpcMethod("SandboxService", "WriteFile")
   async writeFile(request: SandboxWriteFileRequest): Promise<SandboxWriteFileResponse> {
     try { return await this.handler.writeFile(request); } catch (error: unknown) { throw mapSandboxError(error); }
+  }
+
+  @GrpcMethod("SandboxService", "RunVerificationSuite")
+  async runVerificationSuite(
+    request: SandboxRunVerificationSuiteRequest,
+  ): Promise<SandboxRunVerificationSuiteResponse> {
+    try { return await this.handler.runVerificationSuite(request); } catch (error: unknown) { throw mapSandboxError(error); }
   }
 }
 
