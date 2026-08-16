@@ -1,6 +1,6 @@
 import { WorkflowFailedError } from "@temporalio/client";
 import { TestWorkflowEnvironment } from "@temporalio/testing";
-import type { Worker } from "@temporalio/worker";
+import { NativeConnection, type Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { CompiledDag } from "@alterx/contracts";
@@ -317,6 +317,27 @@ function concurrencyTrackingActivities(): {
   };
 }
 
+function multiRunActivities(
+  workerId: string,
+  calls: Array<{ readonly workerId: string; readonly runId: string }>,
+): ExecutorActivities {
+  return {
+    async executeNode(input) {
+      calls.push({ workerId, runId: input.runId });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (input.runId === "run_failing") {
+        throw new Error("isolated worker failure");
+      }
+      return {
+        outputJson: JSON.stringify({ from: input.nodeKey, workerId }),
+        metadataJson: "{}",
+      };
+    },
+    async finalizeRun() {},
+    async recordApprovalDecision() {},
+  };
+}
+
 describe.sequential("executorWorkflow", () => {
   let environment: TestWorkflowEnvironment;
 
@@ -503,6 +524,62 @@ describe.sequential("executorWorkflow", () => {
       ]);
     } finally {
       await stopWorker(running);
+    }
+  });
+
+  it("claims concurrent runs without duplicate successful execution, and isolates a failing run", async () => {
+    const taskQueue = "executor-concurrent-runs-isolation";
+    const calls: Array<{ readonly workerId: string; readonly runId: string }> = [];
+    const workerOne = startWorker(
+      await createExecutorWorker(
+        config(taskQueue),
+        environment.nativeConnection,
+        multiRunActivities("worker-one", calls),
+      ),
+    );
+    const workerTwoConnection = await NativeConnection.connect({
+      address: environment.address,
+    });
+    const workerTwo = startWorker(
+      await createExecutorWorker(
+        config(taskQueue),
+        workerTwoConnection,
+        multiRunActivities("worker-two", calls),
+      ),
+    );
+
+    try {
+      const [first, second, failing] = await Promise.all([
+        environment.client.workflow.start(WORKFLOW_TYPE, {
+          taskQueue,
+          workflowId: "executor-concurrent-first",
+          args: [{ tenantId: "ten_test", runId: "run_first", compiledDagJson: JSON.stringify(singleNodeDag()) }],
+        }),
+        environment.client.workflow.start(WORKFLOW_TYPE, {
+          taskQueue,
+          workflowId: "executor-concurrent-second",
+          args: [{ tenantId: "ten_test", runId: "run_second", compiledDagJson: JSON.stringify(singleNodeDag()) }],
+        }),
+        environment.client.workflow.start(WORKFLOW_TYPE, {
+          taskQueue,
+          workflowId: "executor-concurrent-failing",
+          args: [{ tenantId: "ten_test", runId: "run_failing", compiledDagJson: JSON.stringify(singleNodeDag()), nodeRecoveryTimeoutMs: 100 }],
+        }),
+      ]);
+
+      await expect(Promise.all([first.result(), second.result()])).resolves.toEqual([
+        expect.objectContaining({ outputs: { node_a: expect.objectContaining({ from: "node_a" }) } }),
+        expect.objectContaining({ outputs: { node_a: expect.objectContaining({ from: "node_a" }) } }),
+      ]);
+      await expect(failing.result()).rejects.toBeInstanceOf(WorkflowFailedError);
+
+      expect(calls.filter((call) => call.runId === "run_first")).toHaveLength(1);
+      expect(calls.filter((call) => call.runId === "run_second")).toHaveLength(1);
+      expect(calls.filter((call) => call.runId === "run_failing")).toHaveLength(3);
+      expect(new Set(calls.map((call) => call.workerId)).size).toBeGreaterThanOrEqual(1);
+    } finally {
+      await Promise.all([stopWorker(workerOne), stopWorker(workerTwo)]);
+      workerTwoConnection.close();
     }
   });
 
