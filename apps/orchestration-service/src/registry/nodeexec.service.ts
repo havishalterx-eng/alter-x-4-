@@ -23,6 +23,7 @@ import type { RunOutcomeService } from "../runs/run-outcome.service";
 import type { ProjectRunProvisioningService } from "../runs/project-run-provisioning.service";
 import type { GeneratedFileMaterializer } from "./generated-file-materializer";
 import { VerifyGateError, type VerifyGateService } from "./verify-gate.service";
+import { createVerificationResultId } from "./verification-result-id";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -223,6 +224,18 @@ export class NodeexecService {
           output_json: outputJson,
         });
         if (verification !== undefined) {
+          await this.ledger.recordVerificationResult({
+            id: createVerificationResultId(),
+            tenantId: request.tenant_id,
+            runId: request.run_id,
+            nodeExecutionId: request.node_execution_id,
+            gateType: "quality",
+            verdict: verification.verdict,
+            score: verification.score,
+            threshold: verification.threshold,
+            reviewerModel: verification.reviewer_model,
+            detailsJson: verification.details_json,
+          });
           metadata = {
             ...metadata,
             verification: {

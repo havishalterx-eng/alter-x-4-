@@ -3,12 +3,14 @@ import { resolve } from "node:path";
 
 import { PostgresOrchestrationStoreProvider } from "@alterx/adapters";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GateHandler } from "./handlers/gate.handler";
+import { MergeHandler } from "./handlers/merge.handler";
 import { NodeHandlerRegistry } from "./node-handler-registry";
 import { NodeexecService } from "./nodeexec.service";
 import { PostgresVerificationGateReader } from "./verification-gate-reader";
+import { VerifyGateService } from "./verify-gate.service";
 import { NodeExecutionLedgerService } from "../runs/node-execution-ledger.service";
 
 const migrationsFolder = resolve(process.cwd(), "apps/orchestration-service/drizzle");
@@ -36,6 +38,35 @@ describe.sequential("verification Gate real Postgres path", () => {
       new NodeHandlerRegistry([new GateHandler(new PostgresVerificationGateReader(store))]), ledger,
     );
   }, 90_000);
+
+  it("persists a real quality row when Verify Gate scores a node, so Gate/Synthesis can read it back", async () => {
+    const verifyGate = new VerifyGateService({
+      scoreNodeInline: vi.fn().mockResolvedValue({
+        verdict: "pass", score: 0.95, threshold: 0.7, reviewer_model: "ADVANCED", details_json: "{\"rationale\":\"ok\"}",
+      }),
+    });
+    const scoredNodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]), ledger, undefined, undefined, undefined,
+      undefined, undefined, verifyGate,
+    );
+    const nodeExecutionId = "node_018f4d6e-2b4a-7a3e-8c1a-1234567890b1";
+
+    await scoredNodeexec.executeNode({
+      tenant_id: TENANT_REQUEST, run_id: RUN, node_execution_id: nodeExecutionId,
+      node_key: "node_merge", node_type: "Merge", config_json: "{}", inputs_json: "{}",
+    });
+
+    const row = await store.withTenant(TENANT, async (tx) => {
+      const result = await tx.query<{ readonly gate_type: string; readonly verdict: string; readonly score: string; readonly threshold: string; readonly reviewer_model: string }>(
+        "SELECT gate_type, verdict, score, threshold, reviewer_model FROM verification_results WHERE tenant_id = $1 AND node_execution_id = $2",
+        [TENANT, nodeExecutionId],
+      );
+      return result.rows[0];
+    });
+    expect(row).toMatchObject({ gate_type: "quality", verdict: "pass", reviewer_model: "ADVANCED" });
+    expect(Number(row!.score)).toBeCloseTo(0.95);
+    expect(Number(row!.threshold)).toBeCloseTo(0.7);
+  });
 
   afterAll(async () => { await store?.close(); await postgres?.stop(); }, 60_000);
 

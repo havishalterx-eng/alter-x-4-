@@ -226,6 +226,44 @@ export class NodeExecutionLedgerService {
     }, null);
   }
 
+  async recordVerificationResult(request: {
+    readonly id: string;
+    readonly tenantId: string;
+    readonly runId: string;
+    readonly nodeExecutionId: string;
+    readonly gateType: string;
+    readonly verdict: string;
+    readonly score: number;
+    readonly threshold: number;
+    readonly reviewerModel: string;
+    readonly detailsJson: string;
+  }): Promise<void> {
+    const tenantId = bareTenantUuid(request.tenantId);
+    requireRunId(request.runId);
+    requireNodeExecutionId(request.nodeExecutionId);
+
+    await this.store.withTenant(tenantId, async (tx) => {
+      await tx.query(
+        `INSERT INTO verification_results
+           (id, tenant_id, run_id, node_execution_id, gate_type, verdict,
+            score, threshold, reviewer_model, details)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CAST($10 AS jsonb))`,
+        [
+          request.id,
+          tenantId,
+          request.runId,
+          request.nodeExecutionId,
+          request.gateType,
+          request.verdict,
+          request.score,
+          request.threshold,
+          request.reviewerModel,
+          request.detailsJson,
+        ],
+      );
+    });
+  }
+
   async list(
     tenantIdInput: string,
     runId: string,

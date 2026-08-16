@@ -30,6 +30,7 @@ function fakeLedger(): NodeExecutionLedgerService {
     }),
     recordSucceeded: vi.fn().mockResolvedValue(undefined),
     recordFailed: vi.fn().mockResolvedValue(undefined),
+    recordVerificationResult: vi.fn().mockResolvedValue(undefined),
     finalizeRun: vi.fn().mockResolvedValue({
       status: "completed",
       endedAt: "2026-07-28T00:00:01.000Z",
@@ -80,6 +81,13 @@ describe("NodeexecService.executeNode", () => {
     });
     expect(ledger.recordSucceeded).toHaveBeenCalledOnce();
     expect(JSON.parse(response.metadata_json)).toMatchObject({ verification: { verdict: "pass" } });
+    expect(ledger.recordVerificationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: TENANT_ID, runId: RUN_ID, nodeExecutionId: NODE_EXECUTION_ID,
+        gateType: "quality", verdict: "pass", score: 1, threshold: 0.8,
+        reviewerModel: "deterministic", detailsJson: "{}",
+      }),
+    );
   });
 
   it("records a warning verdict distinctly while preserving success", async () => {
