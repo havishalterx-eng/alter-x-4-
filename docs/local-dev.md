@@ -22,7 +22,7 @@ shell-safe value. Never commit `.env.local`.
 
 ```bash
 docker compose --env-file .env.local up -d --build --wait \
-  engine-db localstack temporal otel
+  engine-db ads-db redis localstack temporal otel
 docker compose --env-file .env.local ps
 ```
 
@@ -30,6 +30,7 @@ Expected local endpoints:
 
 - Engine PostgreSQL: `127.0.0.1:5433`, database `audit_db`, role
   `audit_service`
+- ADS PostgreSQL: `127.0.0.1:5434`, database `ads_db`, role `ads_core`
 - LocalStack edge: `http://127.0.0.1:4566`
 - Temporal gRPC: `127.0.0.1:7233`
 - Temporal Web UI: `http://127.0.0.1:8233`
@@ -41,6 +42,24 @@ LocalStack ready hook creates `/alter/local/audit-service/system/database_creden
 from local runtime values and creates `alter-local-cost-events` with its DLQ.
 AWS SDK v3 reads `AWS_ENDPOINT_URL`, so all local AWS clients use LocalStack and
 production adapter code needs no LocalStack-specific branch.
+
+## Run ADS Core
+
+ADS Core owns its dedicated `pgvector` cluster; apply its migrations before
+starting the HTTP and gRPC processes:
+
+```bash
+export ADS_LOCAL_SERVICE_TOKEN="$(openssl rand -hex 32)"
+export INTERNAL_SERVICE_TOKEN_SHA256="$(printf %s "$ADS_LOCAL_SERVICE_TOKEN" | shasum -a 256 | awk '{print $1}')"
+uv run --project apps/ads-core alembic -c apps/ads-core/alembic.ini upgrade head
+INTERNAL_SERVICE_TOKEN_SHA256="$INTERNAL_SERVICE_TOKEN_SHA256" \
+  uv run --project apps/ads-core uvicorn src.main:app --app-dir apps/ads-core \
+  --host 127.0.0.1 --port 8000
+```
+
+`MODEL_GATEWAY_GRPC_TARGET` must point at a running model gateway using a real
+embedding provider before ingestion or retrieval can succeed. Do not replace it
+with test-only embeddings for manual E2E checks.
 
 ## Run audit-service
 

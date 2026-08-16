@@ -124,6 +124,42 @@ def _headers(tenant_id: str) -> dict[str, str]:
     return {"X-Alter-Tenant-Id": tenant_id}
 
 
+def test_create_connector_source_creates_tenant_workspace_scope(
+    client: TestClient,
+    database: DatabaseHarness,
+) -> None:
+    tenant_id, tenant_uuid = _tenant()
+    workspace_uuid = str(uuid.uuid4())
+    response = client.post(
+        "/ads/sources",
+        headers={
+            "X-Alter-Tenant-Id": tenant_id,
+            "X-Alter-Workspace-Id": f"ws_{workspace_uuid}",
+        },
+        json={"connector": "drive", "settings": {"folder": "policies"}},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["created"] is True
+    assert body["connector"] == "drive"
+    assert body["status"] == "active"
+    with database.engine.begin() as connection:
+        connection.execute(
+            sa.text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
+            {"tenant": tenant_uuid},
+        )
+        row = connection.execute(
+            sa.text(
+                "SELECT s.workspace_id::text, src.kind, src.provider, src.sync_config "
+                "FROM sources src JOIN scopes s ON s.id = src.scope_id "
+                "WHERE src.id = :source AND src.tenant_id = CAST(:tenant AS uuid)"
+            ),
+            {"source": body["id"], "tenant": tenant_uuid},
+        ).one()
+    assert row == (workspace_uuid, "connector", "google_drive", {"folder": "policies"})
+
+
 def test_source_permissions_round_trip_and_tenant_isolation(
     client: TestClient,
     database: DatabaseHarness,

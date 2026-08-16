@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 IngestionStage = Literal[
     "received",
@@ -25,6 +25,21 @@ class _StrictFrozenModel(BaseModel):
 class IngestionError(_StrictFrozenModel):
     code: str
     detail: str
+
+
+class CreateSourceRequest(_StrictFrozenModel):
+    """Connector-backed source shape used by the documented ADS endpoint."""
+
+    connector: Literal["drive", "shopify"]
+    settings: dict[str, object] = Field(default_factory=dict)
+
+
+class SourceResponse(_StrictFrozenModel):
+    id: str
+    scope_id: str
+    connector: str
+    status: str
+    created: Literal[True] = True
 
 
 class IngestionJobResponse(_StrictFrozenModel):

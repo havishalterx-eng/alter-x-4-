@@ -37,6 +37,7 @@ from src.ingestion.repository import (
     StoredDocumentContent,
     StoredIngestionJob,
     StoredReindex,
+    StoredSource,
 )
 from src.ingestion.router import get_ingestion_pipeline, router
 from src.ingestion.scanner import ContentScanner, DisclosedStubScanner
@@ -226,6 +227,21 @@ class RecordingRepository:
         self._delegate = delegate
         self._sessions = sessions
         self.committed_stages: list[str] = []
+
+    def create_source(
+        self,
+        *,
+        tenant_uuid: str,
+        workspace_id: str,
+        connector: str,
+        settings: dict[str, object],
+    ) -> StoredSource:
+        return self._delegate.create_source(
+            tenant_uuid=tenant_uuid,
+            workspace_id=workspace_id,
+            connector=connector,
+            settings=settings,
+        )
 
     def reserve_upload(self, **kwargs: object) -> StoredIngestionJob:
         return self._delegate.reserve_upload(**kwargs)  # type: ignore[arg-type]

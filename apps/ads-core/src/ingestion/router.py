@@ -36,11 +36,13 @@ from .chunking import ParagraphAwareChunkSplitter
 from .embedding_client import GrpcEmbeddingClient
 from .models import (
     CompleteUploadRequest,
+    CreateSourceRequest,
     IngestionJobResponse,
     IngestionPayload,
     PresignUploadRequest,
     PresignUploadResponse,
     ReindexResponse,
+    SourceResponse,
 )
 from .normalization import TextAwareNormalizer
 from .permissions import DocumentPermissions, DocumentPermissionsPatch, SourcePermissions
@@ -209,6 +211,39 @@ def _source_id(source_id: str) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+
+@router.post(
+    "/sources",
+    response_model=SourceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_source(
+    body: CreateSourceRequest,
+    repository: RepositoryDep,
+    tenant_id: Annotated[str, Header(alias="X-Alter-Tenant-Id")],
+    workspace_id: Annotated[str, Header(alias="X-Alter-Workspace-Id")],
+) -> SourceResponse:
+    """Create the connector-backed ADS source required before ingestion."""
+    try:
+        source = await run_in_threadpool(
+            repository.create_source,
+            tenant_uuid=_tenant_uuid(tenant_id),
+            workspace_id=workspace_id,
+            connector=body.connector,
+            settings=body.settings,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return SourceResponse(
+        id=source.source_id,
+        scope_id=source.scope_id,
+        connector=source.connector,
+        status=source.status,
+    )
 
 
 @router.get(

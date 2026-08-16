@@ -8,7 +8,8 @@ from typing import Protocol, cast
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.db.models import Chunk, Document, DocumentVersion, IngestionJob, Source
+from src.db.ids import new_prefixed_id, validate_prefixed_id
+from src.db.models import Chunk, Document, DocumentVersion, IngestionJob, Scope, Source
 
 from .models import IngestionStage
 from .permissions import DocumentPermissions, DocumentPermissionsPatch, SourcePermissions
@@ -47,6 +48,14 @@ class StoredIngestionJob:
 
 
 @dataclass(frozen=True)
+class StoredSource:
+    source_id: str
+    scope_id: str
+    connector: str
+    status: str
+
+
+@dataclass(frozen=True)
 class EmbeddedChunk:
     chunk_id: str
     seq: int
@@ -77,6 +86,15 @@ class StoredReindex:
 
 
 class IngestionRepository(Protocol):
+    def create_source(
+        self,
+        *,
+        tenant_uuid: str,
+        workspace_id: str,
+        connector: str,
+        settings: dict[str, object],
+    ) -> StoredSource: ...
+
     def reserve_upload(
         self,
         *,
@@ -171,6 +189,48 @@ class IngestionRepository(Protocol):
 class SqlAlchemyIngestionRepository:
     def __init__(self, sessions: sessionmaker[Session]) -> None:
         self._sessions = sessions
+
+    def create_source(
+        self,
+        *,
+        tenant_uuid: str,
+        workspace_id: str,
+        connector: str,
+        settings: dict[str, object],
+    ) -> StoredSource:
+        validate_prefixed_id("ws", workspace_id)
+        provider = {"drive": "google_drive", "shopify": "shopify"}.get(connector)
+        if provider is None:
+            raise ValueError("connector must be drive or shopify")
+
+        source_id = new_prefixed_id("src")
+        scope_id = new_prefixed_id("scp")
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            session.add(
+                Scope(
+                    id=scope_id,
+                    tenant_id=tenant_uuid,
+                    workspace_id=workspace_id.removeprefix("ws_"),
+                )
+            )
+            session.add(
+                Source(
+                    id=source_id,
+                    tenant_id=tenant_uuid,
+                    scope_id=scope_id,
+                    kind="connector",
+                    provider=provider,
+                    sync_config=settings,
+                    status="active",
+                )
+            )
+        return StoredSource(
+            source_id=source_id,
+            scope_id=scope_id,
+            connector=connector,
+            status="active",
+        )
 
     def receive(
         self,

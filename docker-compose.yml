@@ -39,6 +39,27 @@ services:
       - engine_db_data:/var/lib/postgresql/data
       - ./infrastructure/local/engine-db-init.sh:/docker-entrypoint-initdb.d/10-engine-databases.sh:ro
 
+  # ADS owns this cluster. Do not add ADS tables to engine-db: ADS tenancy and
+  # retention policies are isolated from the Engine service database.
+  ads-db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ads_db
+      POSTGRES_USER: ads_core
+      POSTGRES_PASSWORD: ads_core_local
+      ADS_DELETION_DB_PASSWORD: ads_deletion_local
+    ports:
+      - "127.0.0.1:5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ads_core -d ads_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    volumes:
+      - ads_db_data:/var/lib/postgresql/data
+      - ./infrastructure/local/ads-db-init.sh:/docker-entrypoint-initdb.d/10-ads-roles.sh:ro
+
   redis:
     image: redis:7.4.2-alpine
     command: ["redis-server", "--appendonly", "yes"]
@@ -186,5 +207,6 @@ services:
 volumes:
   platform_db_data:
   engine_db_data:
+  ads_db_data:
   redis_data:
   tempo_data:
