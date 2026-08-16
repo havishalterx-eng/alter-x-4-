@@ -273,6 +273,110 @@ describe("ClarificationLoopService.resumeAfterClarification", () => {
       }),
     );
     expect(rows[0]!.status).toBe("ready");
+    expect(rows[0]!.goal_state_json.pendingQuestions).toEqual({});
+
+    await expect(
+      service.resumeAfterClarification({
+        tenantId: "ten_00000000-0000-7000-8000-00000000000a",
+        workspaceId: "ws_a",
+        conversationId: "cnv_a",
+        runId: "run_a",
+        originalObjective: "summarize the quarterly report",
+        mode: "workflow",
+      }),
+    ).rejects.toThrow(ClarificationLoopValidationError);
+    expect(decompose).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps unanswered questions durable and does not plan from a partial answer", async () => {
+    const answeredId = "clr_answered";
+    const unansweredId = "clr_unanswered";
+    const { store, rows } = createFakeStore([
+      {
+        tenant_id: "00000000-0000-7000-8000-00000000000a",
+        conversation_id: "cnv_a",
+        goal_state_json: {
+          pendingClarifications: { [answeredId]: "Q3 2026" },
+          pendingQuestions: {
+            [answeredId]: "Which quarter?",
+            [unansweredId]: "Which format?",
+          },
+          taskSkeletonJson: null,
+        },
+        status: "awaiting_clarification",
+        revision: 1,
+      },
+    ]);
+    const decompose = vi.fn(async () => ({
+      task_skeleton_json: "{}",
+      ambiguity_detected: false,
+      clarification_questions: [],
+    }));
+    const service = new ClarificationLoopService(store, fakePlanner({ decompose }));
+
+    const result = await service.resumeAfterClarification({
+      tenantId: "ten_00000000-0000-7000-8000-00000000000a",
+      workspaceId: "ws_a",
+      conversationId: "cnv_a",
+      runId: "run_a",
+      originalObjective: "summarize the quarterly report",
+      mode: "workflow",
+    });
+
+    expect(result).toEqual({
+      status: "awaiting_clarification",
+      questions: [{ clarificationId: unansweredId, question: "Which format?" }],
+    });
+    expect(rows[0]!.goal_state_json.pendingQuestions).toEqual({
+      [answeredId]: "Which quarter?",
+      [unansweredId]: "Which format?",
+    });
+    expect(decompose).not.toHaveBeenCalled();
+  });
+
+  it("restores claimed questions after Planner failure so resume can retry", async () => {
+    const clarificationId = "clr_test";
+    const { store, rows } = createFakeStore([
+      {
+        tenant_id: "00000000-0000-7000-8000-00000000000a",
+        conversation_id: "cnv_a",
+        goal_state_json: {
+          pendingClarifications: { [clarificationId]: "Q3 2026" },
+          pendingQuestions: { [clarificationId]: "Which quarter?" },
+          taskSkeletonJson: null,
+        },
+        status: "awaiting_clarification",
+        revision: 1,
+      },
+    ]);
+    const decompose = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Planner unavailable"))
+      .mockResolvedValueOnce({
+        task_skeleton_json: "{}",
+        ambiguity_detected: false,
+        clarification_questions: [],
+      });
+    const service = new ClarificationLoopService(store, fakePlanner({ decompose }));
+    const request = {
+      tenantId: "ten_00000000-0000-7000-8000-00000000000a",
+      workspaceId: "ws_a",
+      conversationId: "cnv_a",
+      runId: "run_a",
+      originalObjective: "summarize the quarterly report",
+      mode: "workflow" as const,
+    };
+
+    await expect(service.resumeAfterClarification(request)).rejects.toThrow("Planner unavailable");
+    expect(rows[0]).toMatchObject({
+      status: "awaiting_clarification",
+      goal_state_json: { pendingQuestions: { [clarificationId]: "Which quarter?" } },
+    });
+    await expect(service.resumeAfterClarification(request)).resolves.toEqual({
+      status: "ready",
+      taskSkeletonJson: "{}",
+    });
+    expect(decompose).toHaveBeenCalledTimes(2);
   });
 
   it("rejects when there are no answered outstanding questions yet", async () => {
@@ -338,7 +442,7 @@ describe("ClarificationLoopService.resumeAfterClarification", () => {
 
     expect(result.status).toBe("awaiting_clarification");
     expect(rows[0]!.status).toBe("awaiting_clarification");
-    // Both the original resolved question and the new one persist.
-    expect(Object.keys(rows[0]!.goal_state_json.pendingQuestions ?? {})).toHaveLength(2);
+    // The claimed answer is no longer outstanding; only fresh questions remain.
+    expect(Object.keys(rows[0]!.goal_state_json.pendingQuestions ?? {})).toHaveLength(1);
   });
 });

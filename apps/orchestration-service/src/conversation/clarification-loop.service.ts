@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import type { PlannerHandler } from "@alterx/adapters";
 
 import {
-  emptyGoalState,
   type GoalState,
   type GoalStateStatus,
 } from "./intent-taxonomy";
@@ -250,7 +249,12 @@ export class ClarificationLoopService {
     const goalState = await this.store.withTenant(bareTenant, (tx) =>
       readGoalStateRow(tx, bareTenant, request.conversationId),
     );
-    const current = goalState?.goalState ?? emptyGoalState();
+    if (goalState?.status !== "awaiting_clarification") {
+      throw new ClarificationLoopValidationError(
+        "conversation is not awaiting clarification",
+      );
+    }
+    const current = goalState.goalState;
 
     const answeredQuestions = Object.entries(current.pendingQuestions ?? {}).filter(
       ([clarificationId]) => clarificationId in (current.pendingClarifications ?? {}),
@@ -260,23 +264,64 @@ export class ClarificationLoopService {
         "no answered outstanding questions found for this conversation",
       );
     }
+    const unansweredQuestions = Object.entries(current.pendingQuestions ?? {}).filter(
+      ([clarificationId]) => !(clarificationId in (current.pendingClarifications ?? {})),
+    );
+    if (unansweredQuestions.length > 0) {
+      return {
+        status: "awaiting_clarification",
+        questions: unansweredQuestions.map(([clarificationId, question]) => ({
+          clarificationId,
+          question,
+        })),
+      };
+    }
 
-    const revisedObjective = [
-      request.originalObjective,
-      ...answeredQuestions.map(
-        ([clarificationId, question]) =>
-          `Clarification: ${question} Answer: ${current.pendingClarifications[clarificationId]}`,
-      ),
-    ].join("\n\n");
-
-    return this.requestPlan({
-      tenantId: request.tenantId,
-      workspaceId: request.workspaceId,
-      conversationId: request.conversationId,
-      runId: request.runId,
-      objective: revisedObjective,
-      mode: request.mode,
+    const claimedQuestions = { ...(current.pendingQuestions ?? {}) };
+    let revisedObjective = "";
+    await this.updateGoalState(bareTenant, request.conversationId, (latest) => {
+      const latestQuestions = latest.pendingQuestions ?? {};
+      const latestAnswers = latest.pendingClarifications ?? {};
+      const latestAnswered = Object.entries(latestQuestions).filter(
+        ([clarificationId]) => clarificationId in latestAnswers,
+      );
+      const latestUnanswered = Object.entries(latestQuestions).filter(
+        ([clarificationId]) => !(clarificationId in latestAnswers),
+      );
+      if (latestAnswered.length === 0 || latestUnanswered.length > 0) {
+        throw new ClarificationLoopValidationError(
+          "clarification answers changed before planning could resume",
+        );
+      }
+      revisedObjective = [
+        request.originalObjective,
+        ...latestAnswered.map(
+          ([clarificationId, question]) =>
+            `Clarification: ${question} Answer: ${latestAnswers[clarificationId]}`,
+        ),
+      ].join("\n\n");
+      return {
+        goalState: { ...latest, pendingQuestions: {} },
+        status: "planning",
+      };
     });
+
+    try {
+      return await this.requestPlan({
+        tenantId: request.tenantId,
+        workspaceId: request.workspaceId,
+        conversationId: request.conversationId,
+        runId: request.runId,
+        objective: revisedObjective,
+        mode: request.mode,
+      });
+    } catch (error) {
+      await this.updateGoalState(bareTenant, request.conversationId, (latest) => ({
+        goalState: { ...latest, pendingQuestions: claimedQuestions },
+        status: "awaiting_clarification",
+      }));
+      throw error;
+    }
   }
 
   private async updateGoalState(
