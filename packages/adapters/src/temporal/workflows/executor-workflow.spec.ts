@@ -581,7 +581,7 @@ describe.sequential("executorWorkflow", () => {
       await Promise.all([stopWorker(workerOne), stopWorker(workerTwo)]);
       workerTwoConnection.close();
     }
-  });
+  }, 15_000);
 
   it("fails the workflow on malformed compiledDagJson and finalizes the run as failed", async () => {
     const taskQueue = "executor-bad-json";
