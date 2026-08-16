@@ -36,6 +36,9 @@ export const runs = pgTable(
       withTimezone: true,
     }),
     status: text("status").notNull().default("pending"),
+    deadlineAt: timestamp("deadline_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp() + interval '24 hours'`),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -83,6 +86,7 @@ export const runs = pgTable(
     index("idx_runs_tenant_project").on(table.tenantId, table.projectId),
     index("idx_runs_conversation").on(table.conversationId),
     index("idx_runs_tenant_status").on(table.tenantId, table.status),
+    index("idx_runs_tenant_deadline").on(table.tenantId, table.deadlineAt),
     index("idx_runs_triggering_event").on(
       table.tenantId,
       table.triggeringEventId,

@@ -50,6 +50,7 @@ describe("orchestration migration files", () => {
       "0030_add_workflow_paused_status.sql",
       "0031_add_workflow_draft_dag.sql",
       "0032_add_run_triggering_event.sql",
+      "0033_add_run_deadline.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -89,6 +90,7 @@ describe("orchestration migration files", () => {
       "0030_remove_workflow_paused_status.sql",
       "0031_remove_workflow_draft_dag.sql",
       "0032_remove_run_triggering_event.sql",
+      "0033_remove_run_deadline.sql",
     ]);
   });
 

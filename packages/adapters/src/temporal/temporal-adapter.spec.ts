@@ -189,6 +189,35 @@ describe.sequential("TemporalDurableExecutionProvider", () => {
     }
   });
 
+  it("enforces a requested workflow execution timeout", async () => {
+    const temporalConfig = config("foundation-execution-timeout");
+    const provider = new TemporalDurableExecutionProvider(
+      temporalConfig,
+      environment.connection,
+    );
+    const running = startWorker(
+      await createFoundationWorker(
+        temporalConfig,
+        environment.nativeConnection,
+      ),
+    );
+    const workflowId = "foundation-execution-timeout-workflow";
+
+    try {
+      await provider.startWorkflow({
+        workflowId,
+        workflowType: WORKFLOW_TYPE,
+        input: null,
+        executionTimeout: "1s",
+      });
+      await expect(
+        environment.client.workflow.getHandle(workflowId).result(),
+      ).rejects.toBeInstanceOf(WorkflowFailedError);
+    } finally {
+      await stopWorker(running);
+    }
+  });
+
   it("isolates two independently configured provider instances", async () => {
     const configOne = config("foundation-isolation-one");
     const configTwo = {

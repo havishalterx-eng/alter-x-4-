@@ -65,9 +65,34 @@ describe("RunsController.create", () => {
       { workflow_id: WORKFLOW },
     );
 
-    expect(service.createRun).toHaveBeenCalledWith(TENANT, WORKFLOW, undefined);
+    expect(service.createRun).toHaveBeenCalledWith(
+      TENANT,
+      WORKFLOW,
+      undefined,
+      undefined,
+      {},
+    );
     expect(reply.header).toHaveBeenCalledWith("location", `/api/v1/runs/${RUN}`);
     expect(response).toMatchObject({ id: RUN, status: "pending" });
+  });
+
+  it("forwards a requested run timeout", async () => {
+    const service = launcher();
+    vi.mocked(service.createRun).mockResolvedValue(runRow());
+
+    await new RunsController(service, outcomes()).create(
+      request() as never,
+      fakeReply() as never,
+      { workflow_id: WORKFLOW, timeout_ms: 5_000 },
+    );
+
+    expect(service.createRun).toHaveBeenCalledWith(
+      TENANT,
+      WORKFLOW,
+      undefined,
+      undefined,
+      { timeoutMs: 5_000 },
+    );
   });
 
   it("rejects a missing workflow_id with a 400 ProblemDetails", async () => {

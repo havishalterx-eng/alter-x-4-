@@ -229,6 +229,54 @@ describe("RunLauncherService.createRun", () => {
     expect(result.status).toBe("running");
   });
 
+  it("persists a requested deadline and gives Temporal matching execution timeout", async () => {
+    const { store, tx } = fakeStore({
+      workflowExists: true,
+      promotedVersion: { id: WORKFLOW_VERSION, compiled_dag: compiledDag() },
+      runRow: {
+        id: RUN,
+        workflow_id: WORKFLOW,
+        workflow_version_id: WORKFLOW_VERSION,
+        parent_kind: "workflow",
+        status: "pending",
+        started_at: null,
+        ended_at: null,
+        deadline_at: new Date(Date.now() + 5_000).toISOString(),
+        created_at: "2026-07-28T00:00:00.000Z",
+      },
+    });
+    const durable = {
+      startWorkflow: vi.fn().mockResolvedValue({ workflowId: RUN, runId: "temporal-run-timeout" }),
+      terminateWorkflow: vi.fn(),
+    };
+    const launcher = new RunLauncherService(store, durable as never);
+
+    await launcher.createRun(TENANT, WORKFLOW, undefined, undefined, { timeoutMs: 5_000 });
+
+    expect(durable.startWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({ executionTimeout: "5s" }),
+    );
+    const insertCall = tx.query.mock.calls.find(([statement]) =>
+      String(statement).includes("INSERT INTO runs"),
+    );
+    expect(insertCall?.[1]).toEqual(
+      expect.arrayContaining([5_000]),
+    );
+  });
+
+  it("rejects an out-of-range run timeout before writing a run", async () => {
+    const { store, tx } = fakeStore({ workflowExists: true });
+    const launcher = new RunLauncherService(
+      store,
+      { startWorkflow: vi.fn(), terminateWorkflow: vi.fn() } as never,
+    );
+
+    await expect(
+      launcher.createRun(TENANT, WORKFLOW, undefined, undefined, { timeoutMs: 999 }),
+    ).rejects.toBeInstanceOf(RunValidationError);
+    expect(tx.query).not.toHaveBeenCalled();
+  });
+
   it("rejects when the workflow does not exist", async () => {
     const { store } = fakeStore({ workflowExists: false });
     const durable = { startWorkflow: vi.fn(), terminateWorkflow: vi.fn() };

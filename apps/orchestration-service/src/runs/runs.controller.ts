@@ -33,6 +33,7 @@ import {
 interface CreateRunBody {
   readonly workflow_id: string;
   readonly workflow_version_id?: string;
+  readonly timeout_ms?: number;
 }
 
 interface RetryNodeBody {
@@ -69,6 +70,7 @@ function toRunResponse(row: RunRow): Record<string, unknown> {
     status: row.status,
     started_at: row.started_at,
     ended_at: row.ended_at,
+    deadline_at: row.deadline_at ?? null,
     created_at: row.created_at,
   };
 }
@@ -112,6 +114,8 @@ export class RunsController {
         tenantId,
         body.workflow_id,
         body.workflow_version_id,
+        undefined,
+        body.timeout_ms === undefined ? {} : { timeoutMs: body.timeout_ms },
       );
       reply.header("location", `/api/v1/runs/${run.id}`);
       return toRunResponse(run);

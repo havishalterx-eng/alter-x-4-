@@ -21,6 +21,9 @@ import {
 
 const EXECUTOR_WORKFLOW_TYPE = "executorWorkflow";
 const RUNNABLE_VERSION_STATUSES = new Set(["compiled", "canary", "promoted"]);
+const DEFAULT_RUN_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
+const MIN_RUN_TIMEOUT_MS = 1_000;
+const MAX_RUN_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1_000;
 
 interface OrchestrationTransactionLike {
   query<TRow extends Record<string, unknown> = Record<string, unknown>>(
@@ -98,6 +101,7 @@ export interface RunRow extends Record<string, unknown> {
   readonly status: string;
   readonly started_at: string | null;
   readonly ended_at: string | null;
+  readonly deadline_at?: string | null;
   readonly created_at: string;
   readonly triggering_event_id?: string | null;
 }
@@ -105,6 +109,12 @@ export interface RunRow extends Record<string, unknown> {
 export interface CreateProjectRunInput extends ProjectRunProvisioningInput {
   readonly projectId: string;
   readonly compiledDag: CompiledDag;
+  readonly timeoutMs?: number;
+}
+
+export interface CreateRunOptions {
+  /** Maximum durable execution time. Defaults to 24 hours. */
+  readonly timeoutMs?: number;
 }
 
 export interface RunPage {
@@ -172,10 +182,34 @@ function normalizeLimit(limit: number | undefined): number {
   return limit;
 }
 
+function normalizeTimeout(timeoutMs: number | undefined): number {
+  if (timeoutMs === undefined) return DEFAULT_RUN_TIMEOUT_MS;
+  if (
+    !Number.isInteger(timeoutMs) ||
+    timeoutMs < MIN_RUN_TIMEOUT_MS ||
+    timeoutMs > MAX_RUN_TIMEOUT_MS
+  ) {
+    throw new RunValidationError(
+      "timeoutMs must be an integer from 1000 to 604800000 milliseconds",
+    );
+  }
+  return timeoutMs;
+}
+
+function temporalDurationUntil(deadlineAt: string | null | undefined): string {
+  const deadlineMs = deadlineAt === undefined || deadlineAt === null
+    ? Date.now() + DEFAULT_RUN_TIMEOUT_MS
+    : Date.parse(deadlineAt);
+  const remainingMs = Number.isNaN(deadlineMs)
+    ? DEFAULT_RUN_TIMEOUT_MS
+    : Math.max(MIN_RUN_TIMEOUT_MS, deadlineMs - Date.now());
+  return `${Math.ceil(remainingMs / 1_000)}s`;
+}
+
 const RUN_SELECT_COLUMNS = `id, workflow_id, project_id, workflow_version_id,
        provisioning_session_id, provisioning_cycle_id, provisioning_template_id,
        provisioning_closed_at::text, parent_kind, status, started_at::text,
-       ended_at::text, created_at::text, triggering_event_id`;
+       ended_at::text, deadline_at::text, created_at::text, triggering_event_id`;
 
 /**
  * Owns the run's actual lifecycle: creating the durable `runs` row,
@@ -196,6 +230,7 @@ export class RunLauncherService {
     workflowId: string,
     workflowVersionId?: string,
     triggeringEventId?: string,
+    options: CreateRunOptions = {},
   ): Promise<RunRow> {
     const tenantId = bareTenantUuid(tenantIdInput);
     requireWorkflowId(workflowId);
@@ -207,6 +242,7 @@ export class RunLauncherService {
         "triggeringEventId must be an evt_ prefixed event id",
       );
     }
+    const timeoutMs = normalizeTimeout(options.timeoutMs);
 
     const created = await this.store.withTenant(tenantId, async (tx) => {
       const workflow = await tx.query<{ readonly id: string }>(
@@ -222,11 +258,12 @@ export class RunLauncherService {
 
       const inserted = await tx.query<RunRow>(
         `INSERT INTO runs (id, tenant_id, workspace_id, parent_kind, workflow_id,
-                           workflow_version_id, status, triggering_event_id)
-         SELECT $3, $1, workspace_id, 'workflow', $2, $4, 'pending', $5
+                           workflow_version_id, status, triggering_event_id, deadline_at)
+         SELECT $3, $1, workspace_id, 'workflow', $2, $4, 'pending', $5,
+                clock_timestamp() + ($6::bigint * interval '1 millisecond')
          FROM workflows WHERE tenant_id = $1 AND id = $2
          RETURNING ${RUN_SELECT_COLUMNS}`,
-        [tenantId, workflowId, runId, version.id, triggeringEventId ?? null],
+        [tenantId, workflowId, runId, version.id, triggeringEventId ?? null, timeoutMs],
       );
       return { row: inserted.rows[0]!, compiledDag: version.compiledDag };
     });
@@ -247,6 +284,7 @@ export class RunLauncherService {
     const tenantId = bareTenantUuid(tenantIdInput);
     requireProjectId(input.projectId);
     requireProvisioningInput(input);
+    const timeoutMs = normalizeTimeout(input.timeoutMs);
     const parsedDag = CompiledDagSchema.safeParse(input.compiledDag);
     if (!parsedDag.success) {
       throw new RunValidationError(
@@ -271,8 +309,9 @@ export class RunLauncherService {
       const inserted = await tx.query<RunRow>(
         `INSERT INTO runs
            (id, tenant_id, workspace_id, parent_kind, project_id,
-            provisioning_cycle_id, provisioning_template_id, status)
-         VALUES ($1, $2, $3, 'project', $4, $5, $6, 'pending')
+            provisioning_cycle_id, provisioning_template_id, status, deadline_at)
+         VALUES ($1, $2, $3, 'project', $4, $5, $6, 'pending',
+                 clock_timestamp() + ($7::bigint * interval '1 millisecond'))
          RETURNING ${RUN_SELECT_COLUMNS}`,
         [
           runId,
@@ -281,6 +320,7 @@ export class RunLauncherService {
           input.projectId,
           input.cycle_id,
           input.template_id,
+          timeoutMs,
         ],
       );
       return inserted.rows[0]!;
@@ -616,6 +656,7 @@ export class RunLauncherService {
           runId: row.id,
           compiledDagJson: JSON.stringify(compiledDag),
         },
+        executionTimeout: temporalDurationUntil(row.deadline_at),
       });
     } catch (error: unknown) {
       await this.store.withTenant(tenantId, async (tx) => {

@@ -404,6 +404,8 @@ export interface StartWorkflowRequest {
   readonly workflowId: string;
   readonly workflowType: string;
   readonly input: JsonValue;
+  /** Temporal duration string limiting one durable workflow execution. */
+  readonly executionTimeout?: string;
 }
 
 export interface DurableWorkflowHandle {

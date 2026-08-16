@@ -302,6 +302,8 @@ describe("PostgresOrchestrationStoreProvider", () => {
       .mocked(client.query)
       .mock.calls.map(([statement]) => String(statement));
     expect(statements[0]).toBe("BEGIN");
+    expect(statements[1]).toContain('DROP INDEX IF EXISTS "idx_runs_tenant_deadline"');
+    statements.splice(1, 1);
     expect(statements[1]).toContain('DROP INDEX IF EXISTS "idx_runs_triggering_event"');
     expect(statements[2]).toContain('DROP COLUMN IF EXISTS "draft_dag"');
     expect(statements[3]).toContain("paused workflow status");

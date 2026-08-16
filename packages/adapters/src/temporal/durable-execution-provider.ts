@@ -107,6 +107,9 @@ export class TemporalDurableExecutionProvider
       taskQueue: this.#config.taskQueue,
       workflowId: request.workflowId,
       args: [request.input],
+      ...(request.executionTimeout === undefined
+        ? {}
+        : { workflowExecutionTimeout: request.executionTimeout }),
     });
 
     return {
