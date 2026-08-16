@@ -14,8 +14,9 @@ message DecomposeRequest {
   string tenant_id = 1; // ten_ prefixed UUIDv7
   string workspace_id = 2; // ws_ prefixed UUIDv7
   string run_id = 3; // run_ prefixed UUIDv7
-  string objective = 4;
+  string objective = 4; // legacy wire field; HTTP callers must use problem_spec_json
   string strategy = 5;
+  string problem_spec_json = 6; // canonical serialized ProblemSpec, required for Decompose
 }
 
 message DecomposeResponse {

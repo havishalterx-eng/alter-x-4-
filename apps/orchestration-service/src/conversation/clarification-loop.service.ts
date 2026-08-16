@@ -166,13 +166,19 @@ export class ClarificationLoopService {
       objective: request.objective,
       mode: request.mode,
     });
+    const problemSpec = await this.planner.understand({
+      tenant_id: request.tenantId,
+      workspace_id: request.workspaceId,
+      run_id: request.runId,
+      objective: request.objective,
+    });
 
     const decomposed = await this.planner.decompose({
       tenant_id: request.tenantId,
       workspace_id: request.workspaceId,
       run_id: request.runId,
-      objective: request.objective,
       strategy,
+      problem_spec_json: JSON.stringify(problemSpec),
     });
 
     const bareTenant = bareTenantUuid(request.tenantId);

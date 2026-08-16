@@ -7,18 +7,20 @@ from typing import ClassVar as _ClassVar, Optional as _Optional
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class DecomposeRequest(_message.Message):
-    __slots__ = ("tenant_id", "workspace_id", "run_id", "objective", "strategy")
+    __slots__ = ("tenant_id", "workspace_id", "run_id", "objective", "strategy", "problem_spec_json")
     TENANT_ID_FIELD_NUMBER: _ClassVar[int]
     WORKSPACE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     OBJECTIVE_FIELD_NUMBER: _ClassVar[int]
     STRATEGY_FIELD_NUMBER: _ClassVar[int]
+    PROBLEM_SPEC_JSON_FIELD_NUMBER: _ClassVar[int]
     tenant_id: str
     workspace_id: str
     run_id: str
     objective: str
     strategy: str
-    def __init__(self, tenant_id: _Optional[str] = ..., workspace_id: _Optional[str] = ..., run_id: _Optional[str] = ..., objective: _Optional[str] = ..., strategy: _Optional[str] = ...) -> None: ...
+    problem_spec_json: str
+    def __init__(self, tenant_id: _Optional[str] = ..., workspace_id: _Optional[str] = ..., run_id: _Optional[str] = ..., objective: _Optional[str] = ..., strategy: _Optional[str] = ..., problem_spec_json: _Optional[str] = ...) -> None: ...
 
 class DecomposeResponse(_message.Message):
     __slots__ = ("task_skeleton_json", "ambiguity_detected", "clarification_questions")

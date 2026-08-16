@@ -70,13 +70,21 @@ export class PlannerFacadeService {
 
   async planWorkflow(input: PlanWorkflowInput): Promise<PlanWorkflowResult> {
     const runId = `run_${randomUUID().slice(0, 14)}7${randomUUID().slice(15)}`;
-
-    const decomposeResponse = await this.plannerClient.decompose({
-      tenant_id: prefixed("ten", input.tenantId),
-      workspace_id: prefixed("ws", input.workspaceId),
+    const tenantId = prefixed("ten", input.tenantId);
+    const workspaceId = prefixed("ws", input.workspaceId);
+    const problemSpec = await this.plannerClient.understand({
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
       run_id: runId,
       objective: input.objective,
+    });
+
+    const decomposeResponse = await this.plannerClient.decompose({
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
+      run_id: runId,
       strategy: "default",
+      problem_spec_json: JSON.stringify(problemSpec),
     });
 
     if (decomposeResponse.ambiguity_detected && decomposeResponse.clarification_questions.length > 0) {

@@ -12,11 +12,13 @@ correct pass_rate.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import socket
 import subprocess
 import time
 from collections.abc import Generator
+from concurrent import futures
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,6 +33,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from alter.modelgw.v1 import modelgw_pb2, modelgw_pb2_grpc
 from alter.toolgw.v1 import toolgw_pb2, toolgw_pb2_grpc
 from src.execution.agent_binding_client import AgentBindingEvalClient
 from src.execution.audit_client import AuditEvalClient
@@ -109,6 +112,35 @@ _EVAL_INTERNAL_SERVICE_TOKEN = "eval-harness-internal-token"
 _EVAL_INTERNAL_SERVICE_TOKEN_SHA256 = hashlib.sha256(
     _EVAL_INTERNAL_SERVICE_TOKEN.encode("utf-8")
 ).hexdigest()
+
+
+class _ProblemUnderstandingModelGateway(modelgw_pb2_grpc.ModelgwServiceServicer):
+    """Deterministic Model Gateway boundary for Problem Understanding E2E."""
+
+    def Invoke(
+        self, request: modelgw_pb2.InvokeRequest, context: object
+    ) -> modelgw_pb2.InvokeResponse:
+        del context
+        request_payload = json.loads(request.input_json)
+        user_payload = json.loads(request_payload["messages"][1]["content"])
+        problem_spec = {
+            "objective": user_payload["objective"],
+            "current_situation": None,
+            "actors": [],
+            "systems_involved": [],
+            "constraints": [],
+            "required_data": [],
+            "risk": "unknown",
+            "missing_information": [],
+            "success_criteria": [],
+            "context_references": [],
+        }
+        return modelgw_pb2.InvokeResponse(
+            output_json=json.dumps(
+                {"message": {"content": json.dumps(problem_spec, separators=(",", ":"))}},
+                separators=(",", ":"),
+            )
+        )
 
 
 @pytest.fixture(scope="module")
@@ -427,15 +459,15 @@ def audit_server_target(local_m2m_issuer: LocalM2mIssuer) -> Generator[str, None
 
 
 @pytest.fixture(scope="module")
-def intelligence_server_target() -> Generator[str, None, None]:
+def intelligence_server_target(
+    local_m2m_issuer: LocalM2mIssuer,
+) -> Generator[str, None, None]:
     """Real, live intelligence-service HTTP server (uvicorn), run as a real
     separate process -- same "src" top-level package-name collision as
     verification-service, same subprocess-with-own-venv fix.
 
-    select_strategy's kernel path is pure (no ADS/LLM call, see
-    planner/strategies.py's own module doc) -- the ADS target below only
-    needs to be well-formed enough for the app to start (the gRPC channel
-    is lazy), not a real, connectable endpoint.
+    The deterministic test Model Gateway below exercises the governed LLM
+    boundary while keeping project golden-set expectations reproducible.
     """
     intelligence_root = REPO_ROOT / "apps" / "intelligence-service"
     intelligence_python = intelligence_root / ".venv" / "bin" / "python"
@@ -444,6 +476,13 @@ def intelligence_server_target() -> Generator[str, None, None]:
             "apps/intelligence-service/.venv not present -- run `uv sync` there first "
             "(same real dependency this test always needed, just not eval-service's own venv)"
         )
+    model_gateway_port = _free_port()
+    model_gateway_server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
+    modelgw_pb2_grpc.add_ModelgwServiceServicer_to_server(
+        _ProblemUnderstandingModelGateway(), model_gateway_server
+    )  # type: ignore[no-untyped-call]
+    model_gateway_server.add_insecure_port(f"127.0.0.1:{model_gateway_port}")
+    model_gateway_server.start()
     port = _free_port()
     process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
         [
@@ -460,6 +499,8 @@ def intelligence_server_target() -> Generator[str, None, None]:
         env={
             "PATH": os.environ.get("PATH", ""),
             "ADSQ_GRPC_TARGET": "127.0.0.1:1",
+            "MODEL_GATEWAY_GRPC_TARGET": f"127.0.0.1:{model_gateway_port}",
+            **local_m2m_issuer.environment(),
         },
     )
     try:
@@ -471,6 +512,7 @@ def intelligence_server_target() -> Generator[str, None, None]:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
+        model_gateway_server.stop(0)
 
 
 @pytest.fixture(scope="module")

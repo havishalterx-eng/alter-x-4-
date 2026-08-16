@@ -35,8 +35,36 @@ export interface DecomposeRequest {
   readonly tenant_id: string;
   readonly workspace_id: string;
   readonly run_id: string;
-  readonly objective: string;
   readonly strategy: string;
+  readonly problem_spec_json: string;
+}
+
+export interface ProblemContextReference {
+  readonly document_id: string;
+  readonly chunk_reference: string;
+  readonly confidence: number;
+  readonly provenance_json: string;
+}
+
+export interface ProblemSpec {
+  readonly objective: string;
+  readonly current_situation: string | null;
+  readonly actors: readonly string[];
+  readonly systems_involved: readonly string[];
+  readonly constraints: readonly string[];
+  readonly required_data: readonly string[];
+  readonly risk: string;
+  readonly missing_information: readonly string[];
+  readonly success_criteria: readonly string[];
+  readonly context_references: readonly ProblemContextReference[];
+}
+
+export interface ProblemUnderstandingRequest {
+  readonly tenant_id: string;
+  readonly workspace_id: string;
+  readonly run_id: string;
+  readonly objective: string;
+  readonly actor_context?: Readonly<Record<string, string>>;
 }
 
 export interface DecomposeResponse {
@@ -69,6 +97,7 @@ export interface ReplanResponse {
 }
 
 export interface PlannerHandler {
+  understand(request: ProblemUnderstandingRequest): Promise<ProblemSpec>;
   decompose(request: DecomposeRequest): Promise<DecomposeResponse>;
   selectStrategy(request: SelectStrategyRequest): Promise<SelectStrategyResponse>;
   replan(request: ReplanRequest): Promise<ReplanResponse>;
@@ -102,6 +131,29 @@ function parseDecomposeResponse(raw: unknown): DecomposeResponse {
   };
 }
 
+function isStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function parseProblemSpec(raw: unknown): ProblemSpec {
+  if (
+    !isRecord(raw) ||
+    typeof raw.objective !== "string" ||
+    !(raw.current_situation === null || typeof raw.current_situation === "string") ||
+    !isStringArray(raw.actors) ||
+    !isStringArray(raw.systems_involved) ||
+    !isStringArray(raw.constraints) ||
+    !isStringArray(raw.required_data) ||
+    typeof raw.risk !== "string" ||
+    !isStringArray(raw.missing_information) ||
+    !isStringArray(raw.success_criteria) ||
+    !Array.isArray(raw.context_references)
+  ) {
+    throw new PlannerResponseValidationError("understand", "missing or mistyped fields");
+  }
+  return raw as unknown as ProblemSpec;
+}
+
 function parseSelectStrategyResponse(raw: unknown): SelectStrategyResponse {
   if (
     !isRecord(raw) ||
@@ -129,6 +181,14 @@ export class PlannerClient implements PlannerHandler {
     private readonly config: PlannerClientConfig,
     private readonly httpClient: PlannerHttpClient = createFetchPlannerHttpClient(),
   ) {}
+
+  async understand(request: ProblemUnderstandingRequest): Promise<ProblemSpec> {
+    const raw = await this.httpClient.postJson(
+      `${this.config.baseUrl}/internal/problem-understanding/understand`,
+      request,
+    );
+    return parseProblemSpec(raw);
+  }
 
   async decompose(request: DecomposeRequest): Promise<DecomposeResponse> {
     const raw = await this.httpClient.postJson(

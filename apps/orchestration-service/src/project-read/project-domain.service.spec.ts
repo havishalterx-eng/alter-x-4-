@@ -113,6 +113,11 @@ describe("ProjectDomainService", () => {
   it("turns a brief into a real Planner plan, then launches the project Executor build", async () => {
     const { store, plans } = harness();
     const planner: PlannerHandler = {
+      understand: vi.fn().mockResolvedValue({
+        objective: "Build customer portal", current_situation: null, actors: [],
+        systems_involved: [], constraints: [], required_data: [], risk: "unknown",
+        missing_information: [], success_criteria: [], context_references: [],
+      }),
       selectStrategy: vi.fn().mockResolvedValue({ strategy: "plan_then_execute", reason: "project" }),
       decompose: vi.fn().mockResolvedValue({
         task_skeleton_json: projectSkeleton(), ambiguity_detected: false, clarification_questions: [],
@@ -129,7 +134,8 @@ describe("ProjectDomainService", () => {
     expect(project).toMatchObject({ status: "pending_review", workspace_id: WORKSPACE });
     expect(project.project_id).toMatch(/^prj_/);
     expect(planner.decompose).toHaveBeenCalledWith(expect.objectContaining({
-      tenant_id: TENANT, workspace_id: WORKSPACE, objective: "Build customer portal",
+      tenant_id: TENANT, workspace_id: WORKSPACE,
+      problem_spec_json: expect.stringContaining("Build customer portal"),
     }));
 
     await service.reviewPlan(TENANT, project.project_id, "approve");

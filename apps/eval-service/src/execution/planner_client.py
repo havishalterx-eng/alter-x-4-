@@ -44,7 +44,13 @@ class PlannerClient:
         return SelectStrategyResult(strategy=body["strategy"], reason=body["reason"])
 
     def decompose(
-        self, *, tenant_id: str, workspace_id: str, run_id: str, objective: str, strategy: str
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        run_id: str,
+        problem_spec_json: str,
+        strategy: str,
     ) -> DecomposeResult:
         response = self._client.post(
             "/planner/decompose",
@@ -52,8 +58,8 @@ class PlannerClient:
                 "tenant_id": tenant_id,
                 "workspace_id": workspace_id,
                 "run_id": run_id,
-                "objective": objective,
                 "strategy": strategy,
+                "problem_spec_json": problem_spec_json,
             },
         )
         response.raise_for_status()
@@ -66,6 +72,21 @@ class PlannerClient:
             stages=stages,
             ambiguity_detected=body["ambiguity_detected"],
         )
+
+    def understand(
+        self, *, tenant_id: str, workspace_id: str, run_id: str, objective: str
+    ) -> str:
+        response = self._client.post(
+            "/internal/problem-understanding/understand",
+            json={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "run_id": run_id,
+                "objective": objective,
+            },
+        )
+        response.raise_for_status()
+        return json.dumps(response.json(), separators=(",", ":"))
 
     def close(self) -> None:
         self._client.close()

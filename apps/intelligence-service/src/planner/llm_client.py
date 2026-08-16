@@ -43,11 +43,10 @@ class LlmClient(Protocol):
         *,
         tenant_id: str,
         run_id: str,
-        objective: str,
         strategy: str,
-        kb_context: str,
+        problem_spec_json: str,
     ) -> TaskSkeleton:
-        """Decompose an objective into a task skeleton DAG."""
+        """Decompose a validated ProblemSpec into a task skeleton DAG."""
         ...
 
     async def revise_skeleton(
@@ -90,9 +89,8 @@ class StubLlmClient:
         *,
         tenant_id: str,
         run_id: str,
-        objective: str,
         strategy: str,
-        kb_context: str,
+        problem_spec_json: str,
     ) -> TaskSkeleton:
         return _STUB_SINGLE_NODE_SKELETON
 

@@ -146,12 +146,19 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
     });
     expect(strategy).toBe("iterative"); // "summarize" is a complex keyword
 
+    const runId = prefixedUuidV7("run");
+    const problemSpec = await planner.understand({
+      tenant_id: TENANT_ID,
+      workspace_id: WORKSPACE_ID,
+      run_id: runId,
+      objective,
+    });
     const decomposed = await planner.decompose({
       tenant_id: TENANT_ID,
       workspace_id: WORKSPACE_ID,
-      run_id: prefixedUuidV7("run"),
-      objective,
+      run_id: runId,
       strategy,
+      problem_spec_json: JSON.stringify(problemSpec),
     });
     expect(decomposed.ambiguity_detected).toBe(false);
     expect(typeof decomposed.task_skeleton_json).toBe("string");

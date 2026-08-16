@@ -23,6 +23,7 @@ from src.planner.strategies import (
     STRATEGY_PLAN_THEN_EXECUTE,
 )
 from src.planner.task_skeleton import TaskSkeleton
+from src.problem_understanding.models import ProblemSpec
 
 TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab"
 WORKSPACE_ID = "ws_018f4d6e-2b4a-7a3e-8c1a-1234567890ab"
@@ -33,6 +34,10 @@ _STUB_SKELETON_JSON = TaskSkeleton(
     nodes=[],
     entry_point="node_stub_000",
 ).to_json()
+
+
+def _problem_spec_json(objective: str = "summarise feedback") -> str:
+    return ProblemSpec(objective=objective).model_dump_json()
 
 
 @pytest.fixture
@@ -76,7 +81,7 @@ class TestDecomposeRoute:
             "tenant_id": TENANT_ID,
             "workspace_id": WORKSPACE_ID,
             "run_id": RUN_ID,
-            "objective": "summarise feedback",
+            "problem_spec_json": _problem_spec_json(),
             "strategy": "iterative",
         }
         response = await client.post("/planner/decompose", json=payload)
@@ -92,7 +97,7 @@ class TestDecomposeRoute:
             "tenant_id": TENANT_ID,
             "workspace_id": WORKSPACE_ID,
             "run_id": RUN_ID,
-            "objective": "run test suite",
+            "problem_spec_json": _problem_spec_json("run test suite"),
             "strategy": "direct",
         }
         response = await client.post("/planner/decompose", json=payload)
@@ -111,12 +116,26 @@ class TestDecomposeRoute:
 
         assert response.status_code == 422
 
+    async def test_malformed_problem_spec_returns_422_before_model_call(
+        self, client: AsyncClient
+    ) -> None:
+        payload = {
+            "tenant_id": TENANT_ID,
+            "workspace_id": WORKSPACE_ID,
+            "run_id": RUN_ID,
+            "strategy": "direct",
+            "problem_spec_json": "not json",
+        }
+        response = await client.post("/planner/decompose", json=payload)
+
+        assert response.status_code == 422
+
     async def test_malformed_tenant_id_returns_422(self, client: AsyncClient) -> None:
         payload = {
             "tenant_id": "bad-id",
             "workspace_id": WORKSPACE_ID,
             "run_id": RUN_ID,
-            "objective": "do something",
+            "problem_spec_json": _problem_spec_json("do something"),
             "strategy": "direct",
         }
         response = await client.post("/planner/decompose", json=payload)

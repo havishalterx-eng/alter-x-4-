@@ -8,7 +8,9 @@ module only provides typed Python homes for the Planner requests/responses.
 
 import re
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ValidationError, field_validator
+
+from ..problem_understanding.models import ProblemSpec
 
 _UUID_V7_BODY = r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 
@@ -29,13 +31,20 @@ def _validate_pattern(pattern: re.Pattern[str], value: str, field: str) -> str:
 
 
 class DecomposeRequest(BaseModel):
-    model_config = {"frozen": True}
+    """HTTP Decompose request.
+
+    ``objective`` remains in protobuf only for additive wire compatibility.
+    The HTTP planner rejects it: validated ``problem_spec_json`` is the sole
+    pre-planning input.
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
 
     tenant_id: str
     workspace_id: str
     run_id: str
-    objective: str
     strategy: str
+    problem_spec_json: str
 
     @field_validator("tenant_id")
     @classmethod
@@ -52,12 +61,19 @@ class DecomposeRequest(BaseModel):
     def _validate_run_id(cls, v: str) -> str:
         return _validate_pattern(_RUN_ID_RE, v, "run_id")
 
-    @field_validator("objective")
+    @field_validator("problem_spec_json")
     @classmethod
-    def _validate_objective(cls, v: str) -> str:
+    def _validate_problem_spec(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("objective must not be blank")
-        return v
+            raise ValueError("problem_spec_json must not be blank")
+        try:
+            return ProblemSpec.model_validate_json(v).model_dump_json()
+        except ValidationError as exc:
+            raise ValueError("problem_spec_json must contain a valid ProblemSpec") from exc
+
+    @property
+    def problem_spec(self) -> ProblemSpec:
+        return ProblemSpec.model_validate_json(self.problem_spec_json)
 
 
 class DecomposeResponse(BaseModel):

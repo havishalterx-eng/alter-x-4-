@@ -1089,11 +1089,17 @@ class EvalRunOrchestrator:
         objective = str(case.input_json["objective"])
 
         try:
-            result = self._planner_client.decompose(
+            problem_spec_json = self._planner_client.understand(
                 tenant_id=_EVAL_TENANT_ID,
                 workspace_id=_EVAL_WORKSPACE_ID,
                 run_id=_EVAL_RUN_ID,
                 objective=objective,
+            )
+            result = self._planner_client.decompose(
+                tenant_id=_EVAL_TENANT_ID,
+                workspace_id=_EVAL_WORKSPACE_ID,
+                run_id=_EVAL_RUN_ID,
+                problem_spec_json=problem_spec_json,
                 strategy="plan_then_execute",
             )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc

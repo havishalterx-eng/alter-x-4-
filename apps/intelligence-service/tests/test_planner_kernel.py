@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.ads_client.client import StubAdsClient
+from src.ads_client.models import RetrieveRequest, RetrieveResponse
 from src.planner.kernel import PlannerKernel, PlannerValidationError
 from src.planner.llm_client import StubLlmClient
 from src.planner.manager_worker import ManagerWorkerPlan
@@ -21,6 +22,7 @@ from src.planner.strategies import (
     STRATEGY_PLAN_THEN_EXECUTE,
 )
 from src.planner.task_skeleton import TaskSkeleton
+from src.problem_understanding.models import ProblemSpec
 
 TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab"
 WORKSPACE_ID = "ws_018f4d6e-2b4a-7a3e-8c1a-1234567890ab"
@@ -36,7 +38,9 @@ def _decompose_req(**overrides: object) -> DecomposeRequest:
         "tenant_id": TENANT_ID,
         "workspace_id": WORKSPACE_ID,
         "run_id": RUN_ID,
-        "objective": "summarise customer feedback",
+        "problem_spec_json": ProblemSpec(
+            objective="summarise customer feedback"
+        ).model_dump_json(),
         "strategy": STRATEGY_ITERATIVE,
     }
     defaults.update(overrides)
@@ -78,7 +82,7 @@ class TestDecompose:
     async def test_ambiguity_false_for_short_objective_with_no_kb(self) -> None:
         kernel = _kernel()
         # Short objective (≤ 10 words) → no ambiguity even with empty KB.
-        response = await kernel.decompose(_decompose_req(objective="run report"))
+        response = await kernel.decompose(_decompose_req())
 
         assert response.ambiguity_detected is False
         assert response.clarification_questions == []
@@ -86,8 +90,11 @@ class TestDecompose:
     async def test_ambiguity_true_for_long_objective_with_empty_kb(self) -> None:
         kernel = _kernel()
         # > 10 words + StubAdsClient always returns empty hits → ambiguity
-        long_obj = " ".join(["word"] * 11)
-        response = await kernel.decompose(_decompose_req(objective=long_obj))
+        response = await kernel.decompose(_decompose_req(
+            problem_spec_json=ProblemSpec(
+                objective="run report", missing_information=["the report period"]
+            ).model_dump_json()
+        ))
 
         assert response.ambiguity_detected is True
         assert len(response.clarification_questions) >= 1
@@ -98,7 +105,7 @@ class TestDecompose:
 
     async def test_rejects_blank_objective(self) -> None:
         with pytest.raises(ValidationError):
-            _decompose_req(objective="   ")
+            _decompose_req(problem_spec_json="   ")
 
     async def test_rejects_malformed_run_id(self) -> None:
         with pytest.raises(ValidationError):
@@ -110,7 +117,9 @@ class TestDecomposeProjectStrategy:
         kernel = _kernel()
         response = await kernel.decompose(
             _decompose_req(
-                objective="build a support ticket app",
+                problem_spec_json=ProblemSpec(
+                    objective="build a support ticket app"
+                ).model_dump_json(),
                 strategy=STRATEGY_PLAN_THEN_EXECUTE,
             )
         )
@@ -126,7 +135,10 @@ class TestDecomposeProjectStrategy:
 
         kernel = PlannerKernel(ads_client=StubAdsClient(), llm_client=ExplodingLlmClient())
         response = await kernel.decompose(
-            _decompose_req(objective="build an app", strategy=STRATEGY_PLAN_THEN_EXECUTE)
+            _decompose_req(
+                problem_spec_json=ProblemSpec(objective="build an app").model_dump_json(),
+                strategy=STRATEGY_PLAN_THEN_EXECUTE,
+            )
         )
 
         assert TaskSkeleton.from_json(response.task_skeleton_json).nodes
@@ -137,7 +149,10 @@ class TestDecomposeManagerWorkerStrategy:
         kernel = _kernel()
         response = await kernel.decompose(
             _decompose_req(
-                objective="coordinate multiple regional teams", strategy=STRATEGY_MANAGER_WORKER
+                problem_spec_json=ProblemSpec(
+                    objective="coordinate multiple regional teams"
+                ).model_dump_json(),
+                strategy=STRATEGY_MANAGER_WORKER,
             )
         )
 
@@ -172,10 +187,26 @@ class TestDecomposeManagerWorkerStrategy:
 
         kernel = PlannerKernel(ads_client=StubAdsClient(), llm_client=CapturingLlmClient())
         await kernel.decompose(
-            _decompose_req(objective="coordinate multiple teams", strategy=STRATEGY_MANAGER_WORKER)
+            _decompose_req(
+                problem_spec_json=ProblemSpec(
+                    objective="coordinate multiple teams"
+                ).model_dump_json(),
+                strategy=STRATEGY_MANAGER_WORKER,
+            )
         )
 
         assert captured["model_alias"] == "CEILING"
+
+    async def test_decompose_never_retrieves_ads_context(self) -> None:
+        class ExplodingAdsClient(StubAdsClient):
+            async def retrieve(self, request: RetrieveRequest) -> RetrieveResponse:
+                del request
+                raise AssertionError("Planner decompose must not retrieve ADS context")
+
+        kernel = PlannerKernel(ads_client=ExplodingAdsClient(), llm_client=StubLlmClient())
+        response = await kernel.decompose(_decompose_req())
+
+        assert TaskSkeleton.from_json(response.task_skeleton_json).nodes
 
 
 # ---------------------------------------------------------------------------

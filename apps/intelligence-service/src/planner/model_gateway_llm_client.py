@@ -1,6 +1,6 @@
 """Real Model Gateway-backed LlmClient.
 
-Implements only generate_skeleton() for real -- the direct objective ->
+Implements only generate_skeleton() for real -- the typed ProblemSpec ->
 TaskSkeleton path the Planner's default (non plan_then_execute,
 non manager_worker) strategy uses. revise_skeleton/generate_manager_worker_plan
 still defer to StubLlmClient's deterministic behavior; those are separate,
@@ -30,8 +30,8 @@ from .task_skeleton import TaskSkeleton
 # STANDARD.
 _MODEL_ALIAS_SKELETON = "STANDARD"
 
-_SKELETON_SYSTEM_PROMPT = """You are a task planner. Decompose the user's objective into a \
-task skeleton: a small DAG of steps needed to accomplish it.
+_SKELETON_SYSTEM_PROMPT = """You are a task planner. Decompose the validated ProblemSpec JSON
+into a task skeleton: a small DAG of steps needed to accomplish it.
 
 Respond with a single JSON object only, no other text, no markdown code fences. The object \
 must have this exact shape:
@@ -91,16 +91,14 @@ class ModelGatewayLlmClient(StubLlmClient):
         *,
         tenant_id: str,
         run_id: str,
-        objective: str,
         strategy: str,
-        kb_context: str,
+        problem_spec_json: str,
     ) -> TaskSkeleton:
-        user_content = objective if not kb_context else f"{objective}\n\nContext:\n{kb_context}"
         payload = json.dumps(
             {
                 "messages": [
                     {"role": "system", "content": _SKELETON_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_content},
+                    {"role": "user", "content": problem_spec_json},
                 ],
                 "temperature": 0.2,
             },

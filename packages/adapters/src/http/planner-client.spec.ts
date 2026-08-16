@@ -23,6 +23,18 @@ function fakeHttpClient(response: unknown): {
 }
 
 const CONFIG = { baseUrl: "http://intelligence-service.internal" };
+const PROBLEM_SPEC_JSON = JSON.stringify({
+  objective: "summarize this doc",
+  current_situation: null,
+  actors: [],
+  systems_involved: [],
+  constraints: [],
+  required_data: [],
+  risk: "unknown",
+  missing_information: [],
+  success_criteria: [],
+  context_references: [],
+});
 
 describe("PlannerClient", () => {
   it("posts to /planner/decompose and parses a valid response", async () => {
@@ -37,7 +49,7 @@ describe("PlannerClient", () => {
       tenant_id: "ten_a",
       workspace_id: "ws_a",
       run_id: "run_a",
-      objective: "summarize this doc",
+      problem_spec_json: PROBLEM_SPEC_JSON,
       strategy: "direct",
     });
 
@@ -53,7 +65,7 @@ describe("PlannerClient", () => {
           tenant_id: "ten_a",
           workspace_id: "ws_a",
           run_id: "run_a",
-          objective: "summarize this doc",
+          problem_spec_json: PROBLEM_SPEC_JSON,
           strategy: "direct",
         },
       },
@@ -69,10 +81,33 @@ describe("PlannerClient", () => {
         tenant_id: "ten_a",
         workspace_id: "ws_a",
         run_id: "run_a",
-        objective: "x",
+        problem_spec_json: PROBLEM_SPEC_JSON,
         strategy: "direct",
       }),
     ).rejects.toThrow(PlannerResponseValidationError);
+  });
+
+  it("posts to Problem Understanding and parses the typed ProblemSpec", async () => {
+    const { client, calls } = fakeHttpClient(JSON.parse(PROBLEM_SPEC_JSON));
+    const planner = new PlannerClient(CONFIG, client);
+
+    const result = await planner.understand({
+      tenant_id: "ten_a",
+      workspace_id: "ws_a",
+      run_id: "run_a",
+      objective: "summarize this doc",
+    });
+
+    expect(result.objective).toBe("summarize this doc");
+    expect(calls[0]).toEqual({
+      url: "http://intelligence-service.internal/internal/problem-understanding/understand",
+      body: {
+        tenant_id: "ten_a",
+        workspace_id: "ws_a",
+        run_id: "run_a",
+        objective: "summarize this doc",
+      },
+    });
   });
 
   it("posts to /planner/select-strategy and parses a valid response", async () => {

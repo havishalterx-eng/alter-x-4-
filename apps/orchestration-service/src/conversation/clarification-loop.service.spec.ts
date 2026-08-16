@@ -93,6 +93,20 @@ function createFakeStore(seed: readonly Row[] = []): {
 
 function fakePlanner(overrides: Partial<PlannerHandler> = {}): PlannerHandler {
   return {
+    understand:
+      overrides.understand ??
+      vi.fn(async (request) => ({
+        objective: request.objective,
+        current_situation: null,
+        actors: [],
+        systems_involved: [],
+        constraints: [],
+        required_data: [],
+        risk: "unknown",
+        missing_information: [],
+        success_criteria: [],
+        context_references: [],
+      })),
     selectStrategy:
       overrides.selectStrategy ??
       vi.fn(async () => ({ strategy: "direct", reason: "concise" })),
@@ -177,6 +191,44 @@ describe("ClarificationLoopService.requestPlan", () => {
       expect.objectContaining({ strategy: "iterative" }),
     );
   });
+
+  it("uses the same tenant, workspace, and run IDs for understanding and decompose", async () => {
+    const { store } = createFakeStore();
+    const understand = vi.fn(async (request) => ({
+      objective: request.objective,
+      current_situation: null,
+      actors: [],
+      systems_involved: [],
+      constraints: [],
+      required_data: [],
+      risk: "unknown",
+      missing_information: [],
+      success_criteria: [],
+      context_references: [],
+    }));
+    const decompose = vi.fn(async (request: unknown) => {
+      void request;
+      return {
+      task_skeleton_json: "{}",
+      ambiguity_detected: false,
+      clarification_questions: [],
+      };
+    });
+    const service = new ClarificationLoopService(
+      store,
+      fakePlanner({ understand, decompose }),
+    );
+
+    await service.requestPlan(BASE_REQUEST);
+
+    const understood = understand.mock.calls[0]![0];
+    const decomposed = decompose.mock.calls[0]![0];
+    expect(decomposed).toMatchObject({
+      tenant_id: understood.tenant_id,
+      workspace_id: understood.workspace_id,
+      run_id: understood.run_id,
+    });
+  });
 });
 
 describe("ClarificationLoopService.resumeAfterClarification", () => {
@@ -215,8 +267,9 @@ describe("ClarificationLoopService.resumeAfterClarification", () => {
     expect(result).toEqual({ status: "ready", taskSkeletonJson: "{}" });
     expect(decompose).toHaveBeenCalledWith(
       expect.objectContaining({
-        objective:
-          "summarize the quarterly report\n\nClarification: Which quarter? Answer: Q3 2026",
+        problem_spec_json: expect.stringContaining(
+          "Clarification: Which quarter? Answer: Q3 2026",
+        ),
       }),
     );
     expect(rows[0]!.status).toBe("ready");
