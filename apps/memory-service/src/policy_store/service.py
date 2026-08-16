@@ -16,6 +16,8 @@ from .models import (
     PolicyPatch,
     PromoteMemoryRequest,
     PromoteMemoryResponse,
+    RevertMemoryRequest,
+    RevertMemoryResponse,
     UpdatePolicyRequest,
     UpdatePolicyResponse,
 )
@@ -159,6 +161,24 @@ class PolicyStoreService:
             global_write_authorized=verify_global_write_token(global_write_token),
         )
         return PromoteMemoryResponse(promoted=True, promoted_at=result.promoted_at)
+
+    async def revert_memory(
+        self,
+        request: RevertMemoryRequest,
+        authorization: str,
+        global_write_token: str | None = None,
+    ) -> RevertMemoryResponse:
+        self._validate_authorization(authorization)
+        tenant_uuid = self._raw_id(request.tenant_id, "ten")
+        self._raw_id(request.memory_id, "mem")
+        result = await asyncio.to_thread(
+            self._repository.revert_memory,
+            tenant_uuid=tenant_uuid,
+            memory_id=request.memory_id,
+            reason=request.reason,
+            global_write_authorized=verify_global_write_token(global_write_token),
+        )
+        return RevertMemoryResponse(reverted=True, reverted_at=result.reverted_at)
 
     async def get_active_policy(
         self,

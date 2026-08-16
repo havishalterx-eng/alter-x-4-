@@ -77,3 +77,4 @@ class MemoryRecord(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     promoted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -15,6 +15,7 @@ from .models import (
     PolicyPatch,
     PolicyStatus,
     StoredMemoryPromotion,
+    StoredMemoryRevocation,
     StoredPolicyUpdate,
 )
 
@@ -38,6 +39,10 @@ class PolicyTransitionError(RuntimeError):
 
 
 class MemoryPromotionConflictError(RuntimeError):
+    pass
+
+
+class MemoryRevertConflictError(RuntimeError):
     pass
 
 
@@ -236,6 +241,63 @@ class SqlAlchemyPolicyStoreRepository:
             return StoredMemoryPromotion(
                 memory_id=record.id,
                 promoted_at=promoted_at,
+            )
+
+    def revert_memory(
+        self,
+        *,
+        tenant_uuid: str,
+        memory_id: str,
+        reason: str,
+        global_write_authorized: bool = False,
+    ) -> StoredMemoryRevocation:
+        """Real, symmetric reverse of promote_memory: promoted -> reverted.
+
+        Same scope-gated privileged-write rule as promotion (a global
+        memory can only be reverted by policy_system_writer). Never
+        touches tenant_id -- a globally-promoted record's original
+        tenant_id and pre-anonymization content are already gone
+        (anonymize_global_content overwrote them at promotion time), so
+        reverting a global record un-publishes it going forward without
+        pretending to restore what promotion irreversibly discarded.
+        destination is cleared: an already-reverted record no longer
+        claims to live anywhere.
+        """
+        scope = self._visible_memory_scope(tenant_uuid, memory_id)
+        if scope == "global" and not global_write_authorized:
+            raise PolicyPermissionError(
+                "global-scope memory revocation requires the privileged write credential"
+            )
+        sessions = self._system_sessions if scope == "global" else self._tenant_sessions
+        with sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            record = session.scalar(
+                select(MemoryRecord).where(MemoryRecord.id == memory_id).with_for_update()
+            )
+            if record is None:
+                raise MemoryNotFoundError("Memory record does not exist for requesting tenant")
+            if record.status == "reverted" and record.reverted_at is not None:
+                return StoredMemoryRevocation(
+                    memory_id=record.id,
+                    reverted_at=record.reverted_at,
+                )
+            if record.status != "promoted":
+                raise MemoryRevertConflictError(
+                    f"Memory status {record.status!r} cannot be reverted"
+                )
+
+            reverted_at = datetime.now(UTC)
+            record.status = "reverted"
+            record.reverted_at = reverted_at
+            record.destination = None
+            record.provenance = {
+                **record.provenance,
+                "revocation": {"reason": reason},
+            }
+            session.flush()
+            return StoredMemoryRevocation(
+                memory_id=record.id,
+                reverted_at=reverted_at,
             )
 
     def get_active_policy(self, *, tenant_uuid: str, kind: str) -> Policy | None:

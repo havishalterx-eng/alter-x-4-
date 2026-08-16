@@ -4,6 +4,7 @@ import asyncio
 import json
 from collections.abc import Generator
 from pathlib import Path
+from typing import cast
 
 import pytest
 import sqlalchemy as sa
@@ -16,9 +17,11 @@ from alembic import command
 from src.policy_store.models import (
     GetActivePolicyRequest,
     PromoteMemoryRequest,
+    RevertMemoryRequest,
     UpdatePolicyRequest,
 )
 from src.policy_store.repository import (
+    MemoryRevertConflictError,
     PolicyPermissionError,
     PolicyVersionConflictError,
     SqlAlchemyPolicyStoreRepository,
@@ -657,3 +660,187 @@ ON CONFLICT (id) DO NOTHING
         )
     )
     assert result.new_version == "2"
+
+
+def _seed_memory(
+    policy_database: dict[str, str], *, memory_id: str, scope: str
+) -> None:
+    engine = sa.create_engine(policy_database["admin"])
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                """
+INSERT INTO memory_records(id,tenant_id,scope,content,provenance,status)
+VALUES (:id,CAST(:tenant AS uuid),:scope,'{}','{}','candidate')
+ON CONFLICT (id) DO NOTHING
+"""
+            ),
+            {"id": memory_id, "tenant": TENANT_UUID, "scope": scope},
+        )
+    engine.dispose()
+
+
+def _memory_row(policy_database: dict[str, str], memory_id: str) -> dict[str, object]:
+    engine = sa.create_engine(policy_database["admin"])
+    with engine.connect() as connection:
+        row = connection.execute(
+            sa.text(
+                "SELECT tenant_id::text,status,destination,provenance,"
+                "promoted_at,reverted_at FROM memory_records WHERE id=:id"
+            ),
+            {"id": memory_id},
+        ).mappings().one()
+    engine.dispose()
+    return dict(row)
+
+
+def test_revert_memory_transitions_promoted_to_reverted_and_is_idempotent(
+    policy_database: dict[str, str],
+    policy_service: PolicyStoreService,
+) -> None:
+    memory_id = "mem_018f4d6e-2b4a-7a3e-8c1a-11111111d001"
+    _seed_memory(policy_database, memory_id=memory_id, scope="project")
+    asyncio.run(
+        policy_service.promote_memory(
+            PromoteMemoryRequest(
+                tenant_id=TENANT_ID,
+                memory_id=memory_id,
+                evaluation_run_id=EVALUATION_RUN_ID,
+            ),
+            "Bearer integration-token",
+        )
+    )
+
+    reverted = asyncio.run(
+        policy_service.revert_memory(
+            RevertMemoryRequest(
+                tenant_id=TENANT_ID,
+                memory_id=memory_id,
+                reason="lesson turned out to generalize incorrectly",
+            ),
+            "Bearer integration-token",
+        )
+    )
+    assert reverted.reverted is True
+
+    row = _memory_row(policy_database, memory_id)
+    assert row["status"] == "reverted"
+    assert row["destination"] is None
+    assert row["reverted_at"] is not None
+    provenance = cast(dict[str, dict[str, object]], row["provenance"])
+    assert provenance["revocation"]["reason"] == (
+        "lesson turned out to generalize incorrectly"
+    )
+    # promotion provenance/evaluation_run_id must survive the revert --
+    # revocation is additive audit trail, not a history-erasing rewrite.
+    assert provenance["promotion"]["evaluation_run_id"] == EVALUATION_RUN_ID
+
+    repeated = asyncio.run(
+        policy_service.revert_memory(
+            RevertMemoryRequest(
+                tenant_id=TENANT_ID,
+                memory_id=memory_id,
+                reason="a different reason on the idempotent replay",
+            ),
+            "Bearer integration-token",
+        )
+    )
+    assert repeated.reverted_at == reverted.reverted_at
+
+
+def test_revert_memory_rejects_a_candidate_that_was_never_promoted(
+    policy_database: dict[str, str],
+    policy_service: PolicyStoreService,
+) -> None:
+    memory_id = "mem_018f4d6e-2b4a-7a3e-8c1a-11111111d002"
+    _seed_memory(policy_database, memory_id=memory_id, scope="failure")
+
+    with pytest.raises(MemoryRevertConflictError, match="candidate"):
+        asyncio.run(
+            policy_service.revert_memory(
+                RevertMemoryRequest(
+                    tenant_id=TENANT_ID,
+                    memory_id=memory_id,
+                    reason="should never apply to a plain candidate",
+                ),
+                "Bearer integration-token",
+            )
+        )
+
+    row = _memory_row(policy_database, memory_id)
+    assert row["status"] == "candidate"
+
+
+def test_global_memory_revocation_rejected_without_privileged_credential(
+    policy_database: dict[str, str],
+    policy_service: PolicyStoreService,
+) -> None:
+    memory_id = "mem_018f4d6e-2b4a-7a3e-8c1a-11111111d003"
+    _seed_memory(policy_database, memory_id=memory_id, scope="global")
+    asyncio.run(
+        policy_service.promote_memory(
+            PromoteMemoryRequest(
+                tenant_id=TENANT_ID,
+                memory_id=memory_id,
+                evaluation_run_id=EVALUATION_RUN_ID,
+            ),
+            "Bearer integration-token",
+            global_write_token="integration-global-write-token",
+        )
+    )
+
+    with pytest.raises(PolicyPermissionError, match="privileged write credential"):
+        asyncio.run(
+            policy_service.revert_memory(
+                RevertMemoryRequest(
+                    tenant_id=TENANT_ID,
+                    memory_id=memory_id,
+                    reason="attempted without the privileged token",
+                ),
+                "Bearer integration-token",
+                # no global_write_token
+            )
+        )
+
+    row = _memory_row(policy_database, memory_id)
+    assert row["status"] == "promoted", (
+        "rejected revocation must not have touched the row at all"
+    )
+
+
+def test_global_memory_revocation_succeeds_with_privileged_credential(
+    policy_database: dict[str, str],
+    policy_service: PolicyStoreService,
+) -> None:
+    memory_id = "mem_018f4d6e-2b4a-7a3e-8c1a-11111111d004"
+    _seed_memory(policy_database, memory_id=memory_id, scope="global")
+    asyncio.run(
+        policy_service.promote_memory(
+            PromoteMemoryRequest(
+                tenant_id=TENANT_ID,
+                memory_id=memory_id,
+                evaluation_run_id=EVALUATION_RUN_ID,
+            ),
+            "Bearer integration-token",
+            global_write_token="integration-global-write-token",
+        )
+    )
+
+    reverted = asyncio.run(
+        policy_service.revert_memory(
+            RevertMemoryRequest(
+                tenant_id=TENANT_ID,
+                memory_id=memory_id,
+                reason="global lesson found to be tenant-identifying after all",
+            ),
+            "Bearer integration-token",
+            global_write_token="integration-global-write-token",
+        )
+    )
+    assert reverted.reverted is True
+
+    row = _memory_row(policy_database, memory_id)
+    assert row["status"] == "reverted"
+    # tenant_id must stay NULL: promotion's anonymization already discarded
+    # the original tenant-identifying data for good, revert cannot restore it.
+    assert row["tenant_id"] is None

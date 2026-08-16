@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PolicyStatus = Literal["draft", "canary", "active", "rolled_back", "retired"]
 
@@ -54,6 +54,24 @@ class PromoteMemoryResponse(StrictModel):
     promoted_at: datetime
 
 
+class RevertMemoryRequest(StrictModel):
+    tenant_id: str
+    memory_id: str
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("reason must not be blank")
+        return value
+
+
+class RevertMemoryResponse(StrictModel):
+    reverted: bool
+    reverted_at: datetime
+
+
 class StoredPolicyUpdate(StrictModel):
     policy_id: str
     new_version: int
@@ -63,6 +81,11 @@ class StoredPolicyUpdate(StrictModel):
 class StoredMemoryPromotion(StrictModel):
     memory_id: str
     promoted_at: datetime
+
+
+class StoredMemoryRevocation(StrictModel):
+    memory_id: str
+    reverted_at: datetime
 
 
 PolicyKind = Literal[

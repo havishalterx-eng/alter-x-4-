@@ -15,12 +15,15 @@ from .models import (
     GetActivePolicyResponse,
     PromoteMemoryRequest,
     PromoteMemoryResponse,
+    RevertMemoryRequest,
+    RevertMemoryResponse,
     UpdatePolicyRequest,
     UpdatePolicyResponse,
 )
 from .repository import (
     MemoryNotFoundError,
     MemoryPromotionConflictError,
+    MemoryRevertConflictError,
     PolicyNotFoundError,
     PolicyPermissionError,
     PolicyTransitionError,
@@ -106,6 +109,27 @@ async def promote_memory(
     except PolicyPermissionError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
     except MemoryPromotionConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post("/revert-memory", response_model=RevertMemoryResponse)
+async def revert_memory(
+    request: RevertMemoryRequest,
+    service: ServiceDep,
+    authorization: AuthorizationHeader,
+    x_alter_policy_global_write: GlobalWriteHeader = None,
+) -> RevertMemoryResponse:
+    try:
+        return await service.revert_memory(
+            request, authorization, global_write_token=x_alter_policy_global_write
+        )
+    except PolicyStoreValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except MemoryNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PolicyPermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except MemoryRevertConflictError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
 
