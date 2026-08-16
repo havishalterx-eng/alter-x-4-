@@ -39,8 +39,19 @@ services:
       - engine_db_data:/var/lib/postgresql/data
       - ./infrastructure/local/engine-db-init.sh:/docker-entrypoint-initdb.d/10-engine-databases.sh:ro
 
-  # redis:
-  #   # added in PLAT-P1-T03
+  redis:
+    image: redis:7.4.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    volumes:
+      - redis_data:/data
 
   localstack:
     image: localstack/localstack:4.14.0
@@ -55,13 +66,14 @@ services:
       AUDIT_DATABASE_NAME: audit_db
       AUDIT_DATABASE_USER: audit_service
       DATABASE_SECRET_REF: ${DATABASE_SECRET_REF:-/alter/local/audit-service/system/database_credentials}
+      ACTOR_TOKEN_SIGNING_KEY_REF: ${ACTOR_TOKEN_SIGNING_KEY_REF:-/alter/local/platform-api/system/actor-token-signing-key}
     ports:
       - "127.0.0.1:4566:4566"
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "awslocal sqs get-queue-url --queue-name alter-local-cost-events >/dev/null 2>&1 && awslocal sqs get-queue-url --queue-name alter-local-events.fifo >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${DATABASE_SECRET_REF}\" >/dev/null 2>&1",
+          "awslocal sqs get-queue-url --queue-name alter-local-cost-events >/dev/null 2>&1 && awslocal sqs get-queue-url --queue-name alter-local-events.fifo >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${DATABASE_SECRET_REF}\" >/dev/null 2>&1 && awslocal ssm get-parameter --name \"$${ACTOR_TOKEN_SIGNING_KEY_REF}\" --with-decryption >/dev/null 2>&1",
         ]
       interval: 5s
       timeout: 5s
@@ -174,4 +186,5 @@ services:
 volumes:
   platform_db_data:
   engine_db_data:
+  redis_data:
   tempo_data:

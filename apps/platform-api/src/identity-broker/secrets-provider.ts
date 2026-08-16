@@ -1,4 +1,11 @@
+import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import type { SecretsProvider } from "@alterx/shared-clients";
+
+export interface SsmParameterClient {
+  send(command: GetParameterCommand): Promise<{
+    readonly Parameter?: { readonly Value?: string };
+  }>;
+}
 
 export class EnvironmentSecretsProvider implements SecretsProvider {
   readonly metadata = {
@@ -24,20 +31,41 @@ export class EnvironmentSecretsProvider implements SecretsProvider {
     cost_model: { rates: [] },
   };
 
-  constructor(private readonly environment: NodeJS.ProcessEnv = process.env) {}
+  readonly #ssm: SsmParameterClient;
+
+  constructor(
+    private readonly environment: NodeJS.ProcessEnv = process.env,
+    ssmClient?: SsmParameterClient,
+  ) {
+    this.#ssm = ssmClient ?? new SSMClient({
+      region: environment.AWS_REGION ?? environment.AWS_DEFAULT_REGION ?? "ap-south-1",
+      ...(environment.AWS_ENDPOINT_URL ? { endpoint: environment.AWS_ENDPOINT_URL } : {}),
+    });
+  }
 
   async getSecret(reference: string): Promise<string> {
-    if (!reference.startsWith("env:")) {
+    if (reference.startsWith("env:")) {
+      const environmentKey = reference.slice("env:".length);
+      const value = this.environment[environmentKey];
+      if (!environmentKey || !value) {
+        throw new Error(`Secret reference unavailable: ${reference}`);
+      }
+
+      return value.replaceAll("\\n", "\n");
+    }
+
+    if (!reference.startsWith("/")) {
       throw new Error(`Unsupported secret reference: ${reference}`);
     }
 
-    const environmentKey = reference.slice("env:".length);
-    const value = this.environment[environmentKey];
-    if (!environmentKey || !value) {
+    const value = (await this.#ssm.send(new GetParameterCommand({
+      Name: reference,
+      WithDecryption: true,
+    }))).Parameter?.Value;
+    if (!value) {
       throw new Error(`Secret reference unavailable: ${reference}`);
     }
-
-    return value.replaceAll("\\n", "\n");
+    return value;
   }
 
   async healthCheck() {

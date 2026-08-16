@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { IdentityBrokerService } from "./identity-broker.service";
 import { verifyActorToken } from "./jwt";
 import { EnvironmentSecretsProvider } from "./secrets-provider";
@@ -61,6 +61,21 @@ describe("SecretsProvider signing keys", () => {
       "Secret reference unavailable",
     );
     await expect(provider.getSecret("env:")).rejects.toThrow("Secret reference unavailable");
+  });
+
+  it("resolves direct SSM parameter references with decryption", async () => {
+    const send = vi.fn().mockResolvedValue({ Parameter: { Value: "stored-secret" } });
+    const provider = new EnvironmentSecretsProvider({}, { send });
+
+    await expect(provider.getSecret("/alter/local/platform-api/system/key")).resolves.toBe(
+      "stored-secret",
+    );
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({
+        Name: "/alter/local/platform-api/system/key",
+        WithDecryption: true,
+      }),
+    }));
   });
 
   it("keeps generated and static resolvers limited to explicit callers", async () => {

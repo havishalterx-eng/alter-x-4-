@@ -290,6 +290,9 @@ importers:
       '@aws-sdk/client-appconfigdata':
         specifier: ^3.1092.0
         version: 3.1094.0
+      '@aws-sdk/client-ssm':
+        specifier: 3.1094.0
+        version: 3.1094.0
       '@nestjs/common':
         specifier: 11.1.28
         version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2)
