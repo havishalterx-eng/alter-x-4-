@@ -9,6 +9,8 @@ from .performance.router import performance_lifespan
 from .performance.router import router as performance_router
 from .planner.router import planner_lifespan
 from .planner.router import router as planner_router
+from .problem_understanding.router import problem_understanding_lifespan
+from .problem_understanding.router import router as problem_understanding_router
 from .selection_binding.router import router as selection_binding_router
 from .selection_binding.router import selection_binding_lifespan
 
@@ -21,8 +23,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         async with performance_lifespan(app):
             async with planner_lifespan(app):
-                async with selection_binding_lifespan(app):
-                    yield
+                async with problem_understanding_lifespan(app):
+                    async with selection_binding_lifespan(app):
+                        yield
     finally:
         await capability_server.stop(0)
 
@@ -30,6 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(planner_router)
+app.include_router(problem_understanding_router)
 app.include_router(selection_binding_router)
 app.include_router(performance_router)
 
