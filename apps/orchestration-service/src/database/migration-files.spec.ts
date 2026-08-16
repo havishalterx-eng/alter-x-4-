@@ -51,6 +51,7 @@ describe("orchestration migration files", () => {
       "0031_add_workflow_draft_dag.sql",
       "0032_add_run_triggering_event.sql",
       "0033_add_run_deadline.sql",
+      "0034_create_run_dispatch_queue.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -91,6 +92,7 @@ describe("orchestration migration files", () => {
       "0031_remove_workflow_draft_dag.sql",
       "0032_remove_run_triggering_event.sql",
       "0033_remove_run_deadline.sql",
+      "0034_drop_run_dispatch_queue.sql",
     ]);
   });
 
@@ -113,13 +115,13 @@ describe("orchestration migration files", () => {
     },
   );
 
-  it("defines immutability function once and reuses it twenty-eight times", () => {
+  it("defines immutability function once and reuses it twenty-nine times", () => {
     const allSql = migrationSql.map(({ sql }) => sql).join("\n");
 
     expect(allSql.match(/CREATE OR REPLACE FUNCTION reject_tenant_id_change/g))
       .toHaveLength(1);
     expect(allSql.match(/EXECUTE FUNCTION reject_tenant_id_change\(\)/g))
-      .toHaveLength(28);
+      .toHaveLength(29);
   });
 
   it("persists a bounded traffic percentage only for canary versions", () => {
@@ -201,6 +203,9 @@ describe("orchestration migration files", () => {
     );
     expect(allSql).toContain(
       'CONSTRAINT "runs_workflow_version_tenant_fk" FOREIGN KEY ("tenant_id", "workflow_version_id") REFERENCES "workflow_versions"("tenant_id", "id")',
+    );
+    expect(allSql).toContain(
+      'CONSTRAINT "run_dispatch_queue_run_tenant_fk"\n    FOREIGN KEY ("tenant_id", "run_id") REFERENCES "runs"("tenant_id", "id")',
     );
     expect(allSql).toContain(
       'CONSTRAINT "verification_results_run_tenant_fk" FOREIGN KEY ("tenant_id", "run_id") REFERENCES "runs"("tenant_id", "id") ON DELETE CASCADE',

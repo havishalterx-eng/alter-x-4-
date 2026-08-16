@@ -69,6 +69,7 @@ import { NodeExecutionLedgerService } from "./runs/node-execution-ledger.service
 import { RunStreamEventService } from "./runs/run-stream-event.service";
 import { RunStreamController } from "./runs/run-stream.controller";
 import { RunLauncherService } from "./runs/run-launcher.service";
+import { DurableRunQueue } from "./runs/durable-run-queue.service";
 import { RunsController } from "./runs/runs.controller";
 import { RunOutcomeService } from "./runs/run-outcome.service";
 import { ProjectRunProvisioningService } from "./runs/project-run-provisioning.service";
@@ -668,6 +669,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
               accessTokenProvider: internalM2mTokenProvider(),
             }),
           ),
+          new DurableRunQueue(store),
         );
       },
     },

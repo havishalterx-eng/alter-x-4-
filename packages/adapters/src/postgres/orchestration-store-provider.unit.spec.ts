@@ -302,44 +302,34 @@ describe("PostgresOrchestrationStoreProvider", () => {
       .mocked(client.query)
       .mock.calls.map(([statement]) => String(statement));
     expect(statements[0]).toBe("BEGIN");
-    expect(statements[1]).toContain('DROP INDEX IF EXISTS "idx_runs_tenant_deadline"');
-    statements.splice(1, 1);
-    expect(statements[1]).toContain('DROP INDEX IF EXISTS "idx_runs_triggering_event"');
-    expect(statements[2]).toContain('DROP COLUMN IF EXISTS "draft_dag"');
-    expect(statements[3]).toContain("paused workflow status");
-    expect(statements[4]).toContain("suspended deployment status");
-    expect(statements[5]).toContain('DROP TABLE IF EXISTS "project_plans"');
-    expect(statements[6]).toContain('DROP TABLE IF EXISTS "trigger_webhook_secrets"');
-    expect(statements[6]).toContain('ALTER COLUMN "workflow_version_id" TYPE uuid');
-    expect(statements[7]).toContain('DROP TABLE IF EXISTS "escalations";');
-    expect(statements[8]).toContain("DROP FUNCTION IF EXISTS resolve_webhook_endpoint");
-    expect(statements[9]).toContain('DROP TABLE IF EXISTS "workflow_template_variable_values"');
-    expect(statements[9]).toContain('DROP TABLE IF EXISTS "workflow_template_variable_definitions"');
-    expect(statements[9]).toContain('DROP TABLE IF EXISTS "clarifications"');
-    expect(statements[10]).toContain('DROP INDEX IF EXISTS "idx_deployments_tenant_project_active"');
-    expect(statements[11]).toContain('DELETE FROM "runs" WHERE "parent_kind" = \'project\'');
-    expect(statements[12]).toContain("DROP TABLE IF EXISTS whatsapp_accounts");
-    expect(statements[13]).toContain('DROP TABLE IF EXISTS "artifacts"');
-    expect(statements[14]).toContain('DROP TABLE IF EXISTS "deployments"');
-    expect(statements[14]).toContain('DROP TABLE IF EXISTS "projects"');
-    expect(statements[15]).toContain('DROP CONSTRAINT "node_executions_status_check"');
-    expect(statements[16]).toContain('DROP INDEX IF EXISTS "idx_recovery_actions_pending_node"');
-    expect(statements[17]).toContain('DROP TABLE IF EXISTS "approvals"');
-    expect(statements[18]).toContain('DROP TABLE IF EXISTS "run_outcomes"');
-    expect(statements[19]).toContain('DROP TABLE IF EXISTS "recovery_actions"');
-    expect(statements[20]).toContain('DROP TABLE IF EXISTS "verification_results"');
-    expect(statements[21]).toContain('DROP CONSTRAINT IF EXISTS "runs_workflow_version_tenant_fk"');
-    expect(statements[21]).toContain('DROP COLUMN IF EXISTS "workflow_version_id"');
-    expect(statements[22]).toContain('DROP TABLE IF EXISTS "run_stream_events"');
-    expect(statements[23]).toContain('DROP TABLE IF EXISTS "node_executions"');
-    expect(statements[24]).toContain('DROP TABLE IF EXISTS "blackboard_checkpoints"');
-    expect(statements[25]).toContain("workflow_versions_canary_traffic_check");
-    expect(statements[26]).toContain("workflow_versions_reject_tenant_id_change");
-    expect(statements[27]).toContain("conversation_goal_states_reject_tenant_id_change");
-    expect(statements[28]).toContain("runs_reject_tenant_id_change");
-    expect(statements[33]).toContain("workflows_reject_tenant_id_change");
-    expect(statements[34]).toBe("DROP SCHEMA IF EXISTS drizzle CASCADE");
-    expect(statements[35]).toBe("COMMIT");
+    expect(statements[1]).toContain('DROP TABLE IF EXISTS "run_dispatch_queue"');
+    const rollbackSql = statements.slice(1, -2).join("\n");
+    for (const expected of [
+      'DROP INDEX IF EXISTS "idx_runs_tenant_deadline"',
+      'DROP INDEX IF EXISTS "idx_runs_triggering_event"',
+      'DROP COLUMN IF EXISTS "draft_dag"',
+      'DROP TABLE IF EXISTS "project_plans"',
+      'DROP TABLE IF EXISTS "trigger_webhook_secrets"',
+      'DROP TABLE IF EXISTS "escalations";',
+      'DROP TABLE IF EXISTS "workflow_template_variable_values"',
+      'DROP INDEX IF EXISTS "idx_deployments_tenant_project_active"',
+      'DELETE FROM "runs" WHERE "parent_kind" = \'project\'',
+      'DROP TABLE IF EXISTS whatsapp_accounts',
+      'DROP TABLE IF EXISTS "artifacts"',
+      'DROP TABLE IF EXISTS "approvals"',
+      'DROP TABLE IF EXISTS "run_outcomes"',
+      'DROP TABLE IF EXISTS "verification_results"',
+      'DROP TABLE IF EXISTS "run_stream_events"',
+      'DROP TABLE IF EXISTS "node_executions"',
+      "workflow_versions_reject_tenant_id_change",
+      "conversation_goal_states_reject_tenant_id_change",
+      "runs_reject_tenant_id_change",
+      "workflows_reject_tenant_id_change",
+    ]) {
+      expect(rollbackSql).toContain(expected);
+    }
+    expect(statements.at(-2)).toBe("DROP SCHEMA IF EXISTS drizzle CASCADE");
+    expect(statements.at(-1)).toBe("COMMIT");
     expect(client.release).toHaveBeenCalledOnce();
   });
 

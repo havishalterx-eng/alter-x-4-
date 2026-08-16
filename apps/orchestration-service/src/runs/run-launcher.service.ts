@@ -13,6 +13,7 @@ import type {
   DurableWorkflowHandle,
 } from "@alterx/shared-clients";
 import type { RunOutcomeService } from "./run-outcome.service";
+import { DurableRunQueue } from "./durable-run-queue.service";
 import {
   ProjectRunProvisioningError,
   type ProjectRunProvisioningInput,
@@ -25,7 +26,7 @@ const DEFAULT_RUN_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const MIN_RUN_TIMEOUT_MS = 1_000;
 const MAX_RUN_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1_000;
 
-interface OrchestrationTransactionLike {
+export interface OrchestrationTransactionLike {
   query<TRow extends Record<string, unknown> = Record<string, unknown>>(
     statement: string,
     values?: readonly unknown[],
@@ -115,6 +116,8 @@ export interface CreateProjectRunInput extends ProjectRunProvisioningInput {
 export interface CreateRunOptions {
   /** Maximum durable execution time. Defaults to 24 hours. */
   readonly timeoutMs?: number;
+  /** Internal dispatch priority. Larger values dispatch first. */
+  readonly priority?: number;
 }
 
 export interface RunPage {
@@ -223,6 +226,7 @@ export class RunLauncherService {
     private readonly durable: DurableExecutionProvider,
     private readonly runOutcomes?: RunOutcomeService,
     private readonly projectProvisioning?: ProjectRunProvisioningService,
+    private readonly queue?: DurableRunQueue,
   ) {}
 
   async createRun(
@@ -268,7 +272,9 @@ export class RunLauncherService {
       return { row: inserted.rows[0]!, compiledDag: version.compiledDag };
     });
 
-    return this.startAndTransition(tenantId, created.row, created.compiledDag);
+    return this.startAndTransition(tenantId, created.row, created.compiledDag, {
+      ...(options.priority === undefined ? {} : { priority: options.priority }),
+    });
   }
 
   /**
@@ -485,6 +491,7 @@ export class RunLauncherService {
       }
     }
     await this.projectProvisioning?.closeForTerminalRun(tenantIdInput, runId);
+    await this.queue?.discard(tenantId, runId);
     return row;
   }
 
@@ -640,6 +647,56 @@ export class RunLauncherService {
    * sequence afterwards.
    */
   async startAndTransition(
+    tenantId: string,
+    row: RunRow,
+    compiledDag: CompiledDag,
+    options: { readonly alreadyRunning?: boolean; readonly priority?: number } = {},
+  ): Promise<RunRow> {
+    if (this.queue !== undefined) {
+      await this.queue.enqueue(tenantId, {
+        runId: row.id,
+        compiledDag,
+        ...(options.priority === undefined ? {} : { priority: options.priority }),
+        ...(options.alreadyRunning === true ? { alreadyRunning: true } : {}),
+      });
+      const dispatched = await this.dispatchNextQueuedRun(tenantId);
+      if (dispatched?.id === row.id) return dispatched;
+      return this.getRun(`ten_${tenantId}`, row.id);
+    }
+    return this.startClaimedAndTransition(tenantId, row, compiledDag, options);
+  }
+
+  /** Claims one durable queue entry. Entry is only removed after its durable
+   * Temporal start and run-state transition both complete. */
+  async dispatchNextQueuedRun(tenantId: string): Promise<RunRow | undefined> {
+    if (this.queue === undefined) return undefined;
+    const claimed = await this.queue.claimNext(tenantId);
+    if (claimed === undefined) return undefined;
+    const tenantIdWithPrefix = `ten_${tenantId}`;
+    try {
+      const row = await this.getRun(tenantIdWithPrefix, claimed.runId);
+      if (["completed", "failed", "cancelled"].includes(row.status)) {
+        await this.queue.acknowledge(tenantId, claimed.runId, claimed.leaseToken);
+        return row;
+      }
+      const started = await this.startClaimedAndTransition(
+        tenantId,
+        row,
+        claimed.compiledDag,
+        { alreadyRunning: claimed.alreadyRunning },
+      );
+      await this.queue.acknowledge(tenantId, claimed.runId, claimed.leaseToken);
+      return started;
+    } catch (error: unknown) {
+      // startClaimedAndTransition has made a non-retryable startup failure
+      // terminal. Ack it; a process crash before this point instead leaves
+      // the lease durable and claimable after expiry.
+      await this.queue.acknowledge(tenantId, claimed.runId, claimed.leaseToken);
+      throw error;
+    }
+  }
+
+  private async startClaimedAndTransition(
     tenantId: string,
     row: RunRow,
     compiledDag: CompiledDag,

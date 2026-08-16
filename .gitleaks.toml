@@ -5,6 +5,12 @@ useDefault = true
 
 [allowlist]
 description = "Known non-secret test fixture values"
+commits = [
+  # DurableRunQueue's first local commit used a UUID fixture under a
+  # `lease_token` property. Gitleaks scans every remote branch ref, so this
+  # exact historical false-positive must be excluded by commit identity.
+  "1b1b6a944268799b3897af7bbbffb921bcc2ce58",
+]
 regexes = [
   # WhatsApp message ids (format "wamid.XXXX") used as idempotency-key test
   # fixtures across the webhook/dispatch test suites. Public message
