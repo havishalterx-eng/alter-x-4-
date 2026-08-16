@@ -2,12 +2,30 @@ import { createMockSandboxProvider, createMockSecretsProvider, type SecretsProvi
 import { describe, expect, it, vi } from "vitest";
 import { ProvisioningService } from "./provisioning.service";
 
-const request = { tenantId: "ten_1", runId: "run_1", projectId: "prj_1", cycleId: "cycle_1", templateId: "base", environmentRefs: { API_KEY: "contract/secret" }, scaffold: [{ path: "package.json", content: "{}" }] } as const;
+const TENANT = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
+const SECRET_REFERENCE = `/alter/local/tenant/${TENANT}/integration/int_1/api-key`;
+const request = {
+  tenantId: TENANT,
+  runId: "run_1",
+  projectId: "prj_1",
+  cycleId: "cycle_1",
+  templateId: "base",
+  environmentRefs: {
+    API_KEY: SECRET_REFERENCE,
+  },
+  scaffold: [{ path: "package.json", content: "{}" }],
+} as const;
+
+function secrets() {
+  return createMockSecretsProvider({
+    secrets: { [SECRET_REFERENCE]: "contract-secret-value" },
+  });
+}
 
 describe("ProvisioningService", () => {
   it("creates once per build cycle, grounds references, and scaffolds the project", async () => {
     const sandbox = createMockSandboxProvider();
-    const service = new ProvisioningService(sandbox, createMockSecretsProvider());
+    const service = new ProvisioningService(sandbox, secrets());
     const first = await service.provision(request);
     const second = await service.provision(request);
     expect(first).toMatchObject({ sessionId: "ses_mock-1", projectDirectory: "/workspace/prj_1", reused: false });
@@ -19,7 +37,7 @@ describe("ProvisioningService", () => {
 
   it("closes and forgets a completed build cycle", async () => {
     const sandbox = createMockSandboxProvider();
-    const service = new ProvisioningService(sandbox, createMockSecretsProvider());
+    const service = new ProvisioningService(sandbox, secrets());
     await service.provision(request);
     await service.closeCycle(request.tenantId, request.runId, request.projectId, request.cycleId);
     expect(sandbox.sessions.size).toBe(0);
@@ -39,17 +57,43 @@ describe("ProvisioningService", () => {
     expect(sandbox.sessions.size).toBe(0);
   });
 
+  it("rejects environment secret references not owned by provisioning tenant", async () => {
+    const sandbox = createMockSandboxProvider();
+    const secrets = createMockSecretsProvider();
+    const service = new ProvisioningService(sandbox, secrets);
+
+    await expect(service.provision({
+      ...request,
+      environmentRefs: {
+        API_KEY: "/alter/local/tenant/ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ac/integration/int_1/api-key",
+      },
+    })).rejects.toThrow(/owned by provisioning tenant/);
+    expect(sandbox.sessions.size).toBe(0);
+  });
+
+  it("rejects non-tenant environment secret references before resolution", async () => {
+    const sandbox = createMockSandboxProvider();
+    const secrets = createMockSecretsProvider();
+    const service = new ProvisioningService(sandbox, secrets);
+
+    await expect(service.provision({
+      ...request,
+      environmentRefs: { API_KEY: "/alter/local/provisioning-service/system/e2b-api-key" },
+    })).rejects.toThrow(/owned by provisioning tenant/);
+    expect(sandbox.sessions.size).toBe(0);
+  });
+
   it("allows retry after a transient secret lookup failure", async () => {
     const sandbox = createMockSandboxProvider();
-    const baseSecrets = createMockSecretsProvider();
-    const secrets: SecretsProvider = {
+    const baseSecrets = secrets();
+    const transientSecrets: SecretsProvider = {
       ...baseSecrets,
       getSecret: vi.fn().mockRejectedValueOnce(new Error("unavailable")).mockResolvedValue("contract-secret-value"),
     };
-    const service = new ProvisioningService(sandbox, secrets);
+    const service = new ProvisioningService(sandbox, transientSecrets);
 
     await expect(service.provision(request)).rejects.toThrow("unavailable");
     await expect(service.provision(request)).resolves.toMatchObject({ sessionId: "ses_mock-1", reused: false });
-    expect(secrets.getSecret).toHaveBeenCalledTimes(2);
+    expect(transientSecrets.getSecret).toHaveBeenCalledTimes(2);
   });
 });

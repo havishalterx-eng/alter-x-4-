@@ -1,3 +1,4 @@
+import { ToolCredentialReferenceSchema } from "@alterx/contracts";
 import type { SandboxProvider, SecretsProvider } from "@alterx/shared-clients";
 
 export interface ScaffoldFile { readonly path: string; readonly content: string; }
@@ -18,6 +19,13 @@ function requireIdentifier(value: string, field: string): void {
 function projectDirectory(projectId: string): string { return `/workspace/${projectId}`; }
 function safePath(path: string): boolean {
   return !path.includes("\\") && path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}
+
+function requireTenantOwnedCredentialReference(reference: string, tenantId: string): void {
+  const parsed = ToolCredentialReferenceSchema.safeParse(reference);
+  if (!parsed.success || reference.split("/")[4] !== tenantId) {
+    throw new Error("Environment secret reference must be owned by provisioning tenant");
+  }
 }
 
 export class ProvisioningService {
@@ -50,6 +58,7 @@ export class ProvisioningService {
     try {
       const environment = Object.fromEntries(await Promise.all(Object.entries(request.environmentRefs).map(async ([name, ref]) => {
         if (!/^[A-Z][A-Z0-9_]*$/.test(name)) throw new Error("Environment variable names must be uppercase identifiers");
+        requireTenantOwnedCredentialReference(ref, request.tenantId);
         return [name, await this.secrets.getSecret(ref)] as const;
       })));
       const session = await this.sandbox.createSession({ tenantId: request.tenantId, runId: request.runId, cycleId: request.cycleId, templateId: request.templateId, environment });
