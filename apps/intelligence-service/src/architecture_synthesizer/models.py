@@ -7,7 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from src.capability_registry.models import CapabilityKind
 from src.capability_resolver.models import NodeRequirements
 from src.planner.task_skeleton import TaskSkeleton
-from src.selection_binding.models import TenantId, WorkspaceId
+
+_UUID_V7_BODY = r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+TenantId = Annotated[str, StringConstraints(pattern=rf"(?i)^ten_{_UUID_V7_BODY}$", strict=True)]
+WorkspaceId = Annotated[str, StringConstraints(pattern=rf"(?i)^ws_{_UUID_V7_BODY}$", strict=True)]
 
 NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
 ArchitectureTopology = Literal[

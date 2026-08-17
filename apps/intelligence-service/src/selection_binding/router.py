@@ -22,9 +22,11 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.capability_registry.repository import CapabilityRegistryRepository
 from src.capability_resolver.models import NodeType
 from src.db.session import get_db_session
 from src.m2m_auth import lazy_auth0_m2m_token_provider_from_settings
+from src.selection_binding.architecture_binder import ArchitectureBinder
 from src.selection_binding.embedding_client import (
     EmbeddingClient,
     EmbeddingTransportUnavailableError,
@@ -36,9 +38,11 @@ from src.selection_binding.engine import (
     SelectionBindingEngine,
 )
 from src.selection_binding.models import (
+    ArchitectureBindingOutcome,
     BindAgentModelToolRequest,
     BindingContext,
     BindingOutcome,
+    BindingRequest,
     NodeKey,
     NonEmptyString,
     RunId,
@@ -159,3 +163,14 @@ async def bind_agent_model_tool(
         raise
     await session.commit()
     return outcome
+
+
+@router.post("/bind-architecture", response_model=ArchitectureBindingOutcome)
+async def bind_architecture(
+    request: BindingRequest, session: SessionDep
+) -> ArchitectureBindingOutcome:
+    try:
+        return await ArchitectureBinder(CapabilityRegistryRepository(session)).bind(request)
+    except Exception:
+        await session.rollback()
+        raise

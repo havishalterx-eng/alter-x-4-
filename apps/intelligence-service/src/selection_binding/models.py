@@ -2,8 +2,10 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from src.architecture_synthesizer.models import ArchitectureSpec
+from src.capability_registry.models import CapabilityKind
 from src.capability_resolver.models import AgentId, ModelAlias, NodeType
 
 _UUID_V7_BODY = (
@@ -78,3 +80,48 @@ class BindingContext(_StrictFrozenModel):
     workspace_id: WorkspaceId
     node_type: NodeType
     task_category: NonEmptyString | None = None
+
+
+class BindingPolicy(_StrictFrozenModel):
+    allowed_kinds: list[CapabilityKind] | None = None
+    maximum_cost_amount: float | None = Field(default=None, ge=0)
+    reliability_weight: float = Field(default=0.4, ge=0, le=1)
+    latency_weight: float = Field(default=0.3, ge=0, le=1)
+    cost_weight: float = Field(default=0.3, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def has_scoring_weight(self) -> "BindingPolicy":
+        if self.reliability_weight + self.latency_weight + self.cost_weight <= 0:
+            raise ValueError("at least one binding score weight must be positive")
+        return self
+
+
+class BindingRequest(_StrictFrozenModel):
+    tenant_id: TenantId
+    workspace_id: WorkspaceId
+    architecture: ArchitectureSpec
+    policy: BindingPolicy = Field(default_factory=BindingPolicy)
+
+
+class BoundCapability(_StrictFrozenModel):
+    record_id: NonEmptyString
+    version: int = Field(gt=0)
+    kind: CapabilityKind
+    source_node_key: NodeKey
+    rationale: NonEmptyString
+    score: float = Field(ge=0, le=1)
+    factors: dict[NonEmptyString, float] = Field(min_length=1)
+
+
+class BindingDecision(_StrictFrozenModel):
+    status: Literal["ready"] = "ready"
+    bindings: list[BoundCapability]
+
+
+class BindingBlocked(_StrictFrozenModel):
+    status: Literal["blocked"] = "blocked"
+    source_node_key: NodeKey
+    reason: NonEmptyString
+
+
+ArchitectureBindingOutcome = BindingDecision | BindingBlocked
