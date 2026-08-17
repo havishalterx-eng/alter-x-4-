@@ -4,7 +4,20 @@ package alter.compiler.v1;
 
 service CompilerService {
   rpc CompileWorkflow(CompileWorkflowRequest) returns (CompileWorkflowResponse);
+  rpc CompileArchitectureWorkflow(CompileArchitectureWorkflowRequest) returns (CompileWorkflowResponse);
   rpc ValidateWorkflowDag(ValidateWorkflowDagRequest) returns (ValidateWorkflowDagResponse);
+}
+
+// JSON is wire encoding only. Compiler validates it into its strict typed
+// ArchitectureCompileInput before any lowering or persistence.
+message CompileArchitectureWorkflowRequest {
+  reserved 100 to 199;
+  string tenant_id = 1;
+  string workspace_id = 2;
+  string workflow_id = 3;
+  string architecture_json = 4;
+  string binding_decision_json = 5;
+  string dag_schema_version = 6;
 }
 
 message CompileWorkflowRequest {

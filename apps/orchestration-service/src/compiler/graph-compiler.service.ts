@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type {
   CompilerCompileWorkflowRequest,
+  CompilerCompileArchitectureWorkflowRequest,
   CompilerCompileWorkflowResponse,
   CompilerValidateWorkflowDagRequest,
   CompilerValidateWorkflowDagResponse,
@@ -14,6 +15,7 @@ import {
   compileTaskSkeletonToDag,
   parseTaskSkeleton,
 } from "./dag-builder";
+import { compileArchitectureToDag, type ArchitectureCompileInput } from "./architecture-dag-builder";
 
 export { CompilerValidationError } from "./dag-builder";
 
@@ -149,6 +151,48 @@ export class GraphCompilerService {
       node_requirements_json: JSON.stringify(nodeRequirements),
       policy_bindings_json: JSON.stringify(policyBindings),
     };
+  }
+
+  /** Strict ENGINE-12 path. It consumes approved architecture and pinned bindings only. */
+  async compileArchitectureWorkflow(request: CompilerCompileArchitectureWorkflowRequest): Promise<CompilerCompileWorkflowResponse> {
+    let architecture: unknown;
+    let binding_decision: unknown;
+    try {
+      architecture = JSON.parse(request.architecture_json);
+      binding_decision = JSON.parse(request.binding_decision_json);
+    } catch {
+      throw new CompilerValidationError("architecture_json and binding_decision_json must be valid JSON");
+    }
+    return this.#compileArchitectureInput({
+      tenant_id: request.tenant_id,
+      workspace_id: request.workspace_id,
+      workflow_id: request.workflow_id,
+      dag_schema_version: request.dag_schema_version,
+      architecture,
+      binding_decision,
+    } as ArchitectureCompileInput);
+  }
+
+  async #compileArchitectureInput(input: ArchitectureCompileInput): Promise<CompilerCompileWorkflowResponse> {
+    requireValidWorkflowId(input.workflow_id);
+    const bareTenant = bareTenantUuid(input.tenant_id);
+    const compiledDag = compileArchitectureToDag(input);
+    const workflowVersionId = prefixedUuidV7("wfv");
+    await this.store.withTenant(bareTenant, async (tx) => {
+      const workflow = await tx.query(
+        "SELECT 1 FROM workflows WHERE tenant_id = $1 AND id = $2 AND workspace_id = $3",
+        [bareTenant, input.workflow_id, input.workspace_id.slice("ws_".length)],
+      );
+      if (workflow.rowCount !== 1) {
+        throw new CompilerValidationError("workflow is not visible in the supplied tenant/workspace");
+      }
+      const version = await tx.query<{ next_version: number }>("SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM workflow_versions WHERE tenant_id = $1 AND workflow_id = $2", [bareTenant, input.workflow_id]);
+      await tx.query(
+        "INSERT INTO workflow_versions (id, tenant_id, workflow_id, version, compiled_dag, dag_schema_version, node_requirements, policy_bindings, compile_metadata, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'compiled')",
+        [workflowVersionId, bareTenant, input.workflow_id, version.rows[0]?.next_version ?? 1, JSON.stringify(compiledDag), input.dag_schema_version, "{}", "{}", JSON.stringify({ compiler_version: COMPILER_VERSION, source_skeleton_hash: "architecture-bound", compiled_at: new Date().toISOString() })],
+      );
+    });
+    return { workflow_version_id: workflowVersionId, compiled_dag_json: JSON.stringify(compiledDag), node_requirements_json: "{}", policy_bindings_json: "{}" };
   }
 
   async #resolveNodeRequirements(

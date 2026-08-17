@@ -3,6 +3,7 @@ import { loadSync } from "@grpc/proto-loader";
 
 import type {
   CompilerCompileWorkflowRequest,
+  CompilerCompileArchitectureWorkflowRequest,
   CompilerCompileWorkflowResponse,
   CompilerValidateWorkflowDagRequest,
   CompilerValidateWorkflowDagResponse,
@@ -18,6 +19,7 @@ export interface CompilerServiceHandlerClient {
   compileWorkflow(
     request: CompilerCompileWorkflowRequest,
   ): Promise<CompilerCompileWorkflowResponse>;
+  compileArchitectureWorkflow(request: CompilerCompileArchitectureWorkflowRequest): Promise<CompilerCompileWorkflowResponse>;
   validateWorkflowDag(
     request: CompilerValidateWorkflowDagRequest,
   ): Promise<CompilerValidateWorkflowDagResponse>;
@@ -43,6 +45,7 @@ interface CompilerGrpcClient extends Client {
     options: { readonly deadline: Date },
     callback: (error: Error | null, response?: CompilerCompileWorkflowResponse) => void,
   ): void;
+  compileArchitectureWorkflow(request: CompilerCompileArchitectureWorkflowRequest, options: { readonly deadline: Date }, callback: (error: Error | null, response?: CompilerCompileWorkflowResponse) => void): void;
   validateWorkflowDag(
     request: CompilerValidateWorkflowDagRequest,
     options: { readonly deadline: Date },
@@ -90,6 +93,10 @@ export class CompilerServiceClient implements CompilerServiceHandlerClient {
     return this.#request((deadline, callback) =>
       this.#client.compileWorkflow(request, { deadline }, callback),
     );
+  }
+
+  compileArchitectureWorkflow(request: CompilerCompileArchitectureWorkflowRequest): Promise<CompilerCompileWorkflowResponse> {
+    return this.#request((deadline, callback) => this.#client.compileArchitectureWorkflow(request, { deadline }, callback));
   }
 
   validateWorkflowDag(

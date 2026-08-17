@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 
 import type {
   CompilerCompileWorkflowRequest,
+  CompilerCompileArchitectureWorkflowRequest,
   CompilerCompileWorkflowResponse,
 } from "@alterx/contracts";
 
@@ -18,6 +19,7 @@ export interface CompilerServiceHandlerClient {
   compileWorkflow(
     request: CompilerCompileWorkflowRequest,
   ): Promise<CompilerCompileWorkflowResponse>;
+  compileArchitectureWorkflow(request: CompilerCompileArchitectureWorkflowRequest): Promise<CompilerCompileWorkflowResponse>;
 }
 
 type CompilerServiceErrorCode =
@@ -40,6 +42,7 @@ interface CompilerGrpcClient extends Client {
     options: { readonly deadline: Date },
     callback: (error: Error | null, response?: CompilerCompileWorkflowResponse) => void,
   ): void;
+  compileArchitectureWorkflow(request: CompilerCompileArchitectureWorkflowRequest, options: { readonly deadline: Date }, callback: (error: Error | null, response?: CompilerCompileWorkflowResponse) => void): void;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -82,6 +85,10 @@ export class CompilerServiceClient implements CompilerServiceHandlerClient {
     return this.#request((deadline, callback) =>
       this.#client.compileWorkflow(request, { deadline }, callback),
     );
+  }
+
+  compileArchitectureWorkflow(request: CompilerCompileArchitectureWorkflowRequest): Promise<CompilerCompileWorkflowResponse> {
+    return this.#request((deadline, callback) => this.#client.compileArchitectureWorkflow(request, { deadline }, callback));
   }
 
   #request<TResponse>(

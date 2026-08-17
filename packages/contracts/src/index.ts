@@ -171,6 +171,7 @@ export type {
 } from "./generated/alter/conversation/v1/conversation";
 export type {
   CompileWorkflowRequest as CompilerCompileWorkflowRequest,
+  CompileArchitectureWorkflowRequest as CompilerCompileArchitectureWorkflowRequest,
   CompileWorkflowResponse as CompilerCompileWorkflowResponse,
   ValidateWorkflowDagRequest as CompilerValidateWorkflowDagRequest,
   ValidateWorkflowDagResponse as CompilerValidateWorkflowDagResponse,

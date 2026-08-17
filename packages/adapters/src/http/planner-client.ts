@@ -96,11 +96,18 @@ export interface ReplanResponse {
   readonly reason: string;
 }
 
+export interface PreparedCompilerInput {
+  readonly status: "ready" | "blocked";
+  readonly architecture?: unknown;
+  readonly binding_decision?: unknown;
+}
+
 export interface PlannerHandler {
   understand(request: ProblemUnderstandingRequest): Promise<ProblemSpec>;
   decompose(request: DecomposeRequest): Promise<DecomposeResponse>;
   selectStrategy(request: SelectStrategyRequest): Promise<SelectStrategyResponse>;
   replan(request: ReplanRequest): Promise<ReplanResponse>;
+  prepareCompilerInput?(request: { readonly tenant_id: string; readonly workspace_id: string; readonly task_skeleton: unknown }): Promise<PreparedCompilerInput>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -214,5 +221,12 @@ export class PlannerClient implements PlannerHandler {
       request,
     );
     return parseReplanResponse(raw);
+  }
+
+  async prepareCompilerInput(request: { readonly tenant_id: string; readonly workspace_id: string; readonly task_skeleton: unknown }): Promise<PreparedCompilerInput> {
+    const raw = await this.httpClient.postJson(`${this.config.baseUrl}/internal/architecture-synthesis/prepare-compiler-input`, request);
+    if (!isRecord(raw) || (raw.status !== "ready" && raw.status !== "blocked")) throw new PlannerResponseValidationError("prepare_compiler_input", "invalid response");
+    if (raw.status === "ready" && (raw.architecture === undefined || raw.binding_decision === undefined)) throw new PlannerResponseValidationError("prepare_compiler_input", "missing architecture binding");
+    return raw as unknown as PreparedCompilerInput;
   }
 }

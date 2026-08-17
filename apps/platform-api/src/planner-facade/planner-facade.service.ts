@@ -94,10 +94,16 @@ export class PlannerFacadeService {
       };
     }
 
-    const compileResponse = await this.compilerClient.compileWorkflow({
-      tenant_id: prefixed("ten", input.tenantId),
-      workflow_id: input.workflowId,
-      task_skeleton_json: decomposeResponse.task_skeleton_json,
+    const prepared = await this.plannerClient.prepareCompilerInput({
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
+      task_skeleton: JSON.parse(decomposeResponse.task_skeleton_json),
+    });
+    if (prepared.status !== "ready") throw new Error("Architecture pipeline blocked compilation");
+    const compileResponse = await this.compilerClient.compileArchitectureWorkflow({
+      tenant_id: tenantId, workspace_id: workspaceId, workflow_id: input.workflowId,
+      architecture_json: JSON.stringify(prepared.architecture),
+      binding_decision_json: JSON.stringify(prepared.binding_decision),
       dag_schema_version: "v1",
     });
 

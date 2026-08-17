@@ -25,6 +25,15 @@ export interface CompileWorkflowResponse {
   policy_bindings_json: string;
 }
 
+export interface CompileArchitectureWorkflowRequest {
+  tenant_id: string;
+  workspace_id: string;
+  workflow_id: string;
+  architecture_json: string;
+  binding_decision_json: string;
+  dag_schema_version: string;
+}
+
 export interface ValidateWorkflowDagRequest {
   /** ten_ prefixed UUIDv7 */
   tenant_id: string;

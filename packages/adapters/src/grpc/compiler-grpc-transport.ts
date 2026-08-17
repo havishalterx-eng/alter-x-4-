@@ -9,6 +9,7 @@ import {
 
 import type {
   CompilerCompileWorkflowRequest,
+  CompilerCompileArchitectureWorkflowRequest,
   CompilerCompileWorkflowResponse,
   CompilerValidateWorkflowDagRequest,
   CompilerValidateWorkflowDagResponse,
@@ -20,6 +21,7 @@ export interface CompilerHandler {
   compileWorkflow(
     request: CompilerCompileWorkflowRequest,
   ): Promise<CompilerCompileWorkflowResponse>;
+  compileArchitectureWorkflow(request: CompilerCompileArchitectureWorkflowRequest): Promise<CompilerCompileWorkflowResponse>;
   validateWorkflowDag(
     request: CompilerValidateWorkflowDagRequest,
   ): Promise<CompilerValidateWorkflowDagResponse>;
@@ -46,6 +48,12 @@ export class CompilerGrpcController {
     } catch (error: unknown) {
       throw mapCompilerError(error, "Workflow could not be compiled");
     }
+  }
+
+  @GrpcMethod("CompilerService", "CompileArchitectureWorkflow")
+  async compileArchitectureWorkflow(request: CompilerCompileArchitectureWorkflowRequest): Promise<CompilerCompileWorkflowResponse> {
+    try { return await this.handler.compileArchitectureWorkflow(request); }
+    catch (error: unknown) { throw mapCompilerError(error, "Architecture could not be compiled"); }
   }
 
   @GrpcMethod("CompilerService", "ValidateWorkflowDag")
