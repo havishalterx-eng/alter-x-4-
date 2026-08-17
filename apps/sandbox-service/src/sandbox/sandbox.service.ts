@@ -131,6 +131,15 @@ export class SandboxService {
     return this.sandbox.readFile(sessionId, path);
   }
 
+  /** Idempotent: closing an already-closed or unknown session is not an
+   * error -- the post-condition (this sessionId is closed) holds either
+   * way, matching SandboxProvider.closeSession's own void/no-signal
+   * semantics (it silently no-ops on an unknown session today). */
+  async closeSession(sessionId: string): Promise<void> {
+    this.#requireSession(sessionId);
+    await this.sandbox.closeSession(sessionId);
+  }
+
   async execute(
     sessionId: string,
     command: string,

@@ -8,6 +8,8 @@ import {
 } from "@nestjs/microservices";
 
 import type {
+  SandboxCloseSessionRequest,
+  SandboxCloseSessionResponse,
   SandboxExecuteRequest,
   SandboxExecuteResponse,
   SandboxReadFileRequest,
@@ -34,6 +36,9 @@ export interface SandboxGrpcHandler {
   runVerificationSuite(
     request: SandboxRunVerificationSuiteRequest,
   ): Promise<SandboxRunVerificationSuiteResponse>;
+  closeSession(
+    request: SandboxCloseSessionRequest,
+  ): Promise<SandboxCloseSessionResponse>;
 }
 
 export interface SandboxGrpcTransportConfig {
@@ -82,6 +87,13 @@ export class SandboxGrpcController {
     request: SandboxRunVerificationSuiteRequest,
   ): Promise<SandboxRunVerificationSuiteResponse> {
     try { return await this.handler.runVerificationSuite(request); } catch (error: unknown) { throw mapSandboxError(error); }
+  }
+
+  @GrpcMethod("SandboxService", "CloseSession")
+  async closeSession(
+    request: SandboxCloseSessionRequest,
+  ): Promise<SandboxCloseSessionResponse> {
+    try { return await this.handler.closeSession(request); } catch (error: unknown) { throw mapSandboxError(error); }
   }
 }
 

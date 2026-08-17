@@ -1,4 +1,6 @@
 import type {
+  SandboxCloseSessionRequest,
+  SandboxCloseSessionResponse,
   SandboxExecuteRequest,
   SandboxExecuteResponse,
   SandboxReadFileRequest,
@@ -17,7 +19,7 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 /** Maps public gRPC request to service's intentionally single-command API. */
 export class SandboxServiceGrpcHandler {
   constructor(
-    private readonly sandboxService: Pick<SandboxService, "execute" | "readFile" | "writeFiles" | "verifyBuild">,
+    private readonly sandboxService: Pick<SandboxService, "execute" | "readFile" | "writeFiles" | "verifyBuild" | "closeSession">,
     private readonly artifacts: ArtifactContentClientHandler,
   ) {}
 
@@ -104,6 +106,16 @@ export class SandboxServiceGrpcHandler {
       content: new TextEncoder().encode(JSON.stringify(report)),
     });
     return { passed, report_artifact_id: artifact.artifact_id };
+  }
+
+  async closeSession(
+    request: SandboxCloseSessionRequest,
+  ): Promise<SandboxCloseSessionResponse> {
+    requireValue(request.tenant_id, "tenant_id");
+    requireValue(request.run_id, "run_id");
+    requireValue(request.session_id, "session_id");
+    await this.sandboxService.closeSession(request.session_id);
+    return { closed: true };
   }
 }
 

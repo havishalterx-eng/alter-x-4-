@@ -175,6 +175,27 @@ describe("SandboxService existing EXEC-10 tools", () => {
       "prohibited",
     );
   });
+
+  it("closes a real session so it can no longer be executed against", async () => {
+    const target = await basicService();
+    await expect(target.execute(SESSION, "pnpm install")).resolves.toMatchObject({ exitCode: 0 });
+
+    await target.closeSession(SESSION);
+
+    await expect(target.execute(SESSION, "pnpm install")).rejects.toThrow(
+      "Sandbox session was not found",
+    );
+  });
+
+  it("closing an unknown session id does not throw (idempotent)", async () => {
+    const target = await basicService();
+    await expect(target.closeSession("ses_never-created")).resolves.toBeUndefined();
+  });
+
+  it("rejects an empty session id", async () => {
+    const target = await basicService();
+    await expect(target.closeSession("")).rejects.toThrow("sessionId is required");
+  });
 });
 
 describe("SandboxService EXEC-13 tools", () => {

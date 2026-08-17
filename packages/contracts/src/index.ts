@@ -205,6 +205,8 @@ export type {
   WriteValueResponse as BlackboardWriteValueResponse,
 } from "./generated/alter/blackboard/v1/blackboard";
 export type {
+  CloseSessionRequest as SandboxCloseSessionRequest,
+  CloseSessionResponse as SandboxCloseSessionResponse,
   ExecuteRequest as SandboxExecuteRequest,
   ExecuteResponse as SandboxExecuteResponse,
   ReadFileRequest as SandboxReadFileRequest,
