@@ -32,6 +32,8 @@ import {
   PromoteVersionResultSchema,
   RollbackVersionResultSchema,
   StartCanaryResultSchema,
+  TestVersionRequestSchema,
+  TestVersionResultSchema,
 } from "./deployment";
 import {
   RegisterTriggerResultSchema,
@@ -127,11 +129,14 @@ export const V1_ROUTE_SPECS: readonly V1RouteSpec[] = [
     tag: "Workflows",
     responseSchema: RollbackVersionResultSchema,
   },
-  // Real backend exists and is tested (DeploymentControllerService,
-  // PLAN-11 -- promoteVersion/startCanary), but no REST controller wires
-  // these into any transport yet. These two routes document the intended
-  // public contract for that stranded capability; a real controller still
-  // needs to be built as separate Engine work (out of scope here).
+  {
+    method: "post",
+    path: "/workflows/{id}/actions/test-version",
+    summary: "Test workflow version",
+    tag: "Workflows",
+    requestBodySchema: TestVersionRequestSchema,
+    responseSchema: TestVersionResultSchema,
+  },
   {
     method: "post",
     path: "/workflows/{id}/actions/promote-version",
@@ -573,6 +578,10 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
       RollbackVersionResultSchema,
       registry.register("RollbackVersionResult", RollbackVersionResultSchema),
     ],
+    [
+      TestVersionResultSchema,
+      registry.register("TestVersionResult", TestVersionResultSchema),
+    ],
     [SignedReferenceSchema, registry.register("SignedReference", SignedReferenceSchema)],
     [
       VoiceNumberBindingSchema,
@@ -616,6 +625,10 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
     ],
   ]);
   const requestBodySchemaByRaw = new Map<z.ZodTypeAny, z.ZodTypeAny>([
+    [
+      TestVersionRequestSchema,
+      registry.register("TestVersionRequest", TestVersionRequestSchema),
+    ],
     [
       CreateVoiceNumberBindingRequestSchema,
       registry.register(

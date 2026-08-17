@@ -52,6 +52,7 @@ describe("orchestration migration files", () => {
       "0032_add_run_triggering_event.sql",
       "0033_add_run_deadline.sql",
       "0034_create_run_dispatch_queue.sql",
+      "0035_add_workflow_version_test_gate.sql",
     ]);
     expect(
       readdirSync(resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback"))
@@ -93,6 +94,7 @@ describe("orchestration migration files", () => {
       "0032_remove_run_triggering_event.sql",
       "0033_remove_run_deadline.sql",
       "0034_drop_run_dispatch_queue.sql",
+      "0035_remove_workflow_version_test_gate.sql",
     ]);
   });
 
@@ -141,6 +143,16 @@ describe("orchestration migration files", () => {
     );
   });
 
+  it("maps tested versions before removing their evidence constraint", () => {
+    const rollback = readFileSync(
+      resolve(ORCHESTRATION_MIGRATIONS_PATH, "rollback", "0035_remove_workflow_version_test_gate.sql"),
+      "utf8",
+    );
+    expect(rollback.indexOf("UPDATE workflow_versions SET status = 'compiled' WHERE status = 'tested'"))
+      .toBeLessThan(rollback.indexOf("DROP CONSTRAINT workflow_versions_status_check"));
+    expect(rollback).toContain("DROP CONSTRAINT workflow_versions_tested_evidence_check");
+  });
+
   it("contains no cross-database references", () => {
     const allSql = migrationSql.map(({ sql }) => sql).join("\n");
 
@@ -186,8 +198,14 @@ describe("orchestration migration files", () => {
     expect(allSql).toContain(
       'CONSTRAINT "workflow_versions_tenant_workflow_version_unique" UNIQUE ("tenant_id", "workflow_id", "version")',
     );
-    expect(allSql).toContain(
-      `CONSTRAINT "workflow_versions_status_check" CHECK ("status" IN ('compiled', 'canary', 'promoted', 'rolled_back', 'retired'))`,
+    const testGateMigration = migrationSql.find(
+      ({ file }) => file === "0035_add_workflow_version_test_gate.sql",
+    )?.sql;
+    expect(testGateMigration).toContain(
+      `CONSTRAINT workflow_versions_status_check CHECK ("status" IN ('compiled', 'tested', 'canary', 'promoted', 'rolled_back', 'retired'))`,
+    );
+    expect(testGateMigration).toContain(
+      `CONSTRAINT workflow_versions_tested_evidence_check CHECK ("status" <> 'tested' OR (evaluation_run_id IS NOT NULL AND tested_at IS NOT NULL))`,
     );
     expect(allSql).toContain(
       'CONSTRAINT "blackboard_checkpoints_run_tenant_fk" FOREIGN KEY ("tenant_id", "run_id") REFERENCES "runs"("tenant_id", "id") ON DELETE CASCADE',

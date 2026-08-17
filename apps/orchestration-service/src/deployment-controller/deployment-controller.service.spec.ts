@@ -29,7 +29,7 @@ const VERSION_1 = "wfv_018f4d6e-2b4a-7a3e-8c1a-1234567890a1";
 const VERSION_2 = "wfv_018f4d6e-2b4a-7a3e-8c1a-1234567890a2";
 const PROMOTED_AT = new Date("2026-07-26T10:00:00.000Z");
 
-type Status = "compiled" | "canary" | "promoted" | "rolled_back" | "retired";
+type Status = "compiled" | "tested" | "canary" | "promoted" | "rolled_back" | "retired";
 
 interface FakeVersion {
   readonly id: string;
@@ -108,12 +108,22 @@ function createFakeStore(
           }
 
           if (sql.includes("SET status = 'canary'")) {
-            if (version?.status !== "compiled") {
+            if (version?.status !== "tested") {
               return { rowCount: 0, rows: [] as readonly TRow[] };
             }
             version.status = "canary";
             version.trafficPercent = values[3] as number;
             return { rowCount: 1, rows: [] as readonly TRow[] };
+          }
+
+          if (sql.includes("SET status = 'tested'")) {
+            if (version?.status !== "compiled") return { rowCount: 0, rows: [] as readonly TRow[] };
+            version.status = "tested";
+            return { rowCount: 1, rows: [] as readonly TRow[] };
+          }
+
+          if (sql.includes("evaluation_failed_at")) {
+            return { rowCount: version === undefined ? 0 : 1, rows: [] as readonly TRow[] };
           }
 
           if (sql.includes("SET status = 'rolled_back'")) {
@@ -159,10 +169,33 @@ function version(
 }
 
 describe("DeploymentControllerService", () => {
-  it("promotes a compiled version and routinely retires the old live version", async () => {
+  it("persists a passing evaluation before canary eligibility", async () => {
+    const { store, versions } = createFakeStore([version(VERSION_2, "compiled")]);
+    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    await expect(service.testVersion({ tenant_id: TENANT_ID, workflow_id: WORKFLOW_ID, workflow_version_id: VERSION_2 })).resolves.toEqual({ status: "tested" });
+    expect(versions[0]?.status).toBe("tested");
+  });
+
+  it("records a failed evaluation without consuming the compiled version, then permits a retry", async () => {
+    const { store, versions } = createFakeStore([version(VERSION_2, "compiled")]);
+    let attempts = 0;
+    const evalFacade = {
+      ...PASSING_EVAL_FACADE,
+      checkReleaseGate: async () => ({
+        passed: ++attempts > 1,
+        failed_thresholds: ["workflow E2E"],
+      }),
+    } as unknown as EvalFacadeService;
+    const service = new DeploymentControllerService(store, evalFacade);
+
+    await expect(service.testVersion({ tenant_id: TENANT_ID, workflow_id: WORKFLOW_ID, workflow_version_id: VERSION_2 })).rejects.toThrow();
+    expect(versions[0]?.status).toBe("compiled");
+    await expect(service.testVersion({ tenant_id: TENANT_ID, workflow_id: WORKFLOW_ID, workflow_version_id: VERSION_2 })).resolves.toEqual({ status: "tested" });
+  });
+  it("promotes only a canary version and routinely retires the old live version", async () => {
     const { store, versions, tenantCalls } = createFakeStore([
       version(VERSION_1, "promoted"),
-      version(VERSION_2, "compiled"),
+      version(VERSION_2, "canary", 10),
     ]);
     const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
 
@@ -186,7 +219,7 @@ describe("DeploymentControllerService", () => {
   it("persists canary traffic without changing the stable promoted version", async () => {
     const { store, versions } = createFakeStore([
       version(VERSION_1, "promoted"),
-      version(VERSION_2, "compiled"),
+      version(VERSION_2, "tested"),
     ]);
     const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
 
@@ -227,7 +260,7 @@ describe("DeploymentControllerService", () => {
   it("rejects a second simultaneous canary allocation", async () => {
     const { store, versions } = createFakeStore([
       version(VERSION_1, "canary", 15),
-      version(VERSION_2, "compiled"),
+      version(VERSION_2, "tested"),
     ]);
     const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
 
@@ -241,7 +274,7 @@ describe("DeploymentControllerService", () => {
     ).rejects.toThrow(DeploymentStateTransitionError);
     expect(versions).toEqual([
       version(VERSION_1, "canary", 15),
-      version(VERSION_2, "compiled"),
+      version(VERSION_2, "tested"),
     ]);
   });
 
@@ -353,7 +386,7 @@ describe("DeploymentControllerService", () => {
 
   it("retries optimistic write conflicts and succeeds within the bound", async () => {
     const { store, tenantCalls } = createFakeStore(
-      [version(VERSION_2, "compiled")],
+      [version(VERSION_2, "canary", 10)],
       { claimFailures: 2 },
     );
     const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
@@ -370,7 +403,7 @@ describe("DeploymentControllerService", () => {
 
   it("throws a bounded concurrency error after three failed claims", async () => {
     const { store, tenantCalls } = createFakeStore(
-      [version(VERSION_2, "compiled")],
+      [version(VERSION_2, "canary", 10)],
       { claimFailures: 3 },
     );
     const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);

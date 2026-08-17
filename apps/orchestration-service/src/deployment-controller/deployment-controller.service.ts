@@ -29,12 +29,14 @@ const MAX_WRITE_ATTEMPTS = 3;
 
 type WorkflowVersionStatus =
   | "compiled"
+  | "tested"
   | "canary"
   | "promoted"
   | "rolled_back"
   | "retired";
 
 type TransitionPurpose =
+  | "test_version"
   | "start_canary"
   | "promote_target"
   | "retire_current"
@@ -50,8 +52,9 @@ const VALID_TRANSITIONS: Readonly<
   // Operation-scoped transitions keep routine promotion separate from
   // rollback restoration: retired versions can return to promoted only as
   // an explicit rollback target, never through promoteVersion.
-  start_canary: { compiled: ["canary"] },
-  promote_target: { compiled: ["promoted"], canary: ["promoted"] },
+  test_version: { compiled: ["tested"] },
+  start_canary: { tested: ["canary"] },
+  promote_target: { canary: ["promoted"] },
   retire_current: { promoted: ["retired"] },
   rollback_current: { promoted: ["rolled_back"] },
   restore_target: { retired: ["promoted"] },
@@ -248,6 +251,7 @@ function newDeploymentId(): string {
 function workflowVersionStatus(value: string): WorkflowVersionStatus {
   if (
     value === "compiled" ||
+    value === "tested" ||
     value === "canary" ||
     value === "promoted" ||
     value === "rolled_back" ||
@@ -478,6 +482,38 @@ export class DeploymentControllerService {
     }
   }
 
+  async testVersion(request: { readonly tenant_id: string; readonly workflow_id: string; readonly workflow_version_id: string }): Promise<{ readonly status: "tested" }> {
+    requireWorkflowId(request.workflow_id);
+    requireWorkflowVersionId("workflow_version_id", request.workflow_version_id);
+    const tenantId = bareTenantUuid(request.tenant_id);
+
+    // Validate tenant ownership before invoking the external evaluator.  The
+    // evaluation itself remains outside a database transaction.
+    await this.store.withTenant(tenantId, async (tx) => {
+      await readVersionSnapshot(tx, tenantId, request.workflow_id, request.workflow_version_id);
+    });
+
+    const evaluation = await this.evalFacade.runEvaluation({ golden_set_name: "workflow E2E" });
+    const gate = await this.evalFacade.checkReleaseGate({ release_gate_key: `workflow:${request.workflow_id}:${request.workflow_version_id}`, evaluation_run_id: evaluation.evaluation_run_id });
+    if (!gate.passed) {
+      await this.withOptimisticRetry(tenantId, request.workflow_id, async (tx, revision) => {
+        await claimResourceRevision(tx, tenantId, "workflows", request.workflow_id, revision);
+        const failed = await tx.query("UPDATE workflow_versions SET evaluation_run_id = $4, evaluation_failed_at = clock_timestamp() WHERE tenant_id = $1 AND workflow_id = $2 AND id = $3 AND status = 'compiled'", [tenantId, request.workflow_id, request.workflow_version_id, evaluation.evaluation_run_id]);
+        requireSingleWrite(failed.rowCount);
+        return undefined;
+      });
+      throw new ReleaseGateFailedError(gate.failed_thresholds);
+    }
+    return this.withOptimisticRetry(tenantId, request.workflow_id, async (tx, revision) => {
+      const snapshot = await readVersionSnapshot(tx, tenantId, request.workflow_id, request.workflow_version_id);
+      assertValidStatusTransition("test_version", snapshot.target.status, "tested");
+      await claimResourceRevision(tx, tenantId, "workflows", request.workflow_id, revision);
+      const tested = await tx.query("UPDATE workflow_versions SET status = 'tested', evaluation_run_id = $4, tested_at = clock_timestamp(), evaluation_failed_at = NULL WHERE tenant_id = $1 AND workflow_id = $2 AND id = $3 AND status = 'compiled'", [tenantId, request.workflow_id, request.workflow_version_id, evaluation.evaluation_run_id]);
+      requireSingleWrite(tested.rowCount);
+      return { status: "tested" as const };
+    });
+  }
+
   async promoteVersion(
     request: DeployctlPromoteVersionRequest,
   ): Promise<DeployctlPromoteVersionResponse> {
@@ -487,15 +523,6 @@ export class DeploymentControllerService {
       request.workflow_version_id,
     );
     const tenantId = bareTenantUuid(request.tenant_id);
-
-    const evaluation = await this.evalFacade.runEvaluation({ golden_set_name: "workflow E2E" });
-    const gate = await this.evalFacade.checkReleaseGate({
-      release_gate_key: `workflow:${request.workflow_id}:${request.workflow_version_id}`,
-      evaluation_run_id: evaluation.evaluation_run_id,
-    });
-    if (!gate.passed) {
-      throw new ReleaseGateFailedError(gate.failed_thresholds);
-    }
 
     return this.withOptimisticRetry(tenantId, request.workflow_id, async (tx, revision) => {
       const snapshot = await readVersionSnapshot(
@@ -561,15 +588,6 @@ export class DeploymentControllerService {
     requireTrafficPercent(request.traffic_percent);
     const tenantId = bareTenantUuid(request.tenant_id);
 
-    const evaluation = await this.evalFacade.runEvaluation({ golden_set_name: "workflow E2E" });
-    const gate = await this.evalFacade.checkReleaseGate({
-      release_gate_key: `workflow:${request.workflow_id}:${request.workflow_version_id}`,
-      evaluation_run_id: evaluation.evaluation_run_id,
-    });
-    if (!gate.passed) {
-      throw new ReleaseGateFailedError(gate.failed_thresholds);
-    }
-
     return this.withOptimisticRetry(tenantId, request.workflow_id, async (tx, revision) => {
       const snapshot = await readVersionSnapshot(
         tx,
@@ -597,7 +615,7 @@ export class DeploymentControllerService {
       const canary = await tx.query(
         `UPDATE workflow_versions
          SET status = 'canary', traffic_percent = $4
-         WHERE tenant_id = $1 AND workflow_id = $2 AND id = $3 AND status = 'compiled'`,
+         WHERE tenant_id = $1 AND workflow_id = $2 AND id = $3 AND status = 'tested'`,
         [
           tenantId,
           request.workflow_id,

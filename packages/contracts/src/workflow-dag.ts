@@ -337,6 +337,7 @@ export const WorkflowDagDraftSchema = z
 
 export const WorkflowVersionStatusSchema = z.enum([
   "compiled",
+  "tested",
   "canary",
   "promoted",
   "rolled_back",

@@ -41,7 +41,28 @@ describe("OpenAPI generation", () => {
       0,
     );
     expect(operationCount).toBe(V1_ROUTE_SPECS.length);
-    expect(operationCount).toBe(108);
+    expect(operationCount).toBe(109);
+  });
+
+  it("documents the test-version workflow action", () => {
+    const operation = createOpenApiDocument().paths?.[
+      "/api/v1/workflows/{id}/actions/test-version"
+    ]?.post;
+
+    expect(operation?.requestBody).toMatchObject({
+      content: {
+        "application/json": {
+          schema: { $ref: "#/components/schemas/TestVersionRequest" },
+        },
+      },
+    });
+    expect(operation?.responses?.[200]).toMatchObject({
+      content: {
+        "application/json": {
+          schema: { $ref: "#/components/schemas/TestVersionResult" },
+        },
+      },
+    });
   });
 
   it("documents ADS source permission routes", () => {

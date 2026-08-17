@@ -34,6 +34,9 @@ export const workflowVersions = pgTable(
     policyBindings: jsonb("policy_bindings").$type<PolicyBindings>(),
     compileMetadata: jsonb("compile_metadata").$type<CompileMetadata>(),
     status: text("status").notNull().default("compiled"),
+    evaluationRunId: text("evaluation_run_id"),
+    testedAt: timestamp("tested_at", { withTimezone: true }),
+    evaluationFailedAt: timestamp("evaluation_failed_at", { withTimezone: true }),
     trafficPercent: integer("traffic_percent"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -42,7 +45,11 @@ export const workflowVersions = pgTable(
   (table) => [
     check(
       "workflow_versions_status_check",
-      sql`${table.status} IN ('compiled', 'canary', 'promoted', 'rolled_back', 'retired')`,
+      sql`${table.status} IN ('compiled', 'tested', 'canary', 'promoted', 'rolled_back', 'retired')`,
+    ),
+    check(
+      "workflow_versions_tested_evidence_check",
+      sql`${table.status} <> 'tested' OR (${table.evaluationRunId} IS NOT NULL AND ${table.testedAt} IS NOT NULL)`,
     ),
     check(
       "workflow_versions_canary_traffic_check",

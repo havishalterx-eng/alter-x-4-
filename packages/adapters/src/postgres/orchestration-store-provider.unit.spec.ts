@@ -302,9 +302,17 @@ describe("PostgresOrchestrationStoreProvider", () => {
       .mocked(client.query)
       .mock.calls.map(([statement]) => String(statement));
     expect(statements[0]).toBe("BEGIN");
-    expect(statements[1]).toContain('DROP TABLE IF EXISTS "run_dispatch_queue"');
+    expect(statements[1]).toContain(
+      "UPDATE workflow_versions SET status = 'compiled' WHERE status = 'tested'",
+    );
     const rollbackSql = statements.slice(1, -2).join("\n");
     for (const expected of [
+      "DROP CONSTRAINT workflow_versions_tested_evidence_check",
+      "CHECK (status IN ('compiled', 'canary', 'promoted', 'rolled_back', 'retired'))",
+      "ALTER TABLE workflow_versions DROP COLUMN evaluation_failed_at",
+      "ALTER TABLE workflow_versions DROP COLUMN tested_at",
+      "ALTER TABLE workflow_versions DROP COLUMN evaluation_run_id",
+      'DROP TABLE IF EXISTS "run_dispatch_queue"',
       'DROP INDEX IF EXISTS "idx_runs_tenant_deadline"',
       'DROP INDEX IF EXISTS "idx_runs_triggering_event"',
       'DROP COLUMN IF EXISTS "draft_dag"',

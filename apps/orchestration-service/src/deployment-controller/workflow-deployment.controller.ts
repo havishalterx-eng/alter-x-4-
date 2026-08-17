@@ -39,6 +39,14 @@ function tenantId(request: SessionGatewayRequest): string {
 export class WorkflowDeploymentController {
   constructor(private readonly deployments: DeploymentControllerService) {}
 
+  @Post(":workflowId/actions/test-version")
+  async testVersion(@Req() request: SessionGatewayRequest, @Param("workflowId") workflowId: string, @Body() body: VersionBody) {
+    try {
+      if (typeof body?.workflowVersionId !== "string") throw new DeploymentValidationError("workflowVersionId is required");
+      return await this.deployments.testVersion({ tenant_id: tenantId(request), workflow_id: workflowId, workflow_version_id: body.workflowVersionId });
+    } catch (error: unknown) { throw mapError(error, request.url ?? "/"); }
+  }
+
   @Post(":workflowId/actions/promote-version")
   async promote(
     @Req() request: SessionGatewayRequest,

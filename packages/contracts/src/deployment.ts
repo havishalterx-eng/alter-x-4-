@@ -7,11 +7,20 @@ import { IsoTimestampSchema, WorkflowVersionIdSchema } from "./ids";
 
 export const WorkflowVersionStatusSchema = z.enum([
   "compiled",
+  "tested",
   "canary",
   "promoted",
   "rolled_back",
   "retired",
 ]);
+
+export const TestVersionResultSchema = z
+  .object({ status: z.literal("tested") })
+  .strict();
+
+export const TestVersionRequestSchema = z
+  .object({ workflowVersionId: WorkflowVersionIdSchema })
+  .strict();
 
 // Each operation's status is narrowed to the single literal the real
 // service always returns for it (deployment-controller.service.ts), not
