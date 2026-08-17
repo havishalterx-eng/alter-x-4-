@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from .architecture_synthesizer.router import router as architecture_synthesizer_router
 from .capability_registry.router import router as capability_registry_router
 from .capability_resolver.grpc_server import start_capability_server
 from .config import get_settings
@@ -38,6 +39,7 @@ app.include_router(problem_understanding_router)
 app.include_router(selection_binding_router)
 app.include_router(performance_router)
 app.include_router(capability_registry_router)
+app.include_router(architecture_synthesizer_router)
 
 
 @app.get("/health")
