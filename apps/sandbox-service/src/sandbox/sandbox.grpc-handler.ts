@@ -1,6 +1,8 @@
 import type {
   SandboxCloseSessionRequest,
   SandboxCloseSessionResponse,
+  SandboxCreateSessionRequest,
+  SandboxCreateSessionResponse,
   SandboxExecuteRequest,
   SandboxExecuteResponse,
   SandboxReadFileRequest,
@@ -19,9 +21,29 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 /** Maps public gRPC request to service's intentionally single-command API. */
 export class SandboxServiceGrpcHandler {
   constructor(
-    private readonly sandboxService: Pick<SandboxService, "execute" | "readFile" | "writeFiles" | "verifyBuild" | "closeSession">,
+    private readonly sandboxService: Pick<SandboxService, "execute" | "readFile" | "writeFiles" | "verifyBuild" | "closeSession" | "createSession">,
     private readonly artifacts: ArtifactContentClientHandler,
   ) {}
+
+  async createSession(
+    request: SandboxCreateSessionRequest,
+  ): Promise<SandboxCreateSessionResponse> {
+    requireValue(request.tenant_id, "tenant_id");
+    requireValue(request.run_id, "run_id");
+    requireValue(request.template_id, "template_id");
+    const environment = parseEnvironmentJson(request.environment_json);
+    const session = await this.sandboxService.createSession({
+      tenantId: request.tenant_id,
+      runId: request.run_id,
+      templateId: request.template_id,
+      environment,
+    });
+    return {
+      session_id: session.sessionId,
+      expires_at: session.expiresAt,
+      template_id: request.template_id,
+    };
+  }
 
   async execute(
     request: SandboxExecuteRequest,
@@ -123,6 +145,29 @@ function requireValue(value: string, field: string): void {
   if (value.trim().length === 0) {
     throw new SandboxGrpcValidationError(`${field} is required`);
   }
+}
+
+function parseEnvironmentJson(environmentJson: string): Readonly<Record<string, string>> {
+  if (environmentJson.trim().length === 0) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(environmentJson);
+  } catch {
+    throw new SandboxGrpcValidationError("environment_json must be valid JSON");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new SandboxGrpcValidationError("environment_json must decode to a JSON object");
+  }
+  const environment: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof value !== "string") {
+      throw new SandboxGrpcValidationError(
+        `environment_json.${key} must be a string`,
+      );
+    }
+    environment[key] = value;
+  }
+  return environment;
 }
 
 function boundedOutput(value: string): string {

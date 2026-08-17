@@ -10,6 +10,8 @@ import {
 import type {
   SandboxCloseSessionRequest,
   SandboxCloseSessionResponse,
+  SandboxCreateSessionRequest,
+  SandboxCreateSessionResponse,
   SandboxExecuteRequest,
   SandboxExecuteResponse,
   SandboxReadFileRequest,
@@ -39,6 +41,9 @@ export interface SandboxGrpcHandler {
   closeSession(
     request: SandboxCloseSessionRequest,
   ): Promise<SandboxCloseSessionResponse>;
+  createSession(
+    request: SandboxCreateSessionRequest,
+  ): Promise<SandboxCreateSessionResponse>;
 }
 
 export interface SandboxGrpcTransportConfig {
@@ -94,6 +99,13 @@ export class SandboxGrpcController {
     request: SandboxCloseSessionRequest,
   ): Promise<SandboxCloseSessionResponse> {
     try { return await this.handler.closeSession(request); } catch (error: unknown) { throw mapSandboxError(error); }
+  }
+
+  @GrpcMethod("SandboxService", "CreateSession")
+  async createSession(
+    request: SandboxCreateSessionRequest,
+  ): Promise<SandboxCreateSessionResponse> {
+    try { return await this.handler.createSession(request); } catch (error: unknown) { throw mapSandboxError(error); }
   }
 }
 

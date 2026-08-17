@@ -17,6 +17,7 @@ import type {
   SandboxCommandResult,
   SandboxFile,
   SandboxProvider,
+  SandboxSession,
 } from "@alterx/shared-clients";
 
 import { calculate as evaluateExpression } from "./calculator";
@@ -25,6 +26,12 @@ import { createCostEventId } from "./cost-event-id";
 const WORKSPACE = "/workspace";
 const MAX_TOOL_OUTPUT_BYTES = 1_048_576;
 const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "pip"]);
+// Approved sandbox templates. Explicit, no server-side default -- a
+// caller must always name one of these, keeping every session's
+// environment reproducible and auditable. Extend this set for real,
+// named provider-specific template IDs as they're actually adopted;
+// never widen it to "anything goes."
+const SANDBOX_TEMPLATE_ALLOWLIST = new Set(["base", "node", "python"]);
 const DATABASE_OPERATIONS = new Set(["select", "insert", "update", "delete"]);
 const FORBIDDEN_COMMANDS = [
   /\b(?:rm|rmdir|del|erase|format|mkfs|fdisk|parted|dd|shutdown|reboot|poweroff|halt|kill|pkill|killall|sudo|su)\b/i,
@@ -114,6 +121,34 @@ export class SandboxService {
     private readonly browserVerifier?: BrowserProvider,
   ) {
     this.#mintCostEventId = tools?.mintCostEventId ?? createCostEventId;
+  }
+
+  /** Explicit template_id only -- no silent default. Rejects anything
+   * outside SANDBOX_TEMPLATE_ALLOWLIST before ever reaching the real
+   * provider, so a typo'd or unapproved template can never silently boot
+   * the wrong environment. cycleId is required by SandboxProvider's
+   * interface but genuinely unused by both real providers today (E2B and
+   * AgentCore only read templateId/environment, confirmed by reading
+   * both) -- reuses runId rather than inventing new, currently-inert
+   * semantics for it. */
+  async createSession(request: {
+    readonly tenantId: string;
+    readonly runId: string;
+    readonly templateId: string;
+    readonly environment: Readonly<Record<string, string>>;
+  }): Promise<SandboxSession> {
+    if (!SANDBOX_TEMPLATE_ALLOWLIST.has(request.templateId)) {
+      throw new Error(
+        `Sandbox templateId "${request.templateId}" is not in the approved allowlist`,
+      );
+    }
+    return this.sandbox.createSession({
+      tenantId: request.tenantId,
+      runId: request.runId,
+      cycleId: request.runId,
+      templateId: request.templateId,
+      environment: request.environment,
+    });
   }
 
   async writeFiles(

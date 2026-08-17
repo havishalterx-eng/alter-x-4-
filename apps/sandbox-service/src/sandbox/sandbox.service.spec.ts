@@ -196,6 +196,53 @@ describe("SandboxService existing EXEC-10 tools", () => {
     const target = await basicService();
     await expect(target.closeSession("")).rejects.toThrow("sessionId is required");
   });
+
+  it("creates a real session for each approved template", async () => {
+    for (const templateId of ["base", "node", "python"]) {
+      const sandbox = createMockSandboxProvider();
+      const target = new SandboxService(sandbox);
+      const session = await target.createSession({
+        tenantId: CONTEXT.tenantId,
+        runId: CONTEXT.runId,
+        templateId,
+        environment: {},
+      });
+      expect(session.sessionId).toBeTruthy();
+      expect(sandbox.sessions.get(session.sessionId)).toMatchObject({ templateId });
+    }
+  });
+
+  it("rejects a template_id outside the approved allowlist before reaching the real provider", async () => {
+    const sandbox = createMockSandboxProvider();
+    const target = new SandboxService(sandbox);
+    await expect(
+      target.createSession({
+        tenantId: CONTEXT.tenantId,
+        runId: CONTEXT.runId,
+        templateId: "totally-made-up",
+        environment: {},
+      }),
+    ).rejects.toThrow("not in the approved allowlist");
+    expect(sandbox.sessions.size).toBe(0);
+  });
+
+  it("forwards the real environment and reuses runId for the unused cycleId slot", async () => {
+    const sandbox = createMockSandboxProvider();
+    const target = new SandboxService(sandbox);
+    const session = await target.createSession({
+      tenantId: CONTEXT.tenantId,
+      runId: CONTEXT.runId,
+      templateId: "python",
+      environment: { PYTHONUNBUFFERED: "1" },
+    });
+    expect(sandbox.sessions.get(session.sessionId)).toEqual({
+      tenantId: CONTEXT.tenantId,
+      runId: CONTEXT.runId,
+      cycleId: CONTEXT.runId,
+      templateId: "python",
+      environment: { PYTHONUNBUFFERED: "1" },
+    });
+  });
 });
 
 describe("SandboxService EXEC-13 tools", () => {

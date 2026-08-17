@@ -30,7 +30,7 @@ describe("SandboxServiceGrpcHandler", () => {
       stdout: "ok",
       stderr: "",
     });
-    const handler = new SandboxServiceGrpcHandler({ execute, readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn() }, artifacts);
+    const handler = new SandboxServiceGrpcHandler({ execute, readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn(), createSession: vi.fn() }, artifacts);
 
     await expect(handler.execute(request)).resolves.toEqual({
       exit_code: 0,
@@ -42,7 +42,7 @@ describe("SandboxServiceGrpcHandler", () => {
   });
 
   it("rejects unsupported shell arguments", async () => {
-    const handler = new SandboxServiceGrpcHandler({ execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn() }, artifacts);
+    const handler = new SandboxServiceGrpcHandler({ execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn(), createSession: vi.fn() }, artifacts);
 
     await expect(
       handler.execute({ ...request, arguments: ["--unsafe"] }),
@@ -51,14 +51,14 @@ describe("SandboxServiceGrpcHandler", () => {
 
   it("stores a read file as a real artifact", async () => {
     const readFile = vi.fn(async () => "ok");
-    const handler = new SandboxServiceGrpcHandler({ execute: vi.fn(), readFile, writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn() }, artifacts);
+    const handler = new SandboxServiceGrpcHandler({ execute: vi.fn(), readFile, writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn(), createSession: vi.fn() }, artifacts);
     await expect(handler.readFile({ tenant_id: request.tenant_id, run_id: request.run_id, session_id: request.session_id, path: "/workspace/index.ts" })).resolves.toEqual({ content_artifact_id: "art_018f4d6e-2b4a-7a3e-8c1a-1234567890ab", size_bytes: 2 });
     expect(artifacts.createContent).toHaveBeenCalled();
   });
 
   it("resolves an artifact before writing a sandbox file", async () => {
     const writeFiles = vi.fn();
-    const handler = new SandboxServiceGrpcHandler({ execute: vi.fn(), readFile: vi.fn(), writeFiles, verifyBuild: vi.fn(), closeSession: vi.fn() }, artifacts);
+    const handler = new SandboxServiceGrpcHandler({ execute: vi.fn(), readFile: vi.fn(), writeFiles, verifyBuild: vi.fn(), closeSession: vi.fn(), createSession: vi.fn() }, artifacts);
     await expect(handler.writeFile({ tenant_id: request.tenant_id, run_id: request.run_id, session_id: request.session_id, path: "/workspace/index.ts", content_artifact_id: "art_018f4d6e-2b4a-7a3e-8c1a-1234567890ab" })).resolves.toEqual({ written: true, size_bytes: 2 });
     expect(writeFiles).toHaveBeenCalledWith(request.session_id, [{ path: "/workspace/index.ts", content: "ok" }]);
   });
@@ -69,7 +69,7 @@ describe("SandboxServiceGrpcHandler", () => {
       metadata: {},
     }));
     const handler = new SandboxServiceGrpcHandler(
-      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild, closeSession: vi.fn() },
+      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild, closeSession: vi.fn(), createSession: vi.fn() },
       artifacts,
     );
 
@@ -101,7 +101,7 @@ describe("SandboxServiceGrpcHandler", () => {
       metadata: {},
     }));
     const handler = new SandboxServiceGrpcHandler(
-      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild, closeSession: vi.fn() },
+      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild, closeSession: vi.fn(), createSession: vi.fn() },
       artifacts,
     );
 
@@ -122,7 +122,7 @@ describe("SandboxServiceGrpcHandler", () => {
       metadata: {},
     }));
     const handler = new SandboxServiceGrpcHandler(
-      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild, closeSession: vi.fn() },
+      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild, closeSession: vi.fn(), createSession: vi.fn() },
       artifacts,
     );
 
@@ -144,7 +144,7 @@ describe("SandboxServiceGrpcHandler", () => {
 
   it("rejects a request with zero checks", async () => {
     const handler = new SandboxServiceGrpcHandler(
-      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn() },
+      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn(), createSession: vi.fn() },
       artifacts,
     );
 
@@ -162,7 +162,7 @@ describe("SandboxServiceGrpcHandler", () => {
   it("closes a real session and reports it closed", async () => {
     const closeSession = vi.fn().mockResolvedValue(undefined);
     const handler = new SandboxServiceGrpcHandler(
-      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession },
+      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession, createSession: vi.fn() },
       artifacts,
     );
 
@@ -178,7 +178,7 @@ describe("SandboxServiceGrpcHandler", () => {
 
   it("rejects a close request missing session_id", async () => {
     const handler = new SandboxServiceGrpcHandler(
-      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn() },
+      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn(), createSession: vi.fn() },
       artifacts,
     );
 
@@ -189,5 +189,85 @@ describe("SandboxServiceGrpcHandler", () => {
         session_id: "",
       }),
     ).rejects.toThrow("session_id is required");
+  });
+
+  it("creates a real session, forwards the explicit template_id, and echoes it back", async () => {
+    const createSession = vi.fn().mockResolvedValue({
+      sessionId: "ses_mock-1",
+      expiresAt: "2026-01-01T00:00:00.000Z",
+    });
+    const handler = new SandboxServiceGrpcHandler(
+      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn(), createSession },
+      artifacts,
+    );
+
+    await expect(
+      handler.createSession({
+        tenant_id: request.tenant_id,
+        run_id: request.run_id,
+        environment_json: JSON.stringify({ NODE_ENV: "test" }),
+        template_id: "node",
+      }),
+    ).resolves.toEqual({
+      session_id: "ses_mock-1",
+      expires_at: "2026-01-01T00:00:00.000Z",
+      template_id: "node",
+    });
+    expect(createSession).toHaveBeenCalledWith({
+      tenantId: request.tenant_id,
+      runId: request.run_id,
+      templateId: "node",
+      environment: { NODE_ENV: "test" },
+    });
+  });
+
+  it("rejects a create-session request missing template_id", async () => {
+    const handler = new SandboxServiceGrpcHandler(
+      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn(), createSession: vi.fn() },
+      artifacts,
+    );
+
+    await expect(
+      handler.createSession({
+        tenant_id: request.tenant_id,
+        run_id: request.run_id,
+        environment_json: "{}",
+        template_id: "",
+      }),
+    ).rejects.toThrow("template_id is required");
+  });
+
+  it("rejects malformed environment_json before reaching the provider", async () => {
+    const createSession = vi.fn();
+    const handler = new SandboxServiceGrpcHandler(
+      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn(), createSession },
+      artifacts,
+    );
+
+    await expect(
+      handler.createSession({
+        tenant_id: request.tenant_id,
+        run_id: request.run_id,
+        environment_json: "not json",
+        template_id: "node",
+      }),
+    ).rejects.toThrow("environment_json must be valid JSON");
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects environment_json with a non-string value", async () => {
+    const handler = new SandboxServiceGrpcHandler(
+      { execute: vi.fn(), readFile: vi.fn(), writeFiles: vi.fn(), verifyBuild: vi.fn(), closeSession: vi.fn(), createSession: vi.fn() },
+      artifacts,
+    );
+
+    await expect(
+      handler.createSession({
+        tenant_id: request.tenant_id,
+        run_id: request.run_id,
+        environment_json: JSON.stringify({ PORT: 3000 }),
+        template_id: "node",
+      }),
+    ).rejects.toThrow("environment_json.PORT must be a string");
   });
 });

@@ -17,6 +17,11 @@ message CreateSessionRequest {
   string tenant_id = 1; // ten_ prefixed UUIDv7
   string run_id = 2; // run_ prefixed UUIDv7
   string environment_json = 3;
+  // Required, explicit, no server-side default -- an approved allowlist
+  // decides which values are valid (see SandboxService's own template
+  // allowlist). Keeps every sandbox session's execution environment
+  // reproducible and auditable; never silently picked for the caller.
+  string template_id = 4;
 }
 
 message CreateSessionResponse {
@@ -24,6 +29,10 @@ message CreateSessionResponse {
 
   string session_id = 1; // ses_ prefixed UUIDv7
   string expires_at = 2; // ISO 8601 timestamp
+  // Echoes the request's template_id back for reproducibility -- callers
+  // that persist their own session/run record can log exactly which
+  // environment this session actually booted from.
+  string template_id = 3;
 }
 
 message CloseSessionRequest {

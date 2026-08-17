@@ -14,6 +14,13 @@ export interface CreateSessionRequest {
   /** run_ prefixed UUIDv7 */
   run_id: string;
   environment_json: string;
+  /**
+   * Required, explicit, no server-side default -- an approved allowlist
+   * decides which values are valid (see SandboxService's own template
+   * allowlist). Keeps every sandbox session's execution environment
+   * reproducible and auditable; never silently picked for the caller.
+   */
+  template_id: string;
 }
 
 export interface CreateSessionResponse {
@@ -21,6 +28,12 @@ export interface CreateSessionResponse {
   session_id: string;
   /** ISO 8601 timestamp */
   expires_at: string;
+  /**
+   * Echoes the request's template_id back for reproducibility -- callers
+   * that persist their own session/run record can log exactly which
+   * environment this session actually booted from.
+   */
+  template_id: string;
 }
 
 export interface CloseSessionRequest {
