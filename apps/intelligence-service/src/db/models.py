@@ -70,15 +70,22 @@ class AgentVersion(Base):
             name="agent_versions_agent_tenant_fk",
         ),
         Index("idx_agent_versions_agent", "tenant_id", "agent_id"),
+        CheckConstraint(
+            "model_alias IS NULL OR model_alias IN ('FAST', 'STANDARD', 'ADVANCED', 'CEILING')",
+            name="agent_versions_model_alias_check",
+        ),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     agent_id: Mapped[str] = mapped_column(Text, nullable=False)
     tenant_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    config: Mapped[dict[str, object]] = mapped_column(
-        JSONB, nullable=False, server_default="{}"
+    capabilities: Mapped[list[object]] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
     )
+    model_alias: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tools: Mapped[list[object]] = mapped_column(JSONB, nullable=False, server_default="[]")
+    persona_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

@@ -42,5 +42,9 @@ message CreatePersonaResponse {
 
   string agent_id = 1; // agt_ prefixed UUIDv7
   uint32 agent_version = 2;
-  string persona_json = 3;
+  // Retired: never populated by any real writer (the whole service this
+  // message belongs to has zero real consumers -- see file header). Kept
+  // present, not removed, because `buf breaking`'s FIELD_NO_DELETE check
+  // is enforced even on this deprecated file.
+  string persona_json = 3 [deprecated = true];
 }

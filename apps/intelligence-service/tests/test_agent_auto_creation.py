@@ -249,7 +249,10 @@ SELECT
   av.id AS version_id,
   av.tenant_id::text AS version_tenant_id,
   av.version_number,
-  av.config,
+  av.capabilities,
+  av.model_alias,
+  av.tools,
+  av.persona_description AS version_persona_description,
   av.published_at IS NOT NULL AS is_published,
   ce.id AS embedding_id,
   ce.tenant_id::text AS embedding_tenant_id,
@@ -270,7 +273,6 @@ WHERE a.id = :agent_id
             },
         )
         row = result.mappings().one()
-        persona = json.loads(outcome.persona_json)
 
         assert row["agent_tenant_id"] == TENANT_A.removeprefix("ten_")
         assert row["version_tenant_id"] == TENANT_A.removeprefix("ten_")
@@ -287,11 +289,16 @@ WHERE a.id = :agent_id
         assert uuid.UUID(str(row["embedding_id"]).removeprefix("cemb_")).version == 7
         assert row["version_number"] == 1
         assert row["is_published"] is True
-        assert row["config"] == persona
+        assert row["capabilities"] == ["analysis.reasoning", "document.synthesis"]
+        assert row["model_alias"] == "CEILING"
+        assert row["tools"] == [
+            {"name": "search.web", "permissions": ["web:read"]}
+        ]
+        assert row["version_persona_description"] == row["persona_description"]
         assert row["capability_description"] == row["persona_description"]
         assert row["embedding_metadata"] == {"dimensions": 512, "source": "PLAN-8"}
         assert float(row["similarity"]) == pytest.approx(1.0)
-        assert persona == {
+        assert json.loads(outcome.persona_json) == {
             "capability_profile": requirement.model_dump(exclude_none=True),
             "persona_description": row["persona_description"],
             "tier": "STANDARD",

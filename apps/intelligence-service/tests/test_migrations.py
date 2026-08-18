@@ -38,6 +38,7 @@ class TestMigrationFileStructure:
             "0001_create_intelligence_tables.py",
             "0002_create_drift_reader.py",
             "0003_create_capability_registry.py",
+            "0004_split_agent_version_config.py",
         ]
 
     def test_all_tables_defined(self) -> None:

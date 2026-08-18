@@ -43,10 +43,12 @@ VALUES
 _INSERT_AGENT_VERSION = text(
     """
 INSERT INTO agent_versions
-  (id, agent_id, tenant_id, version_number, config, published_at)
+  (id, agent_id, tenant_id, version_number, capabilities, model_alias, tools,
+   persona_description, published_at)
 VALUES
   (:version_id, :agent_id, CAST(:tenant_id AS uuid), 1,
-   CAST(:config_json AS jsonb), now())
+   CAST(:capabilities_json AS jsonb), :model_alias, CAST(:tools_json AS jsonb),
+   :persona_description, now())
 """
 )
 
@@ -108,6 +110,11 @@ class AgentAutoCreationEngine:
             "tier": "STANDARD",
         }
         persona_json = json.dumps(persona, separators=(",", ":"), sort_keys=True)
+        capabilities_json = json.dumps(requirement.capabilities, separators=(",", ":"))
+        tools_json = json.dumps(
+            [tool.model_dump(exclude_none=True) for tool in requirement.tools or []],
+            separators=(",", ":"),
+        )
 
         tenant_uuid = _raw_uuid(request.tenant_id)
         workspace_uuid = _raw_uuid(request.workspace_id)
@@ -133,7 +140,10 @@ class AgentAutoCreationEngine:
                 "version_id": new_prefixed_id("agtv"),
                 "agent_id": agent_id,
                 "tenant_id": tenant_uuid,
-                "config_json": persona_json,
+                "capabilities_json": capabilities_json,
+                "model_alias": requirement.model_alias,
+                "tools_json": tools_json,
+                "persona_description": persona_description,
             },
         )
         await self._session.execute(
