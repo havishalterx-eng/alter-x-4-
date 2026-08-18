@@ -182,9 +182,13 @@ class TestBindAgentModelToolRoute:
         assert response.status_code == 503
         assert "Embed RPC call to Model Gateway failed" in response.json()["detail"]
 
-    def test_ranked_match_path_succeeds_when_a_real_embedding_client_is_provided(
+    def test_ranked_match_path_with_no_eligible_agent_auto_creates_and_binds(
         self, client: TestClient
     ) -> None:
+        """No agent matches "text.generation" in this fixture's seeded data,
+        so the real router wiring (AgentAutoCreationEngine injected into
+        SelectionBindingEngine, see selection_binding/router.py) creates one
+        and returns it bound, rather than a bare no-match."""
         app.dependency_overrides[get_embedding_client] = lambda: FakeEmbeddingClient(
             vector(1.0)
         )
@@ -197,7 +201,10 @@ class TestBindAgentModelToolRoute:
             del app.dependency_overrides[get_embedding_client]
 
         assert response.status_code == 200
-        assert response.json()["reason"] == "no_eligible_agent"
+        body = response.json()
+        assert body["model_alias"] == "STANDARD"
+        assert body["tool_names"] == []
+        assert body["agent_version"] == 1
 
     def test_invalid_node_requirements_json_returns_422(self, client: TestClient) -> None:
         body = request_body()

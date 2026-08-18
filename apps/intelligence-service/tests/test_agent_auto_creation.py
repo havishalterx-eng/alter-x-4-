@@ -331,6 +331,66 @@ WHERE a.id = :agent_id
             (TENANT_A, "analysis.reasoning\ndocument.synthesis"),
         ]
 
+    async def test_bind_auto_creates_and_returns_a_bindable_agent_on_no_match(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """The real router wiring: bind() itself triggers creation on a true
+        no-match, in one call, rather than the caller having to invoke both
+        engines separately (as test_created_persona_is_immediately_bindable_
+        by_plan7 above exercises manually)."""
+        requirement = NodeRequirement(
+            capabilities=["analysis.reasoning", "document.synthesis"],
+            model_alias="STANDARD",
+            tools=[ToolRequirement(name="search.web", permissions=["web:read"])],
+        )
+        embedding_client = FakeEmbeddingClient(vector(1.0))
+        creation_engine = AgentAutoCreationEngine(db_session, embedding_client)
+        binding_engine = SelectionBindingEngine(
+            db_session,
+            embedding_client,
+            persona_creation_engine=creation_engine,
+        )
+
+        before = await table_counts(db_session)
+        outcome = await binding_engine.bind(
+            binding_request(requirement),
+            binding_context(),
+        )
+        after = await table_counts(db_session)
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.model_alias == "STANDARD"
+        assert outcome.tool_names == ["search.web"]
+        assert outcome.agent_version == 1
+        assert after == (before[0] + 1, before[1] + 1, before[2] + 1)
+
+        rebound = await binding_engine.bind(
+            binding_request(requirement),
+            binding_context(),
+        )
+        assert rebound == outcome
+
+    async def test_bind_without_persona_creation_engine_still_returns_no_match(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Backward compatibility: omitting persona_creation_engine (the
+        default) must not change existing no-match behavior."""
+        requirement = NodeRequirement(capabilities=["analysis.reasoning"])
+        embedding_client = FakeEmbeddingClient(vector(1.0))
+        binding_engine = SelectionBindingEngine(db_session, embedding_client)
+
+        before = await table_counts(db_session)
+        outcome = await binding_engine.bind(
+            binding_request(requirement),
+            binding_context(),
+        )
+        after = await table_counts(db_session)
+
+        assert outcome == true_no_match()
+        assert after == before
+
     async def test_created_agent_cannot_bind_for_another_tenant(
         self,
         db_session: AsyncSession,

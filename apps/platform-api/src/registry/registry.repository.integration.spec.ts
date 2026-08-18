@@ -18,7 +18,11 @@ describe.skipIf(!databaseUrl)("RegistryRepository integration", () => {
     schemaName = `registry_${randomUUID().replaceAll("-", "_")}`;
     roleName = `registry_role_${randomUUID().replaceAll("-", "_")}`;
     admin = new pg.Client({ connectionString: databaseUrl }); await admin.connect();
-    await admin.query(`CREATE SCHEMA "${schemaName}"`); await admin.query(`SET search_path TO "${schemaName}"`); await migrations(admin);
+    await admin.query(`CREATE SCHEMA "${schemaName}"`); await admin.query(`SET search_path TO "${schemaName}"`);
+    // Advisory lock shared with marketplace/publisher/search specs -- CREATE
+    // EXTENSION IF NOT EXISTS races on pg_extension under concurrent workers.
+    await admin.query("SELECT pg_advisory_lock(729312)");
+    try { await migrations(admin); } finally { await admin.query("SELECT pg_advisory_unlock(729312)"); }
     const password = randomUUID(); await admin.query(`CREATE ROLE "${roleName}" LOGIN PASSWORD '${password}'`); await admin.query(`GRANT USAGE ON SCHEMA "${schemaName}" TO "${roleName}"`); await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "${schemaName}" TO "${roleName}"`);
     const url = new URL(databaseUrl!); url.username = roleName; url.password = password; url.searchParams.set("options", `-c search_path=${schemaName}`); pool = new pg.Pool({ connectionString: url.toString() }); repository = new RegistryRepository(pool);
   });

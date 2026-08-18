@@ -36,7 +36,18 @@ describe.skipIf(!databaseUrl)("MarketplaceRepository PostgreSQL RLS", () => {
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schemaName}"`);
     await admin.query(`SET search_path TO "${schemaName}"`);
-    await applyMigrations(admin);
+    // CREATE EXTENSION IF NOT EXISTS is not safe under true concurrent
+    // execution -- multiple integration-spec files run in parallel vitest
+    // workers against the same physical database and can race on the
+    // shared pg_extension catalog row for pg_trgm. Serialize with a fixed
+    // advisory lock key shared by every caller of applyMigrations/
+    // migrations() across marketplace/publisher/registry/search specs.
+    await admin.query("SELECT pg_advisory_lock(729312)");
+    try {
+      await applyMigrations(admin);
+    } finally {
+      await admin.query("SELECT pg_advisory_unlock(729312)");
+    }
     const password = randomUUID();
     await admin.query(`CREATE ROLE "${roleName}" LOGIN PASSWORD '${password}'`);
     await admin.query(`GRANT USAGE ON SCHEMA "${schemaName}" TO "${roleName}"`);

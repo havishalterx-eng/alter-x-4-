@@ -22,6 +22,10 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent_auto_creation.engine import (
+    AgentAutoCreationEngine,
+    PersonaCreationValidationError,
+)
 from src.capability_registry.repository import CapabilityRegistryRepository
 from src.capability_resolver.models import NodeType
 from src.db.session import get_db_session
@@ -135,7 +139,13 @@ async def bind_agent_model_tool(
     embedding_client: EmbeddingClientDep,
     policy_client: PolicyClientDep,
 ) -> BindingOutcome:
-    engine = SelectionBindingEngine(session, embedding_client, policy_client=policy_client)
+    persona_creation_engine = AgentAutoCreationEngine(session, embedding_client)
+    engine = SelectionBindingEngine(
+        session,
+        embedding_client,
+        policy_client=policy_client,
+        persona_creation_engine=persona_creation_engine,
+    )
     bind_request = BindAgentModelToolRequest(
         tenant_id=request.tenant_id,
         run_id=request.run_id,
@@ -150,6 +160,9 @@ async def bind_agent_model_tool(
     try:
         outcome = await engine.bind(bind_request, context)
     except BindingValidationError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except PersonaCreationValidationError as exc:
         await session.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except EmbeddingResultError as exc:

@@ -4,6 +4,7 @@ import json
 import math
 import uuid
 from collections.abc import Sequence
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import ValidationError
 from sqlalchemy import text
@@ -20,6 +21,18 @@ from src.selection_binding.models import (
     NoAgentMatch,
 )
 from src.selection_binding.policy_client import RoutingPolicyClient
+
+if TYPE_CHECKING:
+    from src.agent_auto_creation.models import CreatePersonaRequest, CreatePersonaResponse
+
+
+class PersonaCreationEngine(Protocol):
+    """Structural type for AgentAutoCreationEngine, avoiding a circular import
+    (agent_auto_creation imports from selection_binding at module level)."""
+
+    async def create_for_no_match(
+        self, no_match: NoAgentMatch, request: "CreatePersonaRequest"
+    ) -> "CreatePersonaResponse | NoAgentMatch": ...
 
 _EMBEDDING_DIMENSIONS = 512
 
@@ -183,6 +196,7 @@ class SelectionBindingEngine:
         minimum_capability_similarity: float = 0.6,
         minimum_combined_score: float = 0.7,
         policy_client: RoutingPolicyClient | None = None,
+        persona_creation_engine: PersonaCreationEngine | None = None,
     ) -> None:
         if not 0.0 <= similarity_weight <= 1.0:
             raise ValueError("similarity_weight must be between 0 and 1")
@@ -198,6 +212,7 @@ class SelectionBindingEngine:
         self._minimum_capability_similarity = minimum_capability_similarity
         self._minimum_combined_score = minimum_combined_score
         self._policy_client = policy_client
+        self._persona_creation_engine = persona_creation_engine
 
     async def bind(
         self,
@@ -250,12 +265,48 @@ class SelectionBindingEngine:
         )
         candidate = result.mappings().first()
         if candidate is None:
-            return NoAgentMatch(
+            no_match = NoAgentMatch(
                 node_key=request.node_key,
                 reason="no_eligible_agent",
             )
+            if self._persona_creation_engine is None:
+                return no_match
+            return await self._create_and_bind(
+                no_match=no_match,
+                request=request,
+                context=context,
+                requirement=requirement,
+            )
 
         return _response(candidate, requirement)
+
+    async def _create_and_bind(
+        self,
+        *,
+        no_match: NoAgentMatch,
+        request: BindAgentModelToolRequest,
+        context: BindingContext,
+        requirement: NodeRequirement,
+    ) -> BindingOutcome:
+        from src.agent_auto_creation.models import CreatePersonaRequest
+
+        assert self._persona_creation_engine is not None
+        persona_request = CreatePersonaRequest(
+            tenant_id=request.tenant_id,
+            workspace_id=context.workspace_id,
+            capability_profile_json=requirement.model_dump_json(exclude_none=True),
+        )
+        outcome = await self._persona_creation_engine.create_for_no_match(
+            no_match, persona_request
+        )
+        if isinstance(outcome, NoAgentMatch):
+            return outcome
+        return BindAgentModelToolResponse(
+            agent_id=outcome.agent_id,
+            agent_version=outcome.agent_version,
+            model_alias=requirement.model_alias or "STANDARD",
+            tool_names=[tool.name for tool in requirement.tools or []],
+        )
 
     async def _load_similarity_weight(self, tenant_id: str) -> float:
         if self._policy_client is None:

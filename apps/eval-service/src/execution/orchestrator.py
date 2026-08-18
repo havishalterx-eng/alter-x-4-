@@ -173,8 +173,11 @@ ranked-match path, unblocked by the embedding-transport follow-up above
 `_RANKED_AGENT_QUERY`'s own explicit `WHERE a.tenant_id = :tenant_id
 AND ce.tenant_id = :tenant_id` (engine.py) -- a tenant-a caller can
 never see tenant-b's seeded agent/capability_embeddings row regardless
-of capability-text similarity, so the real outcome is always
-NoAgentMatch(reason="no_eligible_agent"). Needs a real, live
+of capability-text similarity. bind() now auto-creates a fresh tenant-a
+agent on a genuine no-match instead of stopping at NoAgentMatch, so the
+real isolation signal is "the returned agent_id is never tenant-b's
+seeded one" (see agent_binding_client.py's own module doc), not a bare
+no-match anymore. Needs a real, live
 model-gateway for the real embed() call to succeed, but only its
 embedding provider, not its model provider -- production main.ts run
 with ALTER_CONFIG_SOURCE=mock is sufficient (createMockEmbeddingProvider
@@ -801,11 +804,12 @@ class EvalRunOrchestrator:
                     other_tenant_uuid=other_tenant_uuid,
                     workspace_uuid=other_tenant_uuid,
                 )
-                no_match = self._agent_binding_client.check_bind_no_match(
+                isolated = self._agent_binding_client.check_bind_is_tenant_isolated(
                     tenant_id=_EVAL_ADS_TENANT_ID,
                     workspace_id=_EVAL_WORKSPACE_ID,
+                    seeded_agent_id=seeded_agent_id,
                 )
-                observed_outcome = "no_match" if no_match else "found"
+                observed_outcome = "isolated" if isolated else "found"
                 extra = {"agent_id": seeded_agent_id}
             elif operation in ("project_get", "project_deploy"):
                 other_tenant_uuid = "018f4d6e-cccc-7ccc-8ccc-cccccccccccc"

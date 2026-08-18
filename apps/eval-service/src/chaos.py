@@ -15,7 +15,7 @@ _RESPONSES: dict[tuple[str, str, int], tuple[str, str]] = {
     ("orchestration", "unavailable", 1): ("degraded", "ask_user"),
     ("ads-query", "unavailable", 1): ("degraded", "continue_without_context"),
     ("model-gateway", "timeout", 1): ("recovered", "retry"),
-    ("model-gateway", "timeout", 2): ("recovered", "swap_agent"),
+    ("model-gateway", "timeout", 2): ("escalated", "swap_agent"),
     ("tool-provider", "rate_limit", 1): ("recovered", "backoff"),
     ("tool-provider", "unavailable", 1): ("recovered", "retry"),
     ("sandbox", "crash", 1): ("recovered", "retry"),

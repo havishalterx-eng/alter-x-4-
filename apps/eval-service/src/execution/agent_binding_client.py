@@ -11,17 +11,23 @@ EmbeddingProvider transport, which didn't exist until GrpcEmbeddingClient
 The real cross-tenant check is `_RANKED_AGENT_QUERY`'s own explicit
 `WHERE a.tenant_id = :tenant_id AND ce.tenant_id = :tenant_id` (engine.py)
 -- a tenant-a caller can never see tenant-b's seeded agent/
-capability_embeddings row, regardless of capability-text similarity, so
-the real outcome is NoAgentMatch(reason="no_eligible_agent"), matching the
-golden set's "no_match" expected_json. A real, live model-gateway is
-needed (GrpcEmbeddingClient's embed() call must succeed for the
-ranked-match path to even run) -- but only its embedding provider, not
-its model provider, so the real production main.ts run with
-ALTER_CONFIG_SOURCE=mock is sufficient (createMockEmbeddingProvider is a
-real, deterministic, disclosed non-production embedding, same shape as
-HARD-7c's retrieval golden set) -- no live ANTHROPIC_API_KEY/OPENAI_API_KEY
-needed, unlike every other live-model-gateway-dependent case in this
-campaign (model_gateway_cache, intent, injection).
+capability_embeddings row, regardless of capability-text similarity. Since
+bind() now auto-creates a fresh agent for the caller's own tenant on a
+genuine no-match (SelectionBindingEngine's persona_creation_engine wiring),
+the observable terminal state is no longer NoAgentMatch -- it's a real
+BindAgentModelToolResponse pointing at a brand-new tenant-a agent. The
+isolation signal this check verifies is therefore not "did bind return a
+no-match" but "is the agent_id bind() returned anything other than
+tenant-b's seeded one" -- the thing that would actually indicate a leak.
+A real, live model-gateway is needed (GrpcEmbeddingClient's embed() call
+must succeed for the ranked-match path to even run) -- but only its
+embedding provider, not its model provider, so the real production
+main.ts run with ALTER_CONFIG_SOURCE=mock is sufficient
+(createMockEmbeddingProvider is a real, deterministic, disclosed
+non-production embedding, same shape as HARD-7c's retrieval golden set)
+-- no live ANTHROPIC_API_KEY/OPENAI_API_KEY needed, unlike every other
+live-model-gateway-dependent case in this campaign (model_gateway_cache,
+intent, injection).
 """
 
 from __future__ import annotations
@@ -83,9 +89,15 @@ class AgentBindingEvalClient(httpx.Client):
             connection.close()
         return agent_id
 
-    def check_bind_no_match(self, *, tenant_id: str, workspace_id: str) -> bool:
-        """Returns True when the real ranked-match path found no eligible
-        agent (the real, expected cross-tenant outcome)."""
+    def check_bind_is_tenant_isolated(
+        self, *, tenant_id: str, workspace_id: str, seeded_agent_id: str
+    ) -> bool:
+        """Returns True when bind() never returned tenant-b's seeded
+        agent_id to a tenant-a caller. bind() itself may now legitimately
+        auto-create and return a brand-new tenant-a agent on a genuine
+        no-match (SelectionBindingEngine's persona_creation_engine wiring)
+        -- that's real isolation working correctly, not a leak. A leak
+        would be `agent_id == seeded_agent_id`."""
         node_key = "node.eval-probe"
         requirement = {"capabilities": ["eval-probe capability"]}
         body = {
@@ -99,4 +111,4 @@ class AgentBindingEvalClient(httpx.Client):
         }
         response = self.post("/selection-binding/bind-agent-model-tool", json=body)
         response.raise_for_status()
-        return bool(response.json().get("reason") == "no_eligible_agent")
+        return bool(response.json().get("agent_id") != seeded_agent_id)

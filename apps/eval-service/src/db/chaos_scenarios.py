@@ -44,7 +44,7 @@ CHAOS_CASES: tuple[EvalCaseSeed, ...] = (
         "continue_without_context",
     ),
     _scenario("model-timeout-first", "model-gateway", "timeout", 1, "recovered", "retry"),
-    _scenario("model-timeout-repeat", "model-gateway", "timeout", 2, "recovered", "swap_agent"),
+    _scenario("model-timeout-repeat", "model-gateway", "timeout", 2, "escalated", "swap_agent"),
     _scenario("provider-rate-limit", "tool-provider", "rate_limit", 1, "recovered", "backoff"),
     _scenario(
         "provider-transient-failure", "tool-provider", "unavailable", 1, "recovered", "retry"
