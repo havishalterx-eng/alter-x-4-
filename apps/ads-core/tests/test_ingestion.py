@@ -100,6 +100,7 @@ def database() -> Generator[DatabaseHarness, None, None]:
                 sa.text(f"GRANT SELECT, INSERT ON chunks TO {RUNTIME_ROLE}")
             )
             connection.execute(sa.text(f"GRANT SELECT ON scopes TO {RUNTIME_ROLE}"))
+            connection.execute(sa.text(f"GRANT SELECT ON memory_namespace TO {RUNTIME_ROLE}"))
 
         runtime_url = sa.engine.make_url(admin_url).set(
             username=RUNTIME_ROLE,

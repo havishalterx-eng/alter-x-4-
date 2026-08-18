@@ -349,6 +349,25 @@ export {
   type PolicyStoreHttpClient,
 } from "./http/policy-store-client";
 export {
+  PerformanceRecorderClient,
+  createFetchPerformanceRecorderHttpClient,
+  type PerformanceRecorderClientConfig,
+  type PerformanceRecorderHandler,
+  type PerformanceRecorderHttpClient,
+  type PerformanceVerdict,
+  type RecordPerformanceObservationRequest,
+} from "./http/performance-recorder-client";
+export {
+  SelectionBindingClient,
+  SelectionBindingResponseValidationError,
+  createFetchSelectionBindingHttpClient,
+  type BindAgentModelToolOutcome,
+  type BindAgentModelToolRequest,
+  type SelectionBindingClientConfig,
+  type SelectionBindingHandler,
+  type SelectionBindingHttpClient,
+} from "./http/selection-binding-client";
+export {
   SsrfBlockedError,
   assertHostnameNotLiteralBlockedIp,
   assertResolvedAddressesNotBlocked,

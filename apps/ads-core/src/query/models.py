@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.memory_namespace.models import MemoryFact
+
 
 class _QueryModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -41,4 +43,9 @@ class RetrievalHit(_QueryModel):
 
 class RetrievalResponse(_QueryModel):
     hits: tuple[RetrievalHit, ...]
+    # Real memory_namespace rows visible to the request's own already-
+    # validated scope_ids -- not embedded or ranked alongside hits (no
+    # embedding step exists for memory statements), returned as an
+    # honest, separate, unranked set of tenant knowledge facts.
+    memory_facts: tuple[MemoryFact, ...]
     audited_at: datetime | None

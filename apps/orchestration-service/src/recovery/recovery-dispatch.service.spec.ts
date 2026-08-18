@@ -4,10 +4,12 @@ import type { RootCauseEstimate } from "@alterx/contracts";
 
 import {
   RecoveryDispatchService,
+  type CapabilityResolverHandler,
   type GraphCompilerHandler,
   type NodeRetrySignaler,
   type PlannerReplanHandler,
   type RecoveryRunReader,
+  type SelectionBindingHandler,
 } from "./recovery-dispatch.service";
 import { DISPATCHABLE_STRATEGIES, type RecoveryStrategy } from "./recovery-strategy-table";
 
@@ -55,6 +57,8 @@ function buildService(overrides: {
   readValue?: (request: unknown) => Promise<unknown>;
   writeValue?: (request: unknown) => Promise<void>;
   findForSourceNode?: (request: unknown) => Promise<unknown[]>;
+  resolveNodeRequirements?: CapabilityResolverHandler["resolveNodeRequirements"];
+  bindAgentModelTool?: SelectionBindingHandler["bindAgentModelTool"];
 } = {}): RecoveryDispatchService {
   const modelGateway = {
     invoke:
@@ -90,6 +94,7 @@ function buildService(overrides: {
         compiledDagJson: "{}",
         dagSchemaVersion: "v1",
         workflowId: "wf_test",
+        workspaceId: "018f47a5-7b2c-7d10-8f11-000000000ws1",
       }),
     writeTerminalFailed: overrides.writeTerminalFailed ?? vi.fn().mockResolvedValue(undefined),
   };
@@ -103,6 +108,17 @@ function buildService(overrides: {
   const verificationReader = {
     findForSourceNode: overrides.findForSourceNode ?? vi.fn().mockResolvedValue([]),
   };
+  // Only constructed when a test explicitly configures one of these --
+  // otherwise swap_agent must see them as unset, same as production
+  // before app.module.ts wires the real clients in.
+  const capabilityResolver: CapabilityResolverHandler | undefined =
+    overrides.resolveNodeRequirements === undefined
+      ? undefined
+      : { resolveNodeRequirements: overrides.resolveNodeRequirements };
+  const selectionBinding: SelectionBindingHandler | undefined =
+    overrides.bindAgentModelTool === undefined
+      ? undefined
+      : { bindAgentModelTool: overrides.bindAgentModelTool };
   return new RecoveryDispatchService(
     modelGateway as never,
     compiler,
@@ -115,6 +131,8 @@ function buildService(overrides: {
     // Real delay, kept tiny here so no test pays the real 5s default --
     // the dedicated backoff test below asserts the delay actually happens.
     5,
+    capabilityResolver,
+    selectionBinding,
   );
 }
 
@@ -136,6 +154,111 @@ describe("RecoveryDispatchService", () => {
       expect(result.outcome).toBe("escalated");
       expect(result.detail).toContain("strategy_dispatch_deferred");
     }
+  });
+
+  const REAL_DAG = JSON.stringify({
+    schema_version: "v1",
+    entry_node_keys: [CONTEXT.nodeKey],
+    nodes: [
+      {
+        key: CONTEXT.nodeKey,
+        type: "LLMTask",
+        config: { capabilities: ["analysis.reasoning"] },
+        metadata: { ui: {} },
+      },
+    ],
+    edges: [],
+    waves: [{ key: "wave_0", order: 0, node_keys: [CONTEXT.nodeKey], depends_on: [] }],
+  });
+
+  it("swap_agent makes a real ranked-match call but never reports resolved (no execution-time consumer exists)", async () => {
+    const loadCompiledDagJson = vi.fn().mockResolvedValue({
+      compiledDagJson: REAL_DAG,
+      dagSchemaVersion: "v1",
+      workflowId: "wf_test",
+      workspaceId: "018f47a5-7b2c-7d10-8f11-000000000ws1",
+    });
+    const resolveNodeRequirements = vi.fn().mockResolvedValue({
+      node_requirements_json: '{"capabilities":["analysis.reasoning"]}',
+      schema_version: "1",
+    });
+    const bindAgentModelTool = vi.fn().mockResolvedValue({
+      matched: true,
+      agent_id: "agt_018f47a5-7b2c-7d10-8f11-000000000ab1",
+      agent_version: 1,
+    });
+    const service = buildService({
+      loadCompiledDagJson,
+      resolveNodeRequirements,
+      bindAgentModelTool,
+    });
+
+    const result = await service.dispatch("swap_agent", CONTEXT);
+
+    expect(result.outcome).toBe("escalated");
+    expect(result.detail).toContain("agt_018f47a5-7b2c-7d10-8f11-000000000ab1");
+    expect(result.detail).toContain("no execution-time");
+    expect(resolveNodeRequirements).toHaveBeenCalledWith(
+      expect.objectContaining({ node_key: CONTEXT.nodeKey, node_type: "LLMTask" }),
+    );
+    expect(bindAgentModelTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: "ws_018f47a5-7b2c-7d10-8f11-000000000ws1",
+        node_key: CONTEXT.nodeKey,
+      }),
+    );
+  });
+
+  it("swap_agent reports the real no-match reason when ranked-match finds nothing eligible", async () => {
+    const loadCompiledDagJson = vi.fn().mockResolvedValue({
+      compiledDagJson: REAL_DAG,
+      dagSchemaVersion: "v1",
+      workflowId: "wf_test",
+      workspaceId: "018f47a5-7b2c-7d10-8f11-000000000ws1",
+    });
+    const resolveNodeRequirements = vi.fn().mockResolvedValue({
+      node_requirements_json: '{"capabilities":["analysis.reasoning"]}',
+      schema_version: "1",
+    });
+    const bindAgentModelTool = vi.fn().mockResolvedValue({
+      matched: false,
+      reason: "no_eligible_agent",
+    });
+    const service = buildService({
+      loadCompiledDagJson,
+      resolveNodeRequirements,
+      bindAgentModelTool,
+    });
+
+    const result = await service.dispatch("swap_agent", CONTEXT);
+
+    expect(result.outcome).toBe("escalated");
+    expect(result.detail).toContain("no_eligible_agent");
+  });
+
+  it("swap_agent escalates honestly when the failed node isn't in the compiled DAG", async () => {
+    const loadCompiledDagJson = vi.fn().mockResolvedValue({
+      compiledDagJson: JSON.stringify({
+        schema_version: "v1",
+        entry_node_keys: ["other_node"],
+        nodes: [{ key: "other_node", type: "LLMTask", config: {}, metadata: { ui: {} } }],
+        edges: [],
+        waves: [{ key: "wave_0", order: 0, node_keys: ["other_node"], depends_on: [] }],
+      }),
+      dagSchemaVersion: "v1",
+      workflowId: "wf_test",
+      workspaceId: "018f47a5-7b2c-7d10-8f11-000000000ws1",
+    });
+    const service = buildService({
+      loadCompiledDagJson,
+      resolveNodeRequirements: vi.fn(),
+      bindAgentModelTool: vi.fn(),
+    });
+
+    const result = await service.dispatch("swap_agent", CONTEXT);
+
+    expect(result.outcome).toBe("escalated");
+    expect(result.detail).toContain("not found in the compiled DAG");
   });
 
   it("escalate_model calls Model Gateway at ADVANCED tier and resolves", async () => {

@@ -31,6 +31,12 @@ message PromoteMemoryRequest {
   string tenant_id = 1; // ten_ prefixed UUIDv7
   string memory_id = 2; // mem_ prefixed UUIDv7
   string evaluation_run_id = 3; // evr_ prefixed UUIDv7
+  // ADS Core scope this memory should be delivered into when its real
+  // destination (policy_store/repository.py) is "ads_memory_namespace".
+  // The caller supplies this -- memory-service has no way to derive an
+  // ADS Core scope_id on its own. Absent means delivery is skipped, not
+  // failed: promotion itself never depends on ADS Core being reachable.
+  optional string ads_core_scope_id = 4; // scp_ prefixed UUIDv7
 }
 
 message PromoteMemoryResponse {

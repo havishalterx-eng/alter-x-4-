@@ -40,6 +40,11 @@ _SET_TENANT_CONTEXT = text(
     "SELECT set_config('app.current_tenant_id', :tenant_id, true)"
 )
 
+# 'draft' agents (see agent_auto_creation.engine's _INSERT_AGENT) are
+# eligible here on purpose -- excluding them would mean a freshly
+# auto-created agent could never accumulate the real performance_records
+# it needs to ever be promoted to 'active' by
+# performance.repository.record_observation's promotion check.
 _PREFERRED_AGENT_QUERY = text(
     """
 SELECT
@@ -59,7 +64,7 @@ JOIN LATERAL (
 WHERE a.tenant_id = CAST(:tenant_id AS uuid)
   AND a.workspace_id = CAST(:workspace_id AS uuid)
   AND a.id = :preferred_agent_id
-  AND a.status = 'active'
+  AND a.status IN ('active', 'draft')
   AND (
     CAST(:required_tier AS text) IS NULL
     OR CASE a.tier
@@ -126,7 +131,7 @@ WITH performance AS (
   WHERE a.tenant_id = CAST(:tenant_id AS uuid)
     AND ce.tenant_id = CAST(:tenant_id AS uuid)
     AND a.workspace_id = CAST(:workspace_id AS uuid)
-    AND a.status = 'active'
+    AND a.status IN ('active', 'draft')
     AND (
       CAST(:required_tier AS text) IS NULL
       OR CASE a.tier

@@ -25,13 +25,15 @@ import json
 
 from .llm_client import MODEL_ALIAS_ADVANCED, ReviewerLlmClient
 from .models import NodeType, ScoreNodeRequest, ScoreNodeResponse, Verdict
+from .policy_client import QualityThresholdPolicyClient
 
 DEFAULT_THRESHOLD = 0.7
 # Verdict banding: score >= threshold -> pass; within this margin below
 # threshold -> warn (borderline, flagged but not blocking); further below
-# -> fail. A fixed margin (not a second per-node-type-tunable threshold) is
-# a deliberate simplification for this ticket -- Policy Store-driven
-# per-tenant threshold tuning is a later Self-Healing-phase ticket.
+# -> fail. Real per-tenant tuning now reads memory-service's Policy Store
+# quality_thresholds kind (see policy_client.py) when a policy_client is
+# injected; these constants remain the fallback when no policy_client is
+# configured or no active policy row exists for the tenant.
 WARN_MARGIN = 0.15
 
 REVIEWER_MODEL_DETERMINISTIC = "deterministic"
@@ -85,10 +87,10 @@ class VerificationValidationError(ValueError):
     pass
 
 
-def _verdict_for(score: float, threshold: float) -> Verdict:
+def _verdict_for(score: float, threshold: float, warn_margin: float = WARN_MARGIN) -> Verdict:
     if score >= threshold:
         return "pass"
-    if score >= threshold - WARN_MARGIN:
+    if score >= threshold - warn_margin:
         return "warn"
     return "fail"
 
@@ -111,8 +113,13 @@ class VerificationKernel:
     llm_client : ReviewerLlmClient -- ADVANCED-tier reviewer (stub or real)
     """
 
-    def __init__(self, llm_client: ReviewerLlmClient) -> None:
+    def __init__(
+        self,
+        llm_client: ReviewerLlmClient,
+        policy_client: QualityThresholdPolicyClient | None = None,
+    ) -> None:
         self._llm = llm_client
+        self._policy_client = policy_client
 
     async def score_node(self, request: ScoreNodeRequest) -> ScoreNodeResponse:
         if request.node_type in DETERMINISTIC_NODE_TYPES:
@@ -158,12 +165,21 @@ class VerificationKernel:
                 f"reviewer returned score {score!r} outside the [0.0, 1.0] range"
             )
 
-        threshold = DEFAULT_THRESHOLD
+        threshold, warn_margin = await self._resolve_threshold(request.tenant_id)
         details = {"rationale": rationale, "rubric": rubric}
         return ScoreNodeResponse(
-            verdict=_verdict_for(score, threshold),
+            verdict=_verdict_for(score, threshold, warn_margin),
             score=score,
             threshold=threshold,
             reviewer_model=MODEL_ALIAS_ADVANCED,
             details_json=json.dumps(details),
         )
+
+    async def _resolve_threshold(self, tenant_id: str) -> tuple[float, float]:
+        if self._policy_client is None:
+            return DEFAULT_THRESHOLD, WARN_MARGIN
+        try:
+            resolved = await self._policy_client.quality_threshold(tenant_id)
+        except Exception:
+            return DEFAULT_THRESHOLD, WARN_MARGIN
+        return resolved if resolved is not None else (DEFAULT_THRESHOLD, WARN_MARGIN)

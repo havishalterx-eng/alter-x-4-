@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 
 from pydantic import ValidationError
@@ -9,6 +10,8 @@ from pydantic import ValidationError
 from src.memory_learning.ids import raw_uuid7
 from src.service_auth import ServiceAuthError, verify_global_write_token, verify_service_token
 
+from .ads_core_client import AdsCoreMemoryClient, AdsCoreMemoryDeliveryUnavailableError
+from .ads_delivery import statement_for_run_content
 from .models import (
     CreateDraftPolicyResponse,
     GetActivePolicyRequest,
@@ -18,10 +21,13 @@ from .models import (
     PromoteMemoryResponse,
     RevertMemoryRequest,
     RevertMemoryResponse,
+    StoredMemoryPromotion,
     UpdatePolicyRequest,
     UpdatePolicyResponse,
 )
 from .repository import SqlAlchemyPolicyStoreRepository
+
+logger = logging.getLogger(__name__)
 
 
 class PolicyStoreValidationError(ValueError):
@@ -29,8 +35,13 @@ class PolicyStoreValidationError(ValueError):
 
 
 class PolicyStoreService:
-    def __init__(self, repository: SqlAlchemyPolicyStoreRepository) -> None:
+    def __init__(
+        self,
+        repository: SqlAlchemyPolicyStoreRepository,
+        ads_core_client: AdsCoreMemoryClient | None = None,
+    ) -> None:
         self._repository = repository
+        self._ads_core_client = ads_core_client
 
     async def update_policy(
         self,
@@ -160,7 +171,46 @@ class PolicyStoreService:
             evaluation_run_id=request.evaluation_run_id,
             global_write_authorized=verify_global_write_token(global_write_token),
         )
+        await self._deliver_to_ads_core_best_effort(request, result, authorization)
         return PromoteMemoryResponse(promoted=True, promoted_at=result.promoted_at)
+
+    async def _deliver_to_ads_core_best_effort(
+        self,
+        request: PromoteMemoryRequest,
+        result: StoredMemoryPromotion,
+        authorization: str,
+    ) -> None:
+        """Never lets a real, already-committed promotion (memory_records'
+        status is already 'promoted' by the time this runs) fail or roll
+        back over ADS Core being unreachable or misconfigured -- promotion
+        and delivery are separate concerns with separate durability
+        guarantees, same as every other best-effort side delivery in this
+        codebase."""
+        if result.destination != "ads_memory_namespace" or self._ads_core_client is None:
+            return
+        if request.ads_core_scope_id is None:
+            logger.warning(
+                "memory %s promoted with destination=ads_memory_namespace but no "
+                "ads_core_scope_id was supplied -- delivery skipped",
+                request.memory_id,
+            )
+            return
+        try:
+            await self._ads_core_client.record_memory_namespace(
+                tenant_id=request.tenant_id,
+                scope_id=request.ads_core_scope_id,
+                kind="project_fact",
+                statement=statement_for_run_content(result.content),
+                confidence=None,
+                provenance={"memory_id": request.memory_id},
+                authorization=authorization,
+            )
+        except AdsCoreMemoryDeliveryUnavailableError as error:
+            logger.error(
+                "ADS Core delivery failed for promoted memory %s: %s",
+                request.memory_id,
+                error,
+            )
 
     async def revert_memory(
         self,

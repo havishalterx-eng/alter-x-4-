@@ -47,6 +47,7 @@ class PromoteMemoryRequest(StrictModel):
     tenant_id: str
     memory_id: str
     evaluation_run_id: str
+    ads_core_scope_id: str | None = None
 
 
 class PromoteMemoryResponse(StrictModel):
@@ -81,6 +82,13 @@ class StoredPolicyUpdate(StrictModel):
 class StoredMemoryPromotion(StrictModel):
     memory_id: str
     promoted_at: datetime
+    # Real fields promote_memory's repository already computed (destination
+    # routing, the memory's own content/scope) -- surfaced here so the
+    # async service layer above can decide whether/how to deliver into
+    # ADS Core without a second read.
+    destination: str | None
+    content: dict[str, object]
+    scope: str
 
 
 class StoredMemoryRevocation(StrictModel):
@@ -92,9 +100,6 @@ PolicyKind = Literal[
     "routing_weights",
     "quality_thresholds",
     "recovery_preferences",
-    "provider_policy",
-    "model_alias_map",
-    "trigger_limits",
 ]
 
 

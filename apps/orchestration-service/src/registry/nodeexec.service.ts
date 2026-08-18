@@ -14,6 +14,12 @@ import {
   type NodeType,
 } from "@alterx/contracts";
 
+import type {
+  CapabilityServiceHandlerClient,
+  PerformanceRecorderHandler,
+  SelectionBindingHandler,
+} from "@alterx/adapters";
+
 import { NodeHandlerValidationError } from "./handler";
 import type { NodeHandlerRegistry } from "./node-handler-registry";
 import { NodeExecutionLedgerService } from "../runs/node-execution-ledger.service";
@@ -21,6 +27,7 @@ import { RunStreamEventService } from "../runs/run-stream-event.service";
 import type { RecoveryTriggerService } from "../recovery/recovery-trigger.service";
 import type { RunOutcomeService } from "../runs/run-outcome.service";
 import type { ProjectRunProvisioningService } from "../runs/project-run-provisioning.service";
+import type { RunWorkspaceLookupService } from "../runs/run-workspace-lookup.service";
 import type { GeneratedFileMaterializer } from "./generated-file-materializer";
 import { VerifyGateError, type VerifyGateService } from "./verify-gate.service";
 import { createVerificationResultId } from "./verification-result-id";
@@ -84,6 +91,10 @@ export class NodeexecService {
     private readonly projectProvisioning?: ProjectRunProvisioningService,
     private readonly generatedFileMaterializer?: GeneratedFileMaterializer,
     private readonly verifyGate?: VerifyGateService,
+    private readonly runWorkspaceLookup?: RunWorkspaceLookupService,
+    private readonly capabilityResolver?: CapabilityServiceHandlerClient,
+    private readonly selectionBinding?: SelectionBindingHandler,
+    private readonly performanceRecorder?: PerformanceRecorderHandler,
   ) {}
 
   async executeNode(
@@ -122,6 +133,9 @@ export class NodeexecService {
       },
     }, request);
 
+    let boundAgentId: string | undefined;
+    let executedMetadata: Record<string, unknown> | undefined;
+    const executionStartedAtMs = Date.now();
     try {
       const config = parseJsonObject(request.config_json, "config_json");
       const inputs = parseInputs(request.inputs_json);
@@ -143,6 +157,8 @@ export class NodeexecService {
           : config,
         generatedFileNode,
       );
+      const agentBinding = await this.#resolveAgentBindingBestEffort(request, executionConfig);
+      boundAgentId = agentBinding.agent_id;
       const result = await this.registry.execute(request.node_type, {
         config: executionConfig,
         inputs,
@@ -152,6 +168,7 @@ export class NodeexecService {
         ...(typeof sandboxSessionId === "string"
           ? { sandbox_session_id: sandboxSessionId }
           : {}),
+        ...agentBinding,
         on_model_delta: async (delta, index, final) =>
           this.#appendBestEffort({
             event: "model.delta",
@@ -159,6 +176,7 @@ export class NodeexecService {
           }, request),
       });
 
+      executedMetadata = result.metadata;
       if (request.node_type === "SandboxExec") {
         await this.#appendTerminalFramesBestEffort(request, result.output);
       }
@@ -213,6 +231,9 @@ export class NodeexecService {
           message: problem.data.detail,
           retryable: problem.data.retryable,
         }), request);
+        await this.#recordPerformanceBestEffort(
+          request, boundAgentId, "failure", executionStartedAtMs, executedMetadata,
+        );
       } else {
         const verification = await this.verifyGate?.scoreNodeInline({
           tenant_id: request.tenant_id,
@@ -267,6 +288,9 @@ export class NodeexecService {
           status: "succeeded", ended_at: new Date().toISOString(),
           ...(verification === undefined ? {} : { verification_verdict: verification.verdict }),
         } }, request);
+        await this.#recordPerformanceBestEffort(
+          request, boundAgentId, "success", executionStartedAtMs, executedMetadata,
+        );
       }
       return { output_json: outputJson, metadata_json: JSON.stringify(metadata) };
     } catch (error: unknown) {
@@ -282,8 +306,126 @@ export class NodeexecService {
       await this.#appendBestEffort(failedEvent(request, nodeType.data, started.attempt, {
         error_code: "NODE_EXECUTION_FAILED", message: "Node execution failed", retryable: false,
       }), request);
+      await this.#recordPerformanceBestEffort(
+        request, boundAgentId, "failure", executionStartedAtMs, executedMetadata,
+      );
       await this.#triggerRecoveryForFailureBestEffort(request, failure);
       throw error;
+    }
+  }
+
+  /**
+   * Selection & Binding is resolved fresh here, per LLMTask node, rather
+   * than baked into the compiled DAG at plan time -- same runtime-injection
+   * shape as sandboxSessionId above, so a swap_agent retry (recovery-
+   * dispatch.service.ts) is picked up by the very next execution without
+   * recompiling the workflow. Fail-open: LLMTaskHandler falls back to its
+   * own compiled config.model_alias whenever this returns {}, whether that's
+   * because deps aren't configured, no eligible agent matched, or a real
+   * call failed -- a missing binding must never fail the node.
+   */
+  async #resolveAgentBindingBestEffort(
+    request: NodeexecExecuteNodeRequest,
+    config: Record<string, unknown>,
+  ): Promise<{
+    readonly agent_id?: string;
+    readonly bound_model_alias?: string;
+    readonly bound_tool_names?: readonly string[];
+  }> {
+    if (
+      request.node_type !== "LLMTask" ||
+      this.runWorkspaceLookup === undefined ||
+      this.capabilityResolver === undefined ||
+      this.selectionBinding === undefined
+    ) {
+      return {};
+    }
+    try {
+      const workspaceId = await this.runWorkspaceLookup.getWorkspaceId(
+        request.tenant_id,
+        request.run_id,
+      );
+      const requirements = await this.capabilityResolver.resolveNodeRequirements({
+        tenant_id: request.tenant_id,
+        run_id: request.run_id,
+        node_key: request.node_key,
+        node_type: request.node_type,
+        node_config_json: JSON.stringify(config),
+      });
+      const bound = await this.selectionBinding.bindAgentModelTool({
+        tenant_id: request.tenant_id,
+        run_id: request.run_id,
+        node_key: request.node_key,
+        node_requirements_json: requirements.node_requirements_json,
+        workspace_id: workspaceId,
+        node_type: request.node_type,
+      });
+      if (!bound.matched) return {};
+      return {
+        agent_id: bound.agent_id,
+        bound_model_alias: bound.model_alias,
+        bound_tool_names: bound.tool_names,
+      };
+    } catch (error: unknown) {
+      console.error("selection & binding resolution failed for LLMTask node", {
+        node_execution_id: request.node_execution_id,
+        run_id: request.run_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {};
+    }
+  }
+
+  /**
+   * The real performance_records writer call -- only fires when a real
+   * Selection & Binding match happened (agentId defined), so this never
+   * attributes performance to a compiled-config model_alias with no agent
+   * identity behind it. Best-effort: a recording failure must never affect
+   * the node's already-decided success/failure outcome.
+   */
+  async #recordPerformanceBestEffort(
+    request: NodeexecExecuteNodeRequest,
+    agentId: string | undefined,
+    verdict: "success" | "failure",
+    startedAtMs: number,
+    metadata: Record<string, unknown> | undefined,
+  ): Promise<void> {
+    if (
+      request.node_type !== "LLMTask" ||
+      agentId === undefined ||
+      this.performanceRecorder === undefined
+    ) {
+      return;
+    }
+    const usage = metadata?.["usage"];
+    const inputTokens =
+      isPlainObject(usage) && typeof usage["input_tokens"] === "number"
+        ? usage["input_tokens"]
+        : undefined;
+    const outputTokens =
+      isPlainObject(usage) && typeof usage["output_tokens"] === "number"
+        ? usage["output_tokens"]
+        : undefined;
+    const tokenCount =
+      inputTokens === undefined && outputTokens === undefined
+        ? undefined
+        : (inputTokens ?? 0) + (outputTokens ?? 0);
+    try {
+      await this.performanceRecorder.recordObservation(agentId, {
+        tenant_id: request.tenant_id,
+        run_id: request.run_id,
+        node_type: request.node_type,
+        verdict,
+        latency_ms: Date.now() - startedAtMs,
+        ...(tokenCount === undefined ? {} : { token_count: tokenCount }),
+      });
+    } catch (error: unknown) {
+      console.error("performance observation recording failed", {
+        node_execution_id: request.node_execution_id,
+        run_id: request.run_id,
+        agent_id: agentId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

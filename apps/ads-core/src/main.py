@@ -9,6 +9,7 @@ from .deletion.router import deletion_lifespan
 from .deletion.router import router as deletion_router
 from .ingestion.router import ingestion_lifespan
 from .ingestion.router import router as ingestion_router
+from .memory_namespace.router import router as memory_namespace_router
 from .query.router import router as query_router
 from .service_auth import assert_configured_at_startup, fastapi_dependency
 
@@ -39,6 +40,7 @@ app.add_exception_handler(DeletionHttpError, deletion_exception_handler)  # type
 app.include_router(ingestion_router)
 app.include_router(connectors_router)
 app.include_router(query_router)
+app.include_router(memory_namespace_router)
 app.include_router(deletion_router)
 
 

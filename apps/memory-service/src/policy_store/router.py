@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import get_settings
 
+from .ads_core_client import HttpxAdsCoreMemoryClient
 from .models import (
     GetActivePolicyRequest,
     GetActivePolicyResponse,
@@ -33,25 +34,33 @@ from .repository import (
 from .service import PolicyStoreService, PolicyStoreValidationError
 
 _default_service: PolicyStoreService | None = None
+_default_ads_core_client: HttpxAdsCoreMemoryClient | None = None
 
 
 @asynccontextmanager
 async def policy_store_lifespan(app: FastAPI) -> AsyncIterator[None]:
     del app
-    global _default_service
+    global _default_service, _default_ads_core_client
     settings = get_settings()
     tenant_engine = create_engine(settings.policy_db_url_sync, pool_pre_ping=True)
     system_engine = create_engine(settings.policy_db_system_url_sync, pool_pre_ping=True)
+    _default_ads_core_client = HttpxAdsCoreMemoryClient(
+        str(settings.ads_core_base_url),
+        settings.ads_core_timeout_seconds,
+    )
     _default_service = PolicyStoreService(
         SqlAlchemyPolicyStoreRepository(
             sessionmaker(tenant_engine, class_=Session, expire_on_commit=False),
             sessionmaker(system_engine, class_=Session, expire_on_commit=False),
-        )
+        ),
+        _default_ads_core_client,
     )
     try:
         yield
     finally:
         _default_service = None
+        await _default_ads_core_client.close()
+        _default_ads_core_client = None
         system_engine.dispose()
         tenant_engine.dispose()
 

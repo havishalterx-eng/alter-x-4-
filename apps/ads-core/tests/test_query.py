@@ -57,6 +57,7 @@ def retrieval_service() -> Generator[tuple[RetrievalService, sa.Engine], None, N
                 "document_versions",
                 "chunks",
                 "retrieval_audit",
+                "memory_namespace",
             ):
                 connection.execute(sa.text(f"GRANT SELECT, INSERT ON {table} TO {RUNTIME_ROLE}"))
             connection.execute(sa.text(f"GRANT USAGE ON SCHEMA public TO {RUNTIME_ROLE}"))
@@ -221,6 +222,70 @@ def test_hybrid_query_filters_metadata_scopes_and_audits(
             )
             == "rejected"
         )
+
+
+def test_retrieval_includes_real_memory_namespace_facts_scoped_to_the_request(
+    retrieval_service: tuple[RetrievalService, sa.Engine],
+) -> None:
+    service, admin = retrieval_service
+    tenant, workspace, scope, _document, source, _other_workspace = _seed(admin)
+    fact_id = new_prefixed_id("mns")
+    other_scope_fact_id = new_prefixed_id("mns")
+    tenant_uuid = tenant.removeprefix("ten_")
+    workspace_uuid = workspace.removeprefix("ws_")
+    with admin.begin() as connection:
+        connection.execute(
+            sa.text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
+            {"tenant": tenant_uuid},
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO memory_namespace "
+                "(id, tenant_id, scope_id, kind, statement, confidence, provenance, status) "
+                "VALUES (:id, :tenant, :scope, 'project_fact', :statement, 0.8, "
+                "CAST(:provenance AS jsonb), 'active')"
+            ),
+            {
+                "id": fact_id,
+                "tenant": tenant_uuid,
+                "scope": scope,
+                "statement": "Run completed with verdict 'completed_verified'.",
+                "provenance": '{"memory_id":"mem_test"}',
+            },
+        )
+        # A different, real, tenant-visible scope -- must not leak into a
+        # request that only asked for `scope`.
+        other_scope = new_prefixed_id("scp")
+        connection.execute(
+            sa.text(
+                "INSERT INTO scopes(id,tenant_id,workspace_id) VALUES (:id,:tenant,:workspace)"
+            ),
+            {"id": other_scope, "tenant": tenant_uuid, "workspace": workspace_uuid},
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO memory_namespace "
+                "(id, tenant_id, scope_id, kind, statement, provenance, status) "
+                "VALUES (:id, :tenant, :scope, 'project_fact', 'other scope fact', "
+                "'{}'::jsonb, 'active')"
+            ),
+            {"id": other_scope_fact_id, "tenant": tenant_uuid, "scope": other_scope},
+        )
+
+    response = service.retrieve(
+        RetrievalRequest(
+            tenant_id=tenant,
+            workspace_id=workspace,
+            requester="svc_engine",
+            query="refund policy",
+            scope_ids=(scope,),
+            source_ids=(source,),
+        )
+    )
+
+    assert [fact.id for fact in response.memory_facts] == [fact_id]
+    assert response.memory_facts[0].statement == "Run completed with verdict 'completed_verified'."
+    assert response.memory_facts[0].confidence == 0.8
 
 
 def test_query_route_returns_real_seeded_provenance_and_confidence(

@@ -18,6 +18,7 @@ from .kernel import VerificationKernel, VerificationValidationError
 from .m2m_auth import lazy_auth0_m2m_token_provider_from_environment
 from .model_gateway_client import GrpcModelGatewayClient
 from .models import ScoreNodeRequest, ScoreNodeResponse
+from .policy_client import HttpQualityThresholdPolicyClient
 
 # ---------------------------------------------------------------------------
 # Default kernel (wired with stubs; swap at integration time)
@@ -41,9 +42,20 @@ async def verification_lifespan(app: FastAPI) -> AsyncIterator[None]:
         model_gateway_target,
         access_token_provider=lazy_auth0_m2m_token_provider_from_environment(),
     )
-    _default_kernel = VerificationKernel(model_gateway)
+    memory_service_base_url = os.environ.get("MEMORY_SERVICE_BASE_URL")
+    internal_service_token = os.environ.get("INTERNAL_SERVICE_TOKEN", "")
+    policy_client = (
+        HttpQualityThresholdPolicyClient(
+            memory_service_base_url, f"Bearer {internal_service_token}"
+        )
+        if memory_service_base_url
+        else None
+    )
+    _default_kernel = VerificationKernel(model_gateway, policy_client)
     yield
     await model_gateway.close()
+    if policy_client is not None:
+        await policy_client.close()
     _default_kernel = None
 
 

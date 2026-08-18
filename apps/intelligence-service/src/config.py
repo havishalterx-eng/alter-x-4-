@@ -16,7 +16,9 @@ class Settings(BaseSettings):
     auth0_m2m_client_id: str = ""
     auth0_m2m_client_secret: str = ""
     memory_service_base_url: str = "http://localhost:8002"
+    internal_service_token: str = ""
     capability_grpc_bind_address: str = "0.0.0.0:50061"
+    draft_agent_promotion_threshold: int = 3
 
     model_config = SettingsConfigDict(
         env_file=".env.local",

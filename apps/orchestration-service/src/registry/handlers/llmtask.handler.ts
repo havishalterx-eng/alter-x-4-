@@ -25,7 +25,11 @@ export class LlmTaskHandler implements NodeHandler {
   constructor(private readonly modelGateway: ModelGatewayHandler) {}
 
   async execute(context: NodeExecutionContext): Promise<NodeExecutionResult> {
-    const modelAlias = context.config["model_alias"];
+    // Selection & Binding's ranked match (resolved fresh by Nodeexec, see
+    // NodeExecutionContext.bound_model_alias) takes priority over the
+    // compiled config's static alias whenever a real binding was found --
+    // absent it, this is unchanged EXEC-2 behavior.
+    const modelAlias = context.bound_model_alias ?? context.config["model_alias"];
     const aliasResult = ModelAliasSchema.safeParse(modelAlias);
     if (!aliasResult.success) {
       throw new NodeHandlerValidationError(
@@ -100,6 +104,13 @@ export class LlmTaskHandler implements NodeHandler {
         ...(resolvedCapability === undefined
           ? {}
           : { resolved_capability: resolvedCapability }),
+        // Recorded for observability and the performance_records writer even
+        // though this handler does not itself call Tool Gateway -- carries
+        // the real bind result through, never fabricated.
+        ...(context.agent_id === undefined ? {} : { agent_id: context.agent_id }),
+        ...(context.bound_tool_names === undefined
+          ? {}
+          : { bound_tool_names: context.bound_tool_names }),
       },
     };
   }

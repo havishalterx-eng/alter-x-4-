@@ -259,6 +259,53 @@ describe("Admin tenants routes", () => {
     );
   });
 
+  it("blocks staff_admin/staff_support from get() without an active support grant", async () => {
+    const created = await repository.createTenant(
+      "11111111-1111-7111-8111-111111111113",
+      "Gated target",
+      "org-gated",
+      "ap-south-1",
+    );
+    const asAdmin = await request({
+      method: "GET",
+      url: `/api/v1/admin/tenants/${created.id}`,
+      staffContext: staff(["staff_admin"]),
+    });
+    expect(asAdmin.statusCode).toBe(403);
+    expect(asAdmin.json()).toMatchObject({ error_code: "ACTIVE_SUPPORT_GRANT_REQUIRED" });
+
+    const asSupport = await request({
+      method: "GET",
+      url: `/api/v1/admin/tenants/${created.id}`,
+      staffContext: staff(["staff_support"]),
+    });
+    expect(asSupport.statusCode).toBe(403);
+    expect(asSupport.json()).toMatchObject({ error_code: "ACTIVE_SUPPORT_GRANT_REQUIRED" });
+  });
+
+  it("allows get() for staff_admin/staff_support with an active support grant, same view as support-snapshot", async () => {
+    const created = await repository.createTenant(
+      "11111111-1111-7111-8111-111111111114",
+      "Granted target",
+      "org-granted",
+      "ap-south-1",
+    );
+    const response = await request({
+      method: "GET",
+      url: `/api/v1/admin/tenants/${created.id}`,
+      staffContext: staff(["staff_admin"]),
+      supportGrant: "jit_approved",
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ id: created.id });
+    expect(requireAccess).toHaveBeenCalledWith(
+      "jit_approved",
+      staffUserId,
+      created.id,
+      "tenant:read",
+    );
+  });
+
   it("suspends then reinstates a tenant, preserving the entitlement plan and limits", async () => {
     const created = await repository.createTenant(
       "22222222-2222-7222-8222-222222222222",
@@ -352,7 +399,7 @@ describe("Admin tenants routes", () => {
     const response = await request({
       method: "GET",
       url: "/api/v1/admin/tenants/99999999-9999-7999-8999-999999999999",
-      staffContext: staff(["staff_admin"]),
+      staffContext: staff(["staff_billing_ops"]),
     });
     expectProblem(response, 404, "ADMIN_TENANT_NOT_FOUND");
   });

@@ -96,6 +96,7 @@ def golden_set_service() -> Generator[tuple[RetrievalService, sa.Engine, str, st
                 "document_versions",
                 "chunks",
                 "retrieval_audit",
+                "memory_namespace",
             ):
                 connection.execute(sa.text(f"GRANT SELECT, INSERT ON {table} TO {RUNTIME_ROLE}"))
             connection.execute(sa.text(f"GRANT USAGE ON SCHEMA public TO {RUNTIME_ROLE}"))

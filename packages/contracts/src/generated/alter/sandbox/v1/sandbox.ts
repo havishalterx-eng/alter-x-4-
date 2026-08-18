@@ -117,6 +117,25 @@ export interface RunVerificationSuiteRequest {
   /** ses_ prefixed UUIDv7 */
   session_id: string;
   checks: string[];
+  /**
+   * Required when checks includes "render". Omitted (not empty-string)
+   * when absent, so a caller running only "build" never has to invent a
+   * placeholder value.
+   */
+  preview_url?:
+    | string
+    | undefined;
+  /**
+   * Required when checks includes "render" -- same content_artifact_id
+   * reference pattern WriteFileRequest already uses, not inline content.
+   */
+  render_files: RenderCheckFile[];
+}
+
+export interface RenderCheckFile {
+  path: string;
+  /** art_ prefixed UUIDv7 */
+  content_artifact_id: string;
 }
 
 export interface RunVerificationSuiteResponse {

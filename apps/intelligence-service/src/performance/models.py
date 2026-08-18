@@ -33,3 +33,17 @@ class DriftCandidate(StrictModel):
 
 class DriftCandidateResponse(StrictModel):
     candidates: tuple[DriftCandidate, ...]
+
+
+class RecordPerformanceRequest(StrictModel):
+    tenant_id: str
+    run_id: str | None = None
+    node_type: str | None = None
+    task_category: str | None = None
+    verdict: PerformanceVerdict
+    latency_ms: int | None = None
+    token_count: int | None = None
+
+
+class RecordPerformanceResponse(StrictModel):
+    id: str

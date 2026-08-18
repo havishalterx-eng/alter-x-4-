@@ -32,6 +32,19 @@ export interface NodeExecutionContext {
   readonly node_execution_id?: string; // node_ prefixed UUIDv7
   /** Opaque cycle-scoped session ID supplied by Provisioning in node config. */
   readonly sandbox_session_id?: string;
+  /**
+   * Real Selection & Binding ranked-match result, resolved fresh by
+   * Nodeexec immediately before execution (not baked in at compile time --
+   * same runtime-injection shape as sandbox_session_id above, so a rebound
+   * agent is picked up by the very next retry without recompiling the
+   * workflow). Absent whenever no capabilityResolver/selectionBinding is
+   * configured, or the ranked-match found no eligible agent -- callers
+   * fall back to their own compiled config in that case, never treat a
+   * missing binding as an error.
+   */
+  readonly agent_id?: string;
+  readonly bound_model_alias?: string;
+  readonly bound_tool_names?: readonly string[];
   /** Durable SSE publisher injected by Nodeexec; never exposed to workflow code. */
   readonly on_model_delta?: (delta: string, index: number, final: boolean) => Promise<void>;
 }

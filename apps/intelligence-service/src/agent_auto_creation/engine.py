@@ -29,9 +29,16 @@ INSERT INTO agents
   (id, tenant_id, workspace_id, name, tier, persona_description, status)
 VALUES
   (:agent_id, CAST(:tenant_id AS uuid), CAST(:workspace_id AS uuid),
-   :name, 'STANDARD', :persona_description, 'active')
+   :name, 'STANDARD', :persona_description, 'draft')
 """
 )
+# A freshly auto-created agent has never run for real -- it starts 'draft'
+# (both selection_binding queries include drafts, so it can still be
+# matched and accumulate real performance_records) and is promoted to
+# 'active' only once performance.repository's promotion check sees enough
+# real successes for it. This is the returned outcome's own binding for
+# the request that triggered creation, so its status here has no effect on
+# whether *this* request succeeds -- only on later requests.
 
 _INSERT_AGENT_VERSION = text(
     """

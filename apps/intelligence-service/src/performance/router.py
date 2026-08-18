@@ -5,13 +5,19 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Path, Query
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import get_settings
 from src.db.ids import validate_prefixed_id
 from src.db.session import get_db_session
 
-from .models import AgentPerformanceResponse, DriftCandidateResponse
+from .models import (
+    AgentPerformanceResponse,
+    DriftCandidateResponse,
+    RecordPerformanceRequest,
+    RecordPerformanceResponse,
+)
 from .repository import PerformanceRepository
 
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
@@ -75,6 +81,50 @@ async def agent_performance(
         task_class=task_class,
         observations=observations,
     )
+
+
+@router.post(
+    "/agents/{agent_id}/records",
+    response_model=RecordPerformanceResponse,
+    status_code=201,
+)
+async def record_agent_performance(
+    session: SessionDep,
+    authorization: AuthorizationHeader,
+    agent_id: Annotated[str, Path()],
+    body: RecordPerformanceRequest,
+) -> RecordPerformanceResponse:
+    if not authorization.startswith("Bearer ") or not authorization.removeprefix(
+        "Bearer "
+    ).strip():
+        raise HTTPException(status_code=401, detail="valid bearer authorization is required")
+    try:
+        validate_prefixed_id("ten", body.tenant_id)
+        validate_prefixed_id("agt", agent_id)
+        if body.run_id is not None:
+            validate_prefixed_id("run", body.run_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    tenant_uuid = body.tenant_id.removeprefix("ten_")
+    try:
+        record_id = await PerformanceRepository(session).record_observation(
+            agent_id=agent_id,
+            tenant_uuid=tenant_uuid,
+            run_id=body.run_id,
+            node_type=body.node_type,
+            task_category=body.task_category,
+            verdict=body.verdict,
+            latency_ms=body.latency_ms,
+            token_count=body.token_count,
+            draft_promotion_threshold=get_settings().draft_agent_promotion_threshold,
+        )
+    except IntegrityError as error:
+        await session.rollback()
+        raise HTTPException(
+            status_code=404,
+            detail=f"agent {agent_id} does not exist for tenant {body.tenant_id}",
+        ) from error
+    return RecordPerformanceResponse(id=record_id)
 
 
 @router.get("/drift-candidates", response_model=DriftCandidateResponse)

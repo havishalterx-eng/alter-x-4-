@@ -13,6 +13,7 @@ from src.memory_grpc_service import MemoryGrpcService
 from src.memory_learning.extraction import MemoryLearningKernel
 from src.memory_learning.orchestration_client import HttpxOrchestrationRunClient
 from src.memory_learning.repository import SqlAlchemyMemoryCandidateRepository
+from src.policy_store.ads_core_client import HttpxAdsCoreMemoryClient
 from src.policy_store.repository import SqlAlchemyPolicyStoreRepository
 from src.policy_store.service import PolicyStoreService
 from src.service_auth import ServiceAuthInterceptor, assert_configured_at_startup
@@ -29,6 +30,10 @@ async def serve() -> None:
         str(settings.orchestration_service_base_url),
         settings.orchestration_service_timeout_seconds,
     )
+    ads_core = HttpxAdsCoreMemoryClient(
+        str(settings.ads_core_base_url),
+        settings.ads_core_timeout_seconds,
+    )
     service = MemoryGrpcService(
         MemoryLearningKernel(
             orchestration,
@@ -36,6 +41,7 @@ async def serve() -> None:
         ),
         PolicyStoreService(
             SqlAlchemyPolicyStoreRepository(tenant_sessions, system_sessions),
+            ads_core,
         ),
     )
     # Interceptor rather than a per-RPC check: MemoryService.UpdatePolicy,
@@ -50,6 +56,7 @@ async def serve() -> None:
     finally:
         await server.stop(grace=5)
         await orchestration.close()
+        await ads_core.close()
         tenant_engine.dispose()
         system_engine.dispose()
 

@@ -11,6 +11,7 @@ from src.verification.grpc_service import VerifyGrpcService
 from src.verification.kernel import VerificationKernel
 from src.verification.m2m_auth import lazy_auth0_m2m_token_provider_from_environment
 from src.verification.model_gateway_client import GrpcModelGatewayClient
+from src.verification.policy_client import HttpQualityThresholdPolicyClient
 
 
 async def serve() -> None:
@@ -22,12 +23,25 @@ async def serve() -> None:
         "MODEL_GATEWAY_ADDRESS"
     )
     bind_address = os.environ.get("GRPC_BIND_ADDRESS", "0.0.0.0:50054")
+    memory_service_base_url = os.environ.get("MEMORY_SERVICE_BASE_URL")
+    internal_service_token = os.environ.get("INTERNAL_SERVICE_TOKEN", "")
 
     engine = create_async_engine(database_url, pool_pre_ping=True)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     model_gateway = GrpcModelGatewayClient(
         model_gateway_target,
         access_token_provider=lazy_auth0_m2m_token_provider_from_environment(),
+    )
+    # Real per-tenant quality_thresholds override (memory-service's Policy
+    # Store) -- optional by design (MEMORY_SERVICE_BASE_URL unset keeps the
+    # kernel on its hardcoded DEFAULT_THRESHOLD/WARN_MARGIN fallback rather
+    # than making this a hard dependency of every verification call).
+    policy_client = (
+        HttpQualityThresholdPolicyClient(
+            memory_service_base_url, f"Bearer {internal_service_token}"
+        )
+        if memory_service_base_url
+        else None
     )
     # HARD-7: wires ScoreNodeInline for real. StubReviewerLlmClient is a
     # known, disclosed gap (kernel.py's own doc comment: "wire the stub
@@ -39,7 +53,7 @@ async def serve() -> None:
     # Synthesis) would get a synthetic, non-real score until a real
     # ADVANCED Model Gateway reviewer client is built (separate, real,
     # disclosed follow-up).
-    kernel = VerificationKernel(model_gateway)
+    kernel = VerificationKernel(model_gateway, policy_client)
     server = grpc.aio.server()
     verify_pb2_grpc.add_VerifyServiceServicer_to_server(  # type: ignore[no-untyped-call]
         VerifyGrpcService(sessions, model_gateway, kernel), server
@@ -51,6 +65,8 @@ async def serve() -> None:
     finally:
         await server.stop(grace=5)
         await model_gateway.close()
+        if policy_client is not None:
+            await policy_client.close()
         await engine.dispose()
 
 

@@ -55,11 +55,37 @@ export class AdminTenantsController {
     return this.tenants.list();
   }
 
+  /**
+   * staff_admin/staff_support must present the same active, scoped JIT
+   * grant support-snapshot requires — otherwise this route was a direct
+   * bypass of that gate (identical AdminTenantDetailView, no reason code,
+   * no audit trail). staff_billing_ops/staff_security were never in
+   * support-snapshot's role set and keep their existing ungated access;
+   * this only closes the bypass for the two roles the grant exists to
+   * restrict.
+   */
   @Get(":tenantId")
   @RequireStaffRole(...readRoles)
-  get(@Param("tenantId") tenantId: string): Promise<AdminTenantDetailView> {
+  async get(
+    @Param("tenantId") tenantId: string,
+    @Headers("x-alter-support-grant") grantId: string | undefined,
+    @Req() request: RbacRequest,
+  ): Promise<AdminTenantDetailView> {
     const instance = `/api/v1/admin/tenants/${tenantId}`;
-    return this.tenants.get(parseTenantId(tenantId, instance));
+    const id = parseTenantId(tenantId, instance);
+    const staff = requireStaff(request, instance);
+    if (staff.roles.some((role) => role === "staff_admin" || role === "staff_support")) {
+      if (!grantId?.startsWith("jit_")) {
+        throw new AdminTenantHttpError(
+          403,
+          "ACTIVE_SUPPORT_GRANT_REQUIRED",
+          "Active scoped support grant required",
+          instance,
+        );
+      }
+      await this.staff.requireAccess(grantId, staff.staff_user_id, id, "tenant:read");
+    }
+    return this.tenants.get(id);
   }
 
   @Get(":tenantId/support-snapshot")

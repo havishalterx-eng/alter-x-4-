@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from src.policy_store.ads_core_client import AdsCoreMemoryDeliveryUnavailableError
 from src.policy_store.models import (
     GetActivePolicyRequest,
     PromoteMemoryRequest,
@@ -262,13 +263,52 @@ def test_get_active_policy_returns_the_real_seeded_heal6_row(
     assert body["rules"]["rate_limit"] == "backoff"
 
 
-def test_get_active_policy_reports_not_found_honestly_for_an_unpromoted_kind(
+def test_quality_thresholds_seed_is_real(policy_database: dict[str, str]) -> None:
+    engine = sa.create_engine(policy_database["admin"])
+    with engine.connect() as connection:
+        row = connection.execute(
+            sa.text(
+                "SELECT id,kind,version,body,status FROM policies "
+                "WHERE id='pol_00000000-0000-7000-8000-000000000002'"
+            )
+        ).mappings().one()
+    engine.dispose()
+    assert row["kind"] == "quality_thresholds"
+    assert row["version"] == 1
+    assert row["body"]["threshold"] == 0.7
+    assert row["body"]["warn_margin"] == 0.15
+    assert row["status"] == "active"
+
+
+def test_get_active_policy_returns_the_real_seeded_quality_thresholds_row(
     policy_database: dict[str, str],
     policy_service: PolicyStoreService,
 ) -> None:
     response = asyncio.run(
         policy_service.get_active_policy(
-            GetActivePolicyRequest(tenant_id=TENANT_ID, kind="model_alias_map"),
+            GetActivePolicyRequest(tenant_id=TENANT_ID, kind="quality_thresholds"),
+            "Bearer integration-token",
+        )
+    )
+    assert response.found is True
+    assert response.policy_id == "pol_00000000-0000-7000-8000-000000000002"
+    assert response.version == 1
+    assert response.body_json is not None
+    body = json.loads(response.body_json)
+    assert body["threshold"] == 0.7
+    assert body["warn_margin"] == 0.15
+
+
+def test_get_active_policy_reports_not_found_honestly_for_an_unpromoted_kind(
+    policy_database: dict[str, str],
+    policy_service: PolicyStoreService,
+) -> None:
+    # routing_weights has no seed and this tenant never created a draft --
+    # quality_thresholds/recovery_preferences both have a real seeded
+    # global row (0002/0004) and would be found via global fallback.
+    response = asyncio.run(
+        policy_service.get_active_policy(
+            GetActivePolicyRequest(tenant_id=TENANT_ID, kind="routing_weights"),
             "Bearer integration-token",
         )
     )
@@ -286,6 +326,8 @@ def test_get_active_policy_prefers_new_active_version_after_promotion(
     # 'active' is 'rolled_back' (terminal), so it can never be walked
     # through draft->canary->active again to prove this. Real promotion
     # of a genuinely new active version needs its own fresh policy row.
+    # Starts at version=2: version=1 for this (scope, scope_id, kind) tuple
+    # is the real seeded quality_thresholds row (0004).
     fresh_policy_id = "pol_018f4d6e-2b4a-7a3e-8c1a-11111111a001"
     engine = sa.create_engine(policy_database["admin"])
     with engine.begin() as connection:
@@ -293,7 +335,7 @@ def test_get_active_policy_prefers_new_active_version_after_promotion(
             sa.text(
                 """
 INSERT INTO policies(id,scope,scope_id,kind,version,body,status,source)
-VALUES (:id,'global',NULL,'quality_thresholds',1,'{"rules":{}}','draft','human')
+VALUES (:id,'global',NULL,'quality_thresholds',2,'{"rules":{}}','draft','human')
 ON CONFLICT (id) DO NOTHING
 """
             ),
@@ -306,7 +348,7 @@ ON CONFLICT (id) DO NOTHING
             UpdatePolicyRequest(
                 tenant_id=TENANT_ID,
                 policy_id=fresh_policy_id,
-                current_version="1",
+                current_version="2",
                 patch_json='{"status":"canary","reason":"trial"}',
             ),
             "Bearer integration-token",
@@ -319,7 +361,7 @@ ON CONFLICT (id) DO NOTHING
             UpdatePolicyRequest(
                 tenant_id=TENANT_ID,
                 policy_id=fresh_policy_id,
-                current_version="2",
+                current_version="3",
                 patch_json=(
                     '{"status":"active","reason":"promote",'
                     ' "body":{"rules":{"min_confidence":0.9}}}'
@@ -338,7 +380,7 @@ ON CONFLICT (id) DO NOTHING
     )
     assert response.found is True
     assert response.policy_id == fresh_policy_id
-    assert response.version == 3
+    assert response.version == 4
     body = json.loads(response.body_json or "{}")
     assert body["rules"]["min_confidence"] == 0.9
 
@@ -444,6 +486,209 @@ def test_global_and_non_global_memory_promotion_follow_distinct_paths(
         "evaluation_run_id": EVALUATION_RUN_ID
     }
     assert project_row["destination"] == "ads_memory_namespace"
+
+
+ADS_CORE_SCOPE_ID = "scp_018f4d6e-2b4a-7a3e-8c1a-1234567890b1"
+
+
+def _seed_project_memory_with_run_content(
+    policy_database: dict[str, str], memory_id: str
+) -> None:
+    """Realistic memory_learning/extraction.py content shape -- the
+    PROJECT_MEMORY_ID fixture above uses a minimal stand-in that doesn't
+    exercise statement_for_run_content's real fields."""
+    engine = sa.create_engine(policy_database["admin"])
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                """
+INSERT INTO memory_records(id,tenant_id,scope,content,provenance,status)
+VALUES (:id,CAST(:tenant AS uuid),'project',CAST(:content AS jsonb),
+        CAST(:provenance AS jsonb),'candidate')
+ON CONFLICT (id) DO NOTHING
+"""
+            ),
+            {
+                "id": memory_id,
+                "tenant": TENANT_UUID,
+                "content": (
+                    '{"final_verdict":"completed_verified","gates":{"passed":3,"failed":0},'
+                    '"recovery_count":1,"nodes":[],"failed_nodes":[],'
+                    '"recovery_actions":[{"failure_class":"timeout","strategy":"retry",'
+                    '"node_execution_id":"node_x","outcome":"resolved"}]}'
+                ),
+                "provenance": '{"run_id":"run_delivery_source"}',
+            },
+        )
+    engine.dispose()
+
+
+class FakeAdsCoreMemoryClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+        self.raise_unavailable = False
+
+    async def record_memory_namespace(
+        self,
+        *,
+        tenant_id: str,
+        scope_id: str,
+        kind: str,
+        statement: str,
+        confidence: float | None,
+        provenance: dict[str, object],
+        authorization: str,
+    ) -> str:
+        if self.raise_unavailable:
+            raise AdsCoreMemoryDeliveryUnavailableError("simulated unavailable")
+        self.calls.append(
+            {
+                "tenant_id": tenant_id,
+                "scope_id": scope_id,
+                "kind": kind,
+                "statement": statement,
+                "confidence": confidence,
+                "provenance": provenance,
+                "authorization": authorization,
+            }
+        )
+        return "mns_test"
+
+
+def _service_with_ads_core(
+    policy_database: dict[str, str], client: FakeAdsCoreMemoryClient
+) -> PolicyStoreService:
+    tenant_engine = sa.create_engine(policy_database["tenant"])
+    system_engine = sa.create_engine(policy_database["system"])
+    repository = SqlAlchemyPolicyStoreRepository(
+        sessionmaker(tenant_engine, class_=Session, expire_on_commit=False),
+        sessionmaker(system_engine, class_=Session, expire_on_commit=False),
+    )
+    return PolicyStoreService(repository, client)
+
+
+def test_promote_memory_delivers_a_real_project_memory_to_ads_core(
+    policy_database: dict[str, str],
+) -> None:
+    memory_id = "mem_018f4d6e-2b4a-7a3e-8c1a-1234567890b0"
+    _seed_project_memory_with_run_content(policy_database, memory_id)
+    client = FakeAdsCoreMemoryClient()
+    service = _service_with_ads_core(policy_database, client)
+
+    result = asyncio.run(
+        service.promote_memory(
+            PromoteMemoryRequest(
+                tenant_id=TENANT_ID,
+                memory_id=memory_id,
+                evaluation_run_id=EVALUATION_RUN_ID,
+                ads_core_scope_id=ADS_CORE_SCOPE_ID,
+            ),
+            "Bearer integration-token",
+        )
+    )
+
+    assert result.promoted is True
+    assert len(client.calls) == 1
+    call = client.calls[0]
+    assert call["tenant_id"] == TENANT_ID
+    assert call["scope_id"] == ADS_CORE_SCOPE_ID
+    assert call["kind"] == "project_fact"
+    assert call["statement"] == (
+        "Run completed with verdict 'completed_verified'; 0 node(s) failed; "
+        "recovery strategies used: retry."
+    )
+    assert call["provenance"] == {"memory_id": memory_id}
+
+
+def test_promote_memory_skips_delivery_without_ads_core_scope_id(
+    policy_database: dict[str, str],
+) -> None:
+    memory_id = "mem_018f4d6e-2b4a-7a3e-8c1a-1234567890b2"
+    _seed_project_memory_with_run_content(policy_database, memory_id)
+    client = FakeAdsCoreMemoryClient()
+    service = _service_with_ads_core(policy_database, client)
+
+    result = asyncio.run(
+        service.promote_memory(
+            PromoteMemoryRequest(
+                tenant_id=TENANT_ID,
+                memory_id=memory_id,
+                evaluation_run_id=EVALUATION_RUN_ID,
+            ),
+            "Bearer integration-token",
+        )
+    )
+
+    assert result.promoted is True
+    assert client.calls == []
+
+
+def test_promote_memory_never_fails_when_ads_core_delivery_is_unavailable(
+    policy_database: dict[str, str],
+) -> None:
+    memory_id = "mem_018f4d6e-2b4a-7a3e-8c1a-1234567890b3"
+    _seed_project_memory_with_run_content(policy_database, memory_id)
+    client = FakeAdsCoreMemoryClient()
+    client.raise_unavailable = True
+    service = _service_with_ads_core(policy_database, client)
+
+    result = asyncio.run(
+        service.promote_memory(
+            PromoteMemoryRequest(
+                tenant_id=TENANT_ID,
+                memory_id=memory_id,
+                evaluation_run_id=EVALUATION_RUN_ID,
+                ads_core_scope_id=ADS_CORE_SCOPE_ID,
+            ),
+            "Bearer integration-token",
+        )
+    )
+
+    assert result.promoted is True
+
+
+def test_promote_memory_does_not_deliver_a_global_scope_memory(
+    policy_database: dict[str, str],
+) -> None:
+    memory_id = "mem_018f4d6e-2b4a-7a3e-8c1a-1234567890b4"
+    engine = sa.create_engine(policy_database["admin"])
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                """
+INSERT INTO memory_records(id,tenant_id,scope,content,provenance,status)
+VALUES (:id,CAST(:tenant AS uuid),'global',CAST(:content AS jsonb),'{}'::jsonb,'candidate')
+ON CONFLICT (id) DO NOTHING
+"""
+            ),
+            {
+                "id": memory_id,
+                "tenant": TENANT_UUID,
+                "content": (
+                    '{"final_verdict":"failed","gates":{"passed":0,"failed":1},'
+                    '"recovery_count":0,"recovery_actions":[],"nodes":[]}'
+                ),
+            },
+        )
+    engine.dispose()
+    client = FakeAdsCoreMemoryClient()
+    service = _service_with_ads_core(policy_database, client)
+
+    result = asyncio.run(
+        service.promote_memory(
+            PromoteMemoryRequest(
+                tenant_id=TENANT_ID,
+                memory_id=memory_id,
+                evaluation_run_id=EVALUATION_RUN_ID,
+                ads_core_scope_id=ADS_CORE_SCOPE_ID,
+            ),
+            "Bearer integration-token",
+            global_write_token="integration-global-write-token",
+        )
+    )
+
+    assert result.promoted is True
+    assert client.calls == []
 
 
 def test_malformed_evaluation_run_id_is_rejected(

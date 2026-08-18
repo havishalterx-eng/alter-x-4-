@@ -22,6 +22,8 @@ from src.connectors.repository import SqlAlchemyConnectorSourceRepository
 from src.connectors.router import configure_connector_service
 from src.db.ids import new_prefixed_id, validate_prefixed_id
 from src.m2m_auth import lazy_auth0_m2m_token_provider_from_settings
+from src.memory_namespace.repository import SqlAlchemyMemoryNamespaceRepository
+from src.memory_namespace.router import configure_memory_namespace_repository
 from src.query.repository import SqlAlchemyRetrievalRepository
 from src.query.router import configure_retrieval_service
 from src.query.service import RetrievalService
@@ -135,6 +137,7 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
             max_concurrency=settings.ads_q_max_concurrency,
         )
     )
+    configure_memory_namespace_repository(SqlAlchemyMemoryNamespaceRepository(sessions))
     try:
         yield
     finally:
@@ -147,6 +150,7 @@ async def ingestion_lifespan(app: FastAPI) -> AsyncIterator[None]:
         _default_embedding_client = None
         configure_connector_service(None)
         configure_retrieval_service(None)
+        configure_memory_namespace_repository(None)
         engine.dispose()
 
 

@@ -22,11 +22,13 @@ import {
   EventBridgeEventPublisher,
   MemoryServiceClient,
   ModelGatewayClient,
+  PerformanceRecorderClient,
   PlannerClient,
   PolicyStoreClient,
   ProvisioningClient,
   RunDispatchGrpcController,
   SandboxServiceClient,
+  SelectionBindingClient,
   AwsSecretsManagerProvider,
   AwsSsmParameterProvider,
   S3ObjectStorageProvider,
@@ -565,6 +567,27 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         const ledger = new NodeExecutionLedgerService(store);
         const recoveryPolicy = buildRecoveryPolicyService();
         const recoveryTrigger = new RecoveryTriggerService(recoveryPolicy, recoveryPolicy);
+        // Selection & Binding for LLMTask execution -- same Capability
+        // Resolver gRPC target and intelligence-service FastAPI base URL
+        // buildRecoveryPolicyService's swap_agent wiring already targets,
+        // fresh instances per this factory's own no-shared-instances
+        // convention. runWorkspaceLookup reuses this factory's own `store`,
+        // same as the RUNS_HANDLER factory's own lookup below.
+        const bindingConfig = loadRecoveryEnvironment(process.env);
+        const capabilityResolverForNodeexec = new CapabilityServiceClient({
+          address: bindingConfig.capabilityResolverAddress,
+          protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+        });
+        const selectionBindingForNodeexec = new SelectionBindingClient({
+          baseUrl: bindingConfig.plannerBaseUrl,
+        });
+        // performance_records writer -- same intelligence-service FastAPI
+        // app Selection & Binding above already targets, just a different
+        // route prefix.
+        const performanceRecorder = new PerformanceRecorderClient({
+          baseUrl: bindingConfig.plannerBaseUrl,
+        });
+        const runWorkspaceLookup = new RunWorkspaceLookupService(store);
         return new NodeexecService(
           registry,
           ledger,
@@ -581,6 +604,10 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           ),
           new GeneratedFileMaterializer(artifacts, sandboxService),
           verifyGate,
+          runWorkspaceLookup,
+          capabilityResolverForNodeexec,
+          selectionBindingForNodeexec,
+          performanceRecorder,
         );
       },
       inject: [ArtifactsService],
@@ -851,6 +878,16 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
     protoPath: CAPABILITY_CLIENT_PROTO_PATH,
   }));
   const planner = new PlannerClient({ baseUrl: recoveryConfig.plannerBaseUrl });
+  // swap_agent's real dispatch target -- same Capability Resolver gRPC
+  // target `compiler` already uses (a fresh client instance, matching
+  // this factory's own no-shared-instances convention), and Selection &
+  // Binding lives on the same intelligence-service FastAPI app PlannerClient
+  // already targets, just a different route prefix -- no new env var.
+  const capabilityResolverForRecovery = new CapabilityServiceClient({
+    address: recoveryConfig.capabilityResolverAddress,
+    protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+  });
+  const selectionBinding = new SelectionBindingClient({ baseUrl: recoveryConfig.plannerBaseUrl });
   const policyStoreClient = new PolicyStoreClient({
     baseUrl: recoveryConfig.memoryServiceBaseUrl,
   });
@@ -882,6 +919,9 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
     durable,
     blackboard,
     verificationReader,
+    undefined,
+    capabilityResolverForRecovery,
+    selectionBinding,
   );
   const escalations = new EscalationsService(store);
   return new RecoveryPolicyService(

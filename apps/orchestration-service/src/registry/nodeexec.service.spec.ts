@@ -294,6 +294,256 @@ describe("NodeexecService.executeNode", () => {
     expect(ledger.recordSucceeded).toHaveBeenCalledWith(expect.objectContaining({ outputRef: "art_manifest" }));
   });
 
+  it("resolves a real Selection & Binding match for LLMTask and injects it into context", async () => {
+    let received: NodeExecutionContext | undefined;
+    const handler: NodeHandler = {
+      nodeType: "LLMTask",
+      async execute(context) {
+        received = context;
+        return { output: {} };
+      },
+    };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const capabilityResolver = {
+      resolveNodeRequirements: vi.fn().mockResolvedValue({
+        node_requirements_json: '{"task_category":"codegen"}',
+        schema_version: "1",
+      }),
+    };
+    const selectionBinding = {
+      bindAgentModelTool: vi.fn().mockResolvedValue({
+        matched: true,
+        agent_id: "agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+        agent_version: 3,
+        model_alias: "ADVANCED",
+        tool_names: ["search_web"],
+      }),
+    };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), fakeLedger(), undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      runWorkspaceLookup as never, capabilityResolver as never, selectionBinding as never,
+    );
+
+    const configJson = JSON.stringify({ prompt: "Do it", model_alias: "STANDARD" });
+    await nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_task", node_type: "LLMTask", config_json: configJson, inputs_json: "{}",
+    });
+
+    expect(runWorkspaceLookup.getWorkspaceId).toHaveBeenCalledWith(TENANT_ID, RUN_ID);
+    expect(capabilityResolver.resolveNodeRequirements).toHaveBeenCalledWith({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_key: "node_task", node_type: "LLMTask",
+      node_config_json: configJson,
+    });
+    expect(selectionBinding.bindAgentModelTool).toHaveBeenCalledWith({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_key: "node_task",
+      node_requirements_json: '{"task_category":"codegen"}', workspace_id: "ws_abc",
+      node_type: "LLMTask",
+    });
+    expect(received?.agent_id).toBe("agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab");
+    expect(received?.bound_model_alias).toBe("ADVANCED");
+    expect(received?.bound_tool_names).toEqual(["search_web"]);
+  });
+
+  it("leaves binding fields absent when Selection & Binding finds no eligible agent", async () => {
+    let received: NodeExecutionContext | undefined;
+    const handler: NodeHandler = {
+      nodeType: "LLMTask",
+      async execute(context) {
+        received = context;
+        return { output: {} };
+      },
+    };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const capabilityResolver = {
+      resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
+    };
+    const selectionBinding = {
+      bindAgentModelTool: vi.fn().mockResolvedValue({ matched: false, reason: "no eligible agent" }),
+    };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), fakeLedger(), undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      runWorkspaceLookup as never, capabilityResolver as never, selectionBinding as never,
+    );
+
+    await nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_task", node_type: "LLMTask",
+      config_json: JSON.stringify({ prompt: "Do it", model_alias: "STANDARD" }), inputs_json: "{}",
+    });
+
+    expect(received?.agent_id).toBeUndefined();
+    expect(received?.bound_model_alias).toBeUndefined();
+    expect(received?.bound_tool_names).toBeUndefined();
+  });
+
+  it("fails open when Selection & Binding resolution errors, never failing the node", async () => {
+    let received: NodeExecutionContext | undefined;
+    const handler: NodeHandler = {
+      nodeType: "LLMTask",
+      async execute(context) {
+        received = context;
+        return { output: {} };
+      },
+    };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockRejectedValue(new Error("run not found")) };
+    const capabilityResolver = { resolveNodeRequirements: vi.fn() };
+    const selectionBinding = { bindAgentModelTool: vi.fn() };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), fakeLedger(), undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      runWorkspaceLookup as never, capabilityResolver as never, selectionBinding as never,
+    );
+
+    const response = await nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_task", node_type: "LLMTask",
+      config_json: JSON.stringify({ prompt: "Do it", model_alias: "STANDARD" }), inputs_json: "{}",
+    });
+
+    expect(response.output_json).toBe("{}");
+    expect(received?.agent_id).toBeUndefined();
+    expect(capabilityResolver.resolveNodeRequirements).not.toHaveBeenCalled();
+  });
+
+  it("does not attempt Selection & Binding resolution for non-LLMTask node types", async () => {
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn() };
+    const capabilityResolver = { resolveNodeRequirements: vi.fn() };
+    const selectionBinding = { bindAgentModelTool: vi.fn() };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]), fakeLedger(), undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      runWorkspaceLookup as never, capabilityResolver as never, selectionBinding as never,
+    );
+
+    await nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_merge", node_type: "Merge", config_json: "{}", inputs_json: "{}",
+    });
+
+    expect(runWorkspaceLookup.getWorkspaceId).not.toHaveBeenCalled();
+  });
+
+  it("records a real performance observation when a bound LLMTask node succeeds", async () => {
+    const handler: NodeHandler = {
+      nodeType: "LLMTask",
+      async execute() {
+        return {
+          output: {},
+          metadata: { usage: { input_tokens: 10, output_tokens: 25 } },
+        };
+      },
+    };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const capabilityResolver = {
+      resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
+    };
+    const selectionBinding = {
+      bindAgentModelTool: vi.fn().mockResolvedValue({
+        matched: true,
+        agent_id: "agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+        agent_version: 1,
+        model_alias: "ADVANCED",
+        tool_names: [],
+      }),
+    };
+    const performanceRecorder = { recordObservation: vi.fn().mockResolvedValue(undefined) };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), fakeLedger(), undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      runWorkspaceLookup as never, capabilityResolver as never, selectionBinding as never,
+      performanceRecorder as never,
+    );
+
+    await nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_task", node_type: "LLMTask",
+      config_json: JSON.stringify({ prompt: "Do it", model_alias: "STANDARD" }), inputs_json: "{}",
+    });
+
+    expect(performanceRecorder.recordObservation).toHaveBeenCalledWith(
+      "agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+      expect.objectContaining({
+        tenant_id: TENANT_ID, run_id: RUN_ID, node_type: "LLMTask",
+        verdict: "success", token_count: 35,
+      }),
+    );
+    expect(performanceRecorder.recordObservation.mock.calls[0]?.[1].latency_ms).toBeGreaterThanOrEqual(0);
+  });
+
+  it("records a real performance observation as a failure when a bound LLMTask node throws", async () => {
+    const handler: NodeHandler = {
+      nodeType: "LLMTask",
+      async execute() {
+        throw new NodeHandlerValidationError("model gateway rejected the request");
+      },
+    };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const capabilityResolver = {
+      resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
+    };
+    const selectionBinding = {
+      bindAgentModelTool: vi.fn().mockResolvedValue({
+        matched: true,
+        agent_id: "agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+        agent_version: 1,
+        model_alias: "ADVANCED",
+        tool_names: [],
+      }),
+    };
+    const performanceRecorder = { recordObservation: vi.fn().mockResolvedValue(undefined) };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), fakeLedger(), undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      runWorkspaceLookup as never, capabilityResolver as never, selectionBinding as never,
+      performanceRecorder as never,
+    );
+
+    await expect(nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_task", node_type: "LLMTask",
+      config_json: JSON.stringify({ prompt: "Do it", model_alias: "STANDARD" }), inputs_json: "{}",
+    })).rejects.toThrow(NodeHandlerValidationError);
+
+    expect(performanceRecorder.recordObservation).toHaveBeenCalledWith(
+      "agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+      expect.objectContaining({ verdict: "failure" }),
+    );
+  });
+
+  it("does not record a performance observation when no real binding matched", async () => {
+    const handler: NodeHandler = {
+      nodeType: "LLMTask",
+      async execute() {
+        return { output: {} };
+      },
+    };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const capabilityResolver = {
+      resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
+    };
+    const selectionBinding = {
+      bindAgentModelTool: vi.fn().mockResolvedValue({ matched: false, reason: "no eligible agent" }),
+    };
+    const performanceRecorder = { recordObservation: vi.fn().mockResolvedValue(undefined) };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), fakeLedger(), undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      runWorkspaceLookup as never, capabilityResolver as never, selectionBinding as never,
+      performanceRecorder as never,
+    );
+
+    await nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_task", node_type: "LLMTask",
+      config_json: JSON.stringify({ prompt: "Do it", model_alias: "STANDARD" }), inputs_json: "{}",
+    });
+
+    expect(performanceRecorder.recordObservation).not.toHaveBeenCalled();
+  });
+
   it("rejects a blank node_key", async () => {
     await expect(
       service().executeNode({

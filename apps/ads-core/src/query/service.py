@@ -35,17 +35,20 @@ class RetrievalService:
             )
             raise RetrievalBackpressureError("ADS Q is at capacity; retry shortly")
         try:
-            candidates = self._repository.retrieve(
+            result = self._repository.retrieve(
                 request,
                 self._embeddings.embed(
                     tenant_id=request.tenant_id, text=request.query, dimensions=1024
                 ).vector,
-            ).hits
+            )
+            candidates = result.hits
             hits = rerank_and_reconstruct(candidates) if request.rerank else candidates
             audited_at = self._repository.audit(
                 request, candidates=candidates, results=hits, outcome="succeeded"
             )
-            return RetrievalResponse(hits=hits, audited_at=audited_at)
+            return RetrievalResponse(
+                hits=hits, memory_facts=result.memory_facts, audited_at=audited_at
+            )
         except Exception:
             self._repository.audit(request, outcome="failed", failure_reason="retrieval_failed")
             raise

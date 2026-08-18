@@ -28,13 +28,15 @@ export class PostgresRecoveryRunReader implements RecoveryRunReader {
     readonly compiledDagJson: string;
     readonly dagSchemaVersion: string;
     readonly workflowId: string;
+    readonly workspaceId: string;
   }> {
     return this.store.withTenant(tenantId, async (tx) => {
       const runResult = await tx.query<{
         readonly workflow_id: string;
         readonly workflow_version_id: string | null;
+        readonly workspace_id: string;
       }>(
-        "SELECT workflow_id, workflow_version_id FROM runs WHERE tenant_id = $1 AND id = $2",
+        "SELECT workflow_id, workflow_version_id, workspace_id FROM runs WHERE tenant_id = $1 AND id = $2",
         [tenantId, runId],
       );
       const runRow = runResult.rows[0];
@@ -56,6 +58,7 @@ export class PostgresRecoveryRunReader implements RecoveryRunReader {
         compiledDagJson: JSON.stringify(parsed.data),
         dagSchemaVersion: parsed.data.schema_version,
         workflowId: runRow.workflow_id,
+        workspaceId: runRow.workspace_id,
       };
     });
   }

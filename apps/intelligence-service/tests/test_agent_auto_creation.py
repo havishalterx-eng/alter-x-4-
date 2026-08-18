@@ -278,7 +278,7 @@ WHERE a.id = :agent_id
         assert row["workspace_id"] == WORKSPACE_A.removeprefix("ws_")
         assert row["name"] == "Capability agent: analysis.reasoning"
         assert row["tier"] == "STANDARD"
-        assert row["status"] == "active"
+        assert row["status"] == "draft"
         assert row["persona_description"] == (
             "Specialist agent for capabilities: "
             "analysis.reasoning, document.synthesis."

@@ -71,6 +71,11 @@ class MemoryGrpcService:
                     tenant_id=request.tenant_id,
                     memory_id=request.memory_id,
                     evaluation_run_id=request.evaluation_run_id,
+                    ads_core_scope_id=(
+                        request.ads_core_scope_id
+                        if request.HasField("ads_core_scope_id")
+                        else None
+                    ),
                 ),
                 _authorization(context),
             )

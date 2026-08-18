@@ -54,6 +54,55 @@ describe("LlmTaskHandler", () => {
     });
   });
 
+  it("prefers a real Selection & Binding model_alias over the compiled config's alias", async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      output_json: JSON.stringify({ text: "hello" }),
+      usage_json: JSON.stringify({ tokens: 42 }),
+      resolved_capability: "anthropic.claude-sonnet-5",
+    });
+    const handler = new LlmTaskHandler(fakeGateway(invoke));
+
+    await handler.execute({
+      config: { model_alias: "FAST", prompt: "summarize this" },
+      inputs: {},
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      node_execution_id: NODE_EXECUTION_ID,
+      bound_model_alias: "CEILING",
+    });
+
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ model_alias: "CEILING" }),
+    );
+  });
+
+  it("includes the bound agent_id and tool_names in result metadata when a real binding matched", async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      output_json: JSON.stringify({ text: "hello" }),
+      usage_json: JSON.stringify({ tokens: 42 }),
+      resolved_capability: "anthropic.claude-sonnet-5",
+    });
+    const handler = new LlmTaskHandler(fakeGateway(invoke));
+
+    const result = await handler.execute({
+      config: { model_alias: "ADVANCED", prompt: "summarize this" },
+      inputs: {},
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      node_execution_id: NODE_EXECUTION_ID,
+      agent_id: "agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+      bound_model_alias: "ADVANCED",
+      bound_tool_names: ["search_web"],
+    });
+
+    expect(result.metadata).toEqual({
+      usage: { tokens: 42 },
+      resolved_capability: "anthropic.claude-sonnet-5",
+      agent_id: "agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+      bound_tool_names: ["search_web"],
+    });
+  });
+
   it("forwards incremental model deltas before assembling the final output", async () => {
     const onModelDelta = vi.fn().mockResolvedValue(undefined);
     const stream = vi.fn(async function* () {

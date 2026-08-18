@@ -49,6 +49,7 @@ export interface RecoveryRunReader {
     readonly compiledDagJson: string;
     readonly dagSchemaVersion: string;
     readonly workflowId: string;
+    readonly workspaceId: string;
   }>;
   writeTerminalFailed(tenantId: string, runId: string): Promise<void>;
 }
@@ -65,6 +66,34 @@ export interface NodeRetrySignaler {
 export interface DispatchResult {
   readonly outcome: RecoveryOutcome;
   readonly detail: string;
+}
+
+export interface CapabilityResolverHandler {
+  resolveNodeRequirements(request: {
+    readonly tenant_id: string;
+    readonly run_id: string;
+    readonly node_key: string;
+    readonly node_type: string;
+    readonly node_config_json: string;
+  }): Promise<{ readonly node_requirements_json: string; readonly schema_version: string }>;
+}
+
+export interface SelectionBindingHandler {
+  bindAgentModelTool(request: {
+    readonly tenant_id: string;
+    readonly run_id: string;
+    readonly node_key: string;
+    readonly node_requirements_json: string;
+    readonly workspace_id: string;
+    readonly node_type: string;
+  }): Promise<
+    | {
+        readonly matched: true;
+        readonly agent_id: string;
+        readonly agent_version: number;
+      }
+    | { readonly matched: false; readonly reason: string }
+  >;
 }
 
 function assertNever(value: never): never {
@@ -99,6 +128,8 @@ export class RecoveryDispatchService {
     private readonly blackboard: BlackboardService,
     private readonly verificationReader: VerificationGateReader,
     private readonly backoffDelayMs: number = DEFAULT_BACKOFF_DELAY_MS,
+    private readonly capabilityResolver?: CapabilityResolverHandler,
+    private readonly selectionBinding?: SelectionBindingHandler,
   ) {}
 
   async dispatch(
@@ -128,15 +159,13 @@ export class RecoveryDispatchService {
       case "backoff":
         return this.#retryNode(context, { withBackoff: true });
       case "repair":
-      case "swap_agent":
-        // repair still has no defined concept anywhere in the codebase.
-        // swap_agent's real dispatch target (Selection & Binding) exists
-        // (HEAL-6 PR B) but the ranked-match path it needs has no real
-        // embedding transport yet -- disclosed, separate follow-up.
+        // Still has no defined concept anywhere in the codebase.
         return {
           outcome: "escalated",
-          detail: `strategy_dispatch_deferred: "${strategy}" has no real target system wired yet (see HEAL-6 PR known-gaps)`,
+          detail: 'strategy_dispatch_deferred: "repair" has no real target system wired yet (see HEAL-6 PR known-gaps)',
         };
+      case "swap_agent":
+        return this.#swapAgent(context);
       default:
         return assertNever(strategy);
     }
@@ -257,6 +286,80 @@ export class RecoveryDispatchService {
       return {
         outcome: "failed",
         detail: `model escalation failed: ${(error as Error).message}`,
+      };
+    }
+  }
+
+  /**
+   * Real dispatch target confirmed: Selection & Binding's ranked-match
+   * path (GrpcEmbeddingClient) is real and reachable. But no node
+   * execution anywhere -- normal or recovery path -- reads a bound
+   * agent_id back out; NodeExecutionContext has no agent_id field at all
+   * (confirmed by grepping every node handler). A successful match here
+   * therefore has nothing downstream that could apply it to the retry,
+   * so this never reports "resolved" for a fix that wouldn't actually
+   * take effect -- same standard #degrade's own comment holds itself to.
+   * The real match/no-match result is still surfaced in `detail` for
+   * observability, and is a real, live call, not a stub.
+   */
+  async #swapAgent(context: DispatchContext): Promise<DispatchResult> {
+    if (this.capabilityResolver === undefined || this.selectionBinding === undefined) {
+      return {
+        outcome: "escalated",
+        detail: 'strategy_dispatch_deferred: "swap_agent" has no capability resolver / selection binding configured',
+      };
+    }
+    try {
+      const { compiledDagJson, workspaceId } = await this.runs.loadCompiledDagJson(
+        context.tenantId,
+        context.runId,
+      );
+      const parsed = CompiledDagSchema.safeParse(JSON.parse(compiledDagJson));
+      if (!parsed.success) {
+        return { outcome: "escalated", detail: "swap_agent failed: compiled DAG is invalid" };
+      }
+      const node = parsed.data.nodes.find((candidate) => candidate.key === context.nodeKey);
+      if (node === undefined) {
+        return {
+          outcome: "escalated",
+          detail: `swap_agent failed: node ${context.nodeKey} not found in the compiled DAG`,
+        };
+      }
+
+      const resolved = await this.capabilityResolver.resolveNodeRequirements({
+        tenant_id: `ten_${context.tenantId}`,
+        run_id: context.runId,
+        node_key: context.nodeKey,
+        node_type: node.type,
+        node_config_json: JSON.stringify(node.config),
+      });
+
+      const outcome = await this.selectionBinding.bindAgentModelTool({
+        tenant_id: `ten_${context.tenantId}`,
+        run_id: context.runId,
+        node_key: context.nodeKey,
+        node_requirements_json: resolved.node_requirements_json,
+        workspace_id: `ws_${workspaceId}`,
+        node_type: node.type,
+      });
+
+      if (outcome.matched) {
+        return {
+          outcome: "escalated",
+          detail:
+            `swap_agent found a real eligible replacement (agent ${outcome.agent_id} ` +
+            `v${outcome.agent_version}) via ranked-match, but no execution-time ` +
+            "binding-consumption path exists yet to apply it to the retry",
+        };
+      }
+      return {
+        outcome: "escalated",
+        detail: `swap_agent found no eligible replacement agent (${outcome.reason})`,
+      };
+    } catch (error: unknown) {
+      return {
+        outcome: "escalated",
+        detail: `swap_agent ranked-match attempt failed: ${(error as Error).message}`,
       };
     }
   }

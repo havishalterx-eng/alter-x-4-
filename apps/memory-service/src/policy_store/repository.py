@@ -212,9 +212,17 @@ class SqlAlchemyPolicyStoreRepository:
             if record is None:
                 raise MemoryNotFoundError("Memory record does not exist for requesting tenant")
             if record.status == "promoted" and record.promoted_at is not None:
+                # Idempotent re-call: no new promotion happened, so no new
+                # ADS Core delivery should happen either -- destination=None
+                # tells the service layer to skip delivery here (the real
+                # destination this record has, if any, was already acted on
+                # by whichever call first transitioned it to "promoted").
                 return StoredMemoryPromotion(
                     memory_id=record.id,
                     promoted_at=record.promoted_at,
+                    destination=None,
+                    content=record.content,
+                    scope=record.scope,
                 )
             if record.status != "candidate":
                 raise MemoryPromotionConflictError(
@@ -241,6 +249,9 @@ class SqlAlchemyPolicyStoreRepository:
             return StoredMemoryPromotion(
                 memory_id=record.id,
                 promoted_at=promoted_at,
+                destination=record.destination,
+                content=record.content,
+                scope=record.scope,
             )
 
     def revert_memory(

@@ -112,6 +112,18 @@ message RunVerificationSuiteRequest {
   string node_execution_id = 3; // node_ prefixed UUIDv7
   string session_id = 4; // ses_ prefixed UUIDv7
   repeated string checks = 5;
+  // Required when checks includes "render". Omitted (not empty-string)
+  // when absent, so a caller running only "build" never has to invent a
+  // placeholder value.
+  optional string preview_url = 6;
+  // Required when checks includes "render" -- same content_artifact_id
+  // reference pattern WriteFileRequest already uses, not inline content.
+  repeated RenderCheckFile render_files = 7;
+}
+
+message RenderCheckFile {
+  string path = 1;
+  string content_artifact_id = 2; // art_ prefixed UUIDv7
 }
 
 message RunVerificationSuiteResponse {

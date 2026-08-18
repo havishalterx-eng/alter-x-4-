@@ -27,14 +27,16 @@ class ProposeWritebackResponse(_message.Message):
     def __init__(self, memory_id: _Optional[str] = ..., candidate_json: _Optional[str] = ...) -> None: ...
 
 class PromoteMemoryRequest(_message.Message):
-    __slots__ = ("tenant_id", "memory_id", "evaluation_run_id")
+    __slots__ = ("tenant_id", "memory_id", "evaluation_run_id", "ads_core_scope_id")
     TENANT_ID_FIELD_NUMBER: _ClassVar[int]
     MEMORY_ID_FIELD_NUMBER: _ClassVar[int]
     EVALUATION_RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    ADS_CORE_SCOPE_ID_FIELD_NUMBER: _ClassVar[int]
     tenant_id: str
     memory_id: str
     evaluation_run_id: str
-    def __init__(self, tenant_id: _Optional[str] = ..., memory_id: _Optional[str] = ..., evaluation_run_id: _Optional[str] = ...) -> None: ...
+    ads_core_scope_id: str
+    def __init__(self, tenant_id: _Optional[str] = ..., memory_id: _Optional[str] = ..., evaluation_run_id: _Optional[str] = ..., ads_core_scope_id: _Optional[str] = ...) -> None: ...
 
 class PromoteMemoryResponse(_message.Message):
     __slots__ = ("promoted", "promoted_at")

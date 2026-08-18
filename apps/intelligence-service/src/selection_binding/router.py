@@ -72,9 +72,16 @@ async def selection_binding_lifespan(app: FastAPI) -> AsyncIterator[None]:
         timeout_seconds=settings.model_gateway_grpc_timeout_seconds,
         access_token_provider=lazy_auth0_m2m_token_provider_from_settings(settings),
     )
+    # Real shared internal-service credential (memory-service's
+    # verify_service_token validates its SHA-256 hash) -- the hardcoded
+    # "Bearer intelligence-service" this replaced would never match any
+    # real INTERNAL_SERVICE_TOKEN_SHA256, so every real routing_weights
+    # policy lookup silently 401'd and fell back to the hardcoded default,
+    # unnoticed because tests call PolicyStoreService directly and never
+    # exercise this HTTP client's real auth header.
     policy_client = HttpRoutingPolicyClient(
         settings.memory_service_base_url,
-        "Bearer intelligence-service",
+        f"Bearer {settings.internal_service_token}",
     )
     _default_embedding_client = client
     _default_policy_client = policy_client

@@ -21,7 +21,7 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 /** Maps public gRPC request to service's intentionally single-command API. */
 export class SandboxServiceGrpcHandler {
   constructor(
-    private readonly sandboxService: Pick<SandboxService, "execute" | "readFile" | "writeFiles" | "verifyBuild" | "closeSession" | "createSession">,
+    private readonly sandboxService: Pick<SandboxService, "execute" | "readFile" | "writeFiles" | "verifyBuild" | "verifyRender" | "closeSession" | "createSession">,
     private readonly artifacts: ArtifactContentClientHandler,
   ) {}
 
@@ -107,15 +107,31 @@ export class SandboxServiceGrpcHandler {
         const result = await this.sandboxService.verifyBuild(request.session_id);
         report[check] = result.output.verification;
         if (result.output.verification.status !== "passed") passed = false;
+      } else if (check === "render") {
+        if (!request.preview_url) {
+          report[check] = {
+            status: "logic_failure",
+            detail: 'check "render" requires preview_url',
+          };
+          passed = false;
+          continue;
+        }
+        const files = await Promise.all(
+          request.render_files.map(async (file) => {
+            const artifact = await this.artifacts.readContent({
+              tenant_id: request.tenant_id,
+              artifact_id: file.content_artifact_id,
+            });
+            return { path: file.path, content: new TextDecoder().decode(artifact.content) };
+          }),
+        );
+        const result = await this.sandboxService.verifyRender(request.preview_url, files);
+        report[check] = result.output.verification;
+        if (result.output.verification.status !== "passed") passed = false;
       } else {
-        // "render" is a real, existing SandboxService capability
-        // (verifyRender) but needs a previewUrl that
-        // RunVerificationSuiteRequest's locked proto shape has no field
-        // for -- honestly reported as unsupported here rather than
-        // silently skipped or faked as passed.
         report[check] = {
           status: "unsupported",
-          detail: `check "${check}" has no real RunVerificationSuite dispatch -- only "build" is wired today`,
+          detail: `check "${check}" has no real RunVerificationSuite dispatch -- only "build"/"render" are wired today`,
         };
         passed = false;
       }

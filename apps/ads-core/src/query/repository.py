@@ -10,6 +10,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.ids import new_prefixed_id, validate_prefixed_id
+from src.memory_namespace.models import MemoryFact
+from src.memory_namespace.repository import SqlAlchemyMemoryNamespaceRepository
 
 from .models import RetrievalHit, RetrievalRequest
 
@@ -88,11 +90,15 @@ _PROVENANCE = text(
 @dataclass(frozen=True)
 class QueryResult:
     hits: tuple[RetrievalHit, ...]
+    memory_facts: tuple[MemoryFact, ...] = ()
 
 
 class SqlAlchemyRetrievalRepository:
     def __init__(self, sessions: sessionmaker[Session]) -> None:
         self._sessions = sessions
+        # memory_namespace lives in the same ads_db, same sessions factory --
+        # no separate connection/config needed to fetch it alongside hits.
+        self._memory_namespace = SqlAlchemyMemoryNamespaceRepository(sessions)
 
     def validate_scopes(self, request: RetrievalRequest) -> None:
         validate_prefixed_id("ten", request.tenant_id)
@@ -163,7 +169,10 @@ class SqlAlchemyRetrievalRepository:
                 },
             ).mappings()
             hits = tuple(self._hit(row) for row in rows)
-            return QueryResult(hits=hits)
+        memory_facts = self._memory_namespace.list_active_for_scopes(
+            tenant_uuid=tenant_uuid, scope_ids=request.scope_ids, limit=request.top_k
+        )
+        return QueryResult(hits=hits, memory_facts=memory_facts)
 
     def audit(
         self,

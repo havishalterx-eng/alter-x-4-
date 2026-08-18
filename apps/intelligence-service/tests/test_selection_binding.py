@@ -514,6 +514,55 @@ class TestSelectionBindingIntegration:
         )
         assert embedding_client.calls == []
 
+    async def test_ranked_match_includes_a_draft_agent(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """A freshly auto-created agent starts 'draft' (agent_auto_creation.
+        engine's _INSERT_AGENT) -- it must still be reachable here or it
+        could never accumulate the real performance_records needed to be
+        promoted to 'active'."""
+        await seed_agent(
+            db_session,
+            agent_id=AGENT_A,
+            status="draft",
+            embedding=vector(1.0),
+        )
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(NodeRequirement(capabilities=["text.generation"])),
+            context(),
+        )
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.agent_id == AGENT_A
+
+    async def test_preferred_agent_binds_to_a_draft_agent(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """A caller that already knows an agent's real ID (e.g. a retry
+        pinning the same agent) must still resolve it while it is 'draft'
+        -- otherwise flipping auto-creation's default from 'active' to
+        'draft' would silently regress this path."""
+        await seed_agent(
+            db_session,
+            agent_id=AGENT_A,
+            status="draft",
+        )
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(
+                NodeRequirement(capabilities=[], preferred_agent_id=AGENT_A)
+            ),
+            context(),
+        )
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.agent_id == AGENT_A
+
     async def test_cross_tenant_embedding_candidate_cannot_match(
         self,
         db_session: AsyncSession,

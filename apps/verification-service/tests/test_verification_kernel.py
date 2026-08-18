@@ -163,3 +163,64 @@ class TestScoreBanding:
         bad_kernel = VerificationKernel(llm_client=BadReviewer())
         with pytest.raises(VerificationValidationError):
             await bad_kernel.score_node(request("LLMTask"))
+
+
+class TestQualityThresholdPolicyClient:
+    async def test_uses_the_real_policy_client_threshold_when_present(self) -> None:
+        class FixedScoreReviewer:
+            async def review(self, **kwargs: object) -> tuple[float, str]:
+                return 0.5, "mid"
+
+        class FakePolicyClient:
+            async def quality_threshold(self, tenant_id: str) -> tuple[float, float] | None:
+                assert tenant_id == TENANT_ID
+                return 0.4, 0.05
+
+        kernel = VerificationKernel(FixedScoreReviewer(), FakePolicyClient())
+        result = await kernel.score_node(request("LLMTask"))
+
+        assert result.threshold == 0.4
+        assert result.verdict == "pass"
+
+    async def test_falls_back_to_defaults_when_policy_client_finds_nothing(self) -> None:
+        class FixedScoreReviewer:
+            async def review(self, **kwargs: object) -> tuple[float, str]:
+                return 0.5, "mid"
+
+        class EmptyPolicyClient:
+            async def quality_threshold(self, tenant_id: str) -> tuple[float, float] | None:
+                return None
+
+        kernel = VerificationKernel(FixedScoreReviewer(), EmptyPolicyClient())
+        result = await kernel.score_node(request("LLMTask"))
+
+        assert result.threshold == 0.7
+        assert result.verdict == "fail"
+
+    async def test_falls_back_to_defaults_when_policy_client_raises(self) -> None:
+        class FixedScoreReviewer:
+            async def review(self, **kwargs: object) -> tuple[float, str]:
+                return 0.5, "mid"
+
+        class ExplodingPolicyClient:
+            async def quality_threshold(self, tenant_id: str) -> tuple[float, float] | None:
+                raise RuntimeError("memory-service unreachable")
+
+        kernel = VerificationKernel(FixedScoreReviewer(), ExplodingPolicyClient())
+        result = await kernel.score_node(request("LLMTask"))
+
+        assert result.threshold == 0.7
+        assert result.verdict == "fail"
+
+    async def test_no_policy_client_configured_uses_defaults(
+        self, kernel: VerificationKernel
+    ) -> None:
+        class FixedScoreReviewer:
+            async def review(self, **kwargs: object) -> tuple[float, str]:
+                return 0.5, "mid"
+
+        plain_kernel = VerificationKernel(llm_client=FixedScoreReviewer())
+        result = await plain_kernel.score_node(request("LLMTask"))
+
+        assert result.threshold == 0.7
+        assert result.verdict == "fail"
