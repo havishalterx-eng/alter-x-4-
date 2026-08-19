@@ -408,6 +408,129 @@ describe("NodeexecService.executeNode", () => {
     expect(capabilityResolver.resolveNodeRequirements).not.toHaveBeenCalled();
   });
 
+  it("stays fail-open with no fallback when no kill switch is configured at all", async () => {
+    const handler: NodeHandler = {
+      nodeType: "LLMTask",
+      async execute() {
+        return { output: {} };
+      },
+    };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const capabilityResolver = {
+      resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
+    };
+    const selectionBinding = {
+      bindAgentModelTool: vi.fn().mockResolvedValue({ matched: false, reason: "no eligible agent" }),
+    };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), fakeLedger(), undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      runWorkspaceLookup as never, capabilityResolver as never, selectionBinding as never,
+    );
+
+    const response = await nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_task", node_type: "LLMTask",
+      config_json: JSON.stringify({ prompt: "Do it" }), inputs_json: "{}",
+    });
+
+    expect(response.output_json).toBe("{}");
+  });
+
+  it("fails closed with a real AgentCreationFailedError when the kill switch is on and there is no fallback", async () => {
+    const handler: NodeHandler = {
+      nodeType: "LLMTask",
+      async execute() {
+        return { output: {} };
+      },
+    };
+    const ledger = fakeLedger();
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const capabilityResolver = {
+      resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
+    };
+    const selectionBinding = {
+      bindAgentModelTool: vi.fn().mockResolvedValue({ matched: false, reason: "no eligible agent" }),
+    };
+    const failClosed = { isEnabled: vi.fn().mockResolvedValue(true) };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), ledger, undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      runWorkspaceLookup as never, capabilityResolver as never, selectionBinding as never,
+      undefined, failClosed as never,
+    );
+
+    await expect(nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_task", node_type: "LLMTask",
+      config_json: JSON.stringify({ prompt: "Do it" }), inputs_json: "{}",
+    })).rejects.toThrow(/No eligible agent/);
+
+    expect(ledger.recordFailed).toHaveBeenCalledWith(
+      expect.anything(),
+      { code: "AGENT_CREATION_FAILED", detail: expect.stringContaining("No eligible agent") },
+    );
+  });
+
+  it("stays fail-open when the kill switch is on but the compiled config has a fallback model_alias", async () => {
+    const handler: NodeHandler = {
+      nodeType: "LLMTask",
+      async execute() {
+        return { output: {} };
+      },
+    };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const capabilityResolver = {
+      resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
+    };
+    const selectionBinding = {
+      bindAgentModelTool: vi.fn().mockResolvedValue({ matched: false, reason: "no eligible agent" }),
+    };
+    const failClosed = { isEnabled: vi.fn().mockResolvedValue(true) };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), fakeLedger(), undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      runWorkspaceLookup as never, capabilityResolver as never, selectionBinding as never,
+      undefined, failClosed as never,
+    );
+
+    const response = await nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_task", node_type: "LLMTask",
+      config_json: JSON.stringify({ prompt: "Do it", model_alias: "STANDARD" }), inputs_json: "{}",
+    });
+
+    expect(response.output_json).toBe("{}");
+  });
+
+  it("never fails closed for a genuine Selection & Binding infra error, even with the kill switch on", async () => {
+    const handler: NodeHandler = {
+      nodeType: "LLMTask",
+      async execute() {
+        return { output: {} };
+      },
+    };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockRejectedValue(new Error("unreachable")) };
+    const capabilityResolver = { resolveNodeRequirements: vi.fn() };
+    const selectionBinding = { bindAgentModelTool: vi.fn() };
+    const failClosed = { isEnabled: vi.fn().mockResolvedValue(true) };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), fakeLedger(), undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      runWorkspaceLookup as never, capabilityResolver as never, selectionBinding as never,
+      undefined, failClosed as never,
+    );
+
+    const response = await nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_task", node_type: "LLMTask",
+      config_json: JSON.stringify({ prompt: "Do it" }), inputs_json: "{}",
+    });
+
+    expect(response.output_json).toBe("{}");
+    expect(failClosed.isEnabled).not.toHaveBeenCalled();
+  });
+
   it("does not attempt Selection & Binding resolution for non-LLMTask node types", async () => {
     const runWorkspaceLookup = { getWorkspaceId: vi.fn() };
     const capabilityResolver = { resolveNodeRequirements: vi.fn() };

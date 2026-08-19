@@ -19,6 +19,7 @@ const ALL_FAILURE_CLASSES: readonly FailureClass[] = [
   "sandbox_crash",
   "rate_limit",
   "safety_violation",
+  "agent_creation_failure",
   "unknown",
 ];
 
@@ -58,6 +59,8 @@ describe("selectRecoveryStrategy", () => {
     ["logic_output_failure", 2, "replan"],
     ["safety_violation", 1, "ask_user"],
     ["safety_violation", 5, "ask_user"],
+    ["agent_creation_failure", 1, "swap_agent"],
+    ["agent_creation_failure", 2, "ask_user"],
     ["unknown", 1, "ask_user"],
   ] as const)(
     "%s at attempt %i selects %s",

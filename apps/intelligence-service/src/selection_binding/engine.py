@@ -12,6 +12,7 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.capability_resolver import NodeRequirement, NodeRequirements
+from src.db.ids import PLATFORM_TENANT_ID
 from src.selection_binding.embedding_client import EmbeddingClient
 from src.selection_binding.models import (
     BindAgentModelToolRequest,
@@ -45,6 +46,12 @@ _SET_TENANT_CONTEXT = text(
 # auto-created agent could never accumulate the real performance_records
 # it needs to ever be promoted to 'active' by
 # performance.repository.record_observation's promotion check.
+#
+# A global (platform-wide) agent's real tenant_id is PLATFORM_TENANT_ID
+# (see src/db/ids.py), not the caller's -- both queries below OR-bypass
+# the tenant_id/workspace_id filters when that's the case, so a global
+# agent is visible to every real tenant/workspace, matching the same
+# sentinel pattern capability_registry_versions already uses.
 _PREFERRED_AGENT_QUERY = text(
     """
 SELECT
@@ -61,8 +68,14 @@ JOIN LATERAL (
   ORDER BY av.version_number DESC
   LIMIT 1
 ) AS latest_version ON TRUE
-WHERE a.tenant_id = CAST(:tenant_id AS uuid)
-  AND a.workspace_id = CAST(:workspace_id AS uuid)
+WHERE (
+    a.tenant_id = CAST(:tenant_id AS uuid)
+    OR a.tenant_id = CAST(:platform_tenant_id AS uuid)
+  )
+  AND (
+    a.workspace_id = CAST(:workspace_id AS uuid)
+    OR a.tenant_id = CAST(:platform_tenant_id AS uuid)
+  )
   AND a.id = :preferred_agent_id
   AND a.status IN ('active', 'draft')
   AND (
@@ -128,9 +141,18 @@ WITH performance AS (
     LIMIT 1
   ) AS latest_version ON TRUE
   LEFT JOIN performance ON performance.agent_id = a.id
-  WHERE a.tenant_id = CAST(:tenant_id AS uuid)
-    AND ce.tenant_id = CAST(:tenant_id AS uuid)
-    AND a.workspace_id = CAST(:workspace_id AS uuid)
+  WHERE (
+      a.tenant_id = CAST(:tenant_id AS uuid)
+      OR a.tenant_id = CAST(:platform_tenant_id AS uuid)
+    )
+    AND (
+      ce.tenant_id = CAST(:tenant_id AS uuid)
+      OR ce.tenant_id = CAST(:platform_tenant_id AS uuid)
+    )
+    AND (
+      a.workspace_id = CAST(:workspace_id AS uuid)
+      OR a.tenant_id = CAST(:platform_tenant_id AS uuid)
+    )
     AND a.status IN ('active', 'draft')
     AND (
       CAST(:required_tier AS text) IS NULL
@@ -258,6 +280,7 @@ class SelectionBindingEngine:
             {
                 "tenant_id": tenant_uuid,
                 "workspace_id": workspace_uuid,
+                "platform_tenant_id": PLATFORM_TENANT_ID,
                 "required_tier": requirement.model_alias,
                 "node_type": context.node_type,
                 "task_category": context.task_category,
@@ -335,6 +358,7 @@ class SelectionBindingEngine:
             {
                 "tenant_id": tenant_uuid,
                 "workspace_id": workspace_uuid,
+                "platform_tenant_id": PLATFORM_TENANT_ID,
                 "preferred_agent_id": requirement.preferred_agent_id,
                 "required_tier": requirement.model_alias,
             },

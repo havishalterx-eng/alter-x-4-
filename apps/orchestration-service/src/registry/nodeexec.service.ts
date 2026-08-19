@@ -29,8 +29,25 @@ import type { RunOutcomeService } from "../runs/run-outcome.service";
 import type { ProjectRunProvisioningService } from "../runs/project-run-provisioning.service";
 import type { RunWorkspaceLookupService } from "../runs/run-workspace-lookup.service";
 import type { GeneratedFileMaterializer } from "./generated-file-materializer";
+import type { SelectionBindingFailClosedConfig } from "./selection-binding-fail-closed-config";
 import { VerifyGateError, type VerifyGateService } from "./verify-gate.service";
 import { createVerificationResultId } from "./verification-result-id";
+
+/**
+ * Real producer of FailureClass "agent_creation_failure" (recovery-
+ * classification.ts). Thrown only when Selection & Binding genuinely
+ * found no eligible agent AND the compiled config has no fallback
+ * model_alias to run with anyway -- never for a transient/infra failure
+ * calling Selection & Binding itself, which stays fail-open regardless of
+ * the kill switch (see #resolveAgentBindingBestEffort).
+ */
+export class AgentCreationFailedError extends Error {
+  readonly code = "AGENT_CREATION_FAILED";
+  constructor(message: string) {
+    super(message);
+    this.name = "AgentCreationFailedError";
+  }
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -95,6 +112,7 @@ export class NodeexecService {
     private readonly capabilityResolver?: CapabilityServiceHandlerClient,
     private readonly selectionBinding?: SelectionBindingHandler,
     private readonly performanceRecorder?: PerformanceRecorderHandler,
+    private readonly selectionBindingFailClosed?: SelectionBindingFailClosedConfig,
   ) {}
 
   async executeNode(
@@ -340,6 +358,7 @@ export class NodeexecService {
     ) {
       return {};
     }
+    let bound: Awaited<ReturnType<SelectionBindingHandler["bindAgentModelTool"]>>;
     try {
       const workspaceId = await this.runWorkspaceLookup.getWorkspaceId(
         request.tenant_id,
@@ -352,7 +371,7 @@ export class NodeexecService {
         node_type: request.node_type,
         node_config_json: JSON.stringify(config),
       });
-      const bound = await this.selectionBinding.bindAgentModelTool({
+      bound = await this.selectionBinding.bindAgentModelTool({
         tenant_id: request.tenant_id,
         run_id: request.run_id,
         node_key: request.node_key,
@@ -360,13 +379,11 @@ export class NodeexecService {
         workspace_id: workspaceId,
         node_type: request.node_type,
       });
-      if (!bound.matched) return {};
-      return {
-        agent_id: bound.agent_id,
-        bound_model_alias: bound.model_alias,
-        bound_tool_names: bound.tool_names,
-      };
     } catch (error: unknown) {
+      // A genuine infra/transport failure calling Selection & Binding
+      // itself always stays fail-open, independent of the kill switch --
+      // that switch governs a real "no eligible agent" *answer*, not
+      // Selection & Binding being unreachable.
       console.error("selection & binding resolution failed for LLMTask node", {
         node_execution_id: request.node_execution_id,
         run_id: request.run_id,
@@ -374,6 +391,40 @@ export class NodeexecService {
       });
       return {};
     }
+    if (!bound.matched) {
+      await this.#failClosedIfNoFallback(request, config, bound.reason);
+      return {};
+    }
+    return {
+      agent_id: bound.agent_id,
+      bound_model_alias: bound.model_alias,
+      bound_tool_names: bound.tool_names,
+    };
+  }
+
+  /**
+   * Kill-switch-gated (default off -- see SelectionBindingFailClosedConfig).
+   * A real "no eligible agent" answer only fails the node when there is
+   * truly nothing to fall back to (no model_alias in the compiled config
+   * either) and an operator has deliberately turned the switch on. Off by
+   * default, this is a pure no-op: identical to today's always-fail-open
+   * behavior.
+   */
+  async #failClosedIfNoFallback(
+    request: NodeexecExecuteNodeRequest,
+    config: Record<string, unknown>,
+    reason: string,
+  ): Promise<void> {
+    if (this.selectionBindingFailClosed === undefined) return;
+    const hasFallback =
+      typeof config["model_alias"] === "string" && config["model_alias"].trim().length > 0;
+    if (hasFallback) return;
+    const enabled = await this.selectionBindingFailClosed.isEnabled().catch(() => false);
+    if (!enabled) return;
+    throw new AgentCreationFailedError(
+      `No eligible agent for LLMTask node ${request.node_key} and no fallback ` +
+        `model_alias in the compiled config (${reason})`,
+    );
   }
 
   /**
@@ -742,6 +793,9 @@ function persistedError(error: unknown): { readonly code: string; readonly detai
   }
   if (error instanceof NodeHandlerValidationError) {
     return { code: "NODE_HANDLER_VALIDATION_FAILED", detail: error.message };
+  }
+  if (error instanceof AgentCreationFailedError) {
+    return { code: error.code, detail: error.message };
   }
   return { code: "NODE_EXECUTION_FAILED", detail: "Node execution failed" };
 }

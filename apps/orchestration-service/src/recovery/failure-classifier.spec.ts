@@ -29,6 +29,19 @@ describe("classifyNodeFailure", () => {
     ).toMatchObject({ failureClass: "infrastructure_failure" });
   });
 
+  it("classifies a real AgentCreationFailedError code as agent_creation_failure", () => {
+    expect(
+      classifyNodeFailure(
+        {
+          nodeType: "LLMTask",
+          attempt: 1,
+          error: { code: "AGENT_CREATION_FAILED", retryable: false },
+        },
+        BASE_OBSERVATION,
+      ),
+    ).toMatchObject({ failureClass: "agent_creation_failure" });
+  });
+
   it("classifies EXEC-12's seeded bad-output failure as logic, not infrastructure", () => {
     expect(
       classifyNodeFailure(

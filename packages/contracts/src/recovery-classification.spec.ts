@@ -19,6 +19,7 @@ describe("recovery classification contracts", () => {
       "rate_limit",
       "safety_violation",
       "credential_missing",
+      "agent_creation_failure",
       "unknown",
     ]);
   });

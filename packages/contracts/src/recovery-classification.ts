@@ -18,6 +18,7 @@ export const FailureClassSchema = z.enum([
   "rate_limit",
   "safety_violation",
   "credential_missing",
+  "agent_creation_failure",
   "unknown",
 ]);
 

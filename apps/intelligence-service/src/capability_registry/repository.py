@@ -8,9 +8,10 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.db.ids import PLATFORM_TENANT_ID
+
 from .models import CapabilityRecord, CapabilitySearch, RegisterCapability
 
-PLATFORM_TENANT_ID = "00000000-0000-7000-8000-000000000001"
 _SET_TENANT = text("SELECT set_config('app.current_tenant_id', :tenant_id, true)")
 
 

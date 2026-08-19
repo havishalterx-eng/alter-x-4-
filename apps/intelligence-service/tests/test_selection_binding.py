@@ -39,6 +39,8 @@ RUN_ID = "run_018f47a5-7b2c-7d10-8f11-123456789abc"
 AGENT_A = "agt_018f47a5-7b2c-7d10-8f11-123456789ab1"
 AGENT_B = "agt_018f47a5-7b2c-7d10-8f11-123456789ab2"
 AGENT_C = "agt_018f47a5-7b2c-7d10-8f11-123456789ab3"
+AGENT_GLOBAL = "agt_018f47a5-7b2c-7d10-8f11-123456789ab9"
+PLATFORM_TENANT_ID = "ten_00000000-0000-7000-8000-000000000001"
 
 
 class FakeEmbeddingClient:
@@ -175,6 +177,59 @@ VALUES (:agent_id, CAST(:tenant_id AS uuid), CAST(:workspace_id AS uuid), :name,
             published=False,
         )
 
+    if embedding is not None:
+        await session.execute(
+            text(
+                """
+INSERT INTO capability_embeddings
+  (id, agent_id, tenant_id, capability_description, embedding)
+VALUES
+  (:id, :agent_id, CAST(:tenant_id AS uuid), :description, CAST(:embedding AS vector(512)))
+"""
+            ),
+            {
+                "id": f"cemb-{agent_id}",
+                "agent_id": agent_id,
+                "tenant_id": tenant_uuid,
+                "description": "text.generation analysis.reasoning",
+                "embedding": vector_literal(embedding),
+            },
+        )
+
+
+async def seed_global_agent(
+    session: AsyncSession,
+    *,
+    agent_id: str = AGENT_GLOBAL,
+    tier: str = "STANDARD",
+    embedding: Sequence[float] | None = None,
+) -> None:
+    """A real global agent: tenant_id is the real PLATFORM_TENANT_ID
+    sentinel (not NULL -- see 0005_global_agents' own module docstring for
+    why), workspace_id is genuinely NULL (nothing FK-joins on it, so no
+    sentinel is needed there)."""
+    tenant_uuid = raw_id(PLATFORM_TENANT_ID)
+    await session.execute(
+        text(
+            """
+INSERT INTO agents (id, tenant_id, workspace_id, name, tier, status)
+VALUES (:agent_id, CAST(:tenant_id AS uuid), NULL, :name, :tier, 'active')
+"""
+        ),
+        {
+            "agent_id": agent_id,
+            "tenant_id": tenant_uuid,
+            "name": f"Global agent {agent_id[-1]}",
+            "tier": tier,
+        },
+    )
+    await seed_version(
+        session,
+        tenant_uuid=tenant_uuid,
+        agent_id=agent_id,
+        version_number=1,
+        published=True,
+    )
     if embedding is not None:
         await session.execute(
             text(
@@ -687,3 +742,62 @@ class TestSelectionBindingIntegration:
 
         with pytest.raises(BindingValidationError, match="no entry"):
             await engine.bind(request, context())
+
+    async def test_ranked_match_finds_a_real_global_agent_from_an_unrelated_tenant(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """A real global agent (tenant_id=PLATFORM_TENANT_ID, workspace_id
+        NULL) must be visible to a ranked-match search from a completely
+        unrelated tenant/workspace -- the whole point of 0005_global_agents."""
+        await seed_global_agent(db_session, embedding=vector(1.0))
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(
+                NodeRequirement(capabilities=["text.generation"]),
+                tenant_id=TENANT_B,
+            ),
+            context(workspace_id=WORKSPACE_B),
+        )
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.agent_id == AGENT_GLOBAL
+
+    async def test_preferred_agent_binds_to_a_real_global_agent(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        await seed_global_agent(db_session)
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(
+                NodeRequirement(capabilities=[], preferred_agent_id=AGENT_GLOBAL),
+                tenant_id=TENANT_B,
+            ),
+            context(workspace_id=WORKSPACE_B),
+        )
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.agent_id == AGENT_GLOBAL
+
+    async def test_ranked_match_still_excludes_a_real_tenant_agent_from_a_different_tenant(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """The global-agent OR-bypass must not accidentally widen visibility
+        for ordinary, real tenant-owned agents -- only rows whose real
+        tenant_id is the platform sentinel become cross-tenant visible."""
+        await seed_agent(db_session, agent_id=AGENT_A, tenant_id=TENANT_A, embedding=vector(1.0))
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(
+                NodeRequirement(capabilities=["text.generation"]),
+                tenant_id=TENANT_B,
+            ),
+            context(workspace_id=WORKSPACE_B),
+        )
+
+        assert outcome == NoAgentMatch(node_key="node.one", reason="no_eligible_agent")

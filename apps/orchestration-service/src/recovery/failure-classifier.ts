@@ -69,6 +69,9 @@ export function classifyNodeFailure(
         `error_code=${code}`,
       );
     }
+    if (/AGENT_CREATION_FAILED/.test(code)) {
+      add(scores, evidence, "agent_creation_failure", 100, `error_code=${code}`);
+    }
   }
 
   const verification = observation.verification;

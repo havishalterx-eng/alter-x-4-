@@ -200,6 +200,12 @@ function decide(failureClass: FailureClass, nodeAttempt: number): RecoveryStrate
       return nodeAttempt <= 1 ? "retry" : "recompile";
     case "logic_output_failure":
       return nodeAttempt <= 1 ? "escalate_model" : "replan";
+    case "agent_creation_failure":
+      // First attempt: try a fresh ranked-match/auto-creation via a
+      // different agent (swap_agent) rather than retrying the exact same
+      // no-match situation. Repeat failure means no real agent exists for
+      // this requirement -- a human must intervene, not another retry.
+      return nodeAttempt <= 1 ? "swap_agent" : "ask_user";
     case "unknown":
       return "ask_user";
     default:

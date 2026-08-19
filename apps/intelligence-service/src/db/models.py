@@ -31,13 +31,17 @@ class Agent(Base):
             "status IN ('draft', 'active', 'deprecated')",
             name="agents_status_check",
         ),
+        CheckConstraint(
+            "(tenant_id = '00000000-0000-7000-8000-000000000001') = (workspace_id IS NULL)",
+            name="agents_global_workspace_check",
+        ),
         Index("idx_agents_tenant_status", "tenant_id", "status"),
         Index("idx_agents_workspace", "workspace_id"),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     tenant_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    workspace_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    workspace_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False), nullable=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     tier: Mapped[str] = mapped_column(Text, nullable=False)
     persona_description: Mapped[str] = mapped_column(

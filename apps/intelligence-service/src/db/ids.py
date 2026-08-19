@@ -2,6 +2,12 @@ import secrets
 import time
 import uuid
 
+# Real sentinel tenant representing "the platform, not a real tenant" --
+# established by capability_registry_versions (2026-08 registry build) for
+# scope='global' rows; agents (0005_global_agents) reuses the same value
+# rather than inventing a second sentinel for the same concept.
+PLATFORM_TENANT_ID = "00000000-0000-7000-8000-000000000001"
+
 _PREFIX_MAP = {
     "agt": "agt",
     "agtv": "agtv",

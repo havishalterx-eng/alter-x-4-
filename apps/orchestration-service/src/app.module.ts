@@ -66,6 +66,7 @@ import {
 import { DeploymentAdminService } from "./deployment-admin/deployment-admin.service";
 import { RegistryService } from "./registry/registry.service";
 import { NodeexecService } from "./registry/nodeexec.service";
+import { SsmSelectionBindingFailClosedConfig } from "./registry/selection-binding-fail-closed-config";
 import { NodeExecutionsController } from "./runs/node-executions.controller";
 import { NodeExecutionLedgerService } from "./runs/node-execution-ledger.service";
 import { RunStreamEventService } from "./runs/run-stream-event.service";
@@ -588,6 +589,10 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           baseUrl: bindingConfig.plannerBaseUrl,
         });
         const runWorkspaceLookup = new RunWorkspaceLookupService(store);
+        const selectionBindingFailClosed = new SsmSelectionBindingFailClosedConfig(
+          new AwsSsmParameterProvider({ region: dbConfig.awsRegion }),
+          dbConfig.selectionBindingFailClosedParameter,
+        );
         return new NodeexecService(
           registry,
           ledger,
@@ -608,6 +613,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           capabilityResolverForNodeexec,
           selectionBindingForNodeexec,
           performanceRecorder,
+          selectionBindingFailClosed,
         );
       },
       inject: [ArtifactsService],
@@ -809,6 +815,7 @@ interface SessionGatewayEnvironment {
   readonly databaseUser: string;
   readonly awsRegion: string;
   readonly artifactsBucketParameter: string;
+  readonly selectionBindingFailClosedParameter: string;
   readonly auth0JwksUrl?: string;
 }
 
@@ -960,6 +967,13 @@ function sessionGatewayEnvironment(
     redisUrl: requiredEnvironment(env, "REDIS_ENDPOINT"),
     awsRegion: requiredEnvironment(env, "AWS_REGION"),
     artifactsBucketParameter: requiredEnvironment(env, "ALTER_ARTIFACTS_BUCKET_PARAM"),
+    // Optional -- unlike artifactsBucketParameter this is never required to
+    // boot. No SSM parameter at this path (the real default state of any
+    // deployment that hasn't deliberately opted in) means the kill switch
+    // reads as off; see SsmSelectionBindingFailClosedConfig.
+    selectionBindingFailClosedParameter:
+      env.SELECTION_BINDING_FAIL_CLOSED_PARAM ??
+      "/alterx/orchestration-service/selection-binding-fail-closed",
     ...(env.AUTH0_JWKS_URL ? { auth0JwksUrl: env.AUTH0_JWKS_URL } : {}),
   };
 
