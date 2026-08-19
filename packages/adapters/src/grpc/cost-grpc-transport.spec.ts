@@ -35,6 +35,7 @@ class NamedCostError extends Error {
 function handler(): CostHandler {
   return {
     ingestCostEvent: vi.fn(async () => ({ accepted: true })),
+    resolveUnitPrice: vi.fn(async () => ({ unit_cost_minor: "0", currency: "INR", confidence: "no_data" })),
     queryRollups: vi.fn(async () => ({ rollups_json: "{}" })),
   };
 }

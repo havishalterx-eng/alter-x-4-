@@ -9,6 +9,7 @@ import {
   FailoverModelProvider,
   OpenAiModelProvider,
   startModelgwGrpcTransport,
+  type CostHandlerClient,
 } from "@alterx/adapters";
 import {
   createMockCacheProvider,
@@ -82,6 +83,14 @@ async function bootstrap(): Promise<void> {
   const cacheProvider = createMockCacheProvider();
   const queueProvider = createMockQueueProvider();
   const costEventsQueueName = "alter-eval-cost-events";
+  const costClient: CostHandlerClient = {
+    ingestCostEvent: async () => ({ accepted: true }),
+    resolveUnitPrice: async () => ({
+      unit_cost_minor: "10",
+      currency: "INR",
+      confidence: "fixed_table",
+    }),
+  };
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule.register(
@@ -93,6 +102,7 @@ async function bootstrap(): Promise<void> {
       queueProvider,
       costEventsQueueName,
       randomUUID(),
+      costClient,
     ),
     new FastifyAdapter(),
   );

@@ -195,7 +195,7 @@ export class EstimationService {
     });
 
     const globalSampleSize = Number(globalAverage?.sample_size ?? "0");
-    if (globalSampleSize > 0 && globalAverage?.avg_unit_cost_minor !== null) {
+    if (globalAverage && globalSampleSize > 0 && globalAverage.avg_unit_cost_minor !== null) {
       const unitCostMinor = Math.ceil(Number(globalAverage.avg_unit_cost_minor));
       return {
         unit_cost_minor: unitCostMinor.toString(),

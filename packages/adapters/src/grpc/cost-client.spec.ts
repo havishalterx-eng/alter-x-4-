@@ -19,6 +19,7 @@ function fakeGrpcClient(
         callback(error, response);
       },
     ),
+    resolveUnitPrice: vi.fn(),
   };
 }
 

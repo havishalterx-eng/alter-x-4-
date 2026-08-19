@@ -39,7 +39,7 @@ const noopSleep = async () => undefined;
 describe("CostEventConsumerService.pollOnce", () => {
   it("reports empty when the queue has no message", async () => {
     const { queue } = fakeQueue([]);
-    const costClient: CostHandlerClient = { ingestCostEvent: vi.fn() };
+    const costClient: CostHandlerClient = { ingestCostEvent: vi.fn(), resolveUnitPrice: vi.fn() };
     const consumer = new CostEventConsumerService(queue, QUEUE_NAME, costClient, 3, noopSleep);
 
     await expect(consumer.pollOnce()).resolves.toBe("empty");
@@ -51,7 +51,7 @@ describe("CostEventConsumerService.pollOnce", () => {
     const consumer = new CostEventConsumerService(
       queue,
       QUEUE_NAME,
-      { ingestCostEvent },
+      { ingestCostEvent, resolveUnitPrice: vi.fn() },
       3,
       noopSleep,
     );
@@ -66,7 +66,7 @@ describe("CostEventConsumerService.pollOnce", () => {
     const consumer = new CostEventConsumerService(
       queue,
       QUEUE_NAME,
-      { ingestCostEvent },
+      { ingestCostEvent, resolveUnitPrice: vi.fn() },
       3,
       noopSleep,
     );
@@ -84,7 +84,7 @@ describe("CostEventConsumerService.pollOnce", () => {
     const consumer = new CostEventConsumerService(
       queue,
       QUEUE_NAME,
-      { ingestCostEvent },
+      { ingestCostEvent, resolveUnitPrice: vi.fn() },
       3,
       noopSleep,
     );
@@ -105,7 +105,7 @@ describe("CostEventConsumerService.pollOnce", () => {
     const consumer = new CostEventConsumerService(
       queue,
       QUEUE_NAME,
-      { ingestCostEvent },
+      { ingestCostEvent, resolveUnitPrice: vi.fn() },
       3,
       noopSleep,
     );
