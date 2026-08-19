@@ -11,6 +11,8 @@ import {
   createMockQueueProvider,
   createMockSandboxProvider,
   type JsonValue,
+  type ConfigProvider,
+  type ToolPermissionRequest,
 } from "@alterx/shared-clients";
 import { describe, expect, it, vi } from "vitest";
 
@@ -31,6 +33,13 @@ const CONTEXT: SandboxToolCallContext = {
 };
 const DATABASE_ID = "db_accounts";
 const CREDENTIAL_REFERENCE = `/alter/test/tenant/${CONTEXT.tenantId}/integration/${DATABASE_ID}/password`;
+const BROWSER_TOOL_NAMES = [
+  "browser.session.create",
+  "browser.navigate",
+  "browser.click",
+  "browser.extract",
+  "browser.session.close",
+] as const;
 
 async function basicService(): Promise<SandboxService> {
   const sandbox = createMockSandboxProvider();
@@ -51,6 +60,7 @@ function arrayBuffer(value: string): ArrayBuffer {
 function toolHarness(options: {
   readonly publish?: (queueName: string, message: JsonValue) => Promise<void>;
   readonly database?: DatabaseOperationProvider;
+  readonly config?: ConfigProvider;
 } = {}) {
   const addresses: Record<string, readonly ResolvedAddress[]> = {
     "example.com": [{ address: "93.184.216.34", family: 4 }],
@@ -106,7 +116,7 @@ function toolHarness(options: {
   });
   const service = new SandboxService(sandbox, {
     browser: new MockBrowserAutomationProvider(urlFetcher),
-    config: createMockConfigProvider({
+    config: options.config ?? createMockConfigProvider({
       toolPermission: {
         allowed: true,
         rateLimitPerMinute: 60,
@@ -271,6 +281,75 @@ describe("SandboxService EXEC-13 tools", () => {
       text: "mock:main",
       url: "https://example.com/page",
     });
+    await expect(
+      target.service.closeBrowserSession(CONTEXT, SESSION, browser.sessionId),
+    ).resolves.toBeUndefined();
+  });
+
+  it("requires the exact tenant browser grant for every Browserbase operation", async () => {
+    const resolveToolPermission = vi.fn(
+      async (request: ToolPermissionRequest) => {
+        void request;
+        return { allowed: true, rateLimitPerMinute: 60, requiredScopes: [] };
+      },
+    );
+    const target = toolHarness({
+      config: createMockConfigProvider({ resolveToolPermission }),
+    });
+    await provision(target);
+    const browser = await target.service.createBrowserSession(CONTEXT, SESSION);
+    await target.service.navigateBrowser(CONTEXT, SESSION, browser.sessionId, "https://example.com/page");
+    await target.service.clickBrowser(CONTEXT, SESSION, browser.sessionId, "#go");
+    await target.service.extractBrowser(CONTEXT, SESSION, browser.sessionId, "main");
+    await target.service.closeBrowserSession(CONTEXT, SESSION, browser.sessionId);
+
+    expect(resolveToolPermission.mock.calls.map(([request]) => request)).toEqual(
+      BROWSER_TOOL_NAMES.map((toolName) => ({
+        tenantId: CONTEXT.tenantId,
+        toolName,
+      })),
+    );
+  });
+
+  it("denies every browser operation when its tenant grant is absent", async () => {
+    const resolveToolPermission = vi.fn(
+      async (request: ToolPermissionRequest) => {
+        void request;
+        return { allowed: false, rateLimitPerMinute: 1, requiredScopes: [] };
+      },
+    );
+    const target = toolHarness({
+      config: createMockConfigProvider({ resolveToolPermission }),
+    });
+    await provision(target);
+
+    await expect(
+      target.service.createBrowserSession(CONTEXT, SESSION),
+    ).rejects.toThrow("Browser operation is not permitted for this tenant");
+    await expect(
+      target.service.navigateBrowser(
+        CONTEXT,
+        SESSION,
+        "browser_denied",
+        "https://example.com/page",
+      ),
+    ).rejects.toThrow("Browser operation is not permitted for this tenant");
+    await expect(
+      target.service.clickBrowser(CONTEXT, SESSION, "browser_denied", "#go"),
+    ).rejects.toThrow("Browser operation is not permitted for this tenant");
+    await expect(
+      target.service.extractBrowser(CONTEXT, SESSION, "browser_denied", "main"),
+    ).rejects.toThrow("Browser operation is not permitted for this tenant");
+    await expect(
+      target.service.closeBrowserSession(CONTEXT, SESSION, "browser_denied"),
+    ).rejects.toThrow("Browser operation is not permitted for this tenant");
+
+    expect(resolveToolPermission.mock.calls.map(([request]) => request)).toEqual(
+      BROWSER_TOOL_NAMES.map((toolName) => ({
+        tenantId: CONTEXT.tenantId,
+        toolName,
+      })),
+    );
   });
 
   it("reuses seeded SSRF defenses for private, metadata, and redirect targets", async () => {

@@ -284,6 +284,11 @@ export class SandboxService {
     this.#validateToolContext(context);
     this.#requireSession(sandboxSessionId);
     const tools = this.#requireTools();
+    await this.#requireBrowserPermission(
+      tools,
+      context,
+      "browser.session.create",
+    );
     return this.#costed(
       context,
       {
@@ -304,6 +309,7 @@ export class SandboxService {
     this.#validateToolContext(context);
     this.#requireSession(sandboxSessionId);
     const tools = this.#requireTools();
+    await this.#requireBrowserPermission(tools, context, "browser.navigate");
     return this.#costed(
       context,
       {
@@ -329,6 +335,7 @@ export class SandboxService {
     this.#validateToolContext(context);
     this.#requireSession(sandboxSessionId);
     const tools = this.#requireTools();
+    await this.#requireBrowserPermission(tools, context, "browser.click");
     await this.#costed(
       context,
       {
@@ -354,6 +361,7 @@ export class SandboxService {
     this.#validateToolContext(context);
     this.#requireSession(sandboxSessionId);
     const tools = this.#requireTools();
+    await this.#requireBrowserPermission(tools, context, "browser.extract");
     return this.#costed(
       context,
       {
@@ -381,6 +389,11 @@ export class SandboxService {
     this.#validateToolContext(context);
     this.#requireSession(sandboxSessionId);
     const tools = this.#requireTools();
+    await this.#requireBrowserPermission(
+      tools,
+      context,
+      "browser.session.close",
+    );
     await this.#costed(
       context,
       {
@@ -490,6 +503,20 @@ export class SandboxService {
       nodeExecutionId: context.nodeExecutionId,
       sandboxSessionId,
     };
+  }
+
+  async #requireBrowserPermission(
+    tools: SandboxToolDependencies,
+    context: SandboxToolCallContext,
+    toolName: string,
+  ): Promise<void> {
+    const permission = await tools.config.resolveToolPermission({
+      tenantId: context.tenantId,
+      toolName,
+    });
+    if (!permission.allowed) {
+      throw new Error("Browser operation is not permitted for this tenant");
+    }
   }
 
   async #costed<T>(
