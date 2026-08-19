@@ -663,7 +663,8 @@ describe("ModelGatewayService", () => {
       },
     });
 
-    for await (const _chunk of service.stream(request())) {
+    const iterator = service.stream(request())[Symbol.asyncIterator]();
+    while (!(await iterator.next()).done) {
       // Drain to the terminal chunk.
     }
 
