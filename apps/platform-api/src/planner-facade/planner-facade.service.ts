@@ -1,4 +1,4 @@
-import { Injectable, Inject } from "@nestjs/common";
+import { Injectable, Inject, Optional } from "@nestjs/common";
 import { PlannerClient, type PlannerHttpClient } from "@alterx/adapters";
 import { CompilerServiceClient } from "./compiler-client";
 import { randomUUID } from "node:crypto";
@@ -45,15 +45,25 @@ export type PlanWorkflowResult =
 
 @Injectable()
 export class PlannerFacadeService {
-  private plannerClient: PlannerClient;
-  private compilerClient: CompilerServiceClient;
+  private readonly plannerClient: PlannerClient;
+  private readonly compilerClient: CompilerServiceClient;
 
   constructor(
     @Inject(ENGINE_M2M_TOKEN_PROVIDER) private readonly m2mTokenProvider: EngineM2mTokenProvider,
+    // Both real clients already support an injectable transport
+    // (PlannerClient's httpClient param, CompilerServiceClient's raw gRPC
+    // client param) -- @Optional() here just lets a test construct this
+    // service directly with fakes wired through those existing seams,
+    // without inventing a new one. Nest has no provider registered for
+    // either class, so in the real app these always resolve to
+    // undefined and this falls through to the exact same construction
+    // that ran unconditionally before -- zero behavior change.
+    @Optional() plannerClient?: PlannerClient,
+    @Optional() compilerClient?: CompilerServiceClient,
   ) {
     const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL || "http://127.0.0.1:8000";
-    
-    this.plannerClient = new PlannerClient(
+
+    this.plannerClient = plannerClient ?? new PlannerClient(
       { baseUrl: intelligenceUrl },
       createFetchPlannerHttpClient((tenantId) => this.m2mTokenProvider.getAccessToken(tenantId))
     );
@@ -62,7 +72,7 @@ export class PlannerFacadeService {
     // orchestration-service, bound per .env.local's
     // COMPILER_GRPC_BIND_ADDRESS.
     const compilerAddress = process.env.ORCHESTRATION_GRPC_URL || "127.0.0.1:50071";
-    this.compilerClient = new CompilerServiceClient({
+    this.compilerClient = compilerClient ?? new CompilerServiceClient({
       address: compilerAddress,
       protoPath: getCompilerProtoPath(),
     });
