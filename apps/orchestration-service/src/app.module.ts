@@ -88,6 +88,7 @@ import { EscalationsController } from "./escalations/escalations.controller";
 import { EscalationsService } from "./escalations/escalations.service";
 import { createRuntimeNodeHandlerRegistry } from "./registry/node-handler-registry";
 import { PostgresVerificationGateReader } from "./registry/verification-gate-reader";
+import { PostgresRunFinalizationMemoryWriter } from "./registry/run-finalization-memory-writer";
 import { BlackboardGrpcService } from "./blackboard/blackboard-grpc.service";
 import { BlackboardService } from "./blackboard/blackboard.service";
 import { parseRedisHostPort } from "./config/blackboard-environment";
@@ -593,6 +594,12 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           new AwsSsmParameterProvider({ region: dbConfig.awsRegion }),
           dbConfig.selectionBindingFailClosedParameter,
         );
+        const runFinalizationMemoryWriter = new PostgresRunFinalizationMemoryWriter(
+          store,
+          new PostgresVerificationGateReader(store),
+          artifacts,
+          memoryService,
+        );
         return new NodeexecService(
           registry,
           ledger,
@@ -614,6 +621,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           selectionBindingForNodeexec,
           performanceRecorder,
           selectionBindingFailClosed,
+          runFinalizationMemoryWriter,
         );
       },
       inject: [ArtifactsService],

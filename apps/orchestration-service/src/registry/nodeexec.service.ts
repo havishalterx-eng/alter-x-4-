@@ -30,6 +30,7 @@ import type { ProjectRunProvisioningService } from "../runs/project-run-provisio
 import type { RunWorkspaceLookupService } from "../runs/run-workspace-lookup.service";
 import type { GeneratedFileMaterializer } from "./generated-file-materializer";
 import type { SelectionBindingFailClosedConfig } from "./selection-binding-fail-closed-config";
+import type { RunFinalizationMemoryWriter } from "./run-finalization-memory-writer";
 import { VerifyGateError, type VerifyGateService } from "./verify-gate.service";
 import { createVerificationResultId } from "./verification-result-id";
 
@@ -113,6 +114,7 @@ export class NodeexecService {
     private readonly selectionBinding?: SelectionBindingHandler,
     private readonly performanceRecorder?: PerformanceRecorderHandler,
     private readonly selectionBindingFailClosed?: SelectionBindingFailClosedConfig,
+    private readonly runFinalizationMemoryWriter?: RunFinalizationMemoryWriter,
   ) {}
 
   async executeNode(
@@ -608,6 +610,27 @@ export class NodeexecService {
     }
   }
 
+  /**
+   * Executor-mandatory MemoryWrite (see run-finalization-memory-writer.ts).
+   * Same fail-open, best-effort shape as #recordOutcomeBestEffort just
+   * above: a missing/skipped memory write is an expected, silent outcome
+   * for most runs (no single verified terminal node), never something that
+   * should break the real finalizeRun RPC response.
+   */
+  async #writeVerifiedOutputMemoryBestEffort(
+    tenantId: string,
+    runId: string,
+  ): Promise<void> {
+    try {
+      await this.runFinalizationMemoryWriter?.writeVerifiedOutputMemory(tenantId, runId);
+    } catch (error: unknown) {
+      console.error("run finalization memory write failed", {
+        run_id: runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   async #ensureRunStatusBestEffort(
     request: NodeexecExecuteNodeRequest,
   ): Promise<void> {
@@ -648,6 +671,9 @@ export class NodeexecService {
       request.run_id,
     );
     await this.#recordOutcomeBestEffort(request.tenant_id, request.run_id, result.status);
+    if (result.status === "completed") {
+      await this.#writeVerifiedOutputMemoryBestEffort(request.tenant_id, request.run_id);
+    }
     // Only emit when the ledger actually applied *this* finalize -- if the
     // run was already terminal for another reason (e.g. cancelled
     // concurrently), result.status reflects that real state instead, and
