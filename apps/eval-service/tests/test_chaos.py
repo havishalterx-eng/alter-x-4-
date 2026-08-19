@@ -1,42 +1,92 @@
 import pytest
 
 from src.chaos import ChaosHarness
-from src.db.chaos_scenarios import CHAOS_GOLDEN_SET
 from src.db.launch_golden_sets import EvalCaseSeed
-from src.hardening import MockHarness
+
+REAL_CASES: tuple[tuple[str, int, str, str], ...] = (
+    ("credential_missing", 1, "escalated", "repair"),
+    ("safety_violation", 1, "escalated", "ask_user"),
+    ("tool_permission_denial", 1, "escalated", "ask_user"),
+    ("rate_limit", 1, "resolved", "backoff"),
+    ("timeout", 1, "resolved", "retry"),
+    ("timeout", 2, "escalated", "swap_agent"),
+    ("infrastructure_failure", 1, "resolved", "retry"),
+    ("infrastructure_failure", 2, "escalated", "swap_agent"),
+    ("sandbox_crash", 1, "resolved", "retry"),
+    ("sandbox_crash", 2, "resolved", "recompile"),
+    ("logic_output_failure", 1, "resolved", "escalate_model"),
+    ("logic_output_failure", 2, "resolved", "replan"),
+    ("agent_creation_failure", 1, "escalated", "swap_agent"),
+    ("agent_creation_failure", 2, "escalated", "ask_user"),
+    ("unknown", 1, "escalated", "ask_user"),
+)
 
 
-def test_chaos_suite_has_fifteen_distinct_deterministic_scenarios() -> None:
-    assert CHAOS_GOLDEN_SET.name == "chaos"
-    assert len(CHAOS_GOLDEN_SET.cases) == 15
-    names = {case.input_json["name"] for case in CHAOS_GOLDEN_SET.cases}
-    assert len(names) == 15
-    for case in CHAOS_GOLDEN_SET.cases:
-        assert case.input_json["operation"] == "chaos_inject"
-        assert case.scoring == {"matcher": "exact_json", "minimum_score": 1.0}
-        assert "chaos" in case.tags
+def _case(failure_class: str, node_attempt: int) -> EvalCaseSeed:
+    return EvalCaseSeed(
+        input_json={
+            "operation": "chaos_inject",
+            "failure_class": failure_class,
+            "node_attempt": node_attempt,
+        },
+        expected_json={},
+        scoring={"matcher": "exact_json", "minimum_score": 1.0},
+        tags=["chaos"],
+    )
 
 
-def test_chaos_harness_executes_every_scenario_through_the_hardening_matcher() -> None:
+def test_chaos_harness_covers_every_locked_failure_class_with_real_outcomes() -> None:
     chaos = ChaosHarness()
-    scorer = MockHarness()
 
-    for case in CHAOS_GOLDEN_SET.cases:
-        execution = chaos.execute(case)
-        assert scorer.evaluate(case, execution.output).passed is True
-        assert str(case.input_json["boundary"]) in execution.diagnostic
-        assert str(case.input_json["failure_mode"]) in execution.diagnostic
+    assert {failure_class for failure_class, _, _, _ in REAL_CASES} == {
+        "infrastructure_failure",
+        "logic_output_failure",
+        "timeout",
+        "tool_permission_denial",
+        "sandbox_crash",
+        "rate_limit",
+        "safety_violation",
+        "credential_missing",
+        "agent_creation_failure",
+        "unknown",
+    }
+
+    for failure_class, node_attempt, outcome, strategy in REAL_CASES:
+        execution = chaos.execute(_case(failure_class, node_attempt))
+        assert execution.output == {"outcome": outcome, "strategy": strategy}
+        assert execution.diagnostic == (
+            f"{failure_class}:node_attempt={node_attempt}:{strategy}"
+        )
+
+    assert {outcome for _, _, outcome, _ in REAL_CASES} <= {
+        "resolved",
+        "failed",
+        "escalated",
+    }
+
+
+def test_chaos_harness_matches_timeout_repeat_dispatch_pairing() -> None:
+    # Sources: recovery-strategy-table.ts:195-198; recovery-dispatch.service.ts:167,305-363.
+    execution = ChaosHarness().execute(_case("timeout", 2))
+
+    assert execution.output == {"outcome": "escalated", "strategy": "swap_agent"}
+
+
+def test_chaos_harness_matches_logic_repeat_dispatch_pairing() -> None:
+    # Sources: recovery-strategy-table.ts:202-203; recovery-dispatch.service.ts:142-149,367-395.
+    execution = ChaosHarness().execute(_case("logic_output_failure", 2))
+
+    assert execution.output == {"outcome": "resolved", "strategy": "replan"}
 
 
 def test_chaos_harness_rejects_an_unregistered_failure_policy() -> None:
     unregistered = EvalCaseSeed(
         input_json={
             "operation": "chaos_inject",
-            "boundary": "queue",
-            "failure_mode": "corrupted",
-            "attempt": 1,
+            "failure_class": "timeout",
+            "node_attempt": 3,
         },
-        expected_json={"outcome": "recovered", "strategy": "retry"},
+        expected_json={"outcome": "resolved", "strategy": "retry"},
         scoring={"matcher": "exact_json", "minimum_score": 1.0},
         tags=["chaos"],
     )
