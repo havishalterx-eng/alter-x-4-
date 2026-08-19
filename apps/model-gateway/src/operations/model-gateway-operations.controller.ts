@@ -8,6 +8,7 @@ import {
   Inject,
   Param,
   Patch,
+  Post,
   Put,
 } from "@nestjs/common";
 import {
@@ -90,7 +91,25 @@ export class ModelGatewayOperationsController {
     this.authorize(authorization);
     const alias = parse(ModelAliasPathSchema, rawAlias);
     const body = parse(UpdateModelAliasRequestSchema, rawBody);
-    return this.policy.updateModelAlias(alias, body.binding);
+    return this.policy.proposeModelAlias(alias, body.binding);
+  }
+
+  @Put("model-policy/:alias/proposal")
+  proposeModelPolicy(
+    @Param("alias") rawAlias: string,
+    @Body() rawBody: unknown,
+    @Headers("authorization") authorization?: string,
+  ) {
+    this.authorize(authorization);
+    const alias = parse(ModelAliasPathSchema, rawAlias);
+    const body = parse(UpdateModelAliasRequestSchema, rawBody);
+    return this.policy.proposeModelAlias(alias, body.binding);
+  }
+
+  @Post("model-policy/promote")
+  promoteModelPolicy(@Headers("authorization") authorization?: string) {
+    this.authorize(authorization);
+    return this.policy.promoteModelAlias();
   }
 
   private authorize(authorization: string | undefined): void {

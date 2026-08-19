@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Put, Req, UseFilters } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Put, Req, UseFilters } from "@nestjs/common";
 import {
   FeatureFlagNameSchema,
   ModelAliasPathSchema,
@@ -86,6 +86,29 @@ export class AdminControlsController {
       requireStaff(request, instance),
       parse(UpdateModelAliasRequestSchema, body, instance),
     );
+  }
+
+  @Put("policy/model/:alias/proposal")
+  @RequireStaffRole("staff_admin")
+  proposeModelAlias(
+    @Param("alias") rawAlias: string,
+    @Body() body: unknown,
+    @Req() request: RbacRequest,
+  ) {
+    const instance = `/api/v1/admin/policy/model/${rawAlias}/proposal`;
+    const alias = parse(ModelAliasPathSchema, rawAlias, instance);
+    return this.controls.proposeModelAlias(
+      alias,
+      requireStaff(request, instance),
+      parse(UpdateModelAliasRequestSchema, body, instance),
+    );
+  }
+
+  @Post("policy/model/promote")
+  @RequireStaffRole("staff_admin")
+  promoteModelAlias(@Req() request: RbacRequest) {
+    const instance = "/api/v1/admin/policy/model/promote";
+    return this.controls.promoteModelAlias(requireStaff(request, instance));
   }
 }
 

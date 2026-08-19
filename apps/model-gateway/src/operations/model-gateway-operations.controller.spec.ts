@@ -60,4 +60,36 @@ describe("ModelGatewayOperationsController", () => {
       "Bearer service-token",
     )).toThrow(HttpException);
   });
+
+  it("stages then promotes a model policy with service authentication", async () => {
+    const store = createMockMutableParameterStoreProvider();
+    const controller = new ModelGatewayOperationsController(
+      new FailoverModelProvider(
+        createMockModelProvider({ providerId: "aws-bedrock" }),
+        {},
+        { store, parameterName: "/controls" },
+      ),
+      new OperationalConfigProvider(createMockConfigProvider(), store, "/policy"),
+      "service-token",
+    );
+    const body = {
+      binding: {
+        model_id: "anthropic.claude-sonnet-5",
+        capability_tags: ["general", "reasoning"],
+        fallback_chain: [{ provider: "openai", model_id: "gpt-5" }],
+      },
+      reason: "validated rollout",
+    };
+
+    const proposed = await controller.proposeModelPolicy(
+      "STANDARD",
+      body,
+      "Bearer service-token",
+    );
+    await expect(store.getParameter("/policy")).rejects.toThrow("not found");
+    await expect(store.getParameter("/policy/pending")).resolves.toBe(JSON.stringify(proposed));
+    await expect(controller.promoteModelPolicy("Bearer service-token")).resolves.toEqual(proposed);
+    await expect(store.getParameter("/policy")).resolves.toBe(JSON.stringify(proposed));
+    await expect(store.getParameter("/policy/pending")).rejects.toThrow("not found");
+  });
 });

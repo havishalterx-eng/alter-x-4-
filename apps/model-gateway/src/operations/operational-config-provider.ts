@@ -70,6 +70,13 @@ export class OperationalConfigProvider implements ConfigProvider {
     alias: ModelAlias,
     binding: ModelAliasBinding,
   ): Promise<ModelAliasPolicy> {
+    return this.proposeModelAlias(alias, binding);
+  }
+
+  async proposeModelAlias(
+    alias: ModelAlias,
+    binding: ModelAliasBinding,
+  ): Promise<ModelAliasPolicy> {
     if (!this.store) {
       throw new ModelPolicyPersistenceError(
         "Mutable model policy store is not configured",
@@ -81,20 +88,42 @@ export class OperationalConfigProvider implements ConfigProvider {
       version: randomUUID(),
       bindings: { ...current.bindings, [alias]: binding },
     });
-    await this.store.putParameter(this.parameterName, JSON.stringify(next));
-    this.policy = next;
+    await this.store.putParameter(this.pendingParameterName, JSON.stringify(next));
     return structuredClone(next);
+  }
+
+  async promoteModelAlias(): Promise<ModelAliasPolicy> {
+    if (!this.store) {
+      throw new ModelPolicyPersistenceError(
+        "Mutable model policy store is not configured",
+      );
+    }
+    const pending = await this.readPolicy(this.pendingParameterName);
+    if (!pending) throw new ModelPolicyPendingNotFoundError();
+    await this.store.putParameter(this.parameterName, JSON.stringify(pending));
+    await this.store.deleteParameter(this.pendingParameterName);
+    this.policy = pending;
+    return structuredClone(pending);
+  }
+
+  private get pendingParameterName(): string {
+    return `${this.parameterName}/pending`;
   }
 
   private async loadOverride(refresh: boolean): Promise<void> {
     if (!this.store || (!refresh && this.policy)) return;
+    const policy = await this.readPolicy(this.parameterName);
+    this.policy = policy;
+  }
+
+  private async readPolicy(parameterName: string): Promise<ModelAliasPolicy | undefined> {
+    if (!this.store) return undefined;
     try {
-      const raw = await this.store.getParameter(this.parameterName);
-      this.policy = ModelAliasPolicySchema.parse(JSON.parse(raw));
+      const raw = await this.store.getParameter(parameterName);
+      return ModelAliasPolicySchema.parse(JSON.parse(raw));
     } catch (error) {
       if (isMissingParameter(error)) {
-        this.policy = undefined;
-        return;
+        return undefined;
       }
       throw error;
     }
@@ -107,3 +136,10 @@ function isMissingParameter(error: unknown): boolean {
 }
 
 export class ModelPolicyPersistenceError extends Error {}
+
+export class ModelPolicyPendingNotFoundError extends Error {
+  constructor() {
+    super("No pending model policy proposal exists");
+    this.name = "ModelPolicyPendingNotFoundError";
+  }
+}

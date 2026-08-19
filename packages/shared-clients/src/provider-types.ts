@@ -114,6 +114,7 @@ export interface ParameterStoreProvider extends BaseProvider<"ParameterStoreProv
 
 export interface MutableParameterStoreProvider extends ParameterStoreProvider {
   putParameter(name: string, value: string): Promise<void>;
+  deleteParameter(name: string): Promise<void>;
 }
 
 export interface Page<T> {

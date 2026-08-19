@@ -1,4 +1,8 @@
-import { GetParameterCommand, PutParameterCommand } from "@aws-sdk/client-ssm";
+import {
+  DeleteParameterCommand,
+  GetParameterCommand,
+  PutParameterCommand,
+} from "@aws-sdk/client-ssm";
 import { createMockParameterStoreProvider, parameterStoreProviderContract, runProviderContractTests } from "@alterx/shared-clients";
 import { describe, expect, it, vi } from "vitest";
 
@@ -46,6 +50,23 @@ describe("AwsSsmParameterProvider", () => {
       "/alter/prod/model-gateway/provider-controls",
       '{"active":true}',
     );
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("deletes a parameter after staged configuration promotion", async () => {
+    const send = vi.fn(async (command: DeleteParameterCommand) => {
+      expect(command).toBeInstanceOf(DeleteParameterCommand);
+      expect(command.input).toEqual({
+        Name: "/alter/prod/model-gateway/model-policy/pending",
+      });
+      return {};
+    });
+    const provider = new AwsSsmParameterProvider(
+      { region: "ap-south-1" },
+      { send } as SsmParameterCommandClient,
+    );
+
+    await provider.deleteParameter("/alter/prod/model-gateway/model-policy/pending");
     expect(send).toHaveBeenCalledTimes(1);
   });
 });
