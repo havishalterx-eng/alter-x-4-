@@ -45,20 +45,27 @@ export class ModelGatewayAdminClient {
     );
   }
 
-  async updateModelAlias(
+  async proposeModelAlias(
     alias: ModelAlias,
     binding: ModelAliasBinding,
     reason: string,
   ): Promise<ModelAliasPolicy> {
     return ModelAliasPolicySchema.parse(await this.call(
       "PUT",
-      `/internal/admin/model-policy/${alias}`,
+      `/internal/admin/model-policy/${alias}/proposal`,
       { binding, reason },
     ));
   }
 
+  async promoteModelAlias(): Promise<ModelAliasPolicy> {
+    return ModelAliasPolicySchema.parse(await this.call(
+      "POST",
+      "/internal/admin/model-policy/promote",
+    ));
+  }
+
   private async call(
-    method: "GET" | "PATCH" | "PUT",
+    method: "GET" | "PATCH" | "POST" | "PUT",
     path: string,
     body?: unknown,
   ): Promise<unknown> {

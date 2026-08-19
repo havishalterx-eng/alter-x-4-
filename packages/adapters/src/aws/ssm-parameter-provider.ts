@@ -1,4 +1,9 @@
-import { GetParameterCommand, PutParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
+import {
+  DeleteParameterCommand,
+  GetParameterCommand,
+  PutParameterCommand,
+  SSMClient,
+} from "@aws-sdk/client-ssm";
 
 import type { ProviderCapabilities } from "@alterx/contracts";
 import type {
@@ -12,7 +17,7 @@ export interface AwsSsmParameterProviderConfig {
 }
 
 export interface SsmParameterCommandClient {
-  send(command: GetParameterCommand | PutParameterCommand): Promise<{
+  send(command: GetParameterCommand | PutParameterCommand | DeleteParameterCommand): Promise<{
     readonly Parameter?: { readonly Value?: string };
   }>;
   destroy?(): void;
@@ -63,6 +68,13 @@ export class AwsSsmParameterProvider implements MutableParameterStoreProvider {
       Type: "String",
       Overwrite: true,
     }));
+  }
+
+  async deleteParameter(name: string): Promise<void> {
+    if (name.length === 0 || name.trim() !== name) {
+      throw new Error("Parameter name must be non-empty and trimmed");
+    }
+    await this.#client.send(new DeleteParameterCommand({ Name: name }));
   }
 
   async healthCheck(): Promise<ProviderHealth> {

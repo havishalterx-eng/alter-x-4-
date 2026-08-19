@@ -90,16 +90,41 @@ export class AdminControlsService {
     staffUserId: string,
     input: UpdateModelAliasRequest,
   ): Promise<ModelAliasPolicy> {
+    return this.proposeModelAlias(alias, staffUserId, input);
+  }
+
+  async proposeModelAlias(
+    alias: ModelAlias,
+    staffUserId: string,
+    input: UpdateModelAliasRequest,
+  ): Promise<ModelAliasPolicy> {
     const result = await this.gatewayCall(
-      `/api/v1/admin/policy/model/${alias}`,
-      () => this.gateway.updateModelAlias(alias, input.binding, input.reason),
+      `/api/v1/admin/policy/model/${alias}/proposal`,
+      () => this.gateway.proposeModelAlias(alias, input.binding, input.reason),
     );
     await this.audit.record({
       actorType: "admin",
       actorRef: staffUserId,
-      action: "policy.model_alias.update",
+      action: "policy.model_alias.propose",
       targetType: "model_alias",
       targetRef: alias,
+      reasonCode: "staff_decision",
+      scope: "policy:model:write",
+    });
+    return result;
+  }
+
+  async promoteModelAlias(staffUserId: string): Promise<ModelAliasPolicy> {
+    const result = await this.gatewayCall(
+      "/api/v1/admin/policy/model/promote",
+      () => this.gateway.promoteModelAlias(),
+    );
+    await this.audit.record({
+      actorType: "admin",
+      actorRef: staffUserId,
+      action: "policy.model_alias.promote",
+      targetType: "model_policy",
+      targetRef: "pending",
       reasonCode: "staff_decision",
       scope: "policy:model:write",
     });

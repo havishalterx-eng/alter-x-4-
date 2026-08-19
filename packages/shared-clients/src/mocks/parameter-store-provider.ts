@@ -58,6 +58,10 @@ export function createMockMutableParameterStoreProvider(
         if (value.length === 0) throw new Error("Parameter value must be non-empty");
         parameters.set(name, value);
       },
+      deleteParameter: async (name) => {
+        validateName(name);
+        parameters.delete(name);
+      },
     },
   });
 }

@@ -17,6 +17,24 @@ describe("AdminControlsService", () => {
       fallback_chain: ["anthropic-direct"],
     };
     const updateProvider = vi.fn().mockResolvedValue(provider);
+    const proposeModelAlias = vi.fn().mockResolvedValue({
+      version: "policy-v2",
+      bindings: {
+        FAST: { model_id: "mock.fast.v1", capability_tags: [], fallback_chain: [] },
+        STANDARD: { model_id: "mock.standard.v1", capability_tags: [], fallback_chain: [] },
+        ADVANCED: { model_id: "mock.advanced.v1", capability_tags: [], fallback_chain: [] },
+        CEILING: { model_id: "mock.ceiling.v1", capability_tags: [], fallback_chain: [] },
+      },
+    });
+    const promoteModelAlias = vi.fn().mockResolvedValue({
+      version: "policy-v2",
+      bindings: {
+        FAST: { model_id: "mock.fast.v1", capability_tags: [], fallback_chain: [] },
+        STANDARD: { model_id: "mock.standard.v1", capability_tags: [], fallback_chain: [] },
+        ADVANCED: { model_id: "mock.advanced.v1", capability_tags: [], fallback_chain: [] },
+        CEILING: { model_id: "mock.ceiling.v1", capability_tags: [], fallback_chain: [] },
+      },
+    });
     const upsert = vi.fn().mockResolvedValue({
       name: "operations.kill-switch",
       enabled: true,
@@ -27,7 +45,7 @@ describe("AdminControlsService", () => {
     });
     const record = vi.fn().mockResolvedValue("a".repeat(64));
     const service = new AdminControlsService(
-      { updateProvider } as unknown as ModelGatewayAdminClient,
+      { updateProvider, proposeModelAlias, promoteModelAlias } as unknown as ModelGatewayAdminClient,
       { upsert } as unknown as FeatureFlagRepository,
       { record } as unknown as AdminAuditService,
     );
@@ -41,13 +59,18 @@ describe("AdminControlsService", () => {
       description: "Stop new deployments",
       reason: "incident response",
     });
+    await service.proposeModelAlias("STANDARD", "stf_admin", {
+      binding: { model_id: "mock.standard.v2", capability_tags: [], fallback_chain: [] },
+      reason: "validated rollout",
+    });
+    await service.promoteModelAlias("stf_admin");
 
     expect(updateProvider).toHaveBeenCalledWith("aws-bedrock", {
       active: false,
       reason: "provider incident",
     });
     expect(upsert).toHaveBeenCalledTimes(1);
-    expect(record).toHaveBeenCalledTimes(2);
+    expect(record).toHaveBeenCalledTimes(4);
     expect(record).toHaveBeenNthCalledWith(1, expect.objectContaining({
       action: "provider.control.update",
       targetRef: "aws-bedrock",
@@ -55,6 +78,14 @@ describe("AdminControlsService", () => {
     expect(record).toHaveBeenNthCalledWith(2, expect.objectContaining({
       action: "policy.feature_flag.upsert",
       targetRef: "operations.kill-switch",
+    }));
+    expect(record).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      action: "policy.model_alias.propose",
+      targetRef: "STANDARD",
+    }));
+    expect(record).toHaveBeenNthCalledWith(4, expect.objectContaining({
+      action: "policy.model_alias.promote",
+      targetRef: "pending",
     }));
   });
 });

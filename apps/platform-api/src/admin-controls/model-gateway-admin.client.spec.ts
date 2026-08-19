@@ -32,4 +32,41 @@ describe("ModelGatewayAdminClient", () => {
       }),
     );
   });
+
+  it("uses explicit proposal and promotion endpoints for model aliases", async () => {
+    const response = {
+      version: "policy-v2",
+      bindings: {
+        FAST: { model_id: "mock.fast.v1", capability_tags: [], fallback_chain: [] },
+        STANDARD: { model_id: "mock.standard.v1", capability_tags: [], fallback_chain: [] },
+        ADVANCED: { model_id: "mock.advanced.v1", capability_tags: [], fallback_chain: [] },
+        CEILING: { model_id: "mock.ceiling.v1", capability_tags: [], fallback_chain: [] },
+      },
+    };
+    const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ));
+    const secrets = { getSecret: vi.fn().mockResolvedValue("service-token") } as unknown as SecretsProvider;
+    const client = new ModelGatewayAdminClient({
+      baseUrl: "http://model-gateway.test",
+      tokenSecretRef: "/alter/model-gateway/admin-token",
+      timeoutMs: 1000,
+    }, secrets, fetchImpl);
+    const binding = { model_id: "mock.standard.v2", capability_tags: [], fallback_chain: [] };
+
+    await client.proposeModelAlias("STANDARD", binding, "validated rollout");
+    await client.promoteModelAlias();
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(1,
+      "http://model-gateway.test/internal/admin/model-policy/STANDARD/proposal",
+      expect.objectContaining({ method: "PUT" }),
+    );
+    expect(fetchImpl).toHaveBeenNthCalledWith(2,
+      "http://model-gateway.test/internal/admin/model-policy/promote",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
 });
