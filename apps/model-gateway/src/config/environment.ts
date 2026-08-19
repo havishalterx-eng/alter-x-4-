@@ -99,6 +99,21 @@ function parseGrpcAddress(value: string | undefined): string {
   return address;
 }
 
+/**
+ * Non-empty-with-default, no address-format validation -- unlike
+ * GRPC_BIND_ADDRESS (this process's own bind target, always a raw IPv4:port),
+ * a cross-service target address is real-world commonly a hostname (k8s
+ * service DNS, docker-compose service name), matching the base test fixture's
+ * own pre-existing "localhost:50060" value. Defaults rather than throws when
+ * absent because the real pricing lookup this feeds is fail-open by design
+ * (ENGINE-FIX-16) -- an unreachable default degrades to the historical-
+ * average fallback, it never breaks boot.
+ */
+function optionalAddress(value: string | undefined, defaultAddress: string): string {
+  const trimmed = value?.trim();
+  return trimmed !== undefined && trimmed.length > 0 ? trimmed : defaultAddress;
+}
+
 export function loadModelGatewayEnvironment(
   environment: NodeJS.ProcessEnv,
 ): ModelGatewayEnvironment {
@@ -157,7 +172,15 @@ export function loadModelGatewayEnvironment(
     region,
     httpPort: parsePort(environment.PORT),
     grpcBindAddress: parseGrpcAddress(environment.GRPC_BIND_ADDRESS),
-    costLedgerGrpcAddress: requireValue(environment, "COST_LEDGER_GRPC_ADDRESS"),
+    // No fixed port is documented anywhere for cost-ledger-service's real
+    // gRPC bind address (it isn't part of the standard local-dev compose
+    // stack) -- 50065 picked to sit in the same numeric range as this
+    // repo's other real cross-service gRPC defaults (e.g. 50054, 50071,
+    // 50077). Real deployments always override via COST_LEDGER_GRPC_ADDRESS.
+    costLedgerGrpcAddress: optionalAddress(
+      environment.COST_LEDGER_GRPC_ADDRESS,
+      "127.0.0.1:50065",
+    ),
   };
 
   if (configSource === "mock") {
