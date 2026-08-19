@@ -16,3 +16,9 @@ CREATE POLICY "Provisioner may read and manage model pricing globally"
   TO "cost_ledger_provisioner"
   USING (true)
   WITH CHECK (true);
+
+-- cost_ledger_provisioner is BYPASSRLS (created in 0001), so the policy
+-- above is a documentation/defense-in-depth statement, not what actually
+-- authorizes this role -- table-level GRANT is the real gate, same as
+-- every other provisioner-managed table in this service.
+GRANT SELECT, INSERT, UPDATE, DELETE ON "model_pricing" TO cost_ledger_provisioner;
