@@ -924,4 +924,73 @@ describe("NodeexecService.finalizeRun", () => {
       }),
     ).rejects.toThrow(NodeHandlerValidationError);
   });
+
+  it("triggers the run-finalization memory write only on a real completed status", async () => {
+    const runFinalizationMemoryWriter = {
+      writeVerifiedOutputMemory: vi.fn().mockResolvedValue({ written: true, reason: "written" }),
+    };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]),
+      fakeLedger(),
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined,
+      runFinalizationMemoryWriter,
+    );
+
+    await nodeexec.finalizeRun({
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      status: "completed",
+      error_json: "",
+    });
+
+    expect(runFinalizationMemoryWriter.writeVerifiedOutputMemory).toHaveBeenCalledWith(TENANT_ID, RUN_ID);
+  });
+
+  it("does not attempt a memory write on a failed run", async () => {
+    const ledger = fakeLedger();
+    vi.mocked(ledger.finalizeRun).mockResolvedValue({
+      status: "failed",
+      endedAt: "2026-07-28T00:00:01.000Z",
+    });
+    const runFinalizationMemoryWriter = { writeVerifiedOutputMemory: vi.fn() };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]),
+      ledger,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined,
+      runFinalizationMemoryWriter,
+    );
+
+    await nodeexec.finalizeRun({
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      status: "failed",
+      error_json: "{}",
+    });
+
+    expect(runFinalizationMemoryWriter.writeVerifiedOutputMemory).not.toHaveBeenCalled();
+  });
+
+  it("stays fail-open: a memory-writer error never breaks the real finalizeRun response", async () => {
+    const runFinalizationMemoryWriter = {
+      writeVerifiedOutputMemory: vi.fn().mockRejectedValue(new Error("memory service unavailable")),
+    };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([new MergeHandler()]),
+      fakeLedger(),
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined,
+      runFinalizationMemoryWriter,
+    );
+
+    const response = await nodeexec.finalizeRun({
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      status: "completed",
+      error_json: "",
+    });
+
+    expect(response.status).toBe("completed");
+  });
 });
