@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     intelligence_service_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     ads_core_base_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8000")
     ads_core_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    cost_ledger_service_base_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8000")
+    cost_ledger_service_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     drift_failure_threshold: float = Field(default=0.2, ge=0, le=1)
     drift_window_size: int = Field(default=20, ge=2, le=100)
 

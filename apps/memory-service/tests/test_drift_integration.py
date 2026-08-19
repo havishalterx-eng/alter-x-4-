@@ -19,12 +19,20 @@ from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
-from src.drift.detector import DriftDetector
+from src.drift.cost_ledger_client import CostLedgerOutcomeClient
+from src.drift.detector import DriftDetector, InsufficientPerformanceDataError
 from src.drift.intelligence_client import HttpxIntelligencePerformanceClient
 from src.drift.models import (
     ComputeAgentDriftRequest,
     ComputeAgentDriftResponse,
+    ComputeModelDriftRequest,
+    ComputeProviderDriftRequest,
     ListAgentDriftRequest,
+    ListModelDriftRequest,
+    ListProviderDriftRequest,
+    ModelOutcomeObservation,
+    ModelOutcomeWindow,
+    PerformanceVerdict,
 )
 from src.drift.repository import SqlAlchemyDriftRepository
 from src.policy_store.models import GetActivePolicyRequest
@@ -44,6 +52,46 @@ SYSTEM_PASSWORD = "know15-system-test-only"
 TENANT_ROLE = "know15_tenant_writer"
 TENANT_PASSWORD = "know15-tenant-test-only"
 DRIFT_READER_PASSWORD = "drift-reader-test-only"
+
+
+class _UnexercisedOutcomeClient:
+    """This test file covers agent drift only -- model/provider drift has
+    its own dedicated coverage. Satisfies CostLedgerOutcomeClient's real
+    Protocol shape without a real cost-ledger-service running."""
+
+    async def load_outcome_window(
+        self, *, provider: str, resource: str | None, limit: int, authorization: str
+    ) -> ModelOutcomeWindow:
+        raise AssertionError("not exercised by this test")
+
+
+_UNEXERCISED_OUTCOME_CLIENT: CostLedgerOutcomeClient = _UnexercisedOutcomeClient()
+
+
+def _outcome_window(
+    *, baseline: Sequence[PerformanceVerdict], recent: Sequence[PerformanceVerdict]
+) -> ModelOutcomeWindow:
+    # Real cost-ledger-service returns observations most-recent-first
+    # (ORDER BY recorded_at DESC); [*recent, *baseline] with strictly
+    # increasing minutes-in-the-past reproduces that ordering directly,
+    # without seeding a real table.
+    now = datetime.now(UTC)
+    observations = tuple(
+        ModelOutcomeObservation(verdict=verdict, recorded_at=now - timedelta(minutes=index))
+        for index, verdict in enumerate([*recent, *baseline])
+    )
+    return ModelOutcomeWindow(observations=observations)
+
+
+class _FakeOutcomeClient:
+    def __init__(self, windows: dict[tuple[str, str | None], ModelOutcomeWindow]) -> None:
+        self._windows = windows
+
+    async def load_outcome_window(
+        self, *, provider: str, resource: str | None, limit: int, authorization: str
+    ) -> ModelOutcomeWindow:
+        del limit, authorization
+        return self._windows.get((provider, resource), ModelOutcomeWindow(observations=()))
 
 
 def _free_port() -> int:
@@ -331,6 +379,7 @@ def test_real_performance_http_projection_computes_and_persists_drift(
             policy_store,
             window_size=4,
             failure_threshold=0.2,
+            outcome_client=_UNEXERCISED_OUTCOME_CLIENT,
         )
         try:
             drifted = await detector.compute_agent_drift(
@@ -377,6 +426,7 @@ def test_real_performance_http_projection_computes_and_persists_drift(
             policy_store,
             window_size=4,
             failure_threshold=0.2,
+            outcome_client=_UNEXERCISED_OUTCOME_CLIENT,
         )
         try:
             response = await detector.list_agent_drift(
@@ -412,3 +462,142 @@ def test_real_performance_http_projection_computes_and_persists_drift(
     assert drifted_row["window"]["formula"] == (
         "max(0,recent_failure_rate-baseline_failure_rate)"
     )
+
+
+def test_model_and_provider_drift_computes_and_persists_real_rows(
+    drift_stack: dict[str, str],
+) -> None:
+    """Covers the real gap agent drift never exercised: model_outcomes has
+    no tenant_id at all (platform-wide, not tenant-owned), and drift_read's
+    real policy (0001_create_policy_tables.py) permits SELECT of
+    subject_type IN ('model','provider') unconditionally -- unlike agent
+    rows, which the test above proves are default-deny for every tenant.
+    The HTTP boundary to cost-ledger-service is faked (no real NestJS
+    service in this stack); everything from there in -- the detector's
+    scoring math, the real Postgres write, and the real RLS-gated read --
+    is real, using the same drift_stack Postgres container and roles the
+    agent-drift test above already provisions."""
+    outcome_client = _FakeOutcomeClient(
+        {
+            ("bedrock/claude-sonnet-5", "tokens"): _outcome_window(
+                baseline=("success", "success", "success", "success"),
+                recent=("failure", "failure", "failure", "failure"),
+            ),
+            ("openai/gpt-5", "tokens"): _outcome_window(
+                baseline=("success", "success", "success", "failure"),
+                recent=("success", "success", "success", "failure"),
+            ),
+            ("bedrock", None): _outcome_window(
+                baseline=("success", "success", "success", "success"),
+                recent=("failure", "failure", "failure", "failure"),
+            ),
+        }
+    )
+    system_engine = sa.create_engine(drift_stack["policy_system_url"])
+    tenant_engine = sa.create_engine(drift_stack["policy_tenant_url"])
+    repository = SqlAlchemyDriftRepository(
+        sessionmaker(tenant_engine, class_=Session, expire_on_commit=False),
+        sessionmaker(system_engine, class_=Session, expire_on_commit=False),
+    )
+    policy_store = PolicyStoreService(
+        SqlAlchemyPolicyStoreRepository(
+            sessionmaker(tenant_engine, class_=Session, expire_on_commit=False),
+            sessionmaker(system_engine, class_=Session, expire_on_commit=False),
+        )
+    )
+
+    async def run() -> tuple[str, str, str, tuple[str, ...], tuple[str, ...]]:
+        client = HttpxIntelligencePerformanceClient(
+            drift_stack["intelligence_base_url"], timeout_seconds=5
+        )
+        detector = DriftDetector(
+            client,
+            repository,
+            policy_store,
+            window_size=4,
+            failure_threshold=0.2,
+            outcome_client=outcome_client,
+        )
+        try:
+            drifted_model = await detector.compute_model_drift(
+                ComputeModelDriftRequest(provider="bedrock/claude-sonnet-5", resource="tokens"),
+                "Bearer integration-token",
+            )
+            stable_model = await detector.compute_model_drift(
+                ComputeModelDriftRequest(provider="openai/gpt-5", resource="tokens"),
+                "Bearer integration-token",
+            )
+            drifted_provider = await detector.compute_provider_drift(
+                ComputeProviderDriftRequest(provider="bedrock"),
+                "Bearer integration-token",
+            )
+            model_scores = await detector.list_model_drift(
+                ListModelDriftRequest(provider="bedrock/claude-sonnet-5"),
+                "Bearer integration-token",
+            )
+            provider_scores = await detector.list_provider_drift(
+                ListProviderDriftRequest(provider="bedrock"),
+                "Bearer integration-token",
+            )
+            return (
+                drifted_model.action_taken,
+                stable_model.action_taken,
+                drifted_provider.action_taken,
+                tuple(score.drift_score_id for score in model_scores.scores),
+                tuple(score.drift_score_id for score in provider_scores.scores),
+            )
+        finally:
+            await client.close()
+
+    (
+        drifted_model_action,
+        stable_model_action,
+        drifted_provider_action,
+        model_score_ids,
+        provider_score_ids,
+    ) = asyncio.run(run())
+    tenant_engine.dispose()
+
+    # Real, unmodified RLS: model/provider rows are readable back through
+    # the exact same tenant-role session agent rows are default-deny under.
+    assert drifted_model_action == "flagged"
+    assert stable_model_action == "none"
+    assert drifted_provider_action == "flagged"
+    assert len(model_score_ids) == 1
+    assert len(provider_score_ids) == 1
+
+    with pytest.raises(InsufficientPerformanceDataError):
+        asyncio.run(
+            DriftDetector(
+                HttpxIntelligencePerformanceClient(
+                    drift_stack["intelligence_base_url"], timeout_seconds=5
+                ),
+                repository,
+                policy_store,
+                window_size=4,
+                failure_threshold=0.2,
+                outcome_client=outcome_client,
+            ).compute_model_drift(
+                ComputeModelDriftRequest(provider="unknown/model", resource="tokens"),
+                "Bearer integration-token",
+            )
+        )
+
+    admin = sa.create_engine(drift_stack["policy_admin_url"])
+    with admin.connect() as connection:
+        rows = connection.execute(
+            sa.text(
+                "SELECT subject_type,subject_ref,task_class,\"window\" "
+                "FROM drift_scores WHERE subject_type IN ('model','provider') "
+                "ORDER BY subject_ref"
+            )
+        ).mappings().all()
+    admin.dispose()
+    system_engine.dispose()
+    assert len(rows) == 3
+    assert {row["subject_type"] for row in rows} == {"model", "provider"}
+    assert all(row["task_class"] is None for row in rows)
+    model_row = next(row for row in rows if row["subject_ref"] == "bedrock/claude-sonnet-5")
+    assert model_row["window"]["resource"] == "tokens"
+    provider_row = next(row for row in rows if row["subject_type"] == "provider")
+    assert "resource" not in provider_row["window"]
