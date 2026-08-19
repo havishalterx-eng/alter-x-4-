@@ -14,6 +14,8 @@ import type {
   CostQueryRollupsResponse,
   CostResolveUnitPriceRequest,
   CostResolveUnitPriceResponse,
+  CostRecordModelOutcomeRequest,
+  CostRecordModelOutcomeResponse,
 } from "@alterx/contracts";
 
 export const COST_HANDLER = Symbol("COST_HANDLER");
@@ -24,6 +26,9 @@ export interface CostHandler {
   ): Promise<CostIngestCostEventResponse>;
   queryRollups(request: CostQueryRollupsRequest): Promise<CostQueryRollupsResponse>;
   resolveUnitPrice(request: CostResolveUnitPriceRequest): Promise<CostResolveUnitPriceResponse>;
+  recordModelOutcome(
+    request: CostRecordModelOutcomeRequest,
+  ): Promise<CostRecordModelOutcomeResponse>;
 }
 
 export interface CostGrpcTransportConfig {
@@ -67,6 +72,17 @@ export class CostGrpcController {
       throw mapCostError(error);
     }
   }
+
+  @GrpcMethod("CostService", "RecordModelOutcome")
+  async recordModelOutcome(
+    request: CostRecordModelOutcomeRequest,
+  ): Promise<CostRecordModelOutcomeResponse> {
+    try {
+      return await this.handler.recordModelOutcome(request);
+    } catch (error: unknown) {
+      throw mapCostError(error);
+    }
+  }
 }
 
 /** Cost Ledger is single-transport, so this starts the microservice itself
@@ -91,7 +107,8 @@ export async function startCostGrpcTransport(
 function mapCostError(error: unknown): RpcException {
   if (
     isNamedError(error, "CostValidationError") ||
-    isNamedError(error, "RollupValidationError")
+    isNamedError(error, "RollupValidationError") ||
+    isNamedError(error, "ModelOutcomesValidationError")
   ) {
     return new RpcException({
       code: status.INVALID_ARGUMENT,

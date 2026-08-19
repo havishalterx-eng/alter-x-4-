@@ -59,6 +59,7 @@ function buildService(overrides: ServiceOverrides = {}): ModelGatewayService {
         currency: "INR",
         confidence: "fixed_table",
       }),
+      recordModelOutcome: async () => ({ accepted: true }),
     }
   );
 }
@@ -538,6 +539,229 @@ describe("ModelGatewayService", () => {
       /exceeds the resolved limit/,
     );
     expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it("records a success outcome for the real serving provider on a successful invocation", async () => {
+    const recordModelOutcome = vi.fn(async () => ({ accepted: true }));
+    const modelProvider = createMockModelProvider({
+      invoke: async () => ({
+        outputJson: JSON.stringify({
+          message: { role: "assistant", content: "hi" },
+          stop_reason: "end_turn",
+        }),
+        usageJson: JSON.stringify({ input_tokens: 100, output_tokens: 50 }),
+        servedBy: "aws-bedrock",
+      }),
+    });
+    const service = buildService({
+      modelProvider,
+      costClient: {
+        ingestCostEvent: async () => ({ accepted: true }),
+        resolveUnitPrice: async () => ({
+          unit_cost_minor: "10",
+          currency: "INR",
+          confidence: "fixed_table",
+        }),
+        recordModelOutcome,
+      },
+    });
+
+    await service.invoke(request());
+
+    expect(recordModelOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenant_id: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+        run_id: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
+        node_execution_id: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
+        provider: "aws-bedrock",
+        resource: "tokens",
+        verdict: "success",
+      }),
+    );
+  });
+
+  it("records a failure outcome for the resolved model when the model provider itself throws", async () => {
+    const recordModelOutcome = vi.fn(async () => ({ accepted: true }));
+    const modelProvider = createMockModelProvider({
+      invoke: async () => {
+        throw new Error("bedrock unreachable");
+      },
+    });
+    const service = buildService({
+      modelProvider,
+      costClient: {
+        ingestCostEvent: async () => ({ accepted: true }),
+        resolveUnitPrice: async () => ({
+          unit_cost_minor: "10",
+          currency: "INR",
+          confidence: "fixed_table",
+        }),
+        recordModelOutcome,
+      },
+    });
+
+    await expect(service.invoke(request())).rejects.toThrow("bedrock unreachable");
+
+    expect(recordModelOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenant_id: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+        provider: "mock.standard.v1",
+        resource: "tokens",
+        verdict: "failure",
+      }),
+    );
+  });
+
+  it("returns a successful response even when outcome recording fails -- best-effort, never blocks", async () => {
+    const service = buildService({
+      costClient: {
+        ingestCostEvent: async () => ({ accepted: true }),
+        resolveUnitPrice: async () => ({
+          unit_cost_minor: "10",
+          currency: "INR",
+          confidence: "fixed_table",
+        }),
+        recordModelOutcome: async () => {
+          throw new Error("cost ledger unreachable");
+        },
+      },
+    });
+
+    await expect(service.invoke(request())).resolves.toMatchObject({
+      resolved_capability: "STANDARD:mock.model",
+    });
+  });
+
+  it("records exactly one success outcome for a streamed completion, keyed by the terminal chunk's provider", async () => {
+    const recordModelOutcome = vi.fn(async () => ({ accepted: true }));
+    const service = buildService({
+      modelProvider: createMockModelProvider({
+        stream: async function* () {
+          yield {
+            sequence: 1,
+            delta: "done",
+            final: false,
+            servedBy: "mock.model",
+          };
+          yield {
+            sequence: 2,
+            delta: "",
+            final: true,
+            usageJson: JSON.stringify({ input_tokens: 4, output_tokens: 4 }),
+            servedBy: "mock.model",
+          };
+        },
+      }),
+      costClient: {
+        ingestCostEvent: async () => ({ accepted: true }),
+        resolveUnitPrice: async () => ({
+          unit_cost_minor: "10",
+          currency: "INR",
+          confidence: "fixed_table",
+        }),
+        recordModelOutcome,
+      },
+    });
+
+    const iterator = service.stream(request())[Symbol.asyncIterator]();
+    while (!(await iterator.next()).done) {
+      // Drain to the terminal chunk.
+    }
+
+    expect(recordModelOutcome).toHaveBeenCalledTimes(1);
+    expect(recordModelOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "mock.model", verdict: "success" }),
+    );
+  });
+
+  it("records exactly one failure outcome, not a contradictory second one, when a streamed completion is closed for exceeding its cost limit", async () => {
+    const recordModelOutcome = vi.fn(async () => ({ accepted: true }));
+    const service = buildService({
+      configProvider: createMockConfigProvider({
+        costLimit: { maxTokensPerCall: 1, maxCostUsdPerCall: 1 },
+      }),
+      modelProvider: createMockModelProvider({
+        stream: async function* () {
+          yield {
+            sequence: 1,
+            delta: "done",
+            final: false,
+            servedBy: "mock.model",
+          };
+          yield {
+            sequence: 2,
+            delta: "",
+            final: true,
+            usageJson: JSON.stringify({ input_tokens: 2, output_tokens: 2 }),
+            servedBy: "mock.model",
+          };
+        },
+      }),
+      costClient: {
+        ingestCostEvent: async () => ({ accepted: true }),
+        resolveUnitPrice: async () => ({
+          unit_cost_minor: "10",
+          currency: "INR",
+          confidence: "fixed_table",
+        }),
+        recordModelOutcome,
+      },
+    });
+    const drain = async () => {
+      const iterator = service.stream(request())[Symbol.asyncIterator]();
+      while (!(await iterator.next()).done) {
+        // Drain until terminal usage is checked.
+      }
+    };
+
+    await expect(drain()).rejects.toThrow(/tokens exceeds the resolved limit/);
+
+    // The terminal chunk's real model call already succeeded -- only the
+    // gateway's own post-hoc limit check rejected it, so exactly the one
+    // "success" outcome recorded at the terminal chunk is correct, not a
+    // second, contradictory "failure" for the same real call.
+    expect(recordModelOutcome).toHaveBeenCalledTimes(1);
+    expect(recordModelOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ verdict: "success" }),
+    );
+  });
+
+  it("records a failure outcome when a stream ends without a terminal usage chunk", async () => {
+    const recordModelOutcome = vi.fn(async () => ({ accepted: true }));
+    const service = buildService({
+      modelProvider: createMockModelProvider({
+        stream: async function* () {
+          yield {
+            sequence: 1,
+            delta: "unfinished",
+            final: false,
+            servedBy: "aws-bedrock",
+          };
+        },
+      }),
+      costClient: {
+        ingestCostEvent: async () => ({ accepted: true }),
+        resolveUnitPrice: async () => ({
+          unit_cost_minor: "10",
+          currency: "INR",
+          confidence: "fixed_table",
+        }),
+        recordModelOutcome,
+      },
+    });
+
+    const drain = async () => {
+      const iterator = service.stream(request())[Symbol.asyncIterator]();
+      while (!(await iterator.next()).done) {
+        // Drain malformed stream to force end-of-stream validation.
+      }
+    };
+    await expect(drain()).rejects.toThrow(/without a final usage chunk/);
+
+    expect(recordModelOutcome).toHaveBeenCalledTimes(1);
+    expect(recordModelOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "aws-bedrock", verdict: "failure" }),
+    );
   });
 
   it("rejects a call whose estimated cost exceeds the resolved USD limit", async () => {

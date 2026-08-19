@@ -18,6 +18,7 @@ describe("cost_db migration files", () => {
       "0001_create_billing_rollups.sql",
       "0002_billing_rollup_currency.sql",
       "0003_create_model_pricing.sql",
+      "0004_create_model_outcomes.sql",
     ]);
     expect(
       readdirSync(resolve(COST_MIGRATIONS_PATH, "rollback"))
@@ -28,6 +29,7 @@ describe("cost_db migration files", () => {
       "0001_drop_billing_rollups.sql",
       "0002_drop_billing_rollup_currency.sql",
       "0003_drop_model_pricing.sql",
+      "0004_drop_model_outcomes.sql",
     ]);
   });
 
@@ -91,6 +93,21 @@ describe("cost_db migration files", () => {
     );
     expect(sql).toContain(
       "GRANT cost_ledger_provisioner TO cost_ledger_service",
+    );
+  });
+
+  it("grants the BYPASSRLS provisioner role real table privileges on model_pricing and model_outcomes", () => {
+    // Both tables previously shipped with an RLS POLICY but no table-level
+    // GRANT for cost_ledger_provisioner -- real CI caught "permission
+    // denied" for model_pricing (ENGINE-FIX-16); asserting both here so the
+    // same class of bug can't silently ship again.
+    const allSql = migrationSql.map(({ sql }) => sql).join("\n");
+
+    expect(allSql).toContain(
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON "model_pricing" TO cost_ledger_provisioner',
+    );
+    expect(allSql).toContain(
+      'GRANT SELECT, INSERT ON "model_outcomes" TO cost_ledger_provisioner',
     );
   });
 

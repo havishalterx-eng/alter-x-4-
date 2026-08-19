@@ -120,17 +120,23 @@ export class ModelGatewayService implements ModelgwHandler {
       return cacheHit;
     }
 
-    const result = await this.modelProvider.invoke({
-      tenantId: request.tenant_id,
-      runId: request.run_id,
-      nodeExecutionId: request.node_execution_id,
-      modelId: binding.model_id,
-      capabilityTags: binding.capability_tags,
-      inputJson: redacted.redactedText,
-      ...(binding.fallback_chain === undefined
-        ? {}
-        : { fallbackChain: binding.fallback_chain }),
-    });
+    let result: Awaited<ReturnType<ModelProvider["invoke"]>>;
+    try {
+      result = await this.modelProvider.invoke({
+        tenantId: request.tenant_id,
+        runId: request.run_id,
+        nodeExecutionId: request.node_execution_id,
+        modelId: binding.model_id,
+        capabilityTags: binding.capability_tags,
+        inputJson: redacted.redactedText,
+        ...(binding.fallback_chain === undefined
+          ? {}
+          : { fallbackChain: binding.fallback_chain }),
+      });
+    } catch (error) {
+      await this.#recordModelOutcomeBestEffort(request, binding.model_id, "failure");
+      throw error;
+    }
 
     // Validation floor: the response must be well-formed JSON that decodes
     // to an object (not a bare string/number/array/null). This is a shape
@@ -153,14 +159,13 @@ export class ModelGatewayService implements ModelgwHandler {
     // cost event for what was actually used before deciding whether to
     // reject the call, so an over-limit call is never invisible to the
     // (future) Cost Ledger.
-    // NOTE: This call site is the intended future home for a per-model/provider
-    // outcome-write hook (Issue #15).
     await this.#emitCostEventBestEffort(
       request,
       result.servedBy,
       result.usageJson,
       estimatedCostUsd,
     );
+    await this.#recordModelOutcomeBestEffort(request, result.servedBy, "success");
 
     if (totalTokens > limit.maxTokensPerCall) {
       throw new ModelGatewayCostLimitExceededError(
@@ -210,69 +215,85 @@ export class ModelGatewayService implements ModelgwHandler {
     let expectedSequence = 1;
     let finalSeen = false;
     let servedBy: string | undefined;
-    for await (const chunk of this.modelProvider.stream({
-      tenantId: request.tenant_id,
-      runId: request.run_id,
-      nodeExecutionId: request.node_execution_id,
-      modelId: binding.model_id,
-      capabilityTags: binding.capability_tags,
-      inputJson: redacted.redactedText,
-      ...(binding.fallback_chain === undefined
-        ? {}
-        : { fallbackChain: binding.fallback_chain }),
-    })) {
-      if (finalSeen) {
-        throw new ModelGatewayInvalidResponseError(
-          "model stream emitted data after its final chunk",
-        );
-      }
-      if (chunk.sequence !== expectedSequence) {
-        throw new ModelGatewayInvalidResponseError(
-          `model stream expected sequence ${expectedSequence}, received ${chunk.sequence}`,
-        );
-      }
-      expectedSequence += 1;
-      if (servedBy !== undefined && chunk.servedBy !== servedBy) {
-        throw new ModelGatewayInvalidResponseError(
-          "model stream changed providers after emission began",
-        );
-      }
-      servedBy = chunk.servedBy;
+    try {
+      for await (const chunk of this.modelProvider.stream({
+        tenantId: request.tenant_id,
+        runId: request.run_id,
+        nodeExecutionId: request.node_execution_id,
+        modelId: binding.model_id,
+        capabilityTags: binding.capability_tags,
+        inputJson: redacted.redactedText,
+        ...(binding.fallback_chain === undefined
+          ? {}
+          : { fallbackChain: binding.fallback_chain }),
+      })) {
+        if (finalSeen) {
+          throw new ModelGatewayInvalidResponseError(
+            "model stream emitted data after its final chunk",
+          );
+        }
+        if (chunk.sequence !== expectedSequence) {
+          throw new ModelGatewayInvalidResponseError(
+            `model stream expected sequence ${expectedSequence}, received ${chunk.sequence}`,
+          );
+        }
+        expectedSequence += 1;
+        if (servedBy !== undefined && chunk.servedBy !== servedBy) {
+          throw new ModelGatewayInvalidResponseError(
+            "model stream changed providers after emission began",
+          );
+        }
+        servedBy = chunk.servedBy;
 
-      if (chunk.final) {
-        finalSeen = true;
-        const usage = this.#parseUsage(chunk.usageJson);
-        const totalTokens = usage.input_tokens + usage.output_tokens;
-        const unitPriceMinor = await this.#resolveUnitPriceBestEffort(chunk.servedBy, "tokens");
-        const estimatedCostUsd = (totalTokens * unitPriceMinor) / (100 * FALLBACK_USD_TO_INR_RATE);
-        
-        await this.#emitCostEventBestEffort(
-          request,
-          chunk.servedBy,
-          chunk.usageJson,
-          estimatedCostUsd,
-        );
-        if (totalTokens > limit.maxTokensPerCall) {
-          throw new ModelGatewayCostLimitExceededError(
-            `${totalTokens} tokens exceeds the resolved limit of ${limit.maxTokensPerCall} tokens for tenant ${request.tenant_id}`,
+        if (chunk.final) {
+          finalSeen = true;
+          const usage = this.#parseUsage(chunk.usageJson);
+          const totalTokens = usage.input_tokens + usage.output_tokens;
+          const unitPriceMinor = await this.#resolveUnitPriceBestEffort(chunk.servedBy, "tokens");
+          const estimatedCostUsd = (totalTokens * unitPriceMinor) / (100 * FALLBACK_USD_TO_INR_RATE);
+
+          await this.#emitCostEventBestEffort(
+            request,
+            chunk.servedBy,
+            chunk.usageJson,
+            estimatedCostUsd,
           );
+          await this.#recordModelOutcomeBestEffort(request, chunk.servedBy, "success");
+          if (totalTokens > limit.maxTokensPerCall) {
+            throw new ModelGatewayCostLimitExceededError(
+              `${totalTokens} tokens exceeds the resolved limit of ${limit.maxTokensPerCall} tokens for tenant ${request.tenant_id}`,
+            );
+          }
+          if (estimatedCostUsd > limit.maxCostUsdPerCall) {
+            throw new ModelGatewayCostLimitExceededError(
+              `estimated $${estimatedCostUsd.toFixed(4)} exceeds the resolved limit of $${limit.maxCostUsdPerCall} for tenant ${request.tenant_id}`,
+            );
+          }
         }
-        if (estimatedCostUsd > limit.maxCostUsdPerCall) {
-          throw new ModelGatewayCostLimitExceededError(
-            `estimated $${estimatedCostUsd.toFixed(4)} exceeds the resolved limit of $${limit.maxCostUsdPerCall} for tenant ${request.tenant_id}`,
-          );
-        }
+        yield {
+          sequence: chunk.sequence,
+          delta: chunk.delta,
+          final: chunk.final,
+        };
       }
-      yield {
-        sequence: chunk.sequence,
-        delta: chunk.delta,
-        final: chunk.final,
-      };
-    }
-    if (!finalSeen) {
-      throw new ModelGatewayInvalidResponseError(
-        "model stream ended without a final usage chunk",
-      );
+      if (!finalSeen) {
+        throw new ModelGatewayInvalidResponseError(
+          "model stream ended without a final usage chunk",
+        );
+      }
+    } catch (error) {
+      // A success outcome was already recorded above the moment the final
+      // chunk arrived -- a later throw (e.g. a cost-limit rejection, or a
+      // provider emitting data after its own final chunk) must not also
+      // record a contradictory failure for the same real model call.
+      if (!finalSeen) {
+        await this.#recordModelOutcomeBestEffort(
+          request,
+          servedBy ?? binding.model_id,
+          "failure",
+        );
+      }
+      throw error;
     }
   }
 
@@ -397,6 +418,28 @@ export class ModelGatewayService implements ModelgwHandler {
       // queue must never block returning an otherwise-successful model
       // response to the caller. The Cost Ledger will simply be missing
       // this event -- acceptable, unlike blocking the whole gateway.
+    }
+  }
+
+  async #recordModelOutcomeBestEffort(
+    request: ModelgwInvokeRequest | ModelgwStreamRequest,
+    provider: string,
+    verdict: "success" | "failure",
+  ): Promise<void> {
+    try {
+      await this.costClient.recordModelOutcome({
+        tenant_id: request.tenant_id,
+        provider,
+        resource: "tokens",
+        verdict,
+        run_id: request.run_id,
+        node_execution_id: request.node_execution_id,
+        recorded_at: new Date().toISOString(),
+      });
+    } catch {
+      // Best-effort, mirrors #emitCostEventBestEffort: an unreachable Cost
+      // Ledger must never block returning an otherwise-successful model
+      // response, nor mask the real error on a failure path.
     }
   }
 

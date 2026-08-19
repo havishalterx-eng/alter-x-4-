@@ -17,6 +17,8 @@ import { CostSummaryController } from "./rollup/cost-summary.controller";
 import { EstimationController } from "./estimation/estimation.controller";
 import { EstimationService } from "./estimation/estimation.service";
 import { HealthController } from "./health/health.controller";
+import { ModelOutcomesController } from "./model-outcomes/model-outcomes.controller";
+import { ModelOutcomesService } from "./model-outcomes/model-outcomes.service";
 import { NodeCostsController } from "./node-costs/node-costs.controller";
 import { NodeCostsService } from "./node-costs/node-costs.service";
 
@@ -37,12 +39,14 @@ export class AppModule {
         EstimationController,
         NodeCostsController,
         CostSummaryController,
+        ModelOutcomesController,
       ],
       providers: [
         serviceAuthGuardProvider(),
         { provide: COST_STORE_PROVIDER, useValue: store },
         EstimationService,
         NodeCostsService,
+        ModelOutcomesService,
         {
           provide: CostRollupService,
           useFactory: () =>
@@ -55,8 +59,12 @@ export class AppModule {
         CostStoreLifecycle,
         {
           provide: COST_HANDLER,
-          inject: [CostRollupService, EstimationService],
-          useFactory: (rollup: CostRollupService, estimation: EstimationService): CostHandler => {
+          inject: [CostRollupService, EstimationService, ModelOutcomesService],
+          useFactory: (
+            rollup: CostRollupService,
+            estimation: EstimationService,
+            modelOutcomes: ModelOutcomesService,
+          ): CostHandler => {
             const ingest = new CostIngestService(
               store as unknown as CostEventStore,
               runsClient,
@@ -66,6 +74,7 @@ export class AppModule {
               ingestCostEvent: (request) => ingest.ingestCostEvent(request),
               queryRollups: (request) => rollup.queryRollups(request),
               resolveUnitPrice: (request) => estimation.resolveUnitPrice(request),
+              recordModelOutcome: (request) => modelOutcomes.recordOutcome(request),
             };
           },
         },

@@ -6,6 +6,8 @@ import type {
   CostIngestCostEventResponse,
   CostResolveUnitPriceRequest,
   CostResolveUnitPriceResponse,
+  CostRecordModelOutcomeRequest,
+  CostRecordModelOutcomeResponse,
 } from "@alterx/contracts";
 import { serviceAuthorizationMetadata, type ServiceAccessTokenProvider } from "./service-auth";
 
@@ -23,6 +25,9 @@ export interface CostHandlerClient {
   resolveUnitPrice(
     request: CostResolveUnitPriceRequest,
   ): Promise<CostResolveUnitPriceResponse>;
+  recordModelOutcome(
+    request: CostRecordModelOutcomeRequest,
+  ): Promise<CostRecordModelOutcomeResponse>;
 }
 
 interface CostGrpcClient extends Client {
@@ -39,6 +44,13 @@ interface CostGrpcClient extends Client {
     metadata: Metadata,
     options: { readonly deadline: Date },
     callback: (error: Error | null, response?: CostResolveUnitPriceResponse) => void,
+  ): void;
+  recordModelOutcome(request: CostRecordModelOutcomeRequest, options: { readonly deadline: Date }, callback: (error: Error | null, response?: CostRecordModelOutcomeResponse) => void): void;
+  recordModelOutcome(
+    request: CostRecordModelOutcomeRequest,
+    metadata: Metadata,
+    options: { readonly deadline: Date },
+    callback: (error: Error | null, response?: CostRecordModelOutcomeResponse) => void,
   ): void;
 }
 
@@ -119,6 +131,26 @@ export class CostClient implements CostHandlerClient {
       };
       if (this.#accessTokenProvider === undefined) this.#client.resolveUnitPrice(request, { deadline }, callback);
       else void serviceAuthorizationMetadata(this.#accessTokenProvider).then((metadata) => this.#client.resolveUnitPrice(request, metadata, { deadline }, callback), reject);
+    });
+  }
+  async recordModelOutcome(
+    request: CostRecordModelOutcomeRequest,
+  ): Promise<CostRecordModelOutcomeResponse> {
+    return new Promise<CostRecordModelOutcomeResponse>((resolve, reject) => {
+      const deadline = new Date(Date.now() + this.#timeoutMs);
+      const callback = (error: Error | null, response?: CostRecordModelOutcomeResponse) => {
+        if (error !== null) {
+          reject(error);
+          return;
+        }
+        if (response === undefined) {
+          reject(new Error("Cost Service returned an empty response"));
+          return;
+        }
+        resolve(response);
+      };
+      if (this.#accessTokenProvider === undefined) this.#client.recordModelOutcome(request, { deadline }, callback);
+      else void serviceAuthorizationMetadata(this.#accessTokenProvider).then((metadata) => this.#client.recordModelOutcome(request, metadata, { deadline }, callback), reject);
     });
   }
 }
