@@ -12,6 +12,7 @@ import {
   type PIIRedactionProvider,
   type QueueProvider,
 } from "@alterx/shared-clients";
+import type { CostHandlerClient } from "@alterx/adapters";
 import { describe, expect, it, vi, type Mock } from "vitest";
 
 import { ModelGatewayService } from "./model-gateway.service";
@@ -39,6 +40,7 @@ interface ServiceOverrides {
   readonly cacheProvider?: CacheProvider;
   readonly queueProvider?: QueueProvider;
   readonly costEventsQueueName?: string;
+  readonly costClient?: CostHandlerClient;
 }
 
 function buildService(overrides: ServiceOverrides = {}): ModelGatewayService {
@@ -50,6 +52,14 @@ function buildService(overrides: ServiceOverrides = {}): ModelGatewayService {
     overrides.cacheProvider ?? createMockCacheProvider(),
     overrides.queueProvider ?? createMockQueueProvider(),
     overrides.costEventsQueueName ?? COST_EVENTS_QUEUE_NAME,
+    overrides.costClient ?? {
+      ingestCostEvent: async () => ({ accepted: true }),
+      resolveUnitPrice: async () => ({
+        unit_cost_minor: "10", // Small value to not trip limit
+        currency: "INR",
+        confidence: "fixed_table",
+      }),
+    }
   );
 }
 

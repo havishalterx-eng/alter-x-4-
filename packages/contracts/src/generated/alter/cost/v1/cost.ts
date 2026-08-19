@@ -50,3 +50,15 @@ export interface QueryRollupsRequest {
 export interface QueryRollupsResponse {
   rollups_json: string;
 }
+
+export interface ResolveUnitPriceRequest {
+  provider: string;
+  resource: string;
+}
+
+export interface ResolveUnitPriceResponse {
+  unit_cost_minor: string;
+  currency: string;
+  /** "fixed_table" | "tenant_historical" | "global_historical" | "no_data" */
+  confidence: string;
+}

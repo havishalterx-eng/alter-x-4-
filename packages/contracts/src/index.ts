@@ -408,6 +408,8 @@ export type {
   IngestCostEventResponse as CostIngestCostEventResponse,
   QueryRollupsRequest as CostQueryRollupsRequest,
   QueryRollupsResponse as CostQueryRollupsResponse,
+  ResolveUnitPriceRequest as CostResolveUnitPriceRequest,
+  ResolveUnitPriceResponse as CostResolveUnitPriceResponse,
 } from "./generated/alter/cost/v1/cost";
 export type {
   BindNumberRequest as VoiceBindNumberRequest,

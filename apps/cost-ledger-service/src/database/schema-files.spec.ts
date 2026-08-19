@@ -9,6 +9,7 @@ const schemaRoot = resolve(process.cwd(), "apps/cost-ledger-service/db/schema");
 const schemas = [
   ["cost_events.ts", "cost_events"],
   ["billing_rollups.ts", "billing_rollups"],
+  ["model_pricing.ts", "model_pricing"],
 ] as const;
 
 function readSchema(file: (typeof schemas)[number][0]): string {

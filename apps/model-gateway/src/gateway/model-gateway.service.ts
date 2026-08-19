@@ -23,14 +23,16 @@ import {
   type PIIRedactionProvider,
   type QueueProvider,
 } from "@alterx/shared-clients";
+import type { CostHandlerClient } from "@alterx/adapters";
 
 import { costEventId } from "./cost-event-id";
 
-// Rough per-token estimate used only to enforce a spend ceiling before real
-// provider billing data is available. NOT a billing-accurate figure --
-// Cost Ledger (Output phase, OUT-4) will replace this with real per-model,
-// per-provider rates once they exist.
+// Constant used as a last-resort fallback if Cost Ledger is unreachable.
 const ESTIMATED_USD_PER_TOKEN = 0.00001;
+
+// 1 USD = 83 INR
+const FALLBACK_USD_TO_INR_RATE = 83;
+const COST_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 const CACHE_EMBEDDING_DIMENSIONS = 512;
 
@@ -71,6 +73,7 @@ function parseCachedInvokeValue(
 }
 
 export class ModelGatewayService implements ModelgwHandler {
+  readonly #unitPriceCache = new Map<string, { unitCostMinor: number; expireAt: number }>();
   constructor(
     private readonly configProvider: ConfigProvider,
     private readonly modelProvider: ModelProvider,
@@ -79,6 +82,7 @@ export class ModelGatewayService implements ModelgwHandler {
     private readonly cacheProvider: CacheProvider,
     private readonly queueProvider: QueueProvider,
     private readonly costEventsQueueName: string,
+    private readonly costClient: CostHandlerClient,
   ) {}
 
   async invoke(request: ModelgwInvokeRequest): Promise<ModelgwInvokeResponse> {
@@ -136,7 +140,9 @@ export class ModelGatewayService implements ModelgwHandler {
 
     const usage = this.#parseUsage(result.usageJson);
     const totalTokens = usage.input_tokens + usage.output_tokens;
-    const estimatedCostUsd = totalTokens * ESTIMATED_USD_PER_TOKEN;
+    
+    const unitPriceMinor = await this.#resolveUnitPriceBestEffort(result.servedBy, "tokens");
+    const estimatedCostUsd = (totalTokens * unitPriceMinor) / (100 * FALLBACK_USD_TO_INR_RATE);
 
     const limit = await this.configProvider.resolveCostLimit({
       tenantId: request.tenant_id,
@@ -147,6 +153,8 @@ export class ModelGatewayService implements ModelgwHandler {
     // cost event for what was actually used before deciding whether to
     // reject the call, so an over-limit call is never invisible to the
     // (future) Cost Ledger.
+    // NOTE: This call site is the intended future home for a per-model/provider
+    // outcome-write hook (Issue #15).
     await this.#emitCostEventBestEffort(
       request,
       result.servedBy,
@@ -235,7 +243,9 @@ export class ModelGatewayService implements ModelgwHandler {
         finalSeen = true;
         const usage = this.#parseUsage(chunk.usageJson);
         const totalTokens = usage.input_tokens + usage.output_tokens;
-        const estimatedCostUsd = totalTokens * ESTIMATED_USD_PER_TOKEN;
+        const unitPriceMinor = await this.#resolveUnitPriceBestEffort(chunk.servedBy, "tokens");
+        const estimatedCostUsd = (totalTokens * unitPriceMinor) / (100 * FALLBACK_USD_TO_INR_RATE);
+        
         await this.#emitCostEventBestEffort(
           request,
           chunk.servedBy,
@@ -336,6 +346,29 @@ export class ModelGatewayService implements ModelgwHandler {
       );
     }
     return parsedResult.data;
+  }
+
+  async #resolveUnitPriceBestEffort(provider: string, resource: string): Promise<number> {
+    const cacheKey = `${provider}:${resource}`;
+    const cached = this.#unitPriceCache.get(cacheKey);
+    if (cached !== undefined && Date.now() < cached.expireAt) {
+      return cached.unitCostMinor;
+    }
+
+    try {
+      const response = await this.costClient.resolveUnitPrice({ provider, resource });
+      const unitCostMinor = Number(response.unit_cost_minor);
+      
+      this.#unitPriceCache.set(cacheKey, {
+        unitCostMinor,
+        expireAt: Date.now() + COST_CACHE_TTL_MS,
+      });
+      return unitCostMinor;
+    } catch (error) {
+      // Fail open: log loudly and fallback to the constant
+      console.error(`Failed to resolve unit price for ${provider}/${resource}, falling back to constant`, error);
+      return Math.round(ESTIMATED_USD_PER_TOKEN * 100 * FALLBACK_USD_TO_INR_RATE);
+    }
   }
 
   async #emitCostEventBestEffort(

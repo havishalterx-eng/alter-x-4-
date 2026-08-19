@@ -17,7 +17,7 @@ import {
   ModelGatewayOperationsController,
 } from "./operations/model-gateway-operations.controller";
 import { OperationalConfigProvider } from "./operations/operational-config-provider";
-import { FailoverModelProvider } from "@alterx/adapters";
+import { FailoverModelProvider, type CostHandlerClient } from "@alterx/adapters";
 
 @Module({})
 export class AppModule {
@@ -30,6 +30,7 @@ export class AppModule {
     queueProvider: QueueProvider,
     costEventsQueueName: string,
     adminServiceToken: string,
+    costClient: CostHandlerClient,
   ): DynamicModule {
     return {
       module: AppModule,
@@ -53,6 +54,7 @@ export class AppModule {
             cacheProvider,
             queueProvider,
             costEventsQueueName,
+            costClient,
           ),
         },
       ],

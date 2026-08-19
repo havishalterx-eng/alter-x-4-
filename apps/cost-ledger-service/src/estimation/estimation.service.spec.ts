@@ -59,6 +59,21 @@ async function seedCostEvent(
   });
 }
 
+async function seedModelPricing(
+  store: PostgresCostStoreProvider,
+  provider: string,
+  resource: string,
+  unitCostMinor: number,
+): Promise<void> {
+  await store.withProvisioner(async (tx) => {
+    await tx.query(
+      `INSERT INTO model_pricing (provider, resource, unit_cost_minor, currency)
+       VALUES ($1, $2, $3, 'INR')`,
+      [provider, resource, unitCostMinor],
+    );
+  });
+}
+
 describe.sequential("EstimationService", () => {
   let postgres: StartedPostgreSqlContainer;
   let adminStore: PostgresCostStoreProvider;
@@ -117,6 +132,9 @@ describe.sequential("EstimationService", () => {
         await tx.query("DELETE FROM cost_events WHERE tenant_id = $1", [tenantId]);
       });
     }
+    await adminStore.withProvisioner(async (tx) => {
+      await tx.query("DELETE FROM model_pricing");
+    });
   });
 
   it("estimates from real tenant historical data when it exists", async () => {
@@ -282,5 +300,64 @@ describe.sequential("EstimationService", () => {
         ],
       }),
     ).rejects.toThrow(EstimationValidationError);
+  });
+
+  describe("resolveUnitPrice", () => {
+    it("resolves unit price from the fixed model_pricing table", async () => {
+      await seedModelPricing(adminStore, "openai/gpt-4", "tokens", 1500);
+
+      const response = await service.resolveUnitPrice({
+        provider: "openai/gpt-4",
+        resource: "tokens",
+      });
+
+      expect(response).toEqual({
+        unit_cost_minor: "1500",
+        currency: "INR",
+        confidence: "fixed_table",
+      });
+    });
+
+    it("falls back to global historical average (model_gateway) when fixed table misses", async () => {
+      // No fixed price seeded, but we have global history for model_gateway
+      await seedCostEvent(adminStore, TENANT_A, {
+        source: "model_gateway",
+        provider: "openai/gpt-4",
+        resource: "tokens",
+        quantity: 100,
+        internalCostMinor: 1200, // 12 per token
+      });
+
+      const response = await service.resolveUnitPrice({
+        provider: "openai/gpt-4",
+        resource: "tokens",
+      });
+
+      expect(response).toEqual({
+        unit_cost_minor: "12",
+        currency: "INR",
+        confidence: "global_historical",
+      });
+    });
+
+    it("returns no_data when neither fixed table nor global history exists", async () => {
+      const response = await service.resolveUnitPrice({
+        provider: "anthropic/claude-3-opus",
+        resource: "tokens",
+      });
+
+      expect(response).toEqual({
+        unit_cost_minor: "0",
+        currency: "INR",
+        confidence: "no_data",
+      });
+    });
+
+    it("requires provider and resource", async () => {
+      await expect(service.resolveUnitPrice({ provider: "", resource: "tokens" }))
+        .rejects.toThrow(EstimationValidationError);
+      await expect(service.resolveUnitPrice({ provider: "openai", resource: "" }))
+        .rejects.toThrow(EstimationValidationError);
+    });
   });
 });

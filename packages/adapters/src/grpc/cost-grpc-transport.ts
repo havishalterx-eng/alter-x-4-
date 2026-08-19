@@ -12,6 +12,8 @@ import type {
   CostIngestCostEventResponse,
   CostQueryRollupsRequest,
   CostQueryRollupsResponse,
+  CostResolveUnitPriceRequest,
+  CostResolveUnitPriceResponse,
 } from "@alterx/contracts";
 
 export const COST_HANDLER = Symbol("COST_HANDLER");
@@ -21,6 +23,7 @@ export interface CostHandler {
     request: CostIngestCostEventRequest,
   ): Promise<CostIngestCostEventResponse>;
   queryRollups(request: CostQueryRollupsRequest): Promise<CostQueryRollupsResponse>;
+  resolveUnitPrice(request: CostResolveUnitPriceRequest): Promise<CostResolveUnitPriceResponse>;
 }
 
 export interface CostGrpcTransportConfig {
@@ -49,6 +52,17 @@ export class CostGrpcController {
   ): Promise<CostQueryRollupsResponse> {
     try {
       return await this.handler.queryRollups(request);
+    } catch (error: unknown) {
+      throw mapCostError(error);
+    }
+  }
+
+  @GrpcMethod("CostService", "ResolveUnitPrice")
+  async resolveUnitPrice(
+    request: CostResolveUnitPriceRequest,
+  ): Promise<CostResolveUnitPriceResponse> {
+    try {
+      return await this.handler.resolveUnitPrice(request);
     } catch (error: unknown) {
       throw mapCostError(error);
     }

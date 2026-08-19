@@ -40,6 +40,7 @@ export interface EstimateCostRequest {
 }
 
 export type EstimateConfidence =
+  | "fixed_table"
   | "tenant_historical"
   | "global_historical"
   | "no_data";

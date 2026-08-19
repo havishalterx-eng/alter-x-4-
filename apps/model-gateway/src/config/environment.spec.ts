@@ -13,6 +13,7 @@ function environment(
     ALTER_SERVICE_NAME: "model-gateway",
     ALTER_REGION: "ap-south-1",
     ALTER_CONFIG_SOURCE: "mock",
+    COST_LEDGER_GRPC_ADDRESS: "localhost:50060",
     ...overrides,
   };
 }
@@ -26,6 +27,7 @@ describe("loadModelGatewayEnvironment", () => {
       configSource: "mock",
       httpPort: 3000,
       grpcBindAddress: "0.0.0.0:50051",
+      costLedgerGrpcAddress: "localhost:50060",
     });
   });
 
@@ -66,6 +68,7 @@ describe("loadModelGatewayEnvironment", () => {
       presidioAnonymizerUrl: "http://presidio-anonymizer.local:5002",
       cacheRedisHost: "cache.model-gateway.local",
       cacheRedisPort: 6379,
+      costLedgerGrpcAddress: "localhost:50060",
     });
   });
 
@@ -97,9 +100,9 @@ describe("loadModelGatewayEnvironment", () => {
   it("accepts validated custom bind ports", () => {
     expect(
       loadModelGatewayEnvironment(
-        environment({ PORT: "3100", GRPC_BIND_ADDRESS: "127.0.0.1:51051" }),
+        environment({ PORT: "3100", GRPC_BIND_ADDRESS: "127.0.0.1:51051", COST_LEDGER_GRPC_ADDRESS: "localhost:50061" }),
       ),
-    ).toMatchObject({ httpPort: 3100, grpcBindAddress: "127.0.0.1:51051" });
+    ).toMatchObject({ httpPort: 3100, grpcBindAddress: "127.0.0.1:51051", costLedgerGrpcAddress: "localhost:50061" });
   });
 
   it.each([

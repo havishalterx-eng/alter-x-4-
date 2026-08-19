@@ -8,6 +8,19 @@
 
 export const protobufPackage = "alter.compiler.v1";
 
+/**
+ * JSON is wire encoding only. Compiler validates it into its strict typed
+ * ArchitectureCompileInput before any lowering or persistence.
+ */
+export interface CompileArchitectureWorkflowRequest {
+  tenant_id: string;
+  workspace_id: string;
+  workflow_id: string;
+  architecture_json: string;
+  binding_decision_json: string;
+  dag_schema_version: string;
+}
+
 export interface CompileWorkflowRequest {
   /** ten_ prefixed UUIDv7 */
   tenant_id: string;
@@ -23,15 +36,6 @@ export interface CompileWorkflowResponse {
   compiled_dag_json: string;
   node_requirements_json: string;
   policy_bindings_json: string;
-}
-
-export interface CompileArchitectureWorkflowRequest {
-  tenant_id: string;
-  workspace_id: string;
-  workflow_id: string;
-  architecture_json: string;
-  binding_decision_json: string;
-  dag_schema_version: string;
 }
 
 export interface ValidateWorkflowDagRequest {
