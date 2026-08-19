@@ -90,6 +90,7 @@ async function bootstrap(): Promise<void> {
       currency: "INR",
       confidence: "fixed_table",
     }),
+    recordModelOutcome: async () => ({ accepted: true }),
   };
 
   const app = await NestFactory.create<NestFastifyApplication>(

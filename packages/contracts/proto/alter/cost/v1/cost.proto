@@ -6,6 +6,7 @@ service CostService {
   rpc IngestCostEvent(IngestCostEventRequest) returns (IngestCostEventResponse);
   rpc QueryRollups(QueryRollupsRequest) returns (QueryRollupsResponse);
   rpc ResolveUnitPrice(ResolveUnitPriceRequest) returns (ResolveUnitPriceResponse);
+  rpc RecordModelOutcome(RecordModelOutcomeRequest) returns (RecordModelOutcomeResponse);
 }
 
 message IngestCostEventRequest {
@@ -61,4 +62,22 @@ message ResolveUnitPriceResponse {
   string unit_cost_minor = 1;
   string currency = 2;
   string confidence = 3; // "fixed_table" | "tenant_historical" | "global_historical" | "no_data"
+}
+
+message RecordModelOutcomeRequest {
+  reserved 100 to 199;
+
+  string tenant_id = 1; // ten_ prefixed UUIDv7
+  string provider = 2;
+  string resource = 3;
+  string verdict = 4; // success | failure | partial | escalated
+  string run_id = 5; // run_ prefixed UUIDv7, empty if not applicable
+  string node_execution_id = 6; // node_ prefixed UUIDv7, empty if not applicable
+  string recorded_at = 7; // ISO 8601 timestamp, set by the emitting service
+}
+
+message RecordModelOutcomeResponse {
+  reserved 100 to 199;
+
+  bool accepted = 1;
 }

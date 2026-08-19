@@ -62,3 +62,22 @@ export interface ResolveUnitPriceResponse {
   /** "fixed_table" | "tenant_historical" | "global_historical" | "no_data" */
   confidence: string;
 }
+
+export interface RecordModelOutcomeRequest {
+  /** ten_ prefixed UUIDv7 */
+  tenant_id: string;
+  provider: string;
+  resource: string;
+  /** success | failure | partial | escalated */
+  verdict: string;
+  /** run_ prefixed UUIDv7, empty if not applicable */
+  run_id: string;
+  /** node_ prefixed UUIDv7, empty if not applicable */
+  node_execution_id: string;
+  /** ISO 8601 timestamp, set by the emitting service */
+  recorded_at: string;
+}
+
+export interface RecordModelOutcomeResponse {
+  accepted: boolean;
+}

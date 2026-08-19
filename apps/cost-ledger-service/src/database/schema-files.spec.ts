@@ -10,6 +10,7 @@ const schemas = [
   ["cost_events.ts", "cost_events"],
   ["billing_rollups.ts", "billing_rollups"],
   ["model_pricing.ts", "model_pricing"],
+  ["model_outcomes.ts", "model_outcomes"],
 ] as const;
 
 function readSchema(file: (typeof schemas)[number][0]): string {

@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { CostIngestCostEventRequest, CostIngestCostEventResponse } from "@alterx/contracts";
+import type {
+  CostIngestCostEventRequest,
+  CostIngestCostEventResponse,
+  CostRecordModelOutcomeRequest,
+  CostRecordModelOutcomeResponse,
+} from "@alterx/contracts";
 import { CostClient } from "./cost-client";
 
 function fakeGrpcClient(
@@ -92,5 +97,65 @@ describe("CostClient", () => {
     );
 
     await expect(client.ingestCostEvent(REQUEST)).resolves.toEqual({ accepted: true });
+  });
+
+  it("resolves recordModelOutcome with the Cost Service's real response", async () => {
+    const request: CostRecordModelOutcomeRequest = {
+      tenant_id: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+      provider: "aws-bedrock",
+      resource: "tokens",
+      verdict: "success",
+      run_id: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
+      node_execution_id: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
+      recorded_at: "2026-07-31T00:00:00.000Z",
+    };
+    const grpcClient = {
+      recordModelOutcome: vi.fn(
+        (
+          _request: CostRecordModelOutcomeRequest,
+          _options: unknown,
+          callback: (error: Error | null, response?: CostRecordModelOutcomeResponse) => void,
+        ) => {
+          callback(null, { accepted: true });
+        },
+      ),
+    };
+    const client = new CostClient(
+      { address: "localhost:1234", protoPath: "unused" },
+      grpcClient as never,
+    );
+
+    await expect(client.recordModelOutcome(request)).resolves.toEqual({ accepted: true });
+    expect(grpcClient.recordModelOutcome).toHaveBeenCalledWith(
+      request,
+      expect.objectContaining({ deadline: expect.any(Date) }),
+      expect.any(Function),
+    );
+  });
+
+  it("rejects recordModelOutcome when the gRPC call errors", async () => {
+    const grpcClient = {
+      recordModelOutcome: vi.fn(
+        (_request: unknown, _options: unknown, callback: (error: Error | null) => void) => {
+          callback(new Error("unavailable"));
+        },
+      ),
+    };
+    const client = new CostClient(
+      { address: "localhost:1234", protoPath: "unused" },
+      grpcClient as never,
+    );
+
+    await expect(
+      client.recordModelOutcome({
+        tenant_id: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
+        provider: "aws-bedrock",
+        resource: "tokens",
+        verdict: "failure",
+        run_id: "",
+        node_execution_id: "",
+        recorded_at: "2026-07-31T00:00:00.000Z",
+      }),
+    ).rejects.toThrow("unavailable");
   });
 });

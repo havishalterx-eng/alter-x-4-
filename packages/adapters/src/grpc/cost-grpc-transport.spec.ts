@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { CostIngestCostEventRequest, CostQueryRollupsRequest } from "@alterx/contracts";
+import type {
+  CostIngestCostEventRequest,
+  CostQueryRollupsRequest,
+  CostRecordModelOutcomeRequest,
+} from "@alterx/contracts";
 import { CostGrpcController, type CostHandler } from "./cost-grpc-transport";
 
 const REQUEST: CostIngestCostEventRequest = {
@@ -25,6 +29,16 @@ const ROLLUP_REQUEST: CostQueryRollupsRequest = {
   currency: "INR",
 };
 
+const RECORD_MODEL_OUTCOME_REQUEST: CostRecordModelOutcomeRequest = {
+  tenant_id: "ten_018f47a5-7b2c-7d10-8f11-123456789abc",
+  provider: "aws-bedrock",
+  resource: "tokens",
+  verdict: "success",
+  run_id: "run_018f47a5-7b2c-7d10-8f11-123456789abc",
+  node_execution_id: "node_018f47a5-7b2c-7d10-8f11-123456789abc",
+  recorded_at: "2026-08-19T00:00:00.000Z",
+};
+
 class NamedCostError extends Error {
   constructor(name: string) {
     super("safe ingestion error");
@@ -37,6 +51,7 @@ function handler(): CostHandler {
     ingestCostEvent: vi.fn(async () => ({ accepted: true })),
     resolveUnitPrice: vi.fn(async () => ({ unit_cost_minor: "0", currency: "INR", confidence: "no_data" })),
     queryRollups: vi.fn(async () => ({ rollups_json: "{}" })),
+    recordModelOutcome: vi.fn(async () => ({ accepted: true })),
   };
 }
 
@@ -97,5 +112,27 @@ describe("CostGrpcController", () => {
     await expect(controller.queryRollups(ROLLUP_REQUEST)).rejects.toMatchObject({
       error: { code: 3 },
     });
+  });
+
+  it("delegates the real RecordModelOutcome request/response shape (Issue #15)", async () => {
+    const costHandler = handler();
+    const controller = new CostGrpcController(costHandler);
+    await expect(
+      controller.recordModelOutcome(RECORD_MODEL_OUTCOME_REQUEST),
+    ).resolves.toEqual({ accepted: true });
+    expect(costHandler.recordModelOutcome).toHaveBeenCalledWith(
+      RECORD_MODEL_OUTCOME_REQUEST,
+    );
+  });
+
+  it("maps ModelOutcomesValidationError to gRPC INVALID_ARGUMENT", async () => {
+    const failing = handler();
+    failing.recordModelOutcome = vi.fn(async () => {
+      throw new NamedCostError("ModelOutcomesValidationError");
+    });
+    const controller = new CostGrpcController(failing);
+    await expect(
+      controller.recordModelOutcome(RECORD_MODEL_OUTCOME_REQUEST),
+    ).rejects.toMatchObject({ error: { code: 3 } });
   });
 });
