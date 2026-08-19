@@ -17,6 +17,7 @@ describe("cost_db migration files", () => {
       "0000_create_cost_events.sql",
       "0001_create_billing_rollups.sql",
       "0002_billing_rollup_currency.sql",
+      "0003_create_model_pricing.sql",
     ]);
     expect(
       readdirSync(resolve(COST_MIGRATIONS_PATH, "rollback"))
@@ -26,17 +27,21 @@ describe("cost_db migration files", () => {
       "0000_drop_cost_events.sql",
       "0001_drop_billing_rollups.sql",
       "0002_drop_billing_rollup_currency.sql",
+      "0003_drop_model_pricing.sql",
     ]);
   });
 
   it.each(migrationSql.filter(({ sql }) => sql.includes("CREATE TABLE")))(
     "$file forces default-deny RLS",
-    ({ sql }) => {
+    ({ file, sql }) => {
       expect(sql).toContain("ENABLE ROW LEVEL SECURITY");
       expect(sql).toContain("FORCE ROW LEVEL SECURITY");
-      expect(sql).toContain(
-        "NULLIF(current_setting('app.current_tenant_id', true), '')::uuid",
-      );
+      
+      if (file !== "0003_create_model_pricing.sql") {
+        expect(sql).toContain(
+          "NULLIF(current_setting('app.current_tenant_id', true), '')::uuid",
+        );
+      }
       expect(sql).toContain("WITH CHECK");
     },
   );

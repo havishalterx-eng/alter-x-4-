@@ -13,6 +13,7 @@ function environment(
     ALTER_SERVICE_NAME: "model-gateway",
     ALTER_REGION: "ap-south-1",
     ALTER_CONFIG_SOURCE: "mock",
+    COST_LEDGER_GRPC_ADDRESS: "localhost:50060",
     ...overrides,
   };
 }
@@ -26,6 +27,7 @@ describe("loadModelGatewayEnvironment", () => {
       configSource: "mock",
       httpPort: 3000,
       grpcBindAddress: "0.0.0.0:50051",
+      costLedgerGrpcAddress: "localhost:50060",
     });
   });
 
@@ -66,6 +68,7 @@ describe("loadModelGatewayEnvironment", () => {
       presidioAnonymizerUrl: "http://presidio-anonymizer.local:5002",
       cacheRedisHost: "cache.model-gateway.local",
       cacheRedisPort: 6379,
+      costLedgerGrpcAddress: "localhost:50060",
     });
   });
 
@@ -97,9 +100,9 @@ describe("loadModelGatewayEnvironment", () => {
   it("accepts validated custom bind ports", () => {
     expect(
       loadModelGatewayEnvironment(
-        environment({ PORT: "3100", GRPC_BIND_ADDRESS: "127.0.0.1:51051" }),
+        environment({ PORT: "3100", GRPC_BIND_ADDRESS: "127.0.0.1:51051", COST_LEDGER_GRPC_ADDRESS: "localhost:50061" }),
       ),
-    ).toMatchObject({ httpPort: 3100, grpcBindAddress: "127.0.0.1:51051" });
+    ).toMatchObject({ httpPort: 3100, grpcBindAddress: "127.0.0.1:51051", costLedgerGrpcAddress: "localhost:50061" });
   });
 
   it.each([
@@ -206,6 +209,23 @@ describe("loadModelGatewayEnvironment", () => {
         PRESIDIO_ANONYMIZER_URL: "http://presidio-anonymizer.local:5002",
         CACHE_REDIS_HOST: "cache.model-gateway.local",
         CACHE_REDIS_PORT: "0",
+      },
+    ],
+    [
+      "COST_LEDGER_GRPC_ADDRESS",
+      {
+        ALTER_ENV: "dev",
+        ALTER_CONFIG_SOURCE: "appconfig",
+        APPCONFIG_APPLICATION_ID: "app-1",
+        APPCONFIG_ENVIRONMENT_ID: "env-1",
+        APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+        ANTHROPIC_API_KEY_SECRET_REF: "/alter/dev/model-gateway/system/anthropic_api_key",
+        OPENAI_API_KEY_SECRET_REF: "/alter/dev/model-gateway/system/openai_api_key",
+        PRESIDIO_ANALYZER_URL: "http://presidio-analyzer.local:5001",
+        PRESIDIO_ANONYMIZER_URL: "http://presidio-anonymizer.local:5002",
+        CACHE_REDIS_HOST: "cache.model-gateway.local",
+        CACHE_REDIS_PORT: "6379",
+        COST_LEDGER_GRPC_ADDRESS: "",
       },
     ],
   ])("rejects invalid %s", (field, override) => {

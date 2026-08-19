@@ -5,6 +5,7 @@ package alter.cost.v1;
 service CostService {
   rpc IngestCostEvent(IngestCostEventRequest) returns (IngestCostEventResponse);
   rpc QueryRollups(QueryRollupsRequest) returns (QueryRollupsResponse);
+  rpc ResolveUnitPrice(ResolveUnitPriceRequest) returns (ResolveUnitPriceResponse);
 }
 
 message IngestCostEventRequest {
@@ -45,4 +46,19 @@ message QueryRollupsResponse {
   reserved 100 to 199;
 
   string rollups_json = 1;
+}
+
+message ResolveUnitPriceRequest {
+  reserved 100 to 199;
+
+  string provider = 1;
+  string resource = 2;
+}
+
+message ResolveUnitPriceResponse {
+  reserved 100 to 199;
+
+  string unit_cost_minor = 1;
+  string currency = 2;
+  string confidence = 3; // "fixed_table" | "tenant_historical" | "global_historical" | "no_data"
 }

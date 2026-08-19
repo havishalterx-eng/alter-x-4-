@@ -7,6 +7,7 @@ import type {
   EstimateLineItemRequest,
   EstimateLineItemResult,
 } from "./estimation.models";
+import type { CostResolveUnitPriceRequest, CostResolveUnitPriceResponse } from "@alterx/contracts";
 
 interface HistoricalAverageRow {
   readonly avg_unit_cost_minor: string | null;
@@ -157,6 +158,57 @@ export class EstimationService {
       historicalRetryRate: retryRate,
       estimatedRetryCostMinor: retryCostMinor.toString(),
       estimatedTotalCostMinor: totalCostMinor.toString(),
+    };
+  }
+  async resolveUnitPrice(
+    request: CostResolveUnitPriceRequest,
+  ): Promise<CostResolveUnitPriceResponse> {
+    if (!request.provider || !request.resource) {
+      throw new EstimationValidationError("provider and resource are required");
+    }
+
+    // 1. Look up fixed price table (model_pricing) using provisioner since it's global
+    const fixedPrice = await this.store.withProvisioner(async (tx) => {
+      const result = await tx.query<{ unit_cost_minor: string; currency: string }>(
+        `SELECT unit_cost_minor::text, currency FROM model_pricing WHERE provider = $1 AND resource = $2`,
+        [request.provider, request.resource]
+      );
+      return result.rows[0];
+    });
+
+    if (fixedPrice) {
+      return {
+        unit_cost_minor: fixedPrice.unit_cost_minor,
+        currency: fixedPrice.currency,
+        confidence: "fixed_table",
+      };
+    }
+
+    // 2. Fall back to global historical average for model_gateway
+    const globalAverage = await this.store.withProvisioner(async (tx) => {
+      const result = await tx.query<HistoricalAverageRow>(HISTORICAL_AVERAGE_QUERY, [
+        "model_gateway",
+        request.provider,
+        request.resource,
+      ]);
+      return result.rows[0];
+    });
+
+    const globalSampleSize = Number(globalAverage?.sample_size ?? "0");
+    if (globalSampleSize > 0 && globalAverage?.avg_unit_cost_minor !== null) {
+      const unitCostMinor = Math.ceil(Number(globalAverage.avg_unit_cost_minor));
+      return {
+        unit_cost_minor: unitCostMinor.toString(),
+        currency: "INR",
+        confidence: "global_historical",
+      };
+    }
+
+    // 3. No data
+    return {
+      unit_cost_minor: "0",
+      currency: "INR",
+      confidence: "no_data",
     };
   }
 }

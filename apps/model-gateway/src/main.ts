@@ -33,6 +33,7 @@ import {
   type PIIRedactionProvider,
   type QueueProvider,
 } from "@alterx/shared-clients";
+import { CostClient } from "@alterx/adapters";
 
 import { AppModule } from "./app.module";
 import {
@@ -40,6 +41,7 @@ import {
   type ModelGatewayAppConfigEnvironment,
 } from "./config/environment";
 import { MODELGW_PROTO_PATH } from "./gateway/grpc.constants";
+import { resolve } from "node:path";
 import { OperationalConfigProvider } from "./operations/operational-config-provider";
 
 function createConfigProvider(
@@ -210,6 +212,11 @@ async function bootstrap(): Promise<void> {
   const queueProvider = createQueueProvider(environment);
   const costEventsQueueName = `alter-${environment.alterEnvironment}-cost-events`;
 
+  const costClient = new CostClient({
+    address: environment.costLedgerGrpcAddress,
+    protoPath: resolve(process.cwd(), "packages/contracts/proto/alter/cost/v1/cost.proto"),
+  });
+
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule.register(
       configProvider,
@@ -220,6 +227,7 @@ async function bootstrap(): Promise<void> {
       queueProvider,
       costEventsQueueName,
       adminServiceToken,
+      costClient,
     ),
     new FastifyAdapter(),
   );

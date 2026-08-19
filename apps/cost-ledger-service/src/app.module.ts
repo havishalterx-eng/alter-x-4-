@@ -55,8 +55,8 @@ export class AppModule {
         CostStoreLifecycle,
         {
           provide: COST_HANDLER,
-          inject: [CostRollupService],
-          useFactory: (rollup: CostRollupService): CostHandler => {
+          inject: [CostRollupService, EstimationService],
+          useFactory: (rollup: CostRollupService, estimation: EstimationService): CostHandler => {
             const ingest = new CostIngestService(
               store as unknown as CostEventStore,
               runsClient,
@@ -65,6 +65,7 @@ export class AppModule {
             return {
               ingestCostEvent: (request) => ingest.ingestCostEvent(request),
               queryRollups: (request) => rollup.queryRollups(request),
+              resolveUnitPrice: (request) => estimation.resolveUnitPrice(request),
             };
           },
         },

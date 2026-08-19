@@ -6,6 +6,7 @@ interface ModelGatewayEnvironmentBase {
   readonly region: "ap-south-1";
   readonly httpPort: number;
   readonly grpcBindAddress: string;
+  readonly costLedgerGrpcAddress: string;
 }
 
 export interface ModelGatewayAppConfigEnvironment
@@ -156,6 +157,7 @@ export function loadModelGatewayEnvironment(
     region,
     httpPort: parsePort(environment.PORT),
     grpcBindAddress: parseGrpcAddress(environment.GRPC_BIND_ADDRESS),
+    costLedgerGrpcAddress: requireValue(environment, "COST_LEDGER_GRPC_ADDRESS"),
   };
 
   if (configSource === "mock") {
