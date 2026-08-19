@@ -206,6 +206,14 @@ describe.sequential("ModelOutcomesService", () => {
       "success",
       "failure",
     ]);
+    // Real RFC 3339 ("...T...Z"), not Postgres's native ::text rendering --
+    // the real consumer (memory-service, Python/Pydantic v2) rejects the
+    // latter. See the comment at the query site in model-outcomes.service.ts.
+    for (const observation of observations) {
+      expect(observation.recordedAt).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+      );
+    }
   });
 
   it("queryWindow never leaks a different provider's observations", async () => {

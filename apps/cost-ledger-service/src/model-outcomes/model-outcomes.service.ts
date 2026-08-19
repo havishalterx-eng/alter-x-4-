@@ -131,15 +131,22 @@ export class ModelOutcomesService {
     }
 
     const rows = await this.store.withProvisioner(async (tx) => {
+      // Deliberately not cast to ::text (unlike this repo's usual
+      // convention elsewhere): the real consumer is memory-service's
+      // Python Drift Detector, and Postgres's native ::text rendering of
+      // timestamptz (2-digit UTC offset, no "T" separator) fails Pydantic
+      // v2 datetime validation. Left as a real driver-parsed JS Date and
+      // formatted via toISOString() below instead, which is unambiguous
+      // RFC 3339 both languages agree on.
       const result = resource
-        ? await tx.query<{ verdict: string; recorded_at: string }>(
-            `SELECT verdict, recorded_at::text FROM model_outcomes
+        ? await tx.query<{ verdict: string; recorded_at: Date }>(
+            `SELECT verdict, recorded_at FROM model_outcomes
              WHERE provider = $1 AND resource = $2
              ORDER BY recorded_at DESC LIMIT $3`,
             [provider, resource, limit],
           )
-        : await tx.query<{ verdict: string; recorded_at: string }>(
-            `SELECT verdict, recorded_at::text FROM model_outcomes
+        : await tx.query<{ verdict: string; recorded_at: Date }>(
+            `SELECT verdict, recorded_at FROM model_outcomes
              WHERE provider = $1
              ORDER BY recorded_at DESC LIMIT $2`,
             [provider, limit],
@@ -147,6 +154,9 @@ export class ModelOutcomesService {
       return result.rows;
     });
 
-    return rows.map((row) => ({ verdict: row.verdict, recordedAt: row.recorded_at }));
+    return rows.map((row) => ({
+      verdict: row.verdict,
+      recordedAt: row.recorded_at.toISOString(),
+    }));
   }
 }
