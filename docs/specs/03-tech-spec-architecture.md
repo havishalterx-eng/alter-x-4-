@@ -217,6 +217,12 @@ WhatsApp / Shopify / CRM / GitHub / cron / external system
         → Durable Substrate → Executor
 ```
 
+#### Session Gateway prompt-injection guard (current implementation)
+
+`SessionGatewayPromptInjectionGuard` is implemented as a best-effort HTTP guard for one configurable top-level request-body field (`utterance` by default). For a non-public request that has both that field and an actor tenant, it calls `PromptInjectionClassifier`; a detection returns an RFC 9457-style 400 problem response (`packages/auth/session-gateway/src/prompt-injection.guard.ts:33`, `packages/auth/session-gateway/src/prompt-injection.guard.ts:59`, `packages/auth/session-gateway/src/prompt-injection.guard.ts:80`, `packages/auth/session-gateway/src/prompt-injection.guard.ts:91`). The classifier uses the `FAST` Model Gateway alias and deliberately fails open on a gateway error or unusable classifier output (`packages/auth/session-gateway/src/prompt-injection-classifier.ts:47`, `packages/auth/session-gateway/src/prompt-injection-classifier.ts:84`).
+
+This guard is currently **not registered on a production Session Gateway route**: a current-main repository search finds the class only at its definition, export, and specs. It is therefore an available defense-in-depth component, not evidence that every human ingress request is currently inspected. The Session Gateway's upload allowlist remains the documented live ingress protection; route owners must register this guard after the session/auth guard for the field it actually owns (`packages/auth/session-gateway/src/prompt-injection.guard.ts:33`).
+
 ### 5.2 Canonical event schema
 
 ```
@@ -317,6 +323,20 @@ Shared: goal analysis, clarification, decomposition, capability resolution, agen
 - CI failure loop: `GitHub webhook → Event & Trigger Gateway → project lifecycle workflow → Recovery Policy Engine → fresh repair run → audit → push fix → CI rerun`.
 - **The implementation agent never approves its own code** — independent Code Audit agent + Quality Gate before merge; Deployment Controller ships approved commits only.
 
+#### Sandbox render verification (current gRPC behavior)
+
+`RunVerificationSuite` now dispatches both `build` and `render`; `render` requires `preview_url`, resolves every declared render file through the artifact service, then calls `SandboxService.verifyRender` (`apps/sandbox-service/src/sandbox/sandbox.grpc-handler.ts:105`, `apps/sandbox-service/src/sandbox/sandbox.grpc-handler.ts:110`, `apps/sandbox-service/src/sandbox/sandbox.grpc-handler.ts:119`, `apps/sandbox-service/src/sandbox/sandbox.grpc-handler.ts:128`). The service first rejects placeholder-bearing files as a render logic failure, otherwise inspects the preview through its configured browser verifier and classifies browser absence, server failures, page/console failures, and successful visible content into the returned verification result (`apps/sandbox-service/src/sandbox/sandbox.service.ts:229`). It is not an unsupported or build-only path.
+
+### 7.5 Promotion patterns
+
+The code deliberately supports two sanctioned promotion patterns because the evidence arrives on different cadences:
+
+- **Agent draft → active: live-traffic confidence building.** Auto-created agents start as `draft` (`apps/intelligence-service/src/agent_auto_creation/engine.py:26`). Each successful real performance observation invokes the promotion check before the observation transaction commits (`apps/intelligence-service/src/performance/repository.py:74`, `apps/intelligence-service/src/performance/repository.py:92`, `apps/intelligence-service/src/performance/repository.py:98`). The check counts successful observations and updates only a still-draft agent to `active` once the configured threshold is met (`apps/intelligence-service/src/performance/repository.py:101`, `apps/intelligence-service/src/performance/repository.py:114`, `apps/intelligence-service/src/performance/repository.py:125`); the configured default is three (`apps/intelligence-service/src/config.py:21`). This is appropriate where confidence accumulates from real execution outcomes, so it does not wait for a batch evaluation run.
+
+- **Workflow version → tested: formal eval release gate.** `testVersion` runs the `workflow E2E` golden set and checks a release gate for that exact workflow/version before changing the version status to `tested` (`apps/orchestration-service/src/deployment-controller/deployment-controller.service.ts:496`, `apps/orchestration-service/src/deployment-controller/deployment-controller.service.ts:497`, `apps/orchestration-service/src/deployment-controller/deployment-controller.service.ts:507`). The eval service persists an auditable approve/block decision only for a completed, scored eval run; its default minimum pass rate is 100% (`apps/eval-service/src/release_gates.py:25`, `apps/eval-service/src/release_gates.py:32`, `apps/eval-service/src/release_gates.py:42`). This is appropriate for versioned, deployable workflow artifacts that need a formal pre-release gate.
+
+These patterns must remain distinct: forcing live agent confidence through a batch eval gate would delay a real-traffic signal, while promoting a deployable workflow version from traffic observations would bypass its explicit release evidence.
+
 ---
 
 ## 8. Tenancy Model
@@ -358,7 +378,7 @@ Recovery loop-backs (22–26), self-learn feedback (29–31), and cost telemetry
 
 ## 10. Security Architecture (summary)
 
-- Ingress: API Gateway + WAF in front of both Session Gateway (people) and Event & Trigger Gateway (machines); webhook signature verification, timestamp validation, replay protection at Event Gateway; prompt-injection detection + upload allowlist at Session Gateway.
+- Ingress: API Gateway + WAF in front of both Session Gateway (people) and Event & Trigger Gateway (machines); webhook signature verification, timestamp validation, replay protection at Event Gateway; upload allowlist at Session Gateway. The currently unregistered, fail-open prompt-injection guard is documented in section 5.1 and must not be represented as live ingress coverage.
 - Identity: Auth0 Organizations (OIDC adapter); tenant = hardest isolation boundary; workspace-scoped RBAC.
 - Secrets: Secrets Manager + KMS; referenced by ID everywhere; never in trigger records, ADS, or code.
 - Model calls: Model Gateway only — Presidio PII redaction (with Indian-identifier recognizers), token/cost limits, response schema validation.
