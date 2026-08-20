@@ -19,18 +19,36 @@ export interface DeletionTenantStore {
 }
 
 const STORE = "orchestration-service";
+// Every tenant-scoped table in this service's schema (29, drizzle/0000-0035).
+// This list is hand-maintained -- ENGINE-FIX-P0-2 closed a gap where 10 of
+// these (everything from migration 0019 onward) were missing, so
+// verifyDeletion certified erasure complete while their rows survived.
+// Adding a new tenant-scoped table without adding it here reintroduces that
+// gap; there is currently no schema-derived check that would catch it.
 const TABLES = [
   "trigger_webhook_secrets",
   "workflow_template_variable_values", "workflow_template_variable_definitions",
   "workflows", "workflow_versions", "triggers", "trigger_versions", "clarifications", "conversations",
   "conversation_goal_states", "events", "runs", "blackboard_checkpoints", "node_executions",
   "run_stream_events", "verification_results", "recovery_actions", "run_outcomes", "approvals",
+  "projects", "deployments", "project_plans", "artifacts", "whatsapp_accounts",
+  "webhook_endpoints", "webhook_endpoint_secrets", "trigger_integration_bindings",
+  "escalations", "run_dispatch_queue",
 ] as const;
+// Children before parents, per the FK graph in the migrations above --
+// notably run_dispatch_queue, trigger_integration_bindings and
+// webhook_endpoint_secrets have plain (non-CASCADE) FKs to runs/triggers/
+// webhook_endpoints/webhook_endpoints respectively, so those three MUST be
+// deleted before the table they reference or the DELETE fails outright.
 const DELETE_ORDER = [
   "approvals", "verification_results", "recovery_actions", "run_outcomes", "run_stream_events",
-  "blackboard_checkpoints", "node_executions", "events", "runs", "conversation_goal_states",
-  "trigger_versions", "trigger_webhook_secrets", "triggers", "workflow_template_variable_values",
-  "workflow_template_variable_definitions", "workflow_versions", "clarifications", "conversations", "workflows",
+  "blackboard_checkpoints", "node_executions", "artifacts", "escalations", "run_dispatch_queue",
+  "events", "runs", "conversation_goal_states",
+  "trigger_integration_bindings", "trigger_versions", "trigger_webhook_secrets",
+  "webhook_endpoint_secrets", "webhook_endpoints", "triggers",
+  "workflow_template_variable_values", "workflow_template_variable_definitions", "workflow_versions",
+  "clarifications", "deployments", "project_plans", "conversations", "workflows", "projects",
+  "whatsapp_accounts",
 ] as const;
 
 export class OrchestrationDeletionService implements DeletionProvider {

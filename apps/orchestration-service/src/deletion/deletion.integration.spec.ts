@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
 import { PostgresOrchestrationStoreProvider } from "@alterx/adapters";
@@ -57,16 +57,19 @@ describe.sequential("OrchestrationDeletionService real Postgres", () => {
     await postgres?.stop();
   }, 60_000);
 
-  it("deletes all 19 tenant tables while preserving a second tenant", async () => {
+  it("deletes all 29 tenant tables while preserving a second tenant", async () => {
     await seedAll(adminStore, TENANT_A, "a");
     await seedAll(adminStore, TENANT_B, "b");
 
     const before = await service.locateSubjectData(`ten_${TENANT_A}`);
-    expect(before).toHaveLength(19);
+    // 29, not 19 -- ENGINE-FIX-P0-2 added the ten tables (migrations 0019+)
+    // that were previously missing from both TABLES and DELETE_ORDER, which
+    // let verifyDeletion certify erasure complete while their rows survived.
+    expect(before).toHaveLength(29);
     expect(before.every((location) => location.rowCount === 1)).toBe(true);
 
     await expect(service.deleteSubjectData(`ten_${TENANT_A}`, MANIFEST)).resolves.toMatchObject({
-      deletedRows: 19,
+      deletedRows: 29,
       deletedObjects: 0,
     });
     await expect(service.verifyDeletion(`ten_${TENANT_A}`, MANIFEST)).resolves.toMatchObject({
@@ -151,6 +154,23 @@ async function seedAll(
     await tx.query("INSERT INTO recovery_actions(id,tenant_id,run_id,node_execution_id,failure_class) VALUES ($1,$2,$3,$4,'fixture')", [`rcv_${suffix}`, tenant, run, node]);
     await tx.query("INSERT INTO run_outcomes(id,tenant_id,workspace_id,run_id,mode,eligible,verdict,human_rescue,critical_external_error,decided_at) VALUES ($1,$2,$2,$3,'workflow',true,'completed_verified',false,false,now())", [`018f4d6e-2b4a-7a3e-8c1a-1234567890${suffix === "a" ? "a8" : "b8"}`, tenant, run]);
     await tx.query("INSERT INTO approvals(id,tenant_id,workspace_id,run_id,node_execution_id,requested_action,expiry_at) VALUES ($1,$2,$2,$3,$4,'{}',now()+interval '1 hour')", [`apr_${suffix}`, tenant, run, node]);
+
+    // The ten tables ENGINE-FIX-P0-2 added to TABLES/DELETE_ORDER (migrations
+    // 0019+). Seeded here so "deletes all 29 tenant tables" actually proves
+    // coverage instead of just proving the original 19 still work.
+    const project = `prj_${suffix}`;
+    const webhookEndpoint = `whe_${suffix}`;
+    const integrationId = randomUUID();
+    await tx.query("INSERT INTO projects(id,tenant_id,workspace_id,name) VALUES ($1,$2,$2,'fixture')", [project, tenant]);
+    await tx.query("INSERT INTO deployments(id,tenant_id,project_id) VALUES ($1,$2,$3)", [`dep_${suffix}`, tenant, project]);
+    await tx.query("INSERT INTO project_plans(tenant_id,project_id,conversation_id,brief) VALUES ($1,$2,$3,'fixture')", [tenant, project, conversation]);
+    await tx.query("INSERT INTO artifacts(id,tenant_id,run_id,storage_reference,content_type,size_bytes) VALUES ($1,$2,$3,'s3://fixture','text/plain',1)", [`art_${suffix}`, tenant, run]);
+    await tx.query("INSERT INTO whatsapp_accounts(id,tenant_id,workspace_id,phone_number_id,waba_id,access_token_ref) VALUES ($1,$2,$2,$3,$4,'fixture-ref')", [`wa_${suffix}`, tenant, `phone_${suffix}_${randomUUID()}`, `waba_${suffix}`]);
+    await tx.query("INSERT INTO webhook_endpoints(id,tenant_id,workspace_id,integration_id,path_token) VALUES ($1,$2,$2,$3,$4)", [webhookEndpoint, tenant, integrationId, `token_${suffix}_${randomUUID()}`]);
+    await tx.query("INSERT INTO webhook_endpoint_secrets(id,tenant_id,endpoint_id,version,secret_ref) VALUES ($1,$2,$3,1,'fixture-secret-ref')", [`whs_${suffix}`, tenant, webhookEndpoint]);
+    await tx.query("INSERT INTO trigger_integration_bindings(id,tenant_id,workspace_id,trigger_id,integration_id,webhook_endpoint_id,config) VALUES ($1,$2,$2,$3,$4,$5,'{}')", [`tib_${suffix}`, tenant, trigger, integrationId, webhookEndpoint]);
+    await tx.query("INSERT INTO escalations(id,tenant_id,workspace_id,run_id,recovery_action_id,reason) VALUES ($1,$2,$2,$3,$4,'fixture')", [`esc_${suffix}`, tenant, run, `rcv_${suffix}`]);
+    await tx.query("INSERT INTO run_dispatch_queue(id,tenant_id,run_id,compiled_dag) VALUES ($1,$2,$3,'{}')", [randomUUID(), tenant, run]);
   });
 }
 
