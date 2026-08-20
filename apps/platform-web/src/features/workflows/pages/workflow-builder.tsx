@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { useQuery, useMutation } from "@tanstack/react-query"
-import { Save, Play, RefreshCw, LayoutTemplate, PanelRight, ChevronLeft } from "lucide-react"
+import { Save, Play, LayoutTemplate, PanelRight, ChevronLeft } from "lucide-react"
 import { api } from "@/api/client"
 import { queryKeys } from "@/api/query-keys"
 import { Button } from "@/components/ui/button"
@@ -91,8 +91,11 @@ export function WorkflowBuilder() {
             Inspector
           </Button>
           <div className="h-4 w-px bg-border mx-2" />
-          <Button variant="outline" size="sm" onClick={() => saveMutation.mutate()} disabled={!isDirty || saveMutation.isPending}>
-            {saveMutation.isPending ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+          {/* Save is force-disabled: this mutation currently sends { nodes: [], edges: [] }
+              instead of the real canvas state, which wipes the stored workflow on every
+              click. Re-enable once saveMutation writes the actual builder-store graph. */}
+          <Button variant="outline" size="sm" onClick={() => saveMutation.mutate()} disabled title="Save is temporarily disabled — reconnecting to real workflow data">
+            <Save className="mr-2 h-4 w-4" />
             Save
           </Button>
           <Button variant="primary" size="sm" onClick={() => navigate(`/app/workflows/${workflowId}/simulation`)}>
