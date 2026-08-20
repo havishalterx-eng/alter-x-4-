@@ -35,20 +35,30 @@ const TABLES = [
   "webhook_endpoints", "webhook_endpoint_secrets", "trigger_integration_bindings",
   "escalations", "run_dispatch_queue",
 ] as const;
-// Children before parents, per the FK graph in the migrations above --
-// notably run_dispatch_queue, trigger_integration_bindings and
-// webhook_endpoint_secrets have plain (non-CASCADE) FKs to runs/triggers/
-// webhook_endpoints/webhook_endpoints respectively, so those three MUST be
-// deleted before the table they reference or the DELETE fails outright.
+// Children before parents. A child ordered after a table it has a plain FK
+// to makes the DELETE fail outright; a child ordered after a table it has
+// an ON DELETE CASCADE FK to makes the child's row vanish via cascade
+// before its own explicit DELETE runs, silently undercounting deletedRows
+// (this order used to get that wrong for escalations -> recovery_actions/
+// node_executions/runs -- caught by deletion.integration.spec.ts, not by
+// reading the migrations carefully enough by hand).
+//
+// This exact order is the output of a topological sort over every FK in
+// apps/orchestration-service/drizzle/*.sql (all 40 REFERENCES clauses,
+// cross-checked by count against `grep -c REFERENCES *.sql`), not a
+// hand-derived guess. If a new migration adds a table or a FK, regenerate
+// rather than hand-editing: extract every {child, parent} pair from
+// CREATE TABLE / ALTER TABLE ... REFERENCES statements in that folder and
+// run Kahn's algorithm over the 29 TABLES nodes; child must precede parent
+// for every edge.
 const DELETE_ORDER = [
-  "approvals", "verification_results", "recovery_actions", "run_outcomes", "run_stream_events",
-  "blackboard_checkpoints", "node_executions", "artifacts", "escalations", "run_dispatch_queue",
-  "events", "runs", "conversation_goal_states",
-  "trigger_integration_bindings", "trigger_versions", "trigger_webhook_secrets",
-  "webhook_endpoint_secrets", "webhook_endpoints", "triggers",
-  "workflow_template_variable_values", "workflow_template_variable_definitions", "workflow_versions",
-  "clarifications", "deployments", "project_plans", "conversations", "workflows", "projects",
-  "whatsapp_accounts",
+  "approvals", "blackboard_checkpoints", "clarifications", "conversation_goal_states",
+  "deployments", "artifacts", "escalations", "project_plans", "recovery_actions",
+  "run_dispatch_queue", "run_outcomes", "run_stream_events", "trigger_integration_bindings",
+  "trigger_webhook_secrets", "verification_results", "node_executions", "runs", "events",
+  "conversations", "projects", "trigger_versions", "triggers", "webhook_endpoint_secrets",
+  "webhook_endpoints", "whatsapp_accounts", "workflow_template_variable_definitions",
+  "workflow_template_variable_values", "workflow_versions", "workflows",
 ] as const;
 
 export class OrchestrationDeletionService implements DeletionProvider {

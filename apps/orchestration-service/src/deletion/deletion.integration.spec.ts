@@ -146,7 +146,7 @@ async function seedAll(
     await tx.query("INSERT INTO clarifications(id,tenant_id,workspace_id,conversation_id,question,expiry_at) VALUES ($1,$2,$2,$3,'fixture',now()+interval '1 hour')", [`clr_${suffix}`, tenant, conversation]);
     await tx.query("INSERT INTO conversation_goal_states(tenant_id,conversation_id) VALUES ($1,$2)", [tenant, conversation]);
     await tx.query("INSERT INTO events(event_id,event_type,schema_version,tenant_id,workspace_id,source,idempotency_key,occurred_at,conversation_id,trigger_id,trigger_version,payload,signature_status) VALUES ($1,'fixture','v1',$2,$2,'fixture',$3,now(),$4,$5,1,'{}','verified')", [`evt_${suffix}`, tenant, `idem-${suffix}`, conversation, trigger]);
-    await tx.query("INSERT INTO runs(id,tenant_id,workspace_id,parent_kind,workflow_id,workflow_version_id,conversation_id,trigger_id) VALUES ($1,$2,$2,'workflow',$3,$4,$5,$6)", [run, tenant, workflow, workflowVersion, conversation, trigger]);
+    await tx.query("INSERT INTO runs(id,tenant_id,workspace_id,parent_kind,workflow_id,workflow_version_id,conversation_id,trigger_id,triggering_event_id) VALUES ($1,$2,$2,'workflow',$3,$4,$5,$6,$7)", [run, tenant, workflow, workflowVersion, conversation, trigger, `evt_${suffix}`]);
     await tx.query("INSERT INTO blackboard_checkpoints(tenant_id,run_id,context_key,value_json) VALUES ($1,$2,'fixture','{}')", [tenant, run]);
     await tx.query("INSERT INTO node_executions(id,tenant_id,run_id,dag_node_id,node_type,status) VALUES ($1,$2,$3,'fixture','Merge','succeeded')", [node, tenant, run]);
     await tx.query("INSERT INTO run_stream_events(id,tenant_id,run_id,seq,event,payload) VALUES ($1,$2,$3,1,'node.completed','{}')", [`sse_${suffix}`, tenant, run]);
@@ -161,10 +161,13 @@ async function seedAll(
     const project = `prj_${suffix}`;
     const webhookEndpoint = `whe_${suffix}`;
     const integrationId = randomUUID();
+    const artifact = `art_${suffix}`;
     await tx.query("INSERT INTO projects(id,tenant_id,workspace_id,name) VALUES ($1,$2,$2,'fixture')", [project, tenant]);
-    await tx.query("INSERT INTO deployments(id,tenant_id,project_id) VALUES ($1,$2,$3)", [`dep_${suffix}`, tenant, project]);
+    // artifacts before deployments: deployments.artifact_id -> artifacts is a
+    // plain (non-CASCADE) FK, so the referenced row must exist first.
+    await tx.query("INSERT INTO artifacts(id,tenant_id,run_id,storage_reference,content_type,size_bytes) VALUES ($1,$2,$3,'s3://fixture','text/plain',1)", [artifact, tenant, run]);
+    await tx.query("INSERT INTO deployments(id,tenant_id,project_id,artifact_id) VALUES ($1,$2,$3,$4)", [`dep_${suffix}`, tenant, project, artifact]);
     await tx.query("INSERT INTO project_plans(tenant_id,project_id,conversation_id,brief) VALUES ($1,$2,$3,'fixture')", [tenant, project, conversation]);
-    await tx.query("INSERT INTO artifacts(id,tenant_id,run_id,storage_reference,content_type,size_bytes) VALUES ($1,$2,$3,'s3://fixture','text/plain',1)", [`art_${suffix}`, tenant, run]);
     await tx.query("INSERT INTO whatsapp_accounts(id,tenant_id,workspace_id,phone_number_id,waba_id,access_token_ref) VALUES ($1,$2,$2,$3,$4,'fixture-ref')", [`wa_${suffix}`, tenant, `phone_${suffix}_${randomUUID()}`, `waba_${suffix}`]);
     await tx.query("INSERT INTO webhook_endpoints(id,tenant_id,workspace_id,integration_id,path_token) VALUES ($1,$2,$2,$3,$4)", [webhookEndpoint, tenant, integrationId, `token_${suffix}_${randomUUID()}`]);
     await tx.query("INSERT INTO webhook_endpoint_secrets(id,tenant_id,endpoint_id,version,secret_ref) VALUES ($1,$2,$3,1,'fixture-secret-ref')", [`whs_${suffix}`, tenant, webhookEndpoint]);
