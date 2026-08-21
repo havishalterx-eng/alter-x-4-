@@ -157,9 +157,11 @@ describe.sequential("EstimationService", () => {
     const item = result.lineItems[0]!;
     expect(item.confidence).toBe("tenant_historical");
     expect(item.sampleSize).toBe(2);
-    // unit cost = 500/1000 = 0.5/token -> ceil -> 1 minor/token; 2000 tokens -> 2000 minor
-    expect(item.historicalUnitCostMinor).toBe("1");
-    expect(item.estimatedBaseCostMinor).toBe("2000");
+    // unit cost = 500/1000 = 0.5/token, kept as the raw fraction (rounding
+    // it up to 1 first was ENGINE-FIX-P3-2's bug); 2000 tokens -> real cost
+    // ceil(0.5 * 2000) = 1000, not the old inflated 2000.
+    expect(item.historicalUnitCostMinor).toBe("0.5");
+    expect(item.estimatedBaseCostMinor).toBe("1000");
     expect(result.hasUnestimatedLineItems).toBe(false);
   });
 

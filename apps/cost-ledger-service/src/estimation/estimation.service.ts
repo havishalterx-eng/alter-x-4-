@@ -137,10 +137,15 @@ export class EstimationService {
     average: HistoricalAverageRow,
     sampleSize: number,
   ): EstimateLineItemResult {
-    // avg_unit_cost_minor is a decimal string (Postgres NUMERIC via AVG) --
-    // round up (ceil) rather than truncate, so the estimate never
-    // under-quotes a real historical cost.
-    const unitCostMinor = Math.ceil(Number(average.avg_unit_cost_minor));
+    // avg_unit_cost_minor is a decimal string (Postgres NUMERIC via AVG) and
+    // is normally a fraction (e.g. 0.5 minor units/token) -- round ONCE, at
+    // the final total, not here. Rounding this unit price up to a whole
+    // minor unit first (the previous behaviour) then multiplying by a large
+    // quantity inflated every estimate 2x-100x: ceil(0.5) * 2000 = 2000
+    // instead of the real ceil(0.5 * 2000) = 1000. Never under-quotes a
+    // real historical cost either way, because the single ceil below still
+    // rounds the total up, not down.
+    const unitCostMinor = Number(average.avg_unit_cost_minor);
     const retryRate = Number(average.retry_rate ?? "0");
     const baseCostMinor = BigInt(Math.ceil(unitCostMinor * item.expectedQuantity));
     const retryCostMinor = BigInt(Math.ceil(Number(baseCostMinor) * retryRate));
@@ -196,7 +201,13 @@ export class EstimationService {
 
     const globalSampleSize = Number(globalAverage?.sample_size ?? "0");
     if (globalAverage && globalSampleSize > 0 && globalAverage.avg_unit_cost_minor !== null) {
-      const unitCostMinor = Math.ceil(Number(globalAverage.avg_unit_cost_minor));
+      // Same fix as #buildResult above, and it matters more here: this
+      // value is a per-unit price a caller (model-gateway) multiplies by
+      // its own real quantity later. Rounding it up to a whole minor unit
+      // here reintroduces the exact same inflation one layer downstream,
+      // in a service that never sees this file. Return the raw average;
+      // whoever multiplies by quantity rounds once, at their own total.
+      const unitCostMinor = Number(globalAverage.avg_unit_cost_minor);
       return {
         unit_cost_minor: unitCostMinor.toString(),
         currency: "INR",
