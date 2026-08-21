@@ -688,10 +688,20 @@ export class RunLauncherService {
       await this.queue.acknowledge(tenantId, claimed.runId, claimed.leaseToken);
       return started;
     } catch (error: unknown) {
-      // startClaimedAndTransition has made a non-retryable startup failure
-      // terminal. Ack it; a process crash before this point instead leaves
-      // the lease durable and claimable after expiry.
-      await this.queue.acknowledge(tenantId, claimed.runId, claimed.leaseToken);
+      if (error instanceof RunStartFailedError) {
+        // startClaimedAndTransition has made this specific, non-retryable
+        // startup failure terminal (run already marked 'failed', outcome
+        // recorded). Ack it so the queue entry doesn't outlive a run that's
+        // already resolved.
+        await this.queue.acknowledge(tenantId, claimed.runId, claimed.leaseToken);
+        throw error;
+      }
+      // Anything else here -- a transient error from getRun (connection
+      // blip, statement timeout, pool exhaustion) most commonly -- means
+      // the run was never actually transitioned or marked terminal. Do NOT
+      // acknowledge: that would delete the queue entry for a run that's
+      // still legitimately pending, with nothing left pointing at it. Let
+      // the lease expire naturally so a sweeper can reclaim and retry it.
       throw error;
     }
   }
