@@ -20,6 +20,9 @@ export const platformApiEnvSchema = z
     GOOGLE_CLIENT_ID: z.string().min(1).optional(),
     GOOGLE_CLIENT_SECRET_REF: z.string().min(1).optional(),
     SESSION_COOKIE_SIGNING_KEY_REF: z.string().min(1).optional(),
+    EMAIL_PROVIDER: z.enum(["ses", "mock"]).default("mock"),
+    SES_FROM_ADDRESS: z.string().min(1).optional(),
+    SES_CREDENTIALS_SECRET_REF: z.string().min(1).optional(),
     SIGNING_KEY_PROVIDER: z.enum(["secrets", "mock"]).default("secrets"),
     ACTOR_TOKEN_SIGNING_KEY_REF: z.string().min(1).optional(),
     ALTER_CONFIG_SOURCE: z.enum(["appconfig", "local-file"]).default("local-file"),
@@ -99,6 +102,15 @@ export const platformApiEnvSchema = z
         context,
         ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET_REF", "SESSION_COOKIE_SIGNING_KEY_REF"],
         "IDENTITY_PROVIDER=google",
+      );
+    }
+
+    if (env.EMAIL_PROVIDER === "ses") {
+      requireFields(
+        env,
+        context,
+        ["SES_FROM_ADDRESS", "SES_CREDENTIALS_SECRET_REF"],
+        "EMAIL_PROVIDER=ses",
       );
     }
 

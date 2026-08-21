@@ -38,6 +38,7 @@ describe("platformApiEnvSchema", () => {
       MARKETPLACE_SEARCH_CURSOR_SECRET: cursorSecret,
       ACTOR_TOKEN_SIGNING_KEY_REF: "env:ACTOR_TOKEN_PRIVATE_KEY",
       IDENTITY_PROVIDER: "mock",
+      EMAIL_PROVIDER: "mock",
       REDIS_ENDPOINT_PARAM: "/alter/dev/platform-api/redis-endpoint",
       SIGNING_KEY_PROVIDER: "secrets",
       ALTER_CONFIG_SOURCE: "local-file",
@@ -96,6 +97,31 @@ describe("platformApiEnvSchema", () => {
     expect(validatePlatformApiEnv(base).REGISTRY_SCAN_PROVIDER).toBe("mock");
     expect(() => validatePlatformApiEnv({ ...base, REGISTRY_SCAN_PROVIDER: "sandbox" })).toThrow("SCAN-1");
     expect(() => validatePlatformApiEnv({ ...base, REGISTRY_SCAN_PROVIDER: "other" })).toThrow("Invalid platform-api environment");
+  });
+
+  it("requires SES refs when the SES email provider is selected", () => {
+    expect(() =>
+      validatePlatformApiEnv({
+        DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
+        MARKETPLACE_DATABASE_URL:
+          "postgres://platform_api:platform_api_local@localhost:5432/marketplace_db",
+        MARKETPLACE_SEARCH_CURSOR_SECRET: cursorSecret,
+        SIGNING_KEY_PROVIDER: "mock",
+        EMAIL_PROVIDER: "ses",
+      }),
+    ).toThrow("SES_FROM_ADDRESS required when EMAIL_PROVIDER=ses");
+    expect(
+      validatePlatformApiEnv({
+        DATABASE_URL: "postgres://platform_api:platform_api_local@localhost:5432/platform_db",
+        MARKETPLACE_DATABASE_URL:
+          "postgres://platform_api:platform_api_local@localhost:5432/marketplace_db",
+        MARKETPLACE_SEARCH_CURSOR_SECRET: cursorSecret,
+        SIGNING_KEY_PROVIDER: "mock",
+        EMAIL_PROVIDER: "ses",
+        SES_FROM_ADDRESS: "no-reply@alter.test",
+        SES_CREDENTIALS_SECRET_REF: "/alter/prod/ses/credentials",
+      }).EMAIL_PROVIDER,
+    ).toBe("ses");
   });
 
   it("requires Statuspage identifiers when real publishing is selected", () => {

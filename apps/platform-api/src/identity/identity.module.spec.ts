@@ -50,13 +50,24 @@ describe("IdentityModule", () => {
     await moduleRef.close();
   });
 
-  it("falls back to the mock provider when IDENTITY_PROVIDER=google is missing credentials", async () => {
+  it("fails closed instead of silently falling back to mock when IDENTITY_PROVIDER=google is missing credentials", async () => {
     delete process.env.DATABASE_URL;
     process.env.IDENTITY_PROVIDER = "google";
     delete process.env.GOOGLE_CLIENT_ID;
     delete process.env.GOOGLE_CLIENT_SECRET_REF;
-    const moduleRef = await Test.createTestingModule({ imports: [IdentityModule] }).compile();
-    expect(moduleRef.get(IdentityService)).toBeInstanceOf(IdentityService);
-    await moduleRef.close();
+    await expect(
+      Test.createTestingModule({ imports: [IdentityModule] }).compile(),
+    ).rejects.toThrow(
+      "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET_REF are required when IDENTITY_PROVIDER=google",
+    );
+  });
+
+  it("refuses to serve mock identity when NODE_ENV=production", async () => {
+    delete process.env.DATABASE_URL;
+    process.env.IDENTITY_PROVIDER = "mock";
+    process.env.NODE_ENV = "production";
+    await expect(
+      Test.createTestingModule({ imports: [IdentityModule] }).compile(),
+    ).rejects.toThrow("IDENTITY_PROVIDER=mock is not allowed when NODE_ENV=production");
   });
 });
