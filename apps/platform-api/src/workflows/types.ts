@@ -1,4 +1,4 @@
-import type { CompiledDag } from "@alterx/contracts";
+import type { CompiledDag, RegistryNodeTypeDescriptor } from "@alterx/contracts";
 import type { JsonValue } from "@alterx/shared-clients";
 
 export interface CreateWorkflowInput {
@@ -51,5 +51,9 @@ export interface WorkflowVersionList {
 }
 
 export type WorkflowList = WorkflowVersionList;
+
+export interface NodeTypeList {
+  node_types: readonly RegistryNodeTypeDescriptor[];
+}
 
 export const workflowDeferredCapabilities = [] as const;

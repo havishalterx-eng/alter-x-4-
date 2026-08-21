@@ -225,6 +225,7 @@ class ApiClient {
   }
   // Node Types
   async getNodeTypes(): Promise<NodeTypeDefinition[]> {
+    if (isLiveApi) return live.getNodeTypes()
     await delay(MOCK_DELAY)
     return mockNodeTypes
   }

@@ -117,6 +117,7 @@ import {
   loadTriggerBindingEnvironment,
 } from "./trigger-bindings";
 import { WorkflowReadController } from "./workflow-read/workflow-read.controller";
+import { NodeTypeController } from "./registry/node-type.controller";
 import { WorkflowReadService } from "./workflow-read/workflow-read.service";
 import { TemplateVariablesController } from "./template-variables/template-variables.controller";
 import { TemplateVariablesService } from "./template-variables/template-variables.service";
@@ -179,6 +180,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
     WebhookEndpointController,
     IntegrationWebhookController,
     WorkflowReadController,
+    NodeTypeController,
     WorkflowDeploymentController,
     TemplateVariablesController,
     ClarificationsController,

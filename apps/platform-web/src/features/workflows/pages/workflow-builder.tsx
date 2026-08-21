@@ -3,6 +3,8 @@ import { useParams, useNavigate } from "react-router-dom"
 import { useQuery, useMutation } from "@tanstack/react-query"
 import { Save, Play, LayoutTemplate, PanelRight, ChevronLeft } from "lucide-react"
 import { api } from "@/api/client"
+import { isLiveApi } from "@/api/http"
+import { dagToCanvas } from "@/api/compile-dag"
 import { queryKeys } from "@/api/query-keys"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
@@ -15,9 +17,9 @@ import { useBuilderStore } from "../stores/useBuilderStore"
 export function WorkflowBuilder() {
   const { workflowId } = useParams()
   const navigate = useNavigate()
-  
-  const { setWorkflowId, setNodes, setEdges, isDirty, setDirty, inspectorOpen, setInspectorOpen } = useBuilderStore()
-  
+
+  const { setWorkflowId, nodes, edges, setNodes, setEdges, isDirty, setDirty, inspectorOpen, setInspectorOpen } = useBuilderStore()
+
   React.useEffect(() => {
     if (workflowId) setWorkflowId(workflowId)
   }, [workflowId, setWorkflowId])
@@ -28,10 +30,11 @@ export function WorkflowBuilder() {
     enabled: !!workflowId,
   })
 
-  // Mock initial setup for canvas
+  // Load the canvas from the workflow's compiled DAG. Mock mode has no
+  // real DAG to load, so it keeps showing a fixed demo graph instead.
   React.useEffect(() => {
-    if (workflow && !isDirty) {
-      // Setup some mock nodes based on scenario
+    if (!workflow || isDirty) return
+    if (!isLiveApi) {
       const mockNodes = [
         { id: "1", type: "trigger_webhook", position: { x: 250, y: 50 }, data: { label: "Incoming Webhook", category: "Triggers" } },
         { id: "2", type: "ai_extract", position: { x: 250, y: 200 }, data: { label: "Extract Lead Info", category: "AI" } },
@@ -43,12 +46,16 @@ export function WorkflowBuilder() {
       ]
       setNodes(mockNodes)
       setEdges(mockEdges)
-      setDirty(false)
+    } else if (workflow.dag) {
+      const { nodes: loadedNodes, edges: loadedEdges } = dagToCanvas(workflow.dag)
+      setNodes(loadedNodes)
+      setEdges(loadedEdges)
     }
-  }, [workflow, setNodes, setEdges, setDirty])
+    setDirty(false)
+  }, [workflow, isDirty, setNodes, setEdges, setDirty])
 
   const saveMutation = useMutation({
-    mutationFn: () => api.saveWorkflowGraph(workflowId!, { nodes: [], edges: [] }),
+    mutationFn: () => api.saveWorkflowGraph(workflowId!, { nodes, edges }),
     onSuccess: () => {
       setDirty(false)
       toast.success("Workflow saved")
@@ -91,10 +98,7 @@ export function WorkflowBuilder() {
             Inspector
           </Button>
           <div className="h-4 w-px bg-border mx-2" />
-          {/* Save is force-disabled: this mutation currently sends { nodes: [], edges: [] }
-              instead of the real canvas state, which wipes the stored workflow on every
-              click. Re-enable once saveMutation writes the actual builder-store graph. */}
-          <Button variant="outline" size="sm" onClick={() => saveMutation.mutate()} disabled title="Save is temporarily disabled — reconnecting to real workflow data">
+          <Button variant="outline" size="sm" onClick={() => saveMutation.mutate()} disabled={!isDirty || saveMutation.isPending}>
             <Save className="mr-2 h-4 w-4" />
             Save
           </Button>

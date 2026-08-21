@@ -12,6 +12,7 @@ import { WorkflowHttpError } from "./problem";
 import type {
   CreateWorkflowInput,
   EmptyWorkflowActionInput,
+  NodeTypeList,
   ReplaceTemplateVariablesInput,
   SaveCanvasInput,
   SetTemplateVariableValueInput,
@@ -45,6 +46,14 @@ export class WorkflowService {
       callerContext(actor, traceparent, "/api/v1/workflows"),
       { idempotencyKey },
     );
+  }
+
+  nodeTypes(
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<EngineResponse<NodeTypeList>> {
+    const instance = "/api/v1/node-types";
+    return this.engine.get(instance, callerContext(actor, traceparent, instance));
   }
 
   list(
