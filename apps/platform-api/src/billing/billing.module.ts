@@ -4,7 +4,7 @@ import {
   RazorpayBillingProvider,
 } from "@alterx/adapters";
 import type { SecretsProvider } from "@alterx/shared-clients";
-import { Pool } from "pg";
+import { sharedPool } from "../db/shared-pool";
 import {
   ConcurrencyExceptionFilter,
   ETAG_RESOURCE_RESOLVER,
@@ -36,11 +36,7 @@ import {
   providers: [
     {
       provide: BillingRepository,
-      useFactory: () =>
-        new BillingRepository(
-          new Pool({ connectionString: process.env.DATABASE_URL }),
-          true,
-        ),
+      useFactory: () => new BillingRepository(sharedPool(process.env.DATABASE_URL), false),
     },
     {
       provide: BILLING_SECRETS_PROVIDER,
@@ -57,11 +53,7 @@ import {
     },
     {
       provide: BillingWebhookRepository,
-      useFactory: () =>
-        new BillingWebhookRepository(
-          new Pool({ connectionString: process.env.DATABASE_URL }),
-          true,
-        ),
+      useFactory: () => new BillingWebhookRepository(sharedPool(process.env.DATABASE_URL), false),
     },
     {
       provide: BILLING_PROVIDER,

@@ -1,5 +1,5 @@
 import { Module } from "@nestjs/common";
-import { Pool } from "pg";
+import { sharedPool } from "../db/shared-pool";
 import { IdempotencyInterceptor } from "./idempotency.interceptor";
 import { PgIdempotencyStore } from "./idempotency-store";
 import { IdempotencyExceptionFilter } from "./idempotency-exception.filter";
@@ -20,10 +20,10 @@ const defaultTtlSeconds = 86_400;
           );
         }
         return new PgIdempotencyStore(
-          new Pool({ connectionString: process.env.DATABASE_URL }),
+          sharedPool(process.env.DATABASE_URL),
           ttlSeconds * 1_000,
           () => new Date(),
-          true,
+          false,
         );
       },
     },

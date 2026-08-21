@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AwsSecretsManagerProvider } from "@alterx/adapters";
-import { Pool } from "pg";
+import { sharedPool } from "../db/shared-pool";
 import {
   ConcurrencyExceptionFilter,
   ETAG_RESOURCE_RESOLVER,
@@ -21,11 +21,7 @@ import { ENV_VAR_SECRETS_PROVIDER } from "./tokens";
   providers: [
     {
       provide: EnvVarRepository,
-      useFactory: () =>
-        new EnvVarRepository(
-          new Pool({ connectionString: process.env.DATABASE_URL }),
-          true,
-        ),
+      useFactory: () => new EnvVarRepository(sharedPool(process.env.DATABASE_URL), false),
     },
     {
       provide: ENV_VAR_SECRETS_PROVIDER,

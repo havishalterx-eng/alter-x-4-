@@ -1,9 +1,9 @@
 import { MiddlewareConsumer, Module, type NestModule } from "@nestjs/common";
-import { Pool } from "pg";
 import { AdminAuditModule } from "../admin-audit";
 import { CONFIG_PROVIDER } from "../entitlements/config-provider.interface";
 import { EntitlementsModule } from "../entitlements/entitlements.module";
 import { StaffAuthMiddleware, StaffModule } from "../staff";
+import { sharedPool } from "../db/shared-pool";
 import { PurchaseLimitHook, RateLimitHook, VerificationGateHook } from "./abuse-hooks";
 import { AbuseSignalController } from "./abuse-signal.controller";
 import { AbuseSignalExceptionFilter } from "./abuse-signal-exception.filter";
@@ -23,14 +23,14 @@ import { AbuseSignalService } from "./abuse-signal.service";
     {
       provide: AbuseSignalRepository,
       useFactory: () => new AbuseSignalRepository(
-        new Pool({ connectionString: process.env.DATABASE_URL }),
+        sharedPool(process.env.DATABASE_URL),
         process.env.OPERATIONS_PLATFORM_DATABASE_URL
-          ? new Pool({ connectionString: process.env.OPERATIONS_PLATFORM_DATABASE_URL })
+          ? sharedPool(process.env.OPERATIONS_PLATFORM_DATABASE_URL)
           : undefined,
         process.env.OPERATIONS_MARKETPLACE_DATABASE_URL
-          ? new Pool({ connectionString: process.env.OPERATIONS_MARKETPLACE_DATABASE_URL })
+          ? sharedPool(process.env.OPERATIONS_MARKETPLACE_DATABASE_URL)
           : undefined,
-        true,
+        false,
       ),
     },
     AbuseSignalService,

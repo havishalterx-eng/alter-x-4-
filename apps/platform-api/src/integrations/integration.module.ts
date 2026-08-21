@@ -5,6 +5,8 @@ import type { MutableSecretsProvider } from "@alterx/shared-clients";
 import { Pool } from "pg";
 import { resolveRuntimeSecret } from "../identity/identity.module";
 import { IdempotencyModule } from "../idempotency";
+import { sharedPool } from "../db/shared-pool";
+import { poolSizeConfigFromEnvironment } from "../db/pool-config";
 import { CONNECTOR_CATALOG } from "./connectors";
 import { createFetchOAuthHttpClient, type OAuthHttpClient } from "./adapters/oauth/oauth-http-client";
 import {
@@ -74,11 +76,7 @@ function buildConnectorRuntimeConfig(): ConnectorRuntimeConfigMap {
   providers: [
     {
       provide: IntegrationRepository,
-      useFactory: () =>
-        new IntegrationRepository(
-          new Pool({ connectionString: process.env.DATABASE_URL }),
-          true,
-        ),
+      useFactory: () => new IntegrationRepository(sharedPool(process.env.DATABASE_URL), false),
     },
     {
       // Real, separate bypass-RLS connection for the health sweep's
@@ -86,13 +84,17 @@ function buildConnectorRuntimeConfig(): ConnectorRuntimeConfigMap {
       // SystemIntegrationStore) until the real platform_db system role
       // is provisioned. CONNECTOR_HEALTH_SWEEP_SYSTEM_DATABASE_URL must
       // point at a role with a real BYPASSRLS grant, never the normal
-      // per-request role.
+      // per-request role. Deliberately its own dedicated pool, not one of
+      // db.module.ts's shared tokens -- this connection string is unique
+      // to this one call site, sharing it with anything else would be
+      // wrong, not simpler. Still gets the same size/timeout config
+      // (ENGINE-FIX-P3-6) as every other pool in this app.
       provide: SystemIntegrationStore,
       useFactory: () => {
         const systemDatabaseUrl = process.env.CONNECTOR_HEALTH_SWEEP_SYSTEM_DATABASE_URL;
-        return new SystemIntegrationStore(
-          systemDatabaseUrl ? new Pool({ connectionString: systemDatabaseUrl }) : undefined,
-        );
+        if (!systemDatabaseUrl) return new SystemIntegrationStore(undefined);
+        const size = poolSizeConfigFromEnvironment(process.env);
+        return new SystemIntegrationStore(new Pool({ connectionString: systemDatabaseUrl, ...size }));
       },
     },
     {

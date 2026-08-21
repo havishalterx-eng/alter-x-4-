@@ -1,5 +1,5 @@
 import { Module } from "@nestjs/common";
-import { Pool } from "pg";
+import { sharedPool } from "../db/shared-pool";
 import { ManualReviewKycProvider } from "./manual-review-kyc-provider";
 import { PublisherController } from "./publisher.controller";
 import { PublisherRepository } from "./publisher.repository";
@@ -8,7 +8,7 @@ import { PublisherService } from "./publisher.service";
 @Module({
   controllers: [PublisherController],
   providers: [
-    { provide: PublisherRepository, useFactory: () => new PublisherRepository(new Pool({ connectionString: process.env.MARKETPLACE_DATABASE_URL }), true) },
+    { provide: PublisherRepository, useFactory: () => new PublisherRepository(sharedPool(process.env.MARKETPLACE_DATABASE_URL), false) },
     ManualReviewKycProvider,
     { provide: PublisherService, inject: [PublisherRepository, ManualReviewKycProvider], useFactory: (repository: PublisherRepository, kyc: ManualReviewKycProvider) => new PublisherService(repository, kyc) },
   ],

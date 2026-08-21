@@ -22,6 +22,7 @@ import { CredentialService } from "./credentials/credential.service";
 import { CREDENTIAL_AUDIT_CLIENT, CREDENTIAL_SECRETS_PROVIDER } from "./credentials/tokens";
 import { createMockAuditEventHandler, createMockMutableSecretsProvider } from "@alterx/shared-clients";
 import type { ActorContextType, RbacRequest } from "./rbac";
+import { poolSizeConfigFromEnvironment } from "./db/pool-config";
 
 /**
  * Real, disclosed eval-only entrypoint for HARD-7g follow-up (tenant-
@@ -81,10 +82,17 @@ class EvalCredentialModule {
       controllers: [CredentialController],
       providers: [
         {
+          // This entrypoint never boots AppModule (see the block comment
+          // above), so it doesn't share the rest of the app's `sharedPool`
+          // cache -- still gets the same size/timeout config
+          // (ENGINE-FIX-P3-6) applied directly.
           provide: CredentialRepository,
           useFactory: () =>
             new CredentialRepository(
-              new Pool({ connectionString: process.env.DATABASE_URL }),
+              new Pool({
+                connectionString: process.env.DATABASE_URL,
+                ...poolSizeConfigFromEnvironment(process.env),
+              }),
               true,
             ),
         },

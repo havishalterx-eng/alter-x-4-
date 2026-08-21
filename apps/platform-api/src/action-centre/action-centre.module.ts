@@ -1,7 +1,7 @@
 import { Module } from "@nestjs/common";
 import { EngineModule } from "../engine";
 import { IdempotencyModule } from "../idempotency";
-import { Pool } from "pg";
+import { sharedPool } from "../db/shared-pool";
 import { AnnotationController } from "./annotation.controller";
 import { AnnotationRepository } from "./annotation.repository";
 import {
@@ -25,7 +25,7 @@ import { ActionCentreService } from "./action-centre.service";
     AnnotationController,
   ],
   providers: [
-    { provide: AnnotationRepository, useFactory: () => new AnnotationRepository(new Pool({ connectionString: process.env.DATABASE_URL }), true) },
+    { provide: AnnotationRepository, useFactory: () => new AnnotationRepository(sharedPool(process.env.DATABASE_URL), false) },
     ActionCentreService, ActionCentreExceptionFilter,
   ],
   exports: [ActionCentreService],

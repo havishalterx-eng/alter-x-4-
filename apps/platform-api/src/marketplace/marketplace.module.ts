@@ -1,9 +1,9 @@
 import { Module } from "@nestjs/common";
 import { S3ObjectStorageProvider } from "@alterx/adapters";
-import { Pool } from "pg";
 import { EntitlementsModule } from "../entitlements/entitlements.module";
 import { IdempotencyModule } from "../idempotency";
 import { ConcurrencyExceptionFilter, ETAG_RESOURCE_RESOLVER, EtagResponseInterceptor, IfMatchGuard } from "../concurrency";
+import { sharedPool } from "../db/shared-pool";
 import { MarketplaceController } from "./marketplace.controller";
 import { MarketplaceRepository } from "./marketplace.repository";
 import { MarketplaceService } from "./marketplace.service";
@@ -15,7 +15,7 @@ import { MARKETPLACE_PAYLOAD_STORE } from "./tokens";
   imports: [EntitlementsModule, IdempotencyModule],
   controllers: [MarketplaceController],
   providers: [
-    { provide: MarketplaceRepository, useFactory: () => new MarketplaceRepository(new Pool({ connectionString: process.env.MARKETPLACE_DATABASE_URL }), true) },
+    { provide: MarketplaceRepository, useFactory: () => new MarketplaceRepository(sharedPool(process.env.MARKETPLACE_DATABASE_URL), false) },
     {
       provide: MARKETPLACE_PAYLOAD_STORE,
       useFactory: () =>

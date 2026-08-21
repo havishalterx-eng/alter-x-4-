@@ -1,5 +1,4 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
-import { Pool } from "pg";
 import { StaffController } from "./staff.controller";
 import { StaffAuthMiddleware } from "./staff.middleware";
 import { StaffRepository } from "./staff.repository";
@@ -7,6 +6,7 @@ import { StaffService } from "./staff.service";
 import { SupportAccessController } from "./support-access.controller";
 import { SupportAccessExceptionFilter } from "./support-access-exception.filter";
 import { AdminAuditModule } from "../admin-audit";
+import { sharedPool } from "../db/shared-pool";
 
 @Module({
   imports: [AdminAuditModule],
@@ -14,7 +14,7 @@ import { AdminAuditModule } from "../admin-audit";
   providers: [
     {
       provide: StaffRepository,
-      useFactory: () => new StaffRepository(new Pool({ connectionString: process.env.DATABASE_URL })),
+      useFactory: () => new StaffRepository(sharedPool(process.env.DATABASE_URL)),
     },
     StaffService,
     StaffAuthMiddleware,

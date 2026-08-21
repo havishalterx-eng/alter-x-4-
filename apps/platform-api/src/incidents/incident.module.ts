@@ -7,9 +7,9 @@ import {
   createMockStatusPageProvider,
   type SecretsProvider,
 } from "@alterx/shared-clients";
-import { Pool } from "pg";
 import { AdminAuditModule } from "../admin-audit";
 import { StaffAuthMiddleware, StaffModule } from "../staff";
+import { sharedPool } from "../db/shared-pool";
 import { IncidentController } from "./incident.controller";
 import { IncidentExceptionFilter } from "./incident-exception.filter";
 import { IncidentRepository } from "./incident.repository";
@@ -22,10 +22,7 @@ import { STATUS_PAGE_PROVIDER, STATUS_PAGE_SECRETS_PROVIDER } from "./tokens";
   providers: [
     {
       provide: IncidentRepository,
-      useFactory: () => new IncidentRepository(
-        new Pool({ connectionString: process.env.DATABASE_URL }),
-        true,
-      ),
+      useFactory: () => new IncidentRepository(sharedPool(process.env.DATABASE_URL), false),
     },
     {
       provide: STATUS_PAGE_SECRETS_PROVIDER,

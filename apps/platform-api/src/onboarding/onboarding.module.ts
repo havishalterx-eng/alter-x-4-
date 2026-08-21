@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import { APP_FILTER } from "@nestjs/core";
-import { Pool } from "pg";
+import { sharedPool } from "../db/shared-pool";
 import { OnboardingController } from "./onboarding.controller";
 import { OnboardingExceptionFilter } from "./onboarding-exception.filter";
 import {
@@ -14,10 +14,7 @@ import { OnboardingService } from "./onboarding.service";
   providers: [
     {
       provide: OnboardingRepository,
-      useFactory: () =>
-        new OnboardingRepository(
-          new Pool({ connectionString: process.env.DATABASE_URL }),
-        ),
+      useFactory: () => new OnboardingRepository(sharedPool(process.env.DATABASE_URL)),
     },
     {
       provide: ONBOARDING_INITIALIZER,

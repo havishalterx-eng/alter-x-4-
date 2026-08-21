@@ -1,8 +1,8 @@
 import { MiddlewareConsumer, Module, type NestModule } from "@nestjs/common";
-import { Pool } from "pg";
 import { EntitlementsModule } from "../entitlements/entitlements.module";
 import { AdminAuditModule } from "../admin-audit";
 import { StaffAuthMiddleware, StaffModule } from "../staff";
+import { sharedPool } from "../db/shared-pool";
 import { AdminTenantsController } from "./admin-tenants.controller";
 import { AdminTenantsExceptionFilter } from "./admin-tenants-exception.filter";
 import { AdminTenantsRepository } from "./admin-tenants.repository";
@@ -14,11 +14,7 @@ import { AdminTenantsService } from "./admin-tenants.service";
   providers: [
     {
       provide: AdminTenantsRepository,
-      useFactory: () =>
-        new AdminTenantsRepository(
-          new Pool({ connectionString: process.env.DATABASE_URL }),
-          true,
-        ),
+      useFactory: () => new AdminTenantsRepository(sharedPool(process.env.DATABASE_URL), false),
     },
     AdminTenantsService,
     AdminTenantsExceptionFilter,
