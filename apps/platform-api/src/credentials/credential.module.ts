@@ -2,7 +2,7 @@ import { Module } from "@nestjs/common";
 import { resolve } from "node:path";
 import { AuditServiceClient, AwsSecretsManagerProvider } from "@alterx/adapters";
 import { lazyAuth0M2mTokenProviderFromEnvironment } from "@alterx/auth";
-import { Pool } from "pg";
+import { sharedPool } from "../db/shared-pool";
 import {
   ConcurrencyExceptionFilter,
   ETAG_RESOURCE_RESOLVER,
@@ -25,11 +25,7 @@ import { CREDENTIAL_AUDIT_CLIENT, CREDENTIAL_SECRETS_PROVIDER } from "./tokens";
   providers: [
     {
       provide: CredentialRepository,
-      useFactory: () =>
-        new CredentialRepository(
-          new Pool({ connectionString: process.env.DATABASE_URL }),
-          true,
-        ),
+      useFactory: () => new CredentialRepository(sharedPool(process.env.DATABASE_URL), false),
     },
     {
       provide: CREDENTIAL_SECRETS_PROVIDER,

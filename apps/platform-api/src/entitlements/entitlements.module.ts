@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
-import { Pool } from "pg";
+import { sharedPool } from "../db/shared-pool";
 import { CONFIG_PROVIDER, type ConfigProvider } from "./config-provider.interface";
 import { AppConfigConfigProvider } from "./adapters/appconfig/appconfig-config-provider";
 import { LocalFileConfigProvider } from "./adapters/local-file/local-file-config-provider";
@@ -23,11 +23,7 @@ const ENTITLEMENT_STORE = Symbol("ENTITLEMENT_STORE");
   providers: [
     {
       provide: PLAN_DEFINITION_STORE,
-      useFactory: () =>
-        new PostgresPlanDefinitionStore(
-          new Pool({ connectionString: process.env.DATABASE_URL }),
-          true,
-        ),
+      useFactory: () => new PostgresPlanDefinitionStore(sharedPool(process.env.DATABASE_URL), false),
     },
     {
       provide: CONFIG_PROVIDER,
@@ -46,10 +42,7 @@ const ENTITLEMENT_STORE = Symbol("ENTITLEMENT_STORE");
     },
     {
       provide: ENTITLEMENT_STORE,
-      useFactory: () =>
-        new PostgresEntitlementStore(
-          new Pool({ connectionString: process.env.DATABASE_URL }),
-        ),
+      useFactory: () => new PostgresEntitlementStore(sharedPool(process.env.DATABASE_URL)),
     },
     {
       provide: ENTITLEMENT_PROVIDER,

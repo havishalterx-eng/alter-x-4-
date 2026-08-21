@@ -1,9 +1,9 @@
 import { MiddlewareConsumer, Module, type NestModule } from "@nestjs/common";
 import { AwsSecretsManagerProvider } from "@alterx/adapters";
 import type { SecretsProvider } from "@alterx/shared-clients";
-import { Pool } from "pg";
 import { AdminAuditModule } from "../admin-audit";
 import { StaffAuthMiddleware, StaffModule } from "../staff";
+import { sharedPool } from "../db/shared-pool";
 import { AdminControlsController } from "./admin-controls.controller";
 import { AdminControlsExceptionFilter } from "./admin-controls-exception.filter";
 import { AdminControlsService } from "./admin-controls.service";
@@ -18,10 +18,7 @@ const MODEL_GATEWAY_SECRETS = Symbol("MODEL_GATEWAY_SECRETS");
   providers: [
     {
       provide: FeatureFlagRepository,
-      useFactory: () => new FeatureFlagRepository(
-        new Pool({ connectionString: process.env.DATABASE_URL }),
-        true,
-      ),
+      useFactory: () => new FeatureFlagRepository(sharedPool(process.env.DATABASE_URL), false),
     },
     {
       provide: MODEL_GATEWAY_SECRETS,

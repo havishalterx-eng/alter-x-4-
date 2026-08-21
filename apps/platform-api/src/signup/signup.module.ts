@@ -1,5 +1,5 @@
 import { Module } from "@nestjs/common";
-import { Pool } from "pg";
+import { sharedPool } from "../db/shared-pool";
 import {
   ENTITLEMENT_PROVIDER,
   type EntitlementProvider,
@@ -34,8 +34,7 @@ import { SignupService } from "./signup.service";
   providers: [
     {
       provide: PlatformDb,
-      useFactory: () =>
-        new PlatformDb(new Pool({ connectionString: process.env.DATABASE_URL })),
+      useFactory: () => new PlatformDb(sharedPool(process.env.DATABASE_URL)),
     },
     {
       provide: ProcessLocalSignupIdempotencyStore,
