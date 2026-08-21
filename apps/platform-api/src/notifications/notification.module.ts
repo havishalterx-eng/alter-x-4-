@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Module } from "@nestjs/common";
 import { MockEmailProvider, SesEmailProvider } from "@alterx/adapters";
+import type { EmailProvider } from "@alterx/shared-clients";
 import { Pool } from "pg";
 import { resolveRuntimeSecret } from "../identity/identity.module";
 import { sharedPool } from "../db/shared-pool";
@@ -22,22 +23,7 @@ import { EMAIL_PROVIDER } from "./tokens";
     },
     {
       provide: EMAIL_PROVIDER,
-      useFactory: () => {
-        const fromAddress = process.env.SES_FROM_ADDRESS;
-        const credentialsSecretRef = process.env.SES_CREDENTIALS_SECRET_REF;
-        if (fromAddress === undefined && credentialsSecretRef === undefined) return new MockEmailProvider();
-        if (!fromAddress || !credentialsSecretRef) {
-          throw new Error("SES_FROM_ADDRESS and SES_CREDENTIALS_SECRET_REF must be configured together");
-        }
-        return new SesEmailProvider(
-          {
-            region: process.env.AWS_REGION ?? "ap-south-1",
-            fromAddress,
-            credentialsSecretRef,
-          },
-          resolveRuntimeSecret,
-        );
-      },
+      useFactory: resolveEmailProvider,
     },
     {
       // Real, separate bypass-RLS connection for the digest scheduler's
@@ -74,3 +60,38 @@ import { EMAIL_PROVIDER } from "./tokens";
   exports: [NotificationService],
 })
 export class NotificationModule {}
+
+// ENGINE-FIX-P3-17: was raw SES_FROM_ADDRESS/SES_CREDENTIALS_SECRET_REF
+// presence sniffing -- both vars absent fell through to MockEmailProvider
+// silently in any environment including production, with no fatal check at
+// all. Now EMAIL_PROVIDER drives an explicit switch (same shape as
+// identity.module.ts's IDENTITY_PROVIDER): "ses" missing its paired config
+// throws instead of silently downgrading; mock is fatal when
+// NODE_ENV=production. Exported (not inlined in the useFactory) so it's
+// directly unit-testable without standing up the full NestJS module graph,
+// matching this file's existing resolveRuntimeSecret precedent.
+export function resolveEmailProvider(): EmailProvider {
+  const provider = process.env.EMAIL_PROVIDER ?? "mock";
+  if (provider === "ses") {
+    const fromAddress = process.env.SES_FROM_ADDRESS;
+    const credentialsSecretRef = process.env.SES_CREDENTIALS_SECRET_REF;
+    if (!fromAddress || !credentialsSecretRef) {
+      throw new Error(
+        "SES_FROM_ADDRESS and SES_CREDENTIALS_SECRET_REF are required when EMAIL_PROVIDER=ses",
+      );
+    }
+    return new SesEmailProvider(
+      {
+        region: process.env.AWS_REGION ?? "ap-south-1",
+        fromAddress,
+        credentialsSecretRef,
+      },
+      resolveRuntimeSecret,
+    );
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("EMAIL_PROVIDER=mock is not allowed when NODE_ENV=production");
+  }
+  return new MockEmailProvider();
+}
