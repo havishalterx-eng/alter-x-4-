@@ -20,9 +20,6 @@
       "@alterx/contracts": [
         "packages/contracts/src/index.ts"
       ],
-      "@alterx/workflow-schema": [
-        "packages/workflow-schema/src/index.ts"
-      ],
       "@alterx/auth": [
         "packages/auth/src/index.ts"
       ],
@@ -31,9 +28,6 @@
       ],
       "@alterx/observability": [
         "packages/observability/src/index.ts"
-      ],
-      "@alterx/policy": [
-        "packages/policy/src/index.ts"
       ],
       "@alterx/shared-clients": [
         "packages/shared-clients/src/index.ts"

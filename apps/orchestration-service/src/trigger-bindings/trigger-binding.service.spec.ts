@@ -15,9 +15,13 @@ import {
 } from "./validation";
 import { signWebhookRequest } from "./webhook-signature";
 
-const TENANT_ID = "3f2c1b90-4d5e-7a1b-8c2d-0e1f2a3b4c5d";
-const WORKSPACE_ID = "5a4b3c2d-1e0f-7a9b-8c7d-6e5f4a3b2c1d";
-const OTHER_WORKSPACE_ID = "9a8b7c6d-5e4f-7a3b-8c2d-1e0f9a8b7c6d";
+// ENGINE-FIX-P3-20: these three were bare UUIDs, matching validation.ts's
+// old (wrong) bare-UUID tenantId/workspaceId check instead of the real
+// ten_/ws_ prefixed convention every actual tenantId/workspaceId in this
+// system uses -- fixed alongside that validation bug.
+const TENANT_ID = "ten_3f2c1b90-4d5e-7a1b-8c2d-0e1f2a3b4c5d";
+const WORKSPACE_ID = "ws_5a4b3c2d-1e0f-7a9b-8c7d-6e5f4a3b2c1d";
+const OTHER_WORKSPACE_ID = "ws_9a8b7c6d-5e4f-7a3b-8c2d-1e0f9a8b7c6d";
 const TRIGGER_ID = "trg_11111111-2222-7333-8444-555555555555";
 const CRON_TRIGGER_ID = "trg_66666666-7777-7888-8999-aaaaaaaaaaaa";
 const INTEGRATION_ID = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";

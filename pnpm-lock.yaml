@@ -792,8 +792,6 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(vitest@4.1.10)
 
-  packages/policy: {}
-
   packages/shared-clients:
     dependencies:
       '@alterx/contracts':
@@ -801,8 +799,6 @@ importers:
         version: link:../contracts
 
   packages/tenancy: {}
-
-  packages/workflow-schema: {}
 
 packages:
 

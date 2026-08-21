@@ -1,7 +1,12 @@
 import {
   CreateTriggerBindingRequestSchema,
   IntegrationConnectionIdSchema,
+  TenantIdSchema,
   TriggerBindingConfigSchema,
+  TriggerBindingIdSchema,
+  TriggerIdSchema,
+  WebhookEndpointIdSchema,
+  WorkspaceIdSchema,
   type CreateTriggerBindingRequest,
   type TriggerBindingConfig,
 } from "@alterx/contracts";
@@ -45,15 +50,6 @@ export class TriggerBindingWorkspaceMismatchError extends Error {
   }
 }
 
-const TRIGGER_ID_PATTERN =
-  /^trg_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ENDPOINT_ID_PATTERN =
-  /^whe_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const BINDING_ID_PATTERN =
-  /^tbn_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 export function parseCreateBindingBody(
   input: unknown,
 ): CreateTriggerBindingRequest {
@@ -69,36 +65,39 @@ export function parseIntegrationId(value: string): string {
 }
 
 export function parseTriggerId(value: string): string {
-  return matching(TRIGGER_ID_PATTERN, value, "triggerId");
+  return parse(TriggerIdSchema, value, "triggerId");
 }
 
 export function parseWebhookEndpointId(value: string): string {
-  return matching(ENDPOINT_ID_PATTERN, value, "webhookEndpointId");
+  return parse(WebhookEndpointIdSchema, value, "webhookEndpointId");
 }
 
 export function parseBindingId(value: string): string {
-  return matching(BINDING_ID_PATTERN, value, "bindingId");
+  return parse(TriggerBindingIdSchema, value, "bindingId");
 }
 
+// ENGINE-FIX-P3-20: these two validated against a BARE (unprefixed) UUID --
+// every real tenantId/workspaceId in this system is `ten_`/`ws_` prefixed
+// (TenantIdSchema/WorkspaceIdSchema, already defined in @alterx/contracts
+// and already used correctly two lines up for triggerId/bindingId/
+// webhookEndpointId in this same file). request.actorContext.tenant_id
+// (trigger-binding.controller.ts) is always the prefixed form, so this
+// made every real call into bindTrigger/listBindings/disableBinding/
+// getEndpointForIntegration throw "tenantId is malformed" -- the feature
+// was unreachable with any real tenant. Masked by this file's own test
+// fixtures using bare UUIDs too (fixed alongside this).
 export function parseTenantId(value: string | undefined): string {
   if (value === undefined) {
     throw new TriggerBindingValidationError("tenantId is required");
   }
-  return matching(UUID_PATTERN, value, "tenantId");
+  return parse(TenantIdSchema, value, "tenantId");
 }
 
 export function parseWorkspaceId(value: string | undefined): string {
   if (value === undefined) {
     throw new TriggerBindingValidationError("workspaceId is required");
   }
-  return matching(UUID_PATTERN, value, "workspaceId");
-}
-
-function matching(pattern: RegExp, value: string, field: string): string {
-  if (!pattern.test(value)) {
-    throw new TriggerBindingValidationError(`${field} is malformed`);
-  }
-  return value;
+  return parse(WorkspaceIdSchema, value, "workspaceId");
 }
 
 function parse<T>(schema: z.ZodType<T>, input: unknown, label: string): T {
