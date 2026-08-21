@@ -60,6 +60,16 @@ export class ActorContextGuard implements CanActivate {
           ? { workspace_id: workspaceRoles[0].workspaceId }
           : {}),
         roles: [...tenantRoles, ...workspaceRoles].map((row) => row.role),
+        // ENGINE-FIX-P3-7: hardcoded empty on purpose, not a gap. This used
+        // to be read by RbacGuard's own permission check (always empty ->
+        // denied every @RequirePermission route unconditionally -- the
+        // 101-endpoint Critical finding). That check is gone; nothing reads
+        // actorContext.permissions anymore. The @RequirePermission decorator
+        // itself is still real and still checked -- by EntitlementAccessGuard,
+        // which reads the route's declared metadata (not this per-user field)
+        // to classify read vs. write for subscription-suspension enforcement.
+        // Left as [] rather than removed from the type: ~36 test fixtures
+        // still construct ActorContext literals with this field.
         permissions: [],
         session_id: session.id,
         auth_time: Math.floor(session.createdAt.getTime() / 1000),
