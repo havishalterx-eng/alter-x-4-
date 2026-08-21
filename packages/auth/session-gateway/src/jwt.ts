@@ -28,12 +28,20 @@ export class CachedJwks {
   readonly #fetch: JwksFetch;
   readonly #url: string;
   readonly #ttlMs: number;
+  readonly #missCooldownMs: number;
   #expiresAt = 0;
+  #missCooldownUntil = 0;
 
-  constructor(url: string, fetcher: JwksFetch = fetch, ttlMs = 300_000) {
+  constructor(
+    url: string,
+    fetcher: JwksFetch = fetch,
+    ttlMs = 300_000,
+    missCooldownMs = 30_000,
+  ) {
     this.#url = url;
     this.#fetch = fetcher;
     this.#ttlMs = ttlMs;
+    this.#missCooldownMs = missCooldownMs;
   }
 
   async key(kid: string): Promise<KeyObject> {
@@ -46,7 +54,19 @@ export class CachedJwks {
       return cached;
     }
 
+    if (Date.now() < this.#missCooldownUntil) {
+      // An unauthenticated caller can present a JWT with any kid at all.
+      // Refreshing on every cache miss turns an unlimited stream of bogus
+      // kids into an unlimited stream of outbound JWKS fetches -- Auth0
+      // rate-limits the tenant, #refresh() starts throwing, and every
+      // authentication in every service fails. A confirmed-missing kid
+      // stays missing until the next real refresh; there's nothing a
+      // second fetch this soon could learn.
+      throw new Error("Unknown signing key");
+    }
+
     await this.#refresh();
+    this.#missCooldownUntil = Date.now() + this.#missCooldownMs;
     const rotated = this.#keys.get(kid);
     if (!rotated) {
       throw new Error("Unknown signing key");
