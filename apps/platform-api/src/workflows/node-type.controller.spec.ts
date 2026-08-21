@@ -85,8 +85,12 @@ describe("NodeTypeController routes", () => {
   });
 
   it("denies an unauthenticated request", async () => {
+    // RbacGuard runs before the controller body and denies a missing
+    // actor context with RBAC_ROLE_DENIED -- the controller's own
+    // requireActor() 401 check is a defense-in-depth fallback for direct
+    // (non-HTTP) calls, never reached on this path.
     const response = await app.inject({ method: "GET", url: "/api/v1/node-types" });
-    expect(response.statusCode).toBe(401);
+    expect(response.statusCode).toBe(403);
     expect(engineGet).not.toHaveBeenCalled();
   });
 });
