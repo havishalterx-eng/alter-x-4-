@@ -25,6 +25,12 @@ const RUNNABLE_VERSION_STATUSES = new Set(["compiled", "canary", "promoted"]);
 const DEFAULT_RUN_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const MIN_RUN_TIMEOUT_MS = 1_000;
 const MAX_RUN_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1_000;
+// ENGINE-FIX-P3-11: DurableRunQueue's `attempts` counter already existed
+// (incremented on every claimNext) but nothing ever read it -- a run whose
+// dispatch kept failing transiently retried forever, indefinitely, with no
+// terminal state. 5 total dispatch attempts before giving up and marking
+// the run failed.
+const MAX_QUEUE_DISPATCH_ATTEMPTS = 5;
 
 export interface OrchestrationTransactionLike {
   query<TRow extends Record<string, unknown> = Record<string, unknown>>(
@@ -72,6 +78,13 @@ export class RunStartFailedError extends Error {
   constructor(runId: string, cause: unknown) {
     super(`Run ${runId} failed to start its durable workflow`, { cause });
     this.name = "RunStartFailedError";
+  }
+}
+
+export class RunDispatchAbandonedError extends Error {
+  constructor(runId: string, attempts: number, cause: unknown) {
+    super(`Run ${runId} was abandoned after ${attempts} failed dispatch attempts`, { cause });
+    this.name = "RunDispatchAbandonedError";
   }
 }
 
@@ -690,12 +703,28 @@ export class RunLauncherService {
    * The cap is a defensive bound against a pathological claimNext bug,
    * not a tenant-fairness mechanism -- this only ever touches the one
    * tenant that just enqueued, so cross-tenant fairness doesn't apply.
+   *
+   * ENGINE-FIX-P3-11: dispatchNextQueuedRun can throw for a *different*,
+   * unrelated queue entry than the run this call's own caller is trying to
+   * launch (a displaced backlog entry hitting a transient error, or now
+   * exhausting MAX_QUEUE_DISPATCH_ATTEMPTS and being dead-lettered). That
+   * failure is real and worth logging, but it must never fail the request
+   * that triggered this drain -- that request's own run was already
+   * durably enqueued before drain ran. Caught and logged per iteration,
+   * not propagated.
    */
   async #drainQueuedRuns(tenantId: string): Promise<void> {
     const MAX_DRAIN_PER_CALL = 100;
     for (let iteration = 0; iteration < MAX_DRAIN_PER_CALL; iteration += 1) {
-      const dispatched = await this.dispatchNextQueuedRun(tenantId);
-      if (dispatched === undefined) return;
+      try {
+        const dispatched = await this.dispatchNextQueuedRun(tenantId);
+        if (dispatched === undefined) return;
+      } catch (error: unknown) {
+        console.error("drainQueuedRuns: dispatch failed for a queued run, continuing drain", {
+          tenant_id: tenantId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }
 
@@ -729,6 +758,10 @@ export class RunLauncherService {
         await this.queue.acknowledge(tenantId, claimed.runId, claimed.leaseToken);
         throw error;
       }
+      if (claimed.attempt >= MAX_QUEUE_DISPATCH_ATTEMPTS) {
+        await this.#deadLetterQueuedRun(tenantId, tenantIdWithPrefix, claimed.runId, error);
+        throw new RunDispatchAbandonedError(claimed.runId, claimed.attempt, error);
+      }
       // Anything else here -- a transient error from getRun (connection
       // blip, statement timeout, pool exhaustion) most commonly -- means
       // the run was never actually transitioned or marked terminal. Do NOT
@@ -737,6 +770,47 @@ export class RunLauncherService {
       // the lease expire naturally so a sweeper can reclaim and retry it.
       throw error;
     }
+  }
+
+  /**
+   * ENGINE-FIX-P3-11. Terminal transition for a run whose dispatch has
+   * failed MAX_QUEUE_DISPATCH_ATTEMPTS times. Mirrors the exact
+   * mark-failed/record-outcome/close-provisioning sequence
+   * startClaimedAndTransition uses for a RunStartFailedError, since the
+   * end state is the same: this run will never start. `discard`, not
+   * `acknowledge` -- this is an unconditional give-up, not a
+   * lease-token-matched ack of one attempt.
+   */
+  async #deadLetterQueuedRun(
+    tenantId: string,
+    tenantIdWithPrefix: string,
+    runId: string,
+    cause: unknown,
+  ): Promise<void> {
+    console.error("dispatchNextQueuedRun: abandoning run after max attempts", {
+      tenant_id: tenantId,
+      run_id: runId,
+      max_attempts: MAX_QUEUE_DISPATCH_ATTEMPTS,
+      error: cause instanceof Error ? cause.message : String(cause),
+    });
+    await this.store.withTenant(tenantId, async (tx) => {
+      await tx.query(
+        `UPDATE runs SET status = 'failed', ended_at = clock_timestamp()
+         WHERE tenant_id = $1 AND id = $2 AND status IN ('pending', 'running')`,
+        [tenantId, runId],
+      );
+    });
+    try {
+      await this.runOutcomes?.recordOutcome(tenantIdWithPrefix, runId, "failed");
+    } catch (outcomeError: unknown) {
+      console.error("run_outcomes write failed -- VACR/VADR metrics gap", {
+        run_id: runId,
+        status: "failed",
+        error: outcomeError instanceof Error ? outcomeError.message : String(outcomeError),
+      });
+    }
+    await this.projectProvisioning?.closeForTerminalRun(tenantIdWithPrefix, runId);
+    await this.queue?.discard(tenantId, runId);
   }
 
   private async startClaimedAndTransition(
