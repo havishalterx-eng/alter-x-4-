@@ -87,11 +87,31 @@ export interface AuditChainVerificationResult {
   readonly eventId?: string;
 }
 
+/**
+ * ENGINE-FIX-P3-13: readGlobalChain() loads the whole audit_events table
+ * into memory -- fine for an on-demand full re-verify, an OOM risk for a
+ * scheduled job on a table that only grows. The checkpoint makes periodic
+ * verification O(new entries): each run resumes from the last entryHash it
+ * confirmed valid, instead of re-walking the full history every time.
+ */
+export interface AuditChainCheckpoint {
+  readonly lastEntryHash: Buffer;
+  readonly checkedEvents: number;
+  readonly verifiedAt: Date;
+}
+
 export interface AuditStoreProvider extends BaseProvider<"AuditStoreProvider"> {
   migrate(): Promise<void>;
   append(event: AuditEventToAppend): Promise<StoredAuditEvent>;
   getById(id: string): Promise<StoredAuditEvent | undefined>;
   readGlobalChain(): Promise<readonly StoredAuditEvent[]>;
+  /** Bounded forward walk from a checkpoint hash -- never the whole table. */
+  readChainSince(
+    afterEntryHash: Buffer,
+    limit: number,
+  ): Promise<readonly StoredAuditEvent[]>;
+  getChainCheckpoint(): Promise<AuditChainCheckpoint | undefined>;
+  setChainCheckpoint(checkpoint: AuditChainCheckpoint): Promise<void>;
   queryEvents(query: AuditEventQuery): Promise<AuditEventQueryResult>;
   storeDeletionCertificate(certificate: DeletionCertificateToStore): Promise<void>;
   appendDeletionLedger(entry: DeletionLedgerEntry): Promise<void>;
@@ -190,6 +210,7 @@ function hashKey(value: Buffer): string {
 
 export function verifyAuditChain(
   events: readonly StoredAuditEvent[],
+  startingHash: Buffer = auditGenesisHash(),
 ): AuditChainVerificationResult {
   const byPreviousHash = new Map<string, StoredAuditEvent[]>();
   for (const event of events) {
@@ -199,7 +220,7 @@ export function verifyAuditChain(
     byPreviousHash.set(key, successors);
   }
 
-  let expectedPreviousHash: Buffer<ArrayBufferLike> = auditGenesisHash();
+  let expectedPreviousHash: Buffer<ArrayBufferLike> = startingHash;
   const visited = new Set<string>();
   while (true) {
     const successors = byPreviousHash.get(hashKey(expectedPreviousHash)) ?? [];

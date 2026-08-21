@@ -60,3 +60,33 @@ export interface CheckReleaseGateResponse {
    */
   failed_thresholds: string[];
 }
+
+/**
+ * ENGINE-FIX-P3-14: the Phase 9 staging-to-production ENGINE release gate
+ * (src/promotion_gate.py) -- unrelated to CheckReleaseGate above, which
+ * gates a single tenant workflow version's own eval run. This gate is a
+ * distinct, much larger evidence bundle (9 metrics + 8 required checks +
+ * 3 human approvals) for promoting this repo's own build, previously only
+ * reachable via `python -m src.promotion_gate <evidence.json>` on a human's
+ * terminal. Evidence is passed as JSON, not modeled field-by-field, to
+ * match the Python evaluator's own dict-shaped evidence contract exactly
+ * and avoid two independently-drifting schemas for the same evidence.
+ */
+export interface RecordPromotionDecisionRequest {
+  /**
+   * JSON object: subject, candidate, environment ("staging_to_prod"),
+   * eval_run_id, metrics {name: number}, checks {name: bool},
+   * approvals [string].
+   */
+  evidence_json: string;
+  /** optional; empty means unset */
+  decided_by: string;
+}
+
+export interface RecordPromotionDecisionResponse {
+  /** "approved" | "blocked" */
+  decision: string;
+  backend_complete: boolean;
+  reasons: string[];
+  evidence_digest: string;
+}

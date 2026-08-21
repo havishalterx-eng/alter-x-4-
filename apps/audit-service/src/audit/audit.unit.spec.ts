@@ -249,3 +249,92 @@ describe("AuditService chain verification", () => {
     ).resolves.toMatchObject({ valid: false, issue: "hash-mismatch" });
   });
 });
+
+describe("AuditService.verifyChainIncremental", () => {
+  it("returns valid/0 with no checkpoint advance when there is nothing new", async () => {
+    const store = createMockAuditStoreProvider();
+    const service = new AuditService(store);
+    await expect(service.verifyChainIncremental(500)).resolves.toEqual({
+      valid: true,
+      checkedEvents: 0,
+    });
+    await expect(store.getChainCheckpoint()).resolves.toBeUndefined();
+  });
+
+  it("verifies real appended events and advances the checkpoint to the last one", async () => {
+    const store = createMockAuditStoreProvider();
+    const service = new AuditService(store);
+    const first = await store.append(auditEventInput("a1"));
+    const second = await store.append(auditEventInput("a2"));
+
+    await expect(service.verifyChainIncremental(500)).resolves.toEqual({
+      valid: true,
+      checkedEvents: 2,
+    });
+    const checkpoint = await store.getChainCheckpoint();
+    expect(checkpoint?.lastEntryHash).toEqual(second.entryHash);
+    expect(checkpoint?.checkedEvents).toBe(2);
+    void first;
+  });
+
+  it("resumes from the checkpoint instead of re-walking already-verified events", async () => {
+    const store = createMockAuditStoreProvider();
+    const service = new AuditService(store);
+    await store.append(auditEventInput("b1"));
+    await expect(service.verifyChainIncremental(500)).resolves.toEqual({
+      valid: true,
+      checkedEvents: 1,
+    });
+
+    const second = await store.append(auditEventInput("b2"));
+    await expect(service.verifyChainIncremental(500)).resolves.toEqual({
+      valid: true,
+      checkedEvents: 1, // only the new one, not a re-walk of the first
+    });
+    const checkpoint = await store.getChainCheckpoint();
+    expect(checkpoint?.lastEntryHash).toEqual(second.entryHash);
+    expect(checkpoint?.checkedEvents).toBe(2); // cumulative
+  });
+
+  it("does not advance the checkpoint when the new segment is broken", async () => {
+    const first = storedEvent(
+      "018f47a2-7b11-7b11-8a11-1234567890c1",
+      auditGenesisHash(),
+    );
+    const corrupt = { ...first, context: { request_id: "tampered" } };
+    let checkpoint: { lastEntryHash: Buffer; checkedEvents: number; verifiedAt: Date } | undefined;
+    const store: AuditStoreProvider = {
+      ...createMockAuditStoreProvider(),
+      readChainSince: vi.fn(async () => [corrupt]),
+      getChainCheckpoint: vi.fn(async () => checkpoint),
+      setChainCheckpoint: vi.fn(async (next) => {
+        checkpoint = next;
+      }),
+    };
+    const service = new AuditService(store);
+
+    await expect(service.verifyChainIncremental(500)).resolves.toMatchObject({
+      valid: false,
+      issue: "hash-mismatch",
+    });
+    expect(checkpoint).toBeUndefined();
+    expect(store.setChainCheckpoint).not.toHaveBeenCalled();
+  });
+});
+
+function auditEventInput(suffix: string): AuditEventToAppend {
+  return {
+    id: `018f47a2-7b11-7b11-8a11-${suffix.padStart(12, "0")}`,
+    tenantId: TENANT_ID.slice(4),
+    tenantPseudonym: null,
+    actorType: "admin",
+    actorRef: "admin-1",
+    action: "policy.promote",
+    targetType: "policy",
+    targetRef: "policy-1",
+    result: "success",
+    reasonCode: null,
+    context: { request_id: "request-1" },
+    occurredAt: new Date("2026-07-24T06:30:00.000Z"),
+  };
+}

@@ -46,6 +46,51 @@ describe("AuditStoreProvider mock", () => {
     expect(provider.snapshot()).toHaveLength(8);
   });
 
+  it("readChainSince resumes from a checkpoint hash instead of the whole table", async () => {
+    const provider = createMockAuditStoreProvider();
+    const first = await provider.append(event("system-0"));
+    const second = await provider.append(event("system-1"));
+    const third = await provider.append(event("system-2"));
+
+    const fromGenesis = await provider.readChainSince(
+      Buffer.from(AUDIT_GENESIS_HASH_HEX, "hex"),
+      10,
+    );
+    expect(fromGenesis.map((e) => e.id)).toEqual([first.id, second.id, third.id]);
+
+    const fromFirst = await provider.readChainSince(first.entryHash, 10);
+    expect(fromFirst.map((e) => e.id)).toEqual([second.id, third.id]);
+
+    const fromFirstBounded = await provider.readChainSince(first.entryHash, 1);
+    expect(fromFirstBounded.map((e) => e.id)).toEqual([second.id]);
+
+    // verifyAuditChain's startingHash param verifies just that segment,
+    // treating first.entryHash as the known-good starting point rather
+    // than always re-deriving from genesis.
+    expect(verifyAuditChain(fromFirst, first.entryHash)).toEqual({
+      valid: true,
+      checkedEvents: 2,
+    });
+  });
+
+  it("persists and reads back a chain checkpoint", async () => {
+    const provider = createMockAuditStoreProvider();
+    await expect(provider.getChainCheckpoint()).resolves.toBeUndefined();
+
+    const stored = await provider.append(event("system-checkpoint"));
+    const verifiedAt = new Date("2026-08-01T00:00:00.000Z");
+    await provider.setChainCheckpoint({
+      lastEntryHash: stored.entryHash,
+      checkedEvents: 1,
+      verifiedAt,
+    });
+
+    const checkpoint = await provider.getChainCheckpoint();
+    expect(checkpoint?.lastEntryHash).toEqual(stored.entryHash);
+    expect(checkpoint?.checkedEvents).toBe(1);
+    expect(checkpoint?.verifiedAt).toEqual(verifiedAt);
+  });
+
   it("returns defensive copies and supports lifecycle methods", async () => {
     const provider = createMockAuditStoreProvider();
     const stored = await provider.append(event("system-copy"));

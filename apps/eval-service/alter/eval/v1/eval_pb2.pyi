@@ -49,3 +49,23 @@ class CheckReleaseGateResponse(_message.Message):
     passed: bool
     failed_thresholds: _containers.RepeatedScalarFieldContainer[str]
     def __init__(self, passed: _Optional[bool] = ..., failed_thresholds: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class RecordPromotionDecisionRequest(_message.Message):
+    __slots__ = ("evidence_json", "decided_by")
+    EVIDENCE_JSON_FIELD_NUMBER: _ClassVar[int]
+    DECIDED_BY_FIELD_NUMBER: _ClassVar[int]
+    evidence_json: str
+    decided_by: str
+    def __init__(self, evidence_json: _Optional[str] = ..., decided_by: _Optional[str] = ...) -> None: ...
+
+class RecordPromotionDecisionResponse(_message.Message):
+    __slots__ = ("decision", "backend_complete", "reasons", "evidence_digest")
+    DECISION_FIELD_NUMBER: _ClassVar[int]
+    BACKEND_COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    REASONS_FIELD_NUMBER: _ClassVar[int]
+    EVIDENCE_DIGEST_FIELD_NUMBER: _ClassVar[int]
+    decision: str
+    backend_complete: bool
+    reasons: _containers.RepeatedScalarFieldContainer[str]
+    evidence_digest: str
+    def __init__(self, decision: _Optional[str] = ..., backend_complete: _Optional[bool] = ..., reasons: _Optional[_Iterable[str]] = ..., evidence_digest: _Optional[str] = ...) -> None: ...

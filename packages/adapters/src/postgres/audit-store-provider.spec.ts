@@ -392,6 +392,59 @@ describe.sequential("PostgresAuditStoreProvider", () => {
     expect(allIds.size).toBe(4);
   });
 
+  it("readChainSince walks forward via the real recursive CTE, bounded by limit", async () => {
+    // event()'s occurredAt embeds the index as a seconds field (00-59) --
+    // 11/12/13 stay clear of the other tests' 0-10 and 900+ indices in this
+    // shared-table file. Placed last (before the destructive rollback
+    // test), and asserts only hash-relative behavior (readChainSince from
+    // a specific entryHash), never absolute chain content -- every earlier
+    // test in this file leaves real rows behind, and two of them
+    // (verifyAuditChain checkedEvents: 9) hardcode an absolute count that
+    // would break if this test's inserts ran before them.
+    const first = await provider.append(event(11));
+    const second = await provider.append(event(12));
+    const third = await provider.append(event(13));
+
+    const fromFirst = await provider.readChainSince(first.entryHash, 10);
+    expect(fromFirst.map((e) => e.id)).toEqual([second.id, third.id]);
+
+    const bounded = await provider.readChainSince(first.entryHash, 1);
+    expect(bounded.map((e) => e.id)).toEqual([second.id]);
+
+    // A hash that isn't in the chain at all -- no successor rows, no error.
+    const unknownHash = Buffer.alloc(32, 7);
+    await expect(provider.readChainSince(unknownHash, 10)).resolves.toEqual([]);
+  });
+
+  it("persists a chain checkpoint across reads and real upsert", async () => {
+    await expect(provider.getChainCheckpoint()).resolves.toBeUndefined();
+
+    const stored = await provider.append(event(14));
+    const verifiedAt = new Date("2026-08-01T00:00:00.000Z");
+    await provider.setChainCheckpoint({
+      lastEntryHash: stored.entryHash,
+      checkedEvents: 1,
+      verifiedAt,
+    });
+
+    const checkpoint = await provider.getChainCheckpoint();
+    expect(checkpoint?.lastEntryHash).toEqual(stored.entryHash);
+    expect(checkpoint?.checkedEvents).toBe(1);
+    expect(checkpoint?.verifiedAt).toEqual(verifiedAt);
+
+    // Real ON CONFLICT upsert, not a second row.
+    const second = await provider.append(event(15));
+    await provider.setChainCheckpoint({
+      lastEntryHash: second.entryHash,
+      checkedEvents: 2,
+      verifiedAt: new Date("2026-08-02T00:00:00.000Z"),
+    });
+    const rowCount = await pool.query(
+      "SELECT count(*)::int AS n FROM audit_chain_checkpoints",
+    );
+    expect(rowCount.rows[0]?.n).toBe(1);
+  });
+
   it("executes rollback migration", async () => {
     const rollback = await readFile(
       resolve(

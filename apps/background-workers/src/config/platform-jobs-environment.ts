@@ -19,6 +19,9 @@ export interface PlatformJobsEnvironment {
   readonly driftSweepServiceTokenRef: string;
   readonly driftSweepIntervalMs: number;
   readonly driftSweepMinimumObservations: number;
+  readonly auditServiceInternalBaseUrl: string;
+  readonly auditChainVerifyServiceTokenRef: string;
+  readonly auditChainVerifyIntervalMs: number;
 }
 
 export class PlatformJobsConfigurationError extends Error {
@@ -42,6 +45,7 @@ const DEFAULT_RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
 const DEFAULT_BENCHMARK_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
 const DEFAULT_DRIFT_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // hourly
 const DEFAULT_DRIFT_SWEEP_MINIMUM_OBSERVATIONS = 40; // 2 * memory-service's default window size
+const DEFAULT_AUDIT_CHAIN_VERIFY_INTERVAL_MS = 15 * 60 * 1000; // every 15 minutes
 
 function parseIntervalMs(
   environment: NodeJS.ProcessEnv,
@@ -127,6 +131,16 @@ export function loadPlatformJobsEnvironment(
       environment,
       "DRIFT_SWEEP_MINIMUM_OBSERVATIONS",
       DEFAULT_DRIFT_SWEEP_MINIMUM_OBSERVATIONS,
+    ),
+    auditServiceInternalBaseUrl: requireValue(environment, "AUDIT_SERVICE_INTERNAL_BASE_URL"),
+    auditChainVerifyServiceTokenRef: requireValue(
+      environment,
+      "AUDIT_CHAIN_VERIFY_SERVICE_TOKEN_REF",
+    ),
+    auditChainVerifyIntervalMs: parseIntervalMs(
+      environment,
+      "AUDIT_CHAIN_VERIFY_INTERVAL_MS",
+      DEFAULT_AUDIT_CHAIN_VERIFY_INTERVAL_MS,
     ),
   };
 }

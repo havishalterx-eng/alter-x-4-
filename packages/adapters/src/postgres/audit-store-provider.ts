@@ -12,6 +12,7 @@ import type { ProviderCapabilities } from "@alterx/contracts";
 import {
   auditGenesisHash,
   calculateAuditEntryHash,
+  type AuditChainCheckpoint,
   type AuditEventQuery,
   type AuditEventQueryResult,
   type AuditEventToAppend,
@@ -293,6 +294,96 @@ export class PostgresAuditStoreProvider implements AuditStoreProvider {
       );
       await client.query("COMMIT");
       return result.rows.map(toStoredAuditEvent);
+    } catch (error: unknown) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * ENGINE-FIX-P3-13: bounded forward walk from a checkpoint hash via
+   * prev_hash/entry_hash links (both unique-indexed), never the whole
+   * table. Recursion is capped inside the recursive term (WHERE depth <
+   * $2), which actually bounds how far Postgres recurses -- an outer LIMIT
+   * on a recursive CTE only bounds the output, not the computation.
+   */
+  async readChainSince(
+    afterEntryHash: Buffer,
+    limit: number,
+  ): Promise<readonly StoredAuditEvent[]> {
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN READ ONLY");
+      await enableInternalAuditAccess(client);
+      const result = await client.query<DatabaseAuditRow>(
+        `WITH RECURSIVE chain AS (
+           SELECT *, 1 AS depth FROM audit_events WHERE prev_hash = $1
+           UNION ALL
+           SELECT ae.*, chain.depth + 1
+           FROM audit_events ae
+           JOIN chain ON ae.prev_hash = chain.entry_hash
+           WHERE chain.depth < $2
+         )
+         SELECT * FROM chain ORDER BY depth`,
+        [afterEntryHash, limit],
+      );
+      await client.query("COMMIT");
+      return result.rows.map(toStoredAuditEvent);
+    } catch (error: unknown) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getChainCheckpoint(): Promise<AuditChainCheckpoint | undefined> {
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN READ ONLY");
+      await enableInternalAuditAccess(client);
+      const result = await client.query<{
+        last_entry_hash: Buffer;
+        checked_events: string;
+        verified_at: Date;
+      }>(
+        `SELECT last_entry_hash, checked_events, verified_at
+           FROM audit_chain_checkpoints WHERE id = 'global'`,
+      );
+      await client.query("COMMIT");
+      const row = result.rows[0];
+      return row === undefined
+        ? undefined
+        : {
+            lastEntryHash: row.last_entry_hash,
+            checkedEvents: Number(row.checked_events),
+            verifiedAt: row.verified_at,
+          };
+    } catch (error: unknown) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async setChainCheckpoint(checkpoint: AuditChainCheckpoint): Promise<void> {
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN");
+      await enableInternalAuditAccess(client);
+      await client.query(
+        `INSERT INTO audit_chain_checkpoints (id, last_entry_hash, checked_events, verified_at)
+         VALUES ('global', $1, $2, $3)
+         ON CONFLICT (id) DO UPDATE
+           SET last_entry_hash = EXCLUDED.last_entry_hash,
+               checked_events = EXCLUDED.checked_events,
+               verified_at = EXCLUDED.verified_at`,
+        [checkpoint.lastEntryHash, checkpoint.checkedEvents, checkpoint.verifiedAt],
+      );
+      await client.query("COMMIT");
     } catch (error: unknown) {
       await client.query("ROLLBACK").catch(() => undefined);
       throw error;

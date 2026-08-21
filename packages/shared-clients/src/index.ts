@@ -35,6 +35,7 @@ export {
   canonicalAuditEvent,
   verifyAuditChain,
   type AuditActorType,
+  type AuditChainCheckpoint,
   type AuditChainVerificationIssue,
   type AuditChainVerificationResult,
   type AuditEventHandler,
