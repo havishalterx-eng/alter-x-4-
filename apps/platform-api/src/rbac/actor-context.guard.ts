@@ -1,6 +1,7 @@
 import type { CanActivate, ExecutionContext } from "@nestjs/common";
 import { Injectable } from "@nestjs/common";
 import { IdentityService } from "../identity/identity.service";
+import { permissionsForRoles } from "./permissions";
 import { PlatformDb } from "../signup/platform-db";
 import type { RbacRequest } from "./types";
 
@@ -60,7 +61,12 @@ export class ActorContextGuard implements CanActivate {
           ? { workspace_id: workspaceRoles[0].workspaceId }
           : {}),
         roles: [...tenantRoles, ...workspaceRoles].map((row) => row.role),
-        permissions: [],
+        // ENGINE-FIX-P3-7: was hardcoded to [], which -- combined with
+        // RbacGuard comparing every route's declared @RequirePermission(...)
+        // against this array -- denied all 101 @RequirePermission routes
+        // unconditionally regardless of role. Now derived from the roles
+        // just queried above, via the table in ./permissions.ts.
+        permissions: permissionsForRoles([...tenantRoles, ...workspaceRoles].map((row) => row.role)),
         session_id: session.id,
         auth_time: Math.floor(session.createdAt.getTime() / 1000),
       };
