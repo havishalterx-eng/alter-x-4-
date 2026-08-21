@@ -93,11 +93,12 @@ async function bootstrap(): Promise<void> {
   // no HTTP surface of its own.
   const costEventsConfig = loadCostEventConsumerEnvironment(process.env);
   const costEventsQueueName = `alter-${costEventsConfig.alterEnvironment}-cost-events`;
+  const costEventSqs = new SqsQueueProvider({
+    region: costEventsConfig.region,
+    ...(process.env.AWS_ENDPOINT_URL ? { endpoint: process.env.AWS_ENDPOINT_URL, useQueueUrlAsEndpoint: false } : {}),
+  });
   const costEventConsumer = new CostEventConsumerService(
-    new SqsQueueProvider({
-      region: costEventsConfig.region,
-      ...(process.env.AWS_ENDPOINT_URL ? { endpoint: process.env.AWS_ENDPOINT_URL, useQueueUrlAsEndpoint: false } : {}),
-    }),
+    costEventSqs as unknown as import("@alterx/shared-clients").QueueMessageConsumer,
     costEventsQueueName,
     new CostClient({
       address: costEventsConfig.costLedgerServiceAddress,

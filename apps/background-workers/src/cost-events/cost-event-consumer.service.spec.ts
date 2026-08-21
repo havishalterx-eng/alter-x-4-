@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CostHandlerClient } from "@alterx/adapters";
-import type { QueueProvider } from "@alterx/shared-clients";
+import type { QueueMessageConsumer } from "@alterx/shared-clients";
 
 import { CostEventConsumerService } from "./cost-event-consumer.service";
 
@@ -19,98 +19,127 @@ const VALID_MESSAGE = {
   occurred_at: "2026-07-31T00:00:00.000Z",
 };
 
-function fakeQueue(messages: unknown[]): { queue: QueueProvider; publish: ReturnType<typeof vi.fn> } {
-  const remaining = [...messages];
-  const publish = vi.fn(async () => undefined);
+interface ReceiptLike {
+  body: unknown;
+  receiptHandle: string;
+  approximateReceiveCount: number;
+}
+
+function fakeQueue(receipts: ReceiptLike[]): { queue: QueueMessageConsumer; deleted: string[] } {
+  const remaining = [...receipts];
+  const deleted: string[] = [];
+  const queue: QueueMessageConsumer = {
+    metadata: {} as never,
+    capabilities: {} as never,
+    healthCheck: vi.fn(async () => ({ status: "healthy" as const, checkedAt: "", latencyMs: 0 })),
+    receive: vi.fn(async () => remaining.shift() as never),
+    delete: vi.fn(async (_queueName: string, receiptHandle: string) => {
+      deleted.push(receiptHandle);
+    }),
+  };
+  return { queue, deleted };
+}
+
+function fakeCostClient(ingestCostEvent: ReturnType<typeof vi.fn>): CostHandlerClient {
   return {
-    publish,
-    queue: {
-      metadata: {} as never,
-      capabilities: {} as never,
-      publish,
-      consume: vi.fn(async () => remaining.shift() as never),
-      healthCheck: vi.fn(async () => ({ status: "healthy" as const, checkedAt: "", latencyMs: 0 })),
-    },
+    ingestCostEvent: ingestCostEvent as CostHandlerClient["ingestCostEvent"],
+    resolveUnitPrice: vi.fn(),
+    recordModelOutcome: vi.fn(),
   };
 }
 
-const noopSleep = async () => undefined;
+function grpcError(code: number): Error {
+  const error = new Error(`rpc failed with code ${code}`) as Error & { code: number };
+  error.code = code;
+  return error;
+}
 
 describe("CostEventConsumerService.pollOnce", () => {
-  it("reports empty when the queue has no message", async () => {
-    const { queue } = fakeQueue([]);
-    const costClient: CostHandlerClient = { ingestCostEvent: vi.fn(), resolveUnitPrice: vi.fn(), recordModelOutcome: vi.fn() };
-    const consumer = new CostEventConsumerService(queue, QUEUE_NAME, costClient, 3, noopSleep);
-
-    await expect(consumer.pollOnce()).resolves.toBe("empty");
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it("ingests a real, well-formed message on the first try", async () => {
-    const { queue } = fakeQueue([VALID_MESSAGE]);
+  it("reports empty when the queue has no message", async () => {
+    const { queue } = fakeQueue([]);
+    const consumer = new CostEventConsumerService(queue, QUEUE_NAME, fakeCostClient(vi.fn()));
+
+    await expect(consumer.pollOnce()).resolves.toBe("empty");
+    expect(queue.receive).toHaveBeenCalledTimes(1);
+  });
+
+  it("ingests a real, well-formed message and deletes it", async () => {
+    const { queue, deleted } = fakeQueue([
+      { body: VALID_MESSAGE, receiptHandle: "r1", approximateReceiveCount: 1 },
+    ]);
     const ingestCostEvent = vi.fn(async () => ({ accepted: true }));
-    const consumer = new CostEventConsumerService(
-      queue,
-      QUEUE_NAME,
-      { ingestCostEvent, resolveUnitPrice: vi.fn(), recordModelOutcome: vi.fn() },
-      3,
-      noopSleep,
-    );
+    const consumer = new CostEventConsumerService(queue, QUEUE_NAME, fakeCostClient(ingestCostEvent));
 
     await expect(consumer.pollOnce()).resolves.toBe("ingested");
     expect(ingestCostEvent).toHaveBeenCalledWith(VALID_MESSAGE);
+    expect(deleted).toEqual(["r1"]);
   });
 
-  it("drops a structurally malformed message without retrying or requeuing", async () => {
-    const { queue, publish } = fakeQueue([{ not: "a real cost event" }]);
+  it("drops a structurally malformed message without calling ingestCostEvent", async () => {
+    const { queue, deleted } = fakeQueue([
+      { body: { not: "a real cost event" }, receiptHandle: "r1", approximateReceiveCount: 1 },
+    ]);
     const ingestCostEvent = vi.fn();
-    const consumer = new CostEventConsumerService(
-      queue,
-      QUEUE_NAME,
-      { ingestCostEvent, resolveUnitPrice: vi.fn(), recordModelOutcome: vi.fn() },
-      3,
-      noopSleep,
-    );
+    const consumer = new CostEventConsumerService(queue, QUEUE_NAME, fakeCostClient(ingestCostEvent));
 
     await expect(consumer.pollOnce()).resolves.toBe("dropped_malformed");
     expect(ingestCostEvent).not.toHaveBeenCalled();
-    expect(publish).not.toHaveBeenCalled();
+    expect(deleted).toEqual(["r1"]);
   });
 
-  it("retries a real, well-formed message that fails to ingest, then re-publishes it after exhausting retries", async () => {
-    const { queue, publish } = fakeQueue([VALID_MESSAGE]);
+  it("drops a message rejected with a terminal gRPC error (INVALID_ARGUMENT)", async () => {
+    const { queue, deleted } = fakeQueue([
+      { body: VALID_MESSAGE, receiptHandle: "r1", approximateReceiveCount: 1 },
+    ]);
     const ingestCostEvent = vi.fn(async () => {
-      throw new Error("cost-ledger-service unavailable");
+      throw grpcError(3); // INVALID_ARGUMENT
     });
-    const consumer = new CostEventConsumerService(
-      queue,
-      QUEUE_NAME,
-      { ingestCostEvent, resolveUnitPrice: vi.fn(), recordModelOutcome: vi.fn() },
-      3,
-      noopSleep,
-    );
+    const consumer = new CostEventConsumerService(queue, QUEUE_NAME, fakeCostClient(ingestCostEvent));
 
-    await expect(consumer.pollOnce()).resolves.toBe("requeued");
-    expect(ingestCostEvent).toHaveBeenCalledTimes(3);
-    expect(publish).toHaveBeenCalledWith(QUEUE_NAME, VALID_MESSAGE);
+    await expect(consumer.pollOnce()).resolves.toBe("dropped_invalid");
+    expect(deleted).toEqual(["r1"]);
   });
 
-  it("succeeds on a later retry without requeuing", async () => {
-    const { queue, publish } = fakeQueue([VALID_MESSAGE]);
-    let calls = 0;
+  it("leaves the message in flight for redelivery on an internal error, not requeued or dropped", async () => {
+    const { queue, deleted } = fakeQueue([
+      { body: VALID_MESSAGE, receiptHandle: "r1", approximateReceiveCount: 1 },
+    ]);
     const ingestCostEvent = vi.fn(async () => {
-      calls += 1;
-      if (calls < 2) throw new Error("transient failure");
-      return { accepted: true };
+      throw grpcError(13); // INTERNAL
     });
-    const consumer = new CostEventConsumerService(
-      queue,
-      QUEUE_NAME,
-      { ingestCostEvent, resolveUnitPrice: vi.fn(), recordModelOutcome: vi.fn() },
-      3,
-      noopSleep,
-    );
+    const consumer = new CostEventConsumerService(queue, QUEUE_NAME, fakeCostClient(ingestCostEvent));
+
+    await expect(consumer.pollOnce()).resolves.toBe("pending_redelivery");
+    expect(deleted).toHaveLength(0);
+  });
+
+  it("drops a message past maxReceiveCount instead of looping forever", async () => {
+    const { queue, deleted } = fakeQueue([
+      { body: VALID_MESSAGE, receiptHandle: "r1", approximateReceiveCount: 4 },
+    ]);
+    const ingestCostEvent = vi.fn();
+    const consumer = new CostEventConsumerService(queue, QUEUE_NAME, fakeCostClient(ingestCostEvent), 3);
+
+    await expect(consumer.pollOnce()).resolves.toBe("dropped_dlq_exhausted");
+    expect(ingestCostEvent).not.toHaveBeenCalled();
+    expect(deleted).toEqual(["r1"]);
+  });
+
+  it("still ingests a message at the maxReceiveCount cap, not past it", async () => {
+    const { queue, deleted } = fakeQueue([
+      { body: VALID_MESSAGE, receiptHandle: "r1", approximateReceiveCount: 3 },
+    ]);
+    const ingestCostEvent = vi.fn(async () => ({ accepted: true }));
+    const consumer = new CostEventConsumerService(queue, QUEUE_NAME, fakeCostClient(ingestCostEvent), 3);
 
     await expect(consumer.pollOnce()).resolves.toBe("ingested");
-    expect(publish).not.toHaveBeenCalled();
+    expect(deleted).toEqual(["r1"]);
   });
 });
