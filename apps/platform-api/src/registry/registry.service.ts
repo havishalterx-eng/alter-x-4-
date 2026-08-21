@@ -27,14 +27,17 @@ export class RegistryService {
   async scan(tenantId: string, manifestId: string, versionId: string) {
     const manifest = await this.requireOwnedManifest(tenantId, manifestId);
     const version = await this.requireVersion(tenantId, manifestId, versionId);
-    if (version.status !== "draft" && version.status !== "scan_failed") throw this.transition(version.status, "scanning", manifestId, versionId);
+    if (version.status !== "draft" && version.status !== "scan_failed" && version.status !== "scan_unavailable") throw this.transition(version.status, "scanning", manifestId, versionId);
     await this.repository.setVersionStatus(tenantId, version.id, "scanning");
     let result;
     try { result = await this.scanner.scanPackage({ tenantId, manifestId, manifestVersion: version.version, artifactRef: version.artifactRef, ecosystem: manifest.ecosystem }); }
     catch { result = { verdict: "errored" as const, findings: [], scannerVersion: "unavailable", scannedAt: new Date().toISOString(), durationMs: 0 }; }
     const report = await this.repository.report(tenantId, registryId("scn"), version.id, result);
     const publishable = report.verdict === "clean" || (report.verdict === "findings" && report.findings.every((finding) => !BLOCKING_SEVERITIES.has(finding.severity)));
-    const updated = await this.repository.setVersionStatus(tenantId, version.id, publishable ? "published" : "scan_failed");
+    // ENGINE-FIX-P3-10: "unavailable" is neither publishable nor a security
+    // rejection -- route it to its own status so it never looks like either.
+    const status = publishable ? "published" : report.verdict === "unavailable" ? "scan_unavailable" : "scan_failed";
+    const updated = await this.repository.setVersionStatus(tenantId, version.id, status);
     if (publishable) await this.repository.setManifestStatus(tenantId, manifest.id, "published");
     return updated;
   }
