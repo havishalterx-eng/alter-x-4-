@@ -37,6 +37,10 @@ DEFAULT_THRESHOLD = 0.7
 WARN_MARGIN = 0.15
 
 REVIEWER_MODEL_DETERMINISTIC = "deterministic"
+# ENGINE-FIX-P3-15: distinct from MODEL_ALIAS_ADVANCED so a blocked verdict
+# is honestly distinguishable in logs/details_json from a real reviewer
+# score -- this output never reached the ADVANCED reviewer at all.
+REVIEWER_MODEL_INJECTION_BLOCKED = "injection-blocked"
 
 # Node types whose "quality" gate is a deterministic structural check, not
 # an ADVANCED-reviewer judgment call: they route/merge/gate data rather
@@ -149,6 +153,34 @@ class VerificationKernel:
         if rubric is None:
             raise VerificationValidationError(
                 f"node_type {request.node_type!r} has no registered grading rubric"
+            )
+
+        # ENGINE-FIX-P3-15: anyone who can shape a node's output -- an
+        # attacker via upstream injection, or a model that drifted -- can
+        # otherwise shape its own verification result, because the
+        # ADVANCED reviewer below is an LLM that cannot reliably
+        # distinguish injected instructions from the content it's judging.
+        # Classify BEFORE the output ever reaches that reviewer; a
+        # detected attempt never gets reviewed at all.
+        classification = await self._llm.classify_prompt_injection(
+            tenant_id=request.tenant_id,
+            run_id=request.run_id,
+            node_execution_id=request.node_execution_id,
+            text=request.output_json,
+        )
+        if classification.injection_detected:
+            threshold, _warn_margin = await self._resolve_threshold(request.tenant_id)
+            details = {
+                "reason": classification.reason
+                or "output classified as a prompt injection attempt",
+                "confidence": classification.confidence,
+            }
+            return ScoreNodeResponse(
+                verdict="fail",
+                score=0.0,
+                threshold=threshold,
+                reviewer_model=REVIEWER_MODEL_INJECTION_BLOCKED,
+                details_json=json.dumps(details),
             )
 
         score, rationale = await self._llm.review(
