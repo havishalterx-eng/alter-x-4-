@@ -1,6 +1,7 @@
 import type { CanActivate, ExecutionContext } from "@nestjs/common";
 import { Injectable } from "@nestjs/common";
 import { IdentityService } from "../identity/identity.service";
+import { permissionsForRoles } from "./permissions";
 import { PlatformDb } from "../signup/platform-db";
 import type { RbacRequest } from "./types";
 
@@ -60,17 +61,12 @@ export class ActorContextGuard implements CanActivate {
           ? { workspace_id: workspaceRoles[0].workspaceId }
           : {}),
         roles: [...tenantRoles, ...workspaceRoles].map((row) => row.role),
-        // ENGINE-FIX-P3-7: hardcoded empty on purpose, not a gap. This used
-        // to be read by RbacGuard's own permission check (always empty ->
-        // denied every @RequirePermission route unconditionally -- the
-        // 101-endpoint Critical finding). That check is gone; nothing reads
-        // actorContext.permissions anymore. The @RequirePermission decorator
-        // itself is still real and still checked -- by EntitlementAccessGuard,
-        // which reads the route's declared metadata (not this per-user field)
-        // to classify read vs. write for subscription-suspension enforcement.
-        // Left as [] rather than removed from the type: ~36 test fixtures
-        // still construct ActorContext literals with this field.
-        permissions: [],
+        // ENGINE-FIX-P3-7: was hardcoded to [], which -- combined with
+        // RbacGuard comparing every route's declared @RequirePermission(...)
+        // against this array -- denied all 101 @RequirePermission routes
+        // unconditionally regardless of role. Now derived from the roles
+        // just queried above, via the table in ./permissions.ts.
+        permissions: permissionsForRoles([...tenantRoles, ...workspaceRoles].map((row) => row.role)),
         session_id: session.id,
         auth_time: Math.floor(session.createdAt.getTime() / 1000),
       };

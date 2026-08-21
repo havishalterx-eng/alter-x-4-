@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ActorContext,
   Public,
+  RequirePermission,
   RequireStaffRole,
   RequireTenantRole,
   RequireWorkspaceRole,
@@ -89,6 +90,13 @@ class RbacTestController {
   @Get("actor")
   actor(@ActorContext() actorContext: ActorContextType): { userId: string } {
     return { userId: actorContext.user_id };
+  }
+
+  @RequireTenantRole("member")
+  @RequirePermission("runs:read")
+  @Get("permission")
+  permission(): { ok: true } {
+    return { ok: true };
   }
 
   @RequireStaffRole("staff_admin")
@@ -203,6 +211,22 @@ describe("RbacGuard", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ userId: "00000000-0000-7000-8000-000000000201" });
+  });
+
+  it("requires every declared permission after role authorization", async () => {
+    const denied = await get(
+      "/rbac-test/permission",
+      actor(["member"], tenantA),
+    );
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toMatchObject({
+      error_code: "RBAC_PERMISSION_DENIED",
+    });
+
+    const allowedActor = actor(["member"], tenantA);
+    allowedActor.permissions = ["runs:read"];
+    const allowed = await get("/rbac-test/permission", allowedActor);
+    expect(allowed.statusCode).toBe(200);
   });
 
   it("allows each explicit staff role without a tenant actor", async () => {

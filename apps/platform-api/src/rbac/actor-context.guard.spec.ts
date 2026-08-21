@@ -65,6 +65,10 @@ describe("ActorContextGuard", () => {
       roles: ["member", "editor"],
       session_id: session.id,
     });
+    // ENGINE-FIX-P3-7: permissions is derived from roles, not hardcoded [].
+    expect(request.actorContext?.permissions).toEqual(
+      expect.arrayContaining(["credential:read", "projects:write"]),
+    );
   });
 
   it("omits workspace_id when no workspace role row is returned", async () => {

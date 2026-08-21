@@ -3,6 +3,7 @@ import { Injectable } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { RbacDeniedError, rbacProblem } from "./problem";
 import {
+  permissionsMetadataKey,
   publicRouteMetadataKey,
   tenantRolesMetadataKey,
   workspaceRolesMetadataKey,
@@ -34,6 +35,10 @@ export class RbacGuard implements CanActivate {
     );
     const workspaceRoles = this.reflector.getAllAndOverride<WorkspaceRole[]>(
       workspaceRolesMetadataKey,
+      [context.getHandler(), context.getClass()],
+    );
+    const permissions = this.reflector.getAllAndOverride<string[]>(
+      permissionsMetadataKey,
       [context.getHandler(), context.getClass()],
     );
     const staffRoles = this.reflector.getAllAndOverride<StaffRole[]>(staffRolesMetadataKey, [context.getHandler(), context.getClass()]);
@@ -68,12 +73,22 @@ export class RbacGuard implements CanActivate {
       throw deny("RBAC_ROLE_DENIED", request.url);
     }
 
+    if (
+      permissions?.length &&
+      !permissions.every((permission) =>
+        actorContext.permissions.includes(permission),
+      )
+    ) {
+      throw deny("RBAC_PERMISSION_DENIED", request.url);
+    }
+
     return true;
   }
 }
 
 function deny(
   errorCode:
+    | "RBAC_PERMISSION_DENIED"
     | "RBAC_TENANT_MISMATCH"
     | "RBAC_ROLE_DENIED",
   instance = "unknown",
