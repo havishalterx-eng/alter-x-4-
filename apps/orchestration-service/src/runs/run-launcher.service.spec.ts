@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CompiledDag } from "@alterx/contracts";
 
 import {
+  RunDispatchAbandonedError,
   RunLauncherService,
   RunNotFoundError,
   RunStartFailedError,
@@ -668,6 +669,62 @@ describe("RunLauncherService.dispatchNextQueuedRun", () => {
 
     expect(queue.acknowledge).not.toHaveBeenCalled();
   });
+
+  it("dead-letters the run once MAX_QUEUE_DISPATCH_ATTEMPTS is reached, instead of retrying forever (ENGINE-FIX-P3-11)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { store, tx } = fakeStore({});
+    tx.query.mockImplementation(async (statement: string) => {
+      if (statement.startsWith("SELECT") && statement.includes("FROM runs ")) {
+        throw new Error("connection terminated unexpectedly");
+      }
+      return { rowCount: 1, rows: [] };
+    });
+    const durable = { startWorkflow: vi.fn(), terminateWorkflow: vi.fn() };
+    const queue = fakeQueue("lease-exhausted");
+    queue.claimNext = vi.fn().mockResolvedValue({
+      runId: RUN, priority: 0, compiledDag: compiledDag(),
+      alreadyRunning: false, leaseToken: "lease-exhausted", attempt: 5,
+    });
+    const launcher = new RunLauncherService(store, durable as never, undefined, undefined, queue as never);
+
+    await expect(launcher.dispatchNextQueuedRun(BARE_TENANT)).rejects.toBeInstanceOf(
+      RunDispatchAbandonedError,
+    );
+
+    // Discarded outright -- not acknowledge(), which is for a resolved
+    // single attempt, not an unconditional give-up.
+    expect(queue.acknowledge).not.toHaveBeenCalled();
+    expect(queue.discard).toHaveBeenCalledWith(BARE_TENANT, RUN);
+    expect(tx.query).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE runs SET status = 'failed'"),
+      [BARE_TENANT, RUN],
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("still lets a below-cap attempt retry instead of dead-lettering", async () => {
+    const { store, tx } = fakeStore({});
+    tx.query.mockImplementation(async (statement: string) => {
+      if (statement.startsWith("SELECT") && statement.includes("FROM runs ")) {
+        throw new Error("connection terminated unexpectedly");
+      }
+      return { rowCount: 0, rows: [] };
+    });
+    const durable = { startWorkflow: vi.fn(), terminateWorkflow: vi.fn() };
+    const queue = fakeQueue("lease-below-cap");
+    queue.claimNext = vi.fn().mockResolvedValue({
+      runId: RUN, priority: 0, compiledDag: compiledDag(),
+      alreadyRunning: false, leaseToken: "lease-below-cap", attempt: 4,
+    });
+    const launcher = new RunLauncherService(store, durable as never, undefined, undefined, queue as never);
+
+    await expect(launcher.dispatchNextQueuedRun(BARE_TENANT)).rejects.toThrow(
+      "connection terminated unexpectedly",
+    );
+
+    expect(queue.discard).not.toHaveBeenCalled();
+    expect(queue.acknowledge).not.toHaveBeenCalled();
+  });
 });
 
 describe("RunLauncherService.startAndTransition (queue-backed)", () => {
@@ -765,5 +822,67 @@ describe("RunLauncherService.startAndTransition (queue-backed)", () => {
     // Not 100 (the defensive cap) -- a normal empty-after-one queue must
     // stop at the real undefined, not run to the bound every time.
     expect(queue.claimNext).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not fail this launch when draining a different displaced run throws (ENGINE-FIX-P3-11)", async () => {
+    // claimNext returns run B first (displaced, unrelated) then run A (the
+    // one this call actually enqueued). B's dispatch fails transiently;
+    // that must not surface as an error from startAndTransition for A.
+    const RUN_B = "run_018f4d6e-2b4a-7a3e-8c1a-1234567890bb";
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const runs = new Map<string, Record<string, unknown>>([
+      [RUN, {
+        id: RUN, workflow_id: WORKFLOW, workflow_version_id: WORKFLOW_VERSION,
+        parent_kind: "workflow", status: "pending", started_at: null, ended_at: null,
+        created_at: "2026-07-28T00:00:00.000Z",
+      }],
+    ]);
+    const query = vi.fn(async (statement: string, values: readonly unknown[] = []) => {
+      if (statement.includes("UPDATE runs SET status = 'running'")) {
+        const [, runId] = values as [string, string];
+        const row = runs.get(runId)!;
+        row.status = "running";
+        return { rowCount: 1, rows: [row] };
+      }
+      if (statement.includes("SELECT") && statement.includes("FROM runs ")) {
+        const [, runId] = values as [string, string];
+        if (runId === RUN_B) throw new Error("connection terminated unexpectedly");
+        const row = runs.get(runId);
+        return { rowCount: row ? 1 : 0, rows: row ? [row] : [] };
+      }
+      return { rowCount: 0, rows: [] };
+    });
+    const store: OrchestrationTenantStore = {
+      withTenant: async (_tenantId, operation) => operation({ query } as never),
+    };
+    const durable = { startWorkflow: vi.fn().mockResolvedValue({}), terminateWorkflow: vi.fn() };
+    const queue = {
+      enqueue: vi.fn().mockResolvedValue(undefined),
+      claimNext: vi
+        .fn()
+        .mockResolvedValueOnce({
+          runId: RUN_B, priority: 0, compiledDag: compiledDag(),
+          alreadyRunning: false, leaseToken: "lease-b", attempt: 1,
+        })
+        .mockResolvedValueOnce({
+          runId: RUN, priority: 0, compiledDag: compiledDag(),
+          alreadyRunning: false, leaseToken: "lease-a", attempt: 1,
+        })
+        .mockResolvedValueOnce(undefined),
+      acknowledge: vi.fn().mockResolvedValue(undefined),
+      retryLater: vi.fn(),
+      discard: vi.fn(),
+    };
+    const launcher = new RunLauncherService(store, durable as never, undefined, undefined, queue as never);
+
+    const result = await launcher.startAndTransition(BARE_TENANT, runs.get(RUN) as never, compiledDag());
+
+    expect(result.id).toBe(RUN);
+    expect(result.status).toBe("running"); // A still dispatched despite B's drain failure
+    expect(errorSpy).toHaveBeenCalledWith(
+      "drainQueuedRuns: dispatch failed for a queued run, continuing drain",
+      expect.objectContaining({ tenant_id: BARE_TENANT }),
+    );
+    errorSpy.mockRestore();
   });
 });
