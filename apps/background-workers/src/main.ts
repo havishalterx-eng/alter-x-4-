@@ -32,6 +32,13 @@ import { CanonicalEventConsumerRunner } from "./canonical-events/canonical-event
 import { createPlatformJobHandlers } from "./platform-jobs/handlers";
 import { NotificationDigestSchedulerRunner } from "./platform-jobs/notification-digest-scheduler-runner";
 import { IntervalJobSchedulerRunner } from "./platform-jobs/interval-job-scheduler-runner";
+import {
+  CONNECTOR_HEALTH_SWEEP_JOB_TYPE,
+  RETENTION_SWEEP_JOB_TYPE,
+  BENCHMARK_SWEEP_JOB_TYPE,
+  DRIFT_SWEEP_JOB_TYPE,
+  AUDIT_CHAIN_VERIFY_JOB_TYPE,
+} from "./platform-jobs/scheduled-job-types";
 
 function parsePort(value: string | undefined): number {
   if (value === undefined) return 3000;
@@ -211,7 +218,7 @@ async function bootstrap(): Promise<void> {
   // digest scheduler above, reusing the same Temporal connection.
   const connectorHealthSweepRunner = new IntervalJobSchedulerRunner(
     digestDurableExecution,
-    "platform.connector-health-sweep",
+    CONNECTOR_HEALTH_SWEEP_JOB_TYPE,
     "connector-health-sweep",
     platformJobsConfig.connectorHealthSweepIntervalMs,
   );
@@ -219,7 +226,7 @@ async function bootstrap(): Promise<void> {
 
   const retentionSweepRunner = new IntervalJobSchedulerRunner(
     digestDurableExecution,
-    "platform.retention-sweep",
+    RETENTION_SWEEP_JOB_TYPE,
     "retention-sweep",
     platformJobsConfig.retentionSweepIntervalMs,
   );
@@ -227,7 +234,7 @@ async function bootstrap(): Promise<void> {
 
   const benchmarkSweepRunner = new IntervalJobSchedulerRunner(
     digestDurableExecution,
-    "platform.benchmark-sweep",
+    BENCHMARK_SWEEP_JOB_TYPE,
     "benchmark-sweep",
     platformJobsConfig.benchmarkSweepIntervalMs,
   );
@@ -235,7 +242,7 @@ async function bootstrap(): Promise<void> {
 
   const driftSweepRunner = new IntervalJobSchedulerRunner(
     digestDurableExecution,
-    "platform.drift-sweep",
+    DRIFT_SWEEP_JOB_TYPE,
     "drift-sweep",
     platformJobsConfig.driftSweepIntervalMs,
   );
@@ -243,7 +250,7 @@ async function bootstrap(): Promise<void> {
 
   const auditChainVerifyRunner = new IntervalJobSchedulerRunner(
     digestDurableExecution,
-    "platform.audit-chain-verify",
+    AUDIT_CHAIN_VERIFY_JOB_TYPE,
     "audit-chain-verify",
     platformJobsConfig.auditChainVerifyIntervalMs,
   );
