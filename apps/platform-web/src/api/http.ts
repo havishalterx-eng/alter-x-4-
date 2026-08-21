@@ -3,7 +3,7 @@ import type { ApiError } from "./types"
 export const isLiveApi = import.meta.env.VITE_API_MODE === "live"
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
-const baseUrl = configuredBaseUrl && configuredBaseUrl !== "/" ? configuredBaseUrl.replace(/\/$/, "") : ""
+export const baseUrl = configuredBaseUrl && configuredBaseUrl !== "/" ? configuredBaseUrl.replace(/\/$/, "") : ""
 
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown
