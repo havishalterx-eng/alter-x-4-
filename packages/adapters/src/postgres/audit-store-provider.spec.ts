@@ -214,6 +214,57 @@ describe.sequential("PostgresAuditStoreProvider", () => {
     });
   });
 
+  it("readChainSince walks forward via the real recursive CTE, bounded by limit", async () => {
+    const first = await provider.append(event(100));
+    const second = await provider.append(event(101));
+    const third = await provider.append(event(102));
+
+    const fromGenesis = await provider.readChainSince(
+      Buffer.from(AUDIT_GENESIS_HASH_HEX, "hex"),
+      10,
+    );
+    expect(fromGenesis.map((e) => e.id)).toEqual([first.id, second.id, third.id]);
+
+    const fromFirst = await provider.readChainSince(first.entryHash, 10);
+    expect(fromFirst.map((e) => e.id)).toEqual([second.id, third.id]);
+
+    const bounded = await provider.readChainSince(first.entryHash, 1);
+    expect(bounded.map((e) => e.id)).toEqual([second.id]);
+
+    // A hash that isn't in the chain at all -- no successor rows, no error.
+    const unknownHash = Buffer.alloc(32, 7);
+    await expect(provider.readChainSince(unknownHash, 10)).resolves.toEqual([]);
+  });
+
+  it("persists a chain checkpoint across reads and real upsert", async () => {
+    await expect(provider.getChainCheckpoint()).resolves.toBeUndefined();
+
+    const stored = await provider.append(event(200));
+    const verifiedAt = new Date("2026-08-01T00:00:00.000Z");
+    await provider.setChainCheckpoint({
+      lastEntryHash: stored.entryHash,
+      checkedEvents: 1,
+      verifiedAt,
+    });
+
+    const checkpoint = await provider.getChainCheckpoint();
+    expect(checkpoint?.lastEntryHash).toEqual(stored.entryHash);
+    expect(checkpoint?.checkedEvents).toBe(1);
+    expect(checkpoint?.verifiedAt).toEqual(verifiedAt);
+
+    // Real ON CONFLICT upsert, not a second row.
+    const second = await provider.append(event(201));
+    await provider.setChainCheckpoint({
+      lastEntryHash: second.entryHash,
+      checkedEvents: 2,
+      verifiedAt: new Date("2026-08-02T00:00:00.000Z"),
+    });
+    const rowCount = await pool.query(
+      "SELECT count(*)::int AS n FROM audit_chain_checkpoints",
+    );
+    expect(rowCount.rows[0]?.n).toBe(1);
+  });
+
   it("keeps RLS default-deny and allows internal audit_service reads only", async () => {
     const password = randomBytes(24).toString("hex");
     const otherRole = `other_service_${randomBytes(6).toString("hex")}`;

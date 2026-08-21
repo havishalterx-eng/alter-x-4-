@@ -151,6 +151,17 @@ def test_global_eval_service_starts_and_rejects_invalid_requests() -> None:
     asyncio.run(_invalid_request_round_trip())
 
 
+def test_global_eval_service_records_a_real_promotion_decision(
+    sessions: sessionmaker[Session],
+) -> None:
+    eval_db_url = sessions.kw["bind"].url.render_as_string(hide_password=False)
+    asyncio.run(_promotion_decision_round_trip(eval_db_url))
+
+
+def test_global_eval_service_rejects_malformed_promotion_evidence() -> None:
+    asyncio.run(_invalid_promotion_evidence_round_trip())
+
+
 def test_global_eval_service_rejects_an_unknown_trigger_value(
     sessions: sessionmaker[Session],
 ) -> None:
@@ -258,6 +269,113 @@ async def _invalid_trigger_round_trip(eval_db_url: str, golden_set_name: str) ->
                 )
             )
         assert caught.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+    finally:
+        await channel.close()
+        await server.stop(grace=0)
+        _close_all(clients)
+        engine.dispose()
+
+
+def _passing_promotion_evidence() -> dict[str, object]:
+    return {
+        "subject": "engine",
+        "candidate": "sha256:release-candidate",
+        "environment": "staging_to_prod",
+        "metrics": {
+            "intent": 0.95,
+            "planner": 0.9,
+            "critical_edges": 1,
+            "retrieval_recall": 0.9,
+            "verification_false_pass": 0.019,
+            "recovery": 0.9,
+            "injection_block": 0.98,
+            "cross_tenant_leakage": 0,
+            "unsafe_external_action": 0,
+        },
+        "checks": {
+            "staging_e2e": True,
+            "golden_sets": True,
+            "redteam": True,
+            "chaos": True,
+            "load_slo": True,
+            "backup_restore": True,
+            "deletion_ledger_replay": True,
+            "canary_rollback": True,
+        },
+        "approvals": ["subsystem_owners", "ceo", "product_owner"],
+    }
+
+
+async def _promotion_decision_round_trip(eval_db_url: str) -> None:
+    service, engine, clients = _build_service(_settings(eval_db_url))
+    server = grpc.aio.server()
+    eval_pb2_grpc.add_EvalServiceServicer_to_server(service, server)  # type: ignore[no-untyped-call]
+    port = _bind_loopback_or_skip(server)
+    await server.start()
+    channel = grpc.aio.insecure_channel(f"127.0.0.1:{port}")
+    try:
+        stub = eval_pb2_grpc.EvalServiceStub(channel)  # type: ignore[no-untyped-call]
+
+        approved = await stub.RecordPromotionDecision(
+            eval_pb2.RecordPromotionDecisionRequest(
+                evidence_json=json.dumps(_passing_promotion_evidence()),
+                decided_by="release-manager",
+            )
+        )
+        assert approved.decision == "approved"
+        assert approved.backend_complete is True
+        assert list(approved.reasons) == []
+        assert approved.evidence_digest
+
+        incomplete_evidence = _passing_promotion_evidence()
+        incomplete_evidence["approvals"] = ["ceo"]
+        blocked = await stub.RecordPromotionDecision(
+            eval_pb2.RecordPromotionDecisionRequest(
+                evidence_json=json.dumps(incomplete_evidence),
+            )
+        )
+        assert blocked.decision == "blocked"
+        assert blocked.backend_complete is False
+        assert "missing_approval:ceo" not in blocked.reasons
+        assert "missing_approval:product_owner" in blocked.reasons
+        assert "missing_approval:subsystem_owners" in blocked.reasons
+
+        with engine.connect() as connection:
+            recorded = connection.execute(
+                sa.text("SELECT decision, decided_by FROM release_gates WHERE subject = 'engine'")
+            ).fetchall()
+        assert ("approved", "release-manager") in recorded
+        assert ("blocked", None) in recorded
+    finally:
+        await channel.close()
+        await server.stop(grace=0)
+        _close_all(clients)
+        engine.dispose()
+
+
+async def _invalid_promotion_evidence_round_trip() -> None:
+    service, engine, clients = _build_service(
+        _settings("postgresql://unused:unused@127.0.0.1:1/unused")
+    )
+    server = grpc.aio.server()
+    eval_pb2_grpc.add_EvalServiceServicer_to_server(service, server)  # type: ignore[no-untyped-call]
+    port = _bind_loopback_or_skip(server)
+    await server.start()
+    channel = grpc.aio.insecure_channel(f"127.0.0.1:{port}")
+    try:
+        stub = eval_pb2_grpc.EvalServiceStub(channel)  # type: ignore[no-untyped-call]
+
+        with pytest.raises(grpc.aio.AioRpcError) as not_json:
+            await stub.RecordPromotionDecision(
+                eval_pb2.RecordPromotionDecisionRequest(evidence_json="not json")
+            )
+        assert not_json.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+
+        with pytest.raises(grpc.aio.AioRpcError) as not_object:
+            await stub.RecordPromotionDecision(
+                eval_pb2.RecordPromotionDecisionRequest(evidence_json="[1, 2, 3]")
+            )
+        assert not_object.value.code() == grpc.StatusCode.INVALID_ARGUMENT
     finally:
         await channel.close()
         await server.stop(grace=0)

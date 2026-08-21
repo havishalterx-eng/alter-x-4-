@@ -5,6 +5,7 @@ package alter.eval.v1;
 service EvalService {
   rpc RunEvaluation(RunEvaluationRequest) returns (RunEvaluationResponse);
   rpc CheckReleaseGate(CheckReleaseGateRequest) returns (CheckReleaseGateResponse);
+  rpc RecordPromotionDecision(RecordPromotionDecisionRequest) returns (RecordPromotionDecisionResponse);
 }
 
 message RunEvaluationRequest {
@@ -49,4 +50,32 @@ message CheckReleaseGateResponse {
   // ReleaseGate stores an aggregate pass-rate decision only. It does not
   // persist individual threshold failures, so this is currently empty.
   repeated string failed_thresholds = 2;
+}
+
+// ENGINE-FIX-P3-14: the Phase 9 staging-to-production ENGINE release gate
+// (src/promotion_gate.py) -- unrelated to CheckReleaseGate above, which
+// gates a single tenant workflow version's own eval run. This gate is a
+// distinct, much larger evidence bundle (9 metrics + 8 required checks +
+// 3 human approvals) for promoting this repo's own build, previously only
+// reachable via `python -m src.promotion_gate <evidence.json>` on a human's
+// terminal. Evidence is passed as JSON, not modeled field-by-field, to
+// match the Python evaluator's own dict-shaped evidence contract exactly
+// and avoid two independently-drifting schemas for the same evidence.
+message RecordPromotionDecisionRequest {
+  reserved 100 to 199;
+
+  // JSON object: subject, candidate, environment ("staging_to_prod"),
+  // eval_run_id, metrics {name: number}, checks {name: bool},
+  // approvals [string].
+  string evidence_json = 1;
+  string decided_by = 2; // optional; empty means unset
+}
+
+message RecordPromotionDecisionResponse {
+  reserved 100 to 199;
+
+  string decision = 1; // "approved" | "blocked"
+  bool backend_complete = 2;
+  repeated string reasons = 3;
+  string evidence_digest = 4;
 }

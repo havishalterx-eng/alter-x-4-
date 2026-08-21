@@ -3,6 +3,7 @@ import { createMockProvider } from "../mock-provider";
 import {
   auditGenesisHash,
   calculateAuditEntryHash,
+  type AuditChainCheckpoint,
   type AuditEventQuery,
   type AuditEventQueryResult,
   type AuditEventToAppend,
@@ -47,6 +48,7 @@ export function createMockAuditStoreProvider(
   const certificates: DeletionCertificateToStore[] = [];
   const ledger: DeletionLedgerEntry[] = [];
   let appendBarrier: Promise<void> = Promise.resolve();
+  let checkpoint: AuditChainCheckpoint | undefined;
 
   const append = async (event: AuditEventToAppend): Promise<StoredAuditEvent> => {
     let stored: StoredAuditEvent | undefined;
@@ -76,6 +78,33 @@ export function createMockAuditStoreProvider(
         return found === undefined ? undefined : cloneEvent(found);
       },
       readGlobalChain: async () => events.map(cloneEvent),
+      readChainSince: async (afterEntryHash, limit) => {
+        const afterHex = afterEntryHash.toString("hex");
+        let startIndex: number;
+        if (afterHex === auditGenesisHash().toString("hex")) {
+          startIndex = 0;
+        } else {
+          const foundIndex = events.findIndex((event) => event.entryHash.toString("hex") === afterHex);
+          if (foundIndex === -1) return [];
+          startIndex = foundIndex + 1;
+        }
+        return events.slice(startIndex, startIndex + limit).map(cloneEvent);
+      },
+      getChainCheckpoint: async () =>
+        checkpoint === undefined
+          ? undefined
+          : {
+              lastEntryHash: Buffer.from(checkpoint.lastEntryHash),
+              checkedEvents: checkpoint.checkedEvents,
+              verifiedAt: new Date(checkpoint.verifiedAt),
+            },
+      setChainCheckpoint: async (next) => {
+        checkpoint = {
+          lastEntryHash: Buffer.from(next.lastEntryHash),
+          checkedEvents: next.checkedEvents,
+          verifiedAt: new Date(next.verifiedAt),
+        };
+      },
       queryEvents: async (query: AuditEventQuery): Promise<AuditEventQueryResult> => {
         const filtered = events
           .filter((event) => query.tenantId === null || event.tenantId === query.tenantId)

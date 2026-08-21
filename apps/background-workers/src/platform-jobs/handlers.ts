@@ -195,6 +195,44 @@ function createDriftSweepHandler(
   };
 }
 
+/**
+ * ENGINE-FIX-P3-13: real trigger for the audit chain's incremental verifier
+ * (AuditQueryController's POST /internal/audit-events/verify-chain) --
+ * same thin-relay shape as every other sweep handler here. valid: false
+ * in a 200 response is a real finding (the chain broke), not a failed
+ * request -- surfaced as a thrown error so it lands as a visible job
+ * failure rather than a silently "successful" sweep.
+ */
+function createAuditChainVerifySweepHandler(
+  baseUrl: string,
+  serviceToken: string,
+  fetchImpl: typeof fetch,
+): PlatformJobHandler {
+  return async (): Promise<JsonValue> => {
+    const response = await fetchImpl(`${baseUrl}/internal/audit-events/verify-chain`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${serviceToken}` },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `audit chain verify sweep failed: HTTP ${response.status} ${await response.text()}`,
+      );
+    }
+    const result = (await response.json()) as {
+      valid: boolean;
+      checkedEvents: number;
+      issue?: string;
+      eventId?: string;
+    };
+    if (!result.valid) {
+      throw new Error(
+        `audit chain verification failed: issue=${result.issue ?? "unknown"} eventId=${result.eventId ?? "unknown"}`,
+      );
+    }
+    return result as unknown as JsonValue;
+  };
+}
+
 export interface PlatformJobHandlerDependencies {
   readonly platformApiInternalBaseUrl?: string;
   readonly notificationDigestServiceToken?: string;
@@ -207,6 +245,8 @@ export interface PlatformJobHandlerDependencies {
   readonly memoryServiceInternalBaseUrl?: string;
   readonly driftSweepServiceToken?: string;
   readonly driftSweepMinimumObservations?: number;
+  readonly auditServiceInternalBaseUrl?: string;
+  readonly auditChainVerifyServiceToken?: string;
   readonly fetchImpl?: typeof fetch;
 }
 
@@ -270,6 +310,16 @@ export function createPlatformJobHandlers(
         dependencies.memoryServiceInternalBaseUrl,
         dependencies.driftSweepServiceToken,
         dependencies.driftSweepMinimumObservations,
+        fetchImpl,
+      ),
+    );
+  }
+  if (dependencies?.auditServiceInternalBaseUrl && dependencies.auditChainVerifyServiceToken) {
+    handlers.set(
+      "platform.audit-chain-verify",
+      createAuditChainVerifySweepHandler(
+        dependencies.auditServiceInternalBaseUrl,
+        dependencies.auditChainVerifyServiceToken,
         fetchImpl,
       ),
     );

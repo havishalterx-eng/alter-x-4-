@@ -15,6 +15,7 @@ import { AuditService } from "./audit.service";
 const TOKEN = "audit-internal-query-token";
 const queryEvents = vi.fn();
 const recordEvent = vi.fn();
+const verifyChainIncremental = vi.fn();
 
 describe("AuditQueryController RFC 9457 internal surface", () => {
   let app: NestFastifyApplication;
@@ -23,7 +24,7 @@ describe("AuditQueryController RFC 9457 internal surface", () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [AuditQueryController],
       providers: [
-        { provide: AuditService, useValue: { queryEvents, recordEvent } },
+        { provide: AuditService, useValue: { queryEvents, recordEvent, verifyChainIncremental } },
         {
           provide: AUDIT_QUERY_SERVICE_TOKEN_HASH,
           useValue: createHash("sha256").update(TOKEN).digest("hex"),
@@ -38,6 +39,7 @@ describe("AuditQueryController RFC 9457 internal surface", () => {
   beforeEach(() => {
     queryEvents.mockReset();
     recordEvent.mockReset();
+    verifyChainIncremental.mockReset();
   });
 
   afterAll(async () => {
@@ -131,6 +133,58 @@ describe("AuditQueryController RFC 9457 internal surface", () => {
     expect(problem).toMatchObject({ status: 500, error_code: "AUDIT_QUERY_INTERNAL_ERROR" });
     expect(JSON.stringify(problem)).not.toContain("connection-string-secret");
   });
+
+  it("rejects an unauthenticated verify-chain call", async () => {
+    const response = await postVerifyChain("/internal/audit-events/verify-chain");
+    expect(response.statusCode).toBe(401);
+    expect(verifyChainIncremental).not.toHaveBeenCalled();
+  });
+
+  it("returns the verification result, including an invalid chain, as 200", async () => {
+    verifyChainIncremental.mockResolvedValue({
+      valid: false,
+      checkedEvents: 3,
+      issue: "hash-mismatch",
+      eventId: "aud_018f47a2-7b11-7b11-8a11-1234567890ab",
+    });
+    const response = await postVerifyChain(
+      "/internal/audit-events/verify-chain",
+      `Bearer ${TOKEN}`,
+    );
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ valid: false, issue: "hash-mismatch" });
+    expect(verifyChainIncremental).toHaveBeenCalledWith(500);
+  });
+
+  it("applies the default and clamps an oversized verify-chain limit", async () => {
+    verifyChainIncremental.mockResolvedValue({ valid: true, checkedEvents: 0 });
+    await postVerifyChain("/internal/audit-events/verify-chain", `Bearer ${TOKEN}`);
+    expect(verifyChainIncremental).toHaveBeenCalledWith(500);
+
+    verifyChainIncremental.mockClear();
+    await postVerifyChain(
+      "/internal/audit-events/verify-chain?limit=50000",
+      `Bearer ${TOKEN}`,
+    );
+    expect(verifyChainIncremental).toHaveBeenCalledWith(5_000);
+  });
+
+  it("rejects a non-integer verify-chain limit", async () => {
+    const response = await postVerifyChain(
+      "/internal/audit-events/verify-chain?limit=not-a-number",
+      `Bearer ${TOKEN}`,
+    );
+    expect(response.statusCode).toBe(400);
+    expect(verifyChainIncremental).not.toHaveBeenCalled();
+  });
+
+  function postVerifyChain(url: string, authorization?: string) {
+    return app.getHttpAdapter().getInstance().inject({
+      method: "POST",
+      url,
+      headers: authorization === undefined ? {} : { authorization },
+    });
+  }
 
   function request(url: string, authorization?: string) {
     return app.getHttpAdapter().getInstance().inject({

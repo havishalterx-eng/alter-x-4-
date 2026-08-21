@@ -44,6 +44,11 @@ class EvalServiceStub:
                 request_serializer=alter_dot_eval_dot_v1_dot_eval__pb2.CheckReleaseGateRequest.SerializeToString,
                 response_deserializer=alter_dot_eval_dot_v1_dot_eval__pb2.CheckReleaseGateResponse.FromString,
                 _registered_method=True)
+        self.RecordPromotionDecision = channel.unary_unary(
+                '/alter.eval.v1.EvalService/RecordPromotionDecision',
+                request_serializer=alter_dot_eval_dot_v1_dot_eval__pb2.RecordPromotionDecisionRequest.SerializeToString,
+                response_deserializer=alter_dot_eval_dot_v1_dot_eval__pb2.RecordPromotionDecisionResponse.FromString,
+                _registered_method=True)
 
 
 class EvalServiceServicer:
@@ -61,6 +66,12 @@ class EvalServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RecordPromotionDecision(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_EvalServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -73,6 +84,11 @@ def add_EvalServiceServicer_to_server(servicer, server):
                     servicer.CheckReleaseGate,
                     request_deserializer=alter_dot_eval_dot_v1_dot_eval__pb2.CheckReleaseGateRequest.FromString,
                     response_serializer=alter_dot_eval_dot_v1_dot_eval__pb2.CheckReleaseGateResponse.SerializeToString,
+            ),
+            'RecordPromotionDecision': grpc.unary_unary_rpc_method_handler(
+                    servicer.RecordPromotionDecision,
+                    request_deserializer=alter_dot_eval_dot_v1_dot_eval__pb2.RecordPromotionDecisionRequest.FromString,
+                    response_serializer=alter_dot_eval_dot_v1_dot_eval__pb2.RecordPromotionDecisionResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -129,6 +145,33 @@ class EvalService:
             '/alter.eval.v1.EvalService/CheckReleaseGate',
             alter_dot_eval_dot_v1_dot_eval__pb2.CheckReleaseGateRequest.SerializeToString,
             alter_dot_eval_dot_v1_dot_eval__pb2.CheckReleaseGateResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RecordPromotionDecision(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/alter.eval.v1.EvalService/RecordPromotionDecision',
+            alter_dot_eval_dot_v1_dot_eval__pb2.RecordPromotionDecisionRequest.SerializeToString,
+            alter_dot_eval_dot_v1_dot_eval__pb2.RecordPromotionDecisionResponse.FromString,
             options,
             channel_credentials,
             insecure,

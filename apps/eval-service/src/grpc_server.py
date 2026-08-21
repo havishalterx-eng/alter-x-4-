@@ -33,6 +33,7 @@ from src.execution.trigger_client import TriggerRegistryClient
 from src.execution.verification_client import VerificationClient
 from src.execution.verification_severity_client import VerificationSeverityEvalClient
 from src.execution.workflow_client import WorkflowEvalClient
+from src.promotion_gate import PromotionGateRecorder
 from src.release_gates import ReleaseGateRecorder
 
 
@@ -173,7 +174,14 @@ def _build_service(settings: Settings) -> tuple[EvalGrpcService, Engine, tuple[C
         agent_binding_client,
         project_client,
     )
-    return EvalGrpcService(orchestrator, ReleaseGateRecorder(sessions)), engine, clients
+    service = EvalGrpcService(
+        orchestrator, ReleaseGateRecorder(sessions), PromotionGateRecorder(sessions)
+    )
+    return (
+        service,
+        engine,
+        clients,
+    )
 
 
 async def serve() -> None:

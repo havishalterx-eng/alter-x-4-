@@ -17,6 +17,8 @@ function environment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     INTELLIGENCE_SERVICE_INTERNAL_BASE_URL: "http://intelligence-service.internal",
     MEMORY_SERVICE_INTERNAL_BASE_URL: "http://memory-service.internal",
     DRIFT_SWEEP_SERVICE_TOKEN_REF: "env:DRIFT_SWEEP_SERVICE_TOKEN",
+    AUDIT_SERVICE_INTERNAL_BASE_URL: "http://audit-service.internal",
+    AUDIT_CHAIN_VERIFY_SERVICE_TOKEN_REF: "env:AUDIT_CHAIN_VERIFY_SERVICE_TOKEN",
     ...overrides,
   };
 }
@@ -40,6 +42,9 @@ describe("loadPlatformJobsEnvironment", () => {
       driftSweepServiceTokenRef: "env:DRIFT_SWEEP_SERVICE_TOKEN",
       driftSweepIntervalMs: 60 * 60 * 1000,
       driftSweepMinimumObservations: 40,
+      auditServiceInternalBaseUrl: "http://audit-service.internal",
+      auditChainVerifyServiceTokenRef: "env:AUDIT_CHAIN_VERIFY_SERVICE_TOKEN",
+      auditChainVerifyIntervalMs: 15 * 60 * 1000,
     });
   });
 
@@ -109,6 +114,19 @@ describe("loadPlatformJobsEnvironment", () => {
   it("rejects a non-integer drift candidate threshold", () => {
     expect(() =>
       loadPlatformJobsEnvironment(environment({ DRIFT_SWEEP_MINIMUM_OBSERVATIONS: "4.5" })),
+    ).toThrow(PlatformJobsConfigurationError);
+  });
+
+  it("accepts a real custom audit chain verify interval", () => {
+    expect(
+      loadPlatformJobsEnvironment(environment({ AUDIT_CHAIN_VERIFY_INTERVAL_MS: "5000" }))
+        .auditChainVerifyIntervalMs,
+    ).toBe(5000);
+  });
+
+  it("throws PlatformJobsConfigurationError when AUDIT_SERVICE_INTERNAL_BASE_URL is missing", () => {
+    expect(() =>
+      loadPlatformJobsEnvironment(environment({ AUDIT_SERVICE_INTERNAL_BASE_URL: "" })),
     ).toThrow(PlatformJobsConfigurationError);
   });
 });

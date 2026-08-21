@@ -158,6 +158,9 @@ async function bootstrap(): Promise<void> {
   const driftSweepServiceToken = await resolveRuntimeSecret(
     platformJobsConfig.driftSweepServiceTokenRef,
   );
+  const auditChainVerifyServiceToken = await resolveRuntimeSecret(
+    platformJobsConfig.auditChainVerifyServiceTokenRef,
+  );
   const platformJobsWorker = await startPlatformJobsWorker(
     {
       temporal: {
@@ -181,6 +184,8 @@ async function bootstrap(): Promise<void> {
       memoryServiceInternalBaseUrl: platformJobsConfig.memoryServiceInternalBaseUrl,
       driftSweepServiceToken,
       driftSweepMinimumObservations: platformJobsConfig.driftSweepMinimumObservations,
+      auditServiceInternalBaseUrl: platformJobsConfig.auditServiceInternalBaseUrl,
+      auditChainVerifyServiceToken,
     }),
   );
 
@@ -236,6 +241,14 @@ async function bootstrap(): Promise<void> {
   );
   driftSweepRunner.start();
 
+  const auditChainVerifyRunner = new IntervalJobSchedulerRunner(
+    digestDurableExecution,
+    "platform.audit-chain-verify",
+    "audit-chain-verify",
+    platformJobsConfig.auditChainVerifyIntervalMs,
+  );
+  auditChainVerifyRunner.start();
+
   app.enableShutdownHooks();
   app.getHttpAdapter().getInstance().addHook("onClose", () => {
     worker.shutdown();
@@ -247,6 +260,7 @@ async function bootstrap(): Promise<void> {
     void retentionSweepRunner.stop();
     void benchmarkSweepRunner.stop();
     void driftSweepRunner.stop();
+    void auditChainVerifyRunner.stop();
   });
 
   await app.listen(parsePort(process.env.PORT), "0.0.0.0");

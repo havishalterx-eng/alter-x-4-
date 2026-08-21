@@ -263,4 +263,62 @@ describe("createPlatformJobHandlers", () => {
     );
     expect(result).toEqual({ candidates: 2, scored: 1, failed: 1 });
   });
+
+  it("real relays a clean audit chain verification", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ valid: true, checkedEvents: 12 }),
+      text: async () => "",
+    })) as unknown as typeof fetch;
+    const handlers = createPlatformJobHandlers({
+      auditServiceInternalBaseUrl: "http://audit-service.internal",
+      auditChainVerifyServiceToken: "real-token",
+      fetchImpl,
+    });
+
+    const result = await handlers.get("platform.audit-chain-verify")!({});
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://audit-service.internal/internal/audit-events/verify-chain",
+      { method: "POST", headers: { authorization: "Bearer real-token" } },
+    );
+    expect(result).toEqual({ valid: true, checkedEvents: 12 });
+  });
+
+  it("real surfaces a broken audit chain as a job failure, not a silent success", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ valid: false, checkedEvents: 3, issue: "hash-mismatch", eventId: "aud_x" }),
+      text: async () => "",
+    })) as unknown as typeof fetch;
+    const handlers = createPlatformJobHandlers({
+      auditServiceInternalBaseUrl: "http://audit-service.internal",
+      auditChainVerifyServiceToken: "real-token",
+      fetchImpl,
+    });
+
+    await expect(handlers.get("platform.audit-chain-verify")!({})).rejects.toThrow(
+      /hash-mismatch/,
+    );
+  });
+
+  it("real surfaces an HTTP failure from the verify-chain route", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+      text: async () => "internal error",
+    })) as unknown as typeof fetch;
+    const handlers = createPlatformJobHandlers({
+      auditServiceInternalBaseUrl: "http://audit-service.internal",
+      auditChainVerifyServiceToken: "real-token",
+      fetchImpl,
+    });
+
+    await expect(handlers.get("platform.audit-chain-verify")!({})).rejects.toThrow(
+      /HTTP 500/,
+    );
+  });
 });

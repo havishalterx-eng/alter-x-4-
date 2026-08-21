@@ -15,6 +15,13 @@
       "when": 1785388200000,
       "tag": "0001_create_deletion_records",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787200200000,
+      "tag": "0002_audit_chain_checkpoint",
+      "breakpoints": true
     }
   ]
 }

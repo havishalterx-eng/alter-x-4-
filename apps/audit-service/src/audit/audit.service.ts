@@ -8,6 +8,7 @@ import type {
 } from "@alterx/contracts";
 import {
   AUDIT_STORE_PROVIDER,
+  auditGenesisHash,
   AuditEventNotFoundError,
   AuditValidationError,
   verifyAuditChain,
@@ -240,8 +241,41 @@ export class AuditService implements AuditEventHandler {
     };
   }
 
+  /** Full re-verify from genesis. Loads the entire chain -- correct for a
+   * one-off/disaster-recovery check, not for a periodic schedule (see
+   * verifyChainIncremental). */
   async verifyChain(): Promise<AuditChainVerificationResult> {
     return verifyAuditChain(await this.store.readGlobalChain());
+  }
+
+  /**
+   * ENGINE-FIX-P3-13: the scheduled path. Resumes from the last checkpoint
+   * instead of re-walking the whole table -- O(new entries), not O(all
+   * history). The checkpoint only advances when the new segment verifies
+   * clean; on a break, it's left exactly where it was so the same failure
+   * keeps getting reported on every subsequent run until it's resolved,
+   * instead of silently skipping past it.
+   */
+  async verifyChainIncremental(limit: number): Promise<AuditChainVerificationResult> {
+    const checkpoint = await this.store.getChainCheckpoint();
+    const startingHash = checkpoint?.lastEntryHash ?? auditGenesisHash();
+    const newEvents = await this.store.readChainSince(startingHash, limit);
+    if (newEvents.length === 0) {
+      return { valid: true, checkedEvents: 0 };
+    }
+
+    const result = verifyAuditChain(newEvents, startingHash);
+    if (result.valid) {
+      const lastEvent = newEvents[newEvents.length - 1];
+      if (lastEvent !== undefined) {
+        await this.store.setChainCheckpoint({
+          lastEntryHash: lastEvent.entryHash,
+          checkedEvents: (checkpoint?.checkedEvents ?? 0) + result.checkedEvents,
+          verifiedAt: new Date(),
+        });
+      }
+    }
+    return result;
   }
 
   // No actor_type or tenant_id restriction is applied here -- this is a

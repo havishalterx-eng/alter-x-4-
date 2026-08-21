@@ -38,6 +38,9 @@ class AuditQueryProblemFilter implements ExceptionFilter {
   }
 }
 
+const DEFAULT_VERIFY_CHAIN_LIMIT = 500;
+const MAX_VERIFY_CHAIN_LIMIT = 5_000;
+
 interface RawQuery {
   readonly tenant_id?: string;
   readonly actor_types?: string;
@@ -96,6 +99,33 @@ export class AuditQueryController {
         throw new HttpException(problem("/internal/audit-events", 400, error.message), 400);
       }
       throw new HttpException(problem("/internal/audit-events", 500), 500);
+    }
+  }
+
+  // ENGINE-FIX-P3-13: the scheduled path for background-workers'
+  // audit-chain-verify sweep. Returns the verification result directly
+  // (200, valid: true or false) rather than throwing on an invalid chain --
+  // a broken chain is a real finding to report and alert on, not a failed
+  // request. The bound is a request-size safety net; the checkpoint itself
+  // is what keeps a real periodic schedule at O(new entries).
+  @Post("verify-chain")
+  @HttpCode(200)
+  async verifyChain(
+    @Query() query: { readonly limit?: string },
+    @Headers("authorization") auth?: string,
+  ) {
+    this.authorize(auth);
+    const limit = query.limit === undefined ? DEFAULT_VERIFY_CHAIN_LIMIT : Number(query.limit);
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new HttpException(
+        problem("/internal/audit-events/verify-chain", 400, "limit must be a positive integer"),
+        400,
+      );
+    }
+    try {
+      return await this.audit.verifyChainIncremental(Math.min(limit, MAX_VERIFY_CHAIN_LIMIT));
+    } catch {
+      throw new HttpException(problem("/internal/audit-events/verify-chain", 500), 500);
     }
   }
 
