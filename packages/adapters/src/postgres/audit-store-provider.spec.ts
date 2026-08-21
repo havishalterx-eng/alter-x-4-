@@ -215,15 +215,14 @@ describe.sequential("PostgresAuditStoreProvider", () => {
   });
 
   it("readChainSince walks forward via the real recursive CTE, bounded by limit", async () => {
-    const first = await provider.append(event(100));
-    const second = await provider.append(event(101));
-    const third = await provider.append(event(102));
-
-    const fromGenesis = await provider.readChainSince(
-      Buffer.from(AUDIT_GENESIS_HASH_HEX, "hex"),
-      10,
-    );
-    expect(fromGenesis.map((e) => e.id)).toEqual([first.id, second.id, third.id]);
+    // event()'s occurredAt embeds the index as a seconds field (00-59) --
+    // 11/12/13 stay clear of the other tests' 0-10 and 900+ indices in this
+    // shared-table file, and this test only asserts hash-relative behavior
+    // (readChainSince from a specific entryHash), never absolute chain
+    // content, since earlier tests in this file leave real rows behind.
+    const first = await provider.append(event(11));
+    const second = await provider.append(event(12));
+    const third = await provider.append(event(13));
 
     const fromFirst = await provider.readChainSince(first.entryHash, 10);
     expect(fromFirst.map((e) => e.id)).toEqual([second.id, third.id]);
@@ -239,7 +238,7 @@ describe.sequential("PostgresAuditStoreProvider", () => {
   it("persists a chain checkpoint across reads and real upsert", async () => {
     await expect(provider.getChainCheckpoint()).resolves.toBeUndefined();
 
-    const stored = await provider.append(event(200));
+    const stored = await provider.append(event(14));
     const verifiedAt = new Date("2026-08-01T00:00:00.000Z");
     await provider.setChainCheckpoint({
       lastEntryHash: stored.entryHash,
@@ -253,7 +252,7 @@ describe.sequential("PostgresAuditStoreProvider", () => {
     expect(checkpoint?.verifiedAt).toEqual(verifiedAt);
 
     // Real ON CONFLICT upsert, not a second row.
-    const second = await provider.append(event(201));
+    const second = await provider.append(event(15));
     await provider.setChainCheckpoint({
       lastEntryHash: second.entryHash,
       checkedEvents: 2,
