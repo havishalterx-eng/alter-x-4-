@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   SandboxCloseSessionRequest,
   SandboxCloseSessionResponse,
@@ -125,7 +126,17 @@ export class SandboxServiceGrpcHandler {
             return { path: file.path, content: new TextDecoder().decode(artifact.content) };
           }),
         );
-        const result = await this.sandboxService.verifyRender(request.preview_url, files);
+        const result = await this.sandboxService.verifyRender(
+          {
+            tenantId: request.tenant_id,
+            runId: request.run_id,
+            nodeExecutionId: request.node_execution_id,
+            requestId: `req_${randomUUID()}`,
+            traceId: `trc_${randomUUID()}`,
+          },
+          request.preview_url,
+          files,
+        );
         report[check] = result.output.verification;
         if (result.output.verification.status !== "passed") passed = false;
       } else {

@@ -193,12 +193,21 @@ const WorkflowDagWaveSchema = z
   })
   .strict();
 
+// ENGINE-FIX-P3-16b: nodes/edges had no upper bound -- a compiled DAG this
+// large would serialize well past Temporal's workflow-input payload ceiling
+// (default ~2MB gRPC message), failing opaquely deep in orchestration
+// instead of at the schema boundary where the problem actually is. Bounds
+// sized generously above any real workflow (edges capped higher than nodes
+// since a DAG is commonly denser than 1:1).
+const MAX_DAG_NODES = 1_000;
+const MAX_DAG_EDGES = 4_000;
+
 export const CompiledDagSchema = z
   .object({
     schema_version: NonEmptyStringSchema,
     entry_node_keys: z.array(NodeKeySchema).min(1),
-    nodes: z.array(WorkflowDagNodeSchema).min(1),
-    edges: z.array(WorkflowDagEdgeSchema),
+    nodes: z.array(WorkflowDagNodeSchema).min(1).max(MAX_DAG_NODES),
+    edges: z.array(WorkflowDagEdgeSchema).max(MAX_DAG_EDGES),
     waves: z.array(WorkflowDagWaveSchema).min(1),
   })
   .strict()

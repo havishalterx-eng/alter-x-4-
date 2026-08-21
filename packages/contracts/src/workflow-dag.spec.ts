@@ -107,6 +107,30 @@ describe("CompiledDagSchema", () => {
     expect(CompiledDagSchema.safeParse(validDraft.dag).success).toBe(true);
   });
 
+  it("rejects a DAG with more nodes than the size ceiling allows", () => {
+    const nodes = Array.from({ length: 1_001 }, (_, index) => ({
+      key: `node_${index}`,
+      type: "LLMTask" as const,
+      config: { prompt_template: "x" },
+      metadata: { ui: {} },
+    }));
+    expect(
+      CompiledDagSchema.safeParse({ ...validDraft.dag, nodes }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a DAG with more edges than the size ceiling allows", () => {
+    const edges = Array.from({ length: 4_001 }, (_, index) => ({
+      key: `edge_${index}`,
+      from: "start",
+      to: "merge",
+      kind: "sequential" as const,
+    }));
+    expect(
+      CompiledDagSchema.safeParse({ ...validDraft.dag, edges }).success,
+    ).toBe(false);
+  });
+
   it("rejects a graph with a dangling edge endpoint", () => {
     expect(
       CompiledDagSchema.safeParse({

@@ -1,6 +1,7 @@
 import {
   MockBrowserAutomationProvider,
   SsrfGuardedFetcher,
+  type BrowserAutomationProvider,
   type DatabaseOperationProvider,
   type FetchFn,
   type ResolvedAddress,
@@ -61,6 +62,7 @@ function toolHarness(options: {
   readonly publish?: (queueName: string, message: JsonValue) => Promise<void>;
   readonly database?: DatabaseOperationProvider;
   readonly config?: ConfigProvider;
+  readonly browser?: BrowserAutomationProvider;
 } = {}) {
   const addresses: Record<string, readonly ResolvedAddress[]> = {
     "example.com": [{ address: "93.184.216.34", family: 4 }],
@@ -115,7 +117,7 @@ function toolHarness(options: {
     consume: (queueName) => inMemoryQueue.consume(queueName),
   });
   const service = new SandboxService(sandbox, {
-    browser: new MockBrowserAutomationProvider(urlFetcher),
+    browser: options.browser ?? new MockBrowserAutomationProvider(urlFetcher),
     config: options.config ?? createMockConfigProvider({
       toolPermission: {
         allowed: true,
@@ -593,9 +595,27 @@ describe("SandboxService EXEC-12 verification", () => {
 
   it("fails closed without a browser and flags blank rendered pages", async () => {
     const target = await basicService();
-    await expect(target.verifyRender("https://preview.example", [])).resolves.toMatchObject({ output: { verification: { status: "inconclusive" } } });
+    await expect(target.verifyRender(CONTEXT, "https://preview.example", [])).resolves.toMatchObject({ output: { verification: { status: "inconclusive" } } });
+
     const browser = createMockBrowserProvider({ url: "https://preview.example", statusCode: 200, hasVisibleContent: false, consoleErrors: [] });
-    const rendered = new SandboxService(createMockSandboxProvider(), undefined, browser);
-    await expect(rendered.verifyRender("https://preview.example", [])).resolves.toMatchObject({ output: { verification: { status: "logic_failure" } } });
+    const rendered = toolHarness({ browser: browser as unknown as BrowserAutomationProvider });
+    await expect(rendered.service.verifyRender(CONTEXT, "https://preview.example", [])).resolves.toMatchObject({ output: { verification: { status: "logic_failure" } } });
+  });
+
+  it("denies verifyRender when the tenant lacks the browser.verify_render grant", async () => {
+    const resolveToolPermission = vi.fn(async (request: ToolPermissionRequest) => {
+      void request;
+      return { allowed: false, rateLimitPerMinute: 1, requiredScopes: [] };
+    });
+    const target = toolHarness({
+      config: createMockConfigProvider({ resolveToolPermission }),
+    });
+    await expect(
+      target.service.verifyRender(CONTEXT, "https://preview.example", []),
+    ).resolves.toMatchObject({ output: { verification: { status: "logic_failure" } } });
+    expect(resolveToolPermission).toHaveBeenCalledWith({
+      tenantId: CONTEXT.tenantId,
+      toolName: "browser.verify_render",
+    });
   });
 });

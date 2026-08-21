@@ -170,9 +170,17 @@ describe("SandboxServiceGrpcHandler", () => {
       tenant_id: request.tenant_id,
       artifact_id: "art_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
     });
-    expect(verifyRender).toHaveBeenCalledWith("https://preview.example/session", [
-      { path: "index.html", content: "ok" },
-    ]);
+    expect(verifyRender).toHaveBeenCalledWith(
+      {
+        tenantId: request.tenant_id,
+        runId: request.run_id,
+        nodeExecutionId: request.node_execution_id,
+        requestId: expect.any(String),
+        traceId: expect.any(String),
+      },
+      "https://preview.example/session",
+      [{ path: "index.html", content: "ok" }],
+    );
   });
 
   it("reports render as a logic failure instead of unsupported when preview_url is missing", async () => {
