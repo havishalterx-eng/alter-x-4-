@@ -11,8 +11,28 @@ import {
   RequireWorkspaceRole,
 } from "./decorators";
 import { RbacModule, resourceTenantResolverToken } from "./rbac.module";
-import { RequestParamTenantResolver } from "./resource-tenant.resolver";
+import type { ResourceTenantResolver } from "./resource-tenant.resolver";
 import type { ActorContext as ActorContextType, StaffActorContext } from "./types";
+
+// Fake honoring the ResourceTenantResolver interface directly -- this file
+// tests RbacGuard's own route/role/mismatch logic in isolation, not
+// WorkspaceResourceTenantResolver's real DB-backed lookup (see that
+// class's own resource-tenant.resolver.spec.ts for that).
+class FakeResourceTenantResolver implements ResourceTenantResolver {
+  private readonly workspaceTenants: ReadonlyMap<string, string>;
+
+  constructor(workspaceTenants: Record<string, string>) {
+    this.workspaceTenants = new Map(Object.entries(workspaceTenants));
+  }
+
+  async resolveTenantId(request: { params?: Record<string, string | undefined> }): Promise<string | undefined> {
+    const params = request.params ?? {};
+    const directTenantId = params.tenantId ?? params.tenant_id;
+    if (directTenantId) return directTenantId;
+    const workspaceId = params.workspaceId ?? params.workspace_id;
+    return workspaceId ? this.workspaceTenants.get(workspaceId) : undefined;
+  }
+}
 
 const tenantA = "00000000-0000-7000-8000-000000000001";
 const tenantB = "00000000-0000-7000-8000-000000000002";
@@ -138,7 +158,7 @@ describe("RbacGuard", () => {
     })
       .overrideProvider(resourceTenantResolverToken)
       .useValue(
-        new RequestParamTenantResolver({
+        new FakeResourceTenantResolver({
           [workspaceA]: tenantA,
           [workspaceB]: tenantB,
         }),
