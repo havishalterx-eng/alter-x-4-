@@ -7,6 +7,7 @@ import {
 } from "../concurrency";
 import { EngineModule } from "../engine";
 import { IdempotencyModule } from "../idempotency";
+import { NodeTypeController } from "./node-type.controller";
 import { WorkflowController } from "./workflow.controller";
 import { WorkflowEtagResolver } from "./workflow-etag.resolver";
 import { WorkflowExceptionFilter } from "./workflow-exception.filter";
@@ -14,7 +15,7 @@ import { WorkflowService } from "./workflow.service";
 
 @Module({
   imports: [EngineModule, IdempotencyModule],
-  controllers: [WorkflowController],
+  controllers: [WorkflowController, NodeTypeController],
   providers: [
     WorkflowService,
     WorkflowEtagResolver,

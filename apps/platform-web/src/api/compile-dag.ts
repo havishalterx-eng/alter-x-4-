@@ -1,12 +1,38 @@
 import type { CompiledDag } from "@alterx/contracts"
 
+// Presentation-only grouping for the 11 canonical node types, mirroring
+// orchestration-service's node-type-catalog.ts categories. Not sent to or
+// read from the engine -- used locally so a loaded DAG's nodes get a
+// sensible icon/category without an extra round-trip to fetch the catalog.
+const NODE_TYPE_CATEGORY: Record<string, string> = {
+  LLMTask: "execution",
+  ToolCall: "execution",
+  SandboxExec: "execution",
+  Gate: "control-flow",
+  Merge: "control-flow",
+  HumanApproval: "human-in-the-loop",
+  Synthesis: "output",
+  MemoryWrite: "knowledge",
+  PubSub: "collaboration",
+  GroupChat: "collaboration",
+  YAMLImport: "import",
+}
+
 export function compileDag(nodes: any[], edges: any[]): CompiledDag {
   const compiledNodes = nodes.map((node) => {
     // Basic mapping from UI node to backend node format
     const type = node.type === "humanApproval" ? "HumanApproval" : node.type
 
-    let config: Record<string, unknown> = { ...node.data?.config }
-    
+    // Inspector writes edited config fields flat onto node.data (see
+    // inspector.tsx's updateNodeData calls), not nested under node.data.config.
+    // Read both: flat fields (the real path) win over any legacy nested config.
+    const { label: _label, category: _category, status: _status, config: nestedConfig, ...flatConfig } =
+      (node.data ?? {}) as Record<string, unknown>
+    let config: Record<string, unknown> = {
+      ...(nestedConfig as Record<string, unknown> | undefined),
+      ...flatConfig,
+    }
+
     if (type === "HumanApproval") {
       // Ensure requested_action is nested properly or flattened based on what handler expects
       // The handler checks config["requested_action"] or falls back to entire config
@@ -95,4 +121,31 @@ export function compileDag(nodes: any[], edges: any[]): CompiledDag {
       { key: "wave_0", order: 0, node_keys: nodes.map(n => n.id), depends_on: [] }
     ],
   }
+}
+
+/** Inverse of compileDag: a loaded CompiledDag back into canvas nodes/edges. */
+export function dagToCanvas(dag: CompiledDag): { nodes: any[]; edges: any[] } {
+  const nodes = dag.nodes.map((node) => {
+    const ui = (node.metadata?.ui ?? {}) as { position?: { x: number; y: number }; label?: string }
+    return {
+      id: node.key,
+      type: node.type,
+      position: ui.position ?? { x: 0, y: 0 },
+      data: {
+        label: ui.label ?? node.key,
+        category: NODE_TYPE_CATEGORY[node.type] ?? node.type,
+        ...node.config,
+      },
+    }
+  })
+
+  const edges = dag.edges.map((edge) => ({
+    id: edge.key,
+    source: edge.from,
+    target: edge.to,
+    label: edge.kind === "conditional" ? "conditional" : undefined,
+    ...(edge.condition ? { data: { condition: edge.condition.expression } } : {}),
+  }))
+
+  return { nodes, edges }
 }

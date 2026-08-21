@@ -1,10 +1,21 @@
 import * as React from "react"
 import { Handle, Position } from "@xyflow/react"
-import { Settings2, Code, GitBranch, Zap, Network, Bot, AlertTriangle } from "lucide-react"
+import { Settings2, Code, GitBranch, Zap, Network, Bot, AlertTriangle, UserCheck, Database } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-// Helper to map category to icon
+// Helper to map category to icon. Categories are the engine's Node Type
+// Registry categories (node-type-catalog.ts): execution, control-flow,
+// human-in-the-loop, output, knowledge, collaboration, import. Mock-mode
+// demo data still uses the old Triggers/AI/Logic/Actions/Data labels, so
+// those stay mapped too -- unmatched categories fall back to Settings2.
 const categoryIcons: Record<string, React.ElementType> = {
+  execution: Zap,
+  "control-flow": GitBranch,
+  "human-in-the-loop": UserCheck,
+  output: Bot,
+  knowledge: Database,
+  collaboration: Network,
+  import: Code,
   Triggers: Zap,
   AI: Bot,
   Logic: GitBranch,

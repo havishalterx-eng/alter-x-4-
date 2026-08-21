@@ -12,16 +12,21 @@ import { BaseNode } from "./base-node"
 import { useBuilderStore } from "../../stores/useBuilderStore"
 import dagre from "dagre"
 
+// Keys are the engine's 11 canonical node types (node-type-catalog.ts) --
+// every one renders the same generic BaseNode, differentiated only by
+// data.category/data.label.
 const nodeTypes = {
-  trigger_manual: BaseNode,
-  trigger_webhook: BaseNode,
-  trigger_email: BaseNode,
-  ai_llm: BaseNode,
-  ai_classify: BaseNode,
-  ai_extract: BaseNode,
-  logic_condition: BaseNode,
-  action_slack: BaseNode,
-  action_http: BaseNode,
+  LLMTask: BaseNode,
+  ToolCall: BaseNode,
+  SandboxExec: BaseNode,
+  Gate: BaseNode,
+  HumanApproval: BaseNode,
+  Merge: BaseNode,
+  Synthesis: BaseNode,
+  MemoryWrite: BaseNode,
+  PubSub: BaseNode,
+  GroupChat: BaseNode,
+  YAMLImport: BaseNode,
 }
 
 // Dagre Layout

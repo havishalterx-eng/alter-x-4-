@@ -1,10 +1,12 @@
 import { apiDelete, apiGet, apiPatch, apiPost, mutationKey } from "./http"
+import { compileDag } from "./compile-dag"
 import type {
   Artifact,
   DashboardOverview,
   DashboardSummary,
   IncomingEvent,
   Member,
+  NodeTypeDefinition,
   Profile,
   Project,
   ProjectFile,
@@ -128,9 +130,16 @@ export async function createWorkflow(goal: string): Promise<Workflow> {
 }
 
 export async function saveWorkflowGraph(id: string, graph: { nodes: any[]; edges: any[] }): Promise<void> {
-  await apiPatch(`/api/v1/workflows/${encodeURIComponent(id)}`, graph, {
-    idempotencyKey: mutationKey("workflow-save"),
-  })
+  await apiPatch(
+    `/api/v1/workflows/${encodeURIComponent(id)}`,
+    { dag: compileDag(graph.nodes, graph.edges) },
+    { idempotencyKey: mutationKey("workflow-save") },
+  )
+}
+
+export async function getNodeTypes(): Promise<NodeTypeDefinition[]> {
+  const body = await apiGet<unknown>("/api/v1/node-types")
+  return asArray(body, "node_types").map(mapNodeType)
 }
 
 export async function workflowAction(id: string, action: string, body: unknown = {}): Promise<unknown> {
@@ -343,6 +352,33 @@ function mapWorkflow(value: unknown): Workflow {
     runs: Number(item.runs ?? item.run_count ?? 0),
     successRate: Number(item.successRate ?? item.success_rate ?? 0),
     updatedAt: asDate(item.updatedAt ?? item.updated_at ?? item.createdAt ?? item.created_at),
+    dag: item.dag ?? undefined,
+  }
+}
+
+// Inspector reads config fields as node.data[key] with an optional
+// { label, default } describing each -- not raw JSON Schema. Adapt the
+// registry's JSON Schema config_schema_json into that flat shape.
+function mapNodeType(value: unknown): NodeTypeDefinition {
+  const item = value as AnyRecord
+  let configSchema: Record<string, { label: string; default?: unknown }> = {}
+  try {
+    const parsed = JSON.parse(String(item.config_schema_json ?? "{}")) as AnyRecord
+    const properties = (parsed.properties ?? {}) as AnyRecord
+    configSchema = Object.fromEntries(
+      Object.keys(properties).map((key) => [key, { label: key }]),
+    )
+  } catch {
+    configSchema = {}
+  }
+  return {
+    type: asString(item.type),
+    name: String(item.display_name ?? item.type),
+    description: String(item.description ?? ""),
+    category: String(item.category ?? "execution"),
+    inputs: [],
+    outputs: [],
+    configSchema,
   }
 }
 

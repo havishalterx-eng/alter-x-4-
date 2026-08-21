@@ -1,3 +1,5 @@
+import type { CompiledDag } from "@alterx/contracts"
+
 export type WorkflowStatus = "draft" | "active" | "paused" | "archived"
 export type DisplayCurrency = "USD" | "INR"
 export type RunStatus = "queued" | "starting" | "running" | "waiting" | "completed" | "failed" | "cancelled" | "degraded"
@@ -27,6 +29,7 @@ export interface Workflow {
   runs: number
   successRate: number
   updatedAt: string
+  dag?: CompiledDag
 }
 
 export interface Run {
