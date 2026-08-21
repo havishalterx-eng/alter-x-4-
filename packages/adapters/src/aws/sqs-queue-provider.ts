@@ -62,6 +62,14 @@ const SQS_QUEUE_METADATA: ProviderMetadata<"QueueProvider"> = {
   },
 };
 
+// ENGINE-FIX-P3-12: also structurally implements QueueMessageConsumer
+// (receive/delete below) for visibility-timeout-based callers -- not
+// declared in `implements` because ProviderMetadata<T>'s interfaceName is
+// a literal per T, so a single metadata value can't satisfy both
+// ProviderMetadata<"QueueProvider"> and ProviderMetadata<"QueueMessageConsumer">
+// at once. Callers needing the QueueMessageConsumer view cast explicitly
+// (see background-workers/main.ts), matching the canonical-events consumer's
+// existing precedent.
 export class SqsQueueProvider implements QueueProvider {
   readonly metadata = SQS_QUEUE_METADATA;
   readonly capabilities = SQS_QUEUE_CAPABILITIES;
