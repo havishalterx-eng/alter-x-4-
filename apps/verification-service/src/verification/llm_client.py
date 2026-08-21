@@ -13,6 +13,8 @@ time without touching kernel.py.
 
 from typing import Protocol, runtime_checkable
 
+from .models import InjectionClassification
+
 # Alter LLM alias vocabulary (doc 13 sec 2) -- components never name a
 # model, only an alias; Model Gateway resolves the actual provider/model
 # via policy. Doc 03 sec 4.1 assigns Verification & Quality Gate's reviewer
@@ -38,6 +40,25 @@ class ReviewerLlmClient(Protocol):
         """Score a node's output against its rubric.
 
         Returns (score in [0.0, 1.0], rationale).
+        """
+        ...
+
+    async def classify_prompt_injection(
+        self,
+        *,
+        tenant_id: str,
+        run_id: str,
+        node_execution_id: str,
+        text: str,
+    ) -> InjectionClassification:
+        """ENGINE-FIX-P3-15. Classify text (the node output about to be
+        reviewed) for prompt injection before it reaches the ADVANCED
+        reviewer -- anyone who can shape a node's output can otherwise
+        shape its own verification result. Must fail open (never detected)
+        on its own malfunction, same reasoning as the TypeScript
+        PromptInjectionClassifier this mirrors: a defense-in-depth guard
+        must not become a single point of failure for the whole quality
+        gate.
         """
         ...
 
@@ -67,3 +88,22 @@ class StubReviewerLlmClient:
         if stripped in ("", "{}", "null"):
             return 0.1, "Stub reviewer: output is empty or contains no content."
         return 0.9, "Stub reviewer: output is present and non-empty."
+
+    async def classify_prompt_injection(
+        self,
+        *,
+        tenant_id: str,
+        run_id: str,
+        node_execution_id: str,
+        text: str,
+    ) -> InjectionClassification:
+        # Deterministic stub trigger, same "just enough signal to prove
+        # kernel logic end-to-end" spirit as review()'s own heuristic.
+        lowered = text.lower()
+        if "ignore" in lowered and ("rubric" in lowered or "instruction" in lowered):
+            return InjectionClassification(
+                injection_detected=True,
+                confidence=0.9,
+                reason="Stub classifier: output attempts to override review instructions.",
+            )
+        return InjectionClassification(injection_detected=False, confidence=0.0, reason=None)

@@ -22,7 +22,7 @@ from src.verification.kernel import (
     VerificationKernel,
 )
 from src.verification.llm_client import StubReviewerLlmClient
-from src.verification.models import NodeType, ScoreNodeRequest
+from src.verification.models import InjectionClassification, NodeType, ScoreNodeRequest
 
 TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab"
 RUN_ID = "run_018f4d6e-2b4a-7a3e-8c1a-1234567890ab"
@@ -89,6 +89,13 @@ class TestFalsePassRate:
         class FixedLowScoreReviewer:
             async def review(self, **kwargs: object) -> tuple[float, str]:
                 return 0.4, "genuinely poor output"
+
+            async def classify_prompt_injection(
+                self, **kwargs: object
+            ) -> InjectionClassification:
+                return InjectionClassification(
+                    injection_detected=False, confidence=0.0, reason=None
+                )
 
         kernel = VerificationKernel(llm_client=FixedLowScoreReviewer())
         result = await kernel.score_node(request("LLMTask", '{"content": "looks plausible"}'))

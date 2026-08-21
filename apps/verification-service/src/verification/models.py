@@ -111,6 +111,21 @@ class SafetyAssessment(_StrictModel):
         return "terminate" if self.severity == "critical" else "heal"
 
 
+class InjectionClassification(_StrictModel):
+    """ENGINE-FIX-P3-15. Same contract as
+    packages/auth/session-gateway/src/prompt-injection-classifier.ts's
+    PromptInjectionClassificationResult -- both classify the same way
+    (FAST-tier model, same JSON shape), kept as two small
+    language-native implementations rather than a cross-service RPC
+    bridge for one LLM call, matching this repo's existing precedent
+    (background-workers' resolveRuntimeSecret is duplicated per service
+    the same way)."""
+
+    injection_detected: bool
+    confidence: float = Field(ge=0, le=1)
+    reason: str | None = None
+
+
 class ProblemDetails(_StrictModel):
     type: str
     title: str = Field(min_length=1)
