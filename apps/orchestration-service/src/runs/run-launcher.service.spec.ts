@@ -599,3 +599,73 @@ describe("RunLauncherService.retryNode", () => {
     expect(durable.startWorkflow).not.toHaveBeenCalled();
   });
 });
+
+describe("RunLauncherService.dispatchNextQueuedRun", () => {
+  function fakeQueue(leaseToken: string) {
+    return {
+      claimNext: vi.fn().mockResolvedValue({
+        runId: RUN,
+        priority: 0,
+        compiledDag: compiledDag(),
+        alreadyRunning: false,
+        leaseToken,
+        attempt: 1,
+      }),
+      acknowledge: vi.fn().mockResolvedValue(undefined),
+      enqueue: vi.fn(),
+      retryLater: vi.fn(),
+      discard: vi.fn(),
+    };
+  }
+
+  it("acknowledges the queue entry when the run's startup failure is made terminal", async () => {
+    // ENGINE-FIX-P3-1: the catch used to acknowledge unconditionally. This
+    // case -- startClaimedAndTransition throws RunStartFailedError after
+    // already marking the run 'failed' and recording its outcome -- is the
+    // one case where acknowledging is correct: the run is genuinely
+    // resolved, nothing should keep pointing at its queue entry.
+    const runRow = {
+      id: RUN, workflow_id: WORKFLOW, workflow_version_id: WORKFLOW_VERSION,
+      parent_kind: "workflow", status: "pending", started_at: null, ended_at: null,
+      created_at: "2026-07-28T00:00:00.000Z",
+    };
+    const { store } = fakeStore({ runRow });
+    const durable = {
+      startWorkflow: vi.fn().mockRejectedValue(new Error("temporal unreachable")),
+      terminateWorkflow: vi.fn(),
+    };
+    const queue = fakeQueue("lease-terminal");
+    const launcher = new RunLauncherService(store, durable as never, undefined, undefined, queue as never);
+
+    await expect(launcher.dispatchNextQueuedRun(BARE_TENANT)).rejects.toBeInstanceOf(
+      RunStartFailedError,
+    );
+
+    expect(queue.acknowledge).toHaveBeenCalledWith(BARE_TENANT, RUN, "lease-terminal");
+  });
+
+  it("does NOT acknowledge the queue entry on a transient error reading the run", async () => {
+    // The bug: a connection blip / statement timeout / pool exhaustion
+    // inside getRun used to be caught by the same handler as the terminal
+    // case above and acknowledged (deleted) anyway -- the run was never
+    // transitioned or marked terminal, so the queue entry was the only
+    // thing left pointing at it. Now it must propagate un-acknowledged so
+    // the lease expires and a sweeper can reclaim it.
+    const { store, tx } = fakeStore({});
+    tx.query.mockImplementation(async (statement: string) => {
+      if (statement.startsWith("SELECT") && statement.includes("FROM runs ")) {
+        throw new Error("connection terminated unexpectedly");
+      }
+      return { rowCount: 0, rows: [] };
+    });
+    const durable = { startWorkflow: vi.fn(), terminateWorkflow: vi.fn() };
+    const queue = fakeQueue("lease-transient");
+    const launcher = new RunLauncherService(store, durable as never, undefined, undefined, queue as never);
+
+    await expect(launcher.dispatchNextQueuedRun(BARE_TENANT)).rejects.toThrow(
+      "connection terminated unexpectedly",
+    );
+
+    expect(queue.acknowledge).not.toHaveBeenCalled();
+  });
+});
