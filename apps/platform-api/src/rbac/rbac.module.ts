@@ -9,7 +9,10 @@ import { ActorContextGuard } from "./actor-context.guard";
 import { RbacExceptionFilter } from "./rbac-exception.filter";
 import { RbacGuard } from "./rbac.guard";
 import { publicRouteMetadataKey } from "./rbac.metadata";
-import { RequestParamTenantResolver } from "./resource-tenant.resolver";
+import {
+  PlatformDbWorkspaceTenantLookup,
+  WorkspaceResourceTenantResolver,
+} from "./resource-tenant.resolver";
 
 export const resourceTenantResolverToken = Symbol("ResourceTenantResolver");
 
@@ -18,7 +21,9 @@ export const resourceTenantResolverToken = Symbol("ResourceTenantResolver");
   providers: [
     {
       provide: resourceTenantResolverToken,
-      useValue: new RequestParamTenantResolver(),
+      useFactory: (db: PlatformDb) =>
+        new WorkspaceResourceTenantResolver(new PlatformDbWorkspaceTenantLookup(db)),
+      inject: [PlatformDb],
     },
     {
       // Registered before RbacGuard -- NestJS runs multiple APP_GUARD
@@ -65,7 +70,7 @@ export const resourceTenantResolverToken = Symbol("ResourceTenantResolver");
     },
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector, resolver: RequestParamTenantResolver) =>
+      useFactory: (reflector: Reflector, resolver: WorkspaceResourceTenantResolver) =>
         new RbacGuard(reflector, resolver),
       inject: [Reflector, resourceTenantResolverToken],
     },

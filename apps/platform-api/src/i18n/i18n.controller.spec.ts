@@ -12,6 +12,8 @@ import {
   type ActorContextType,
   type RbacRequest,
 } from "../rbac";
+import { resourceTenantResolverToken } from "../rbac/rbac.module";
+import type { ResourceTenantResolver } from "../rbac/resource-tenant.resolver";
 import { I18nController } from "./i18n.controller";
 import { I18nExceptionFilter } from "./i18n-exception.filter";
 import { I18nService } from "./i18n.service";
@@ -24,6 +26,28 @@ const actor: ActorContextType = {
   permissions: [],
   session_id: "session-i18n",
 };
+
+// ENGINE-FIX-P3-21: this controller's PATCH workspaces/:workspaceId/language
+// route is the only one in this app whose URL carries a real workspaceId
+// param, so it's the only controller spec that needs to stand in for
+// WorkspaceResourceTenantResolver's real DB-backed lookup -- this file
+// mocks I18nService entirely and has no other reason to touch Postgres.
+// Same fake-resolver treatment as rbac.guard.spec.ts.
+class FakeResourceTenantResolver implements ResourceTenantResolver {
+  private readonly workspaceTenants: ReadonlyMap<string, string>;
+
+  constructor(workspaceTenants: Record<string, string>) {
+    this.workspaceTenants = new Map(Object.entries(workspaceTenants));
+  }
+
+  async resolveTenantId(request: RbacRequest): Promise<string | undefined> {
+    const params = request.params ?? {};
+    const directTenantId = params.tenantId ?? params.tenant_id;
+    if (directTenantId) return directTenantId;
+    const workspaceId = params.workspaceId ?? params.workspace_id;
+    return workspaceId ? this.workspaceTenants.get(workspaceId) : undefined;
+  }
+}
 
 describe("i18n routes", () => {
   let app: NestFastifyApplication;
@@ -46,7 +70,14 @@ describe("i18n routes", () => {
         I18nExceptionFilter,
         { provide: APP_FILTER, useClass: RbacExceptionFilter },
       ],
-    }).compile();
+    })
+      .overrideProvider(resourceTenantResolverToken)
+      .useValue(
+        new FakeResourceTenantResolver({
+          [actor.workspace_id ?? ""]: actor.tenant_id,
+        }),
+      )
+      .compile();
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
     app.getHttpAdapter().getInstance().addHook(
       "preHandler",
