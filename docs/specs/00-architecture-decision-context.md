@@ -1383,6 +1383,159 @@ model performance
 
 ```
 
+17a. IMPROVE ITEMS — VERIFIED AGAINST CODE (2026-08-21, roadmap Phase 1)
+The Full-Engine Hardening Review (2026-08-20) explicitly did not check this
+category -- see its own Section 11: "the IMPROVE items... Selection &
+Binding's routing factors, Recovery's multi-layer repair, Memory's
+provenance/reversibility" were named as the one open category. Read
+against the tree below, per component, with file:line evidence. Verdicts
+only -- none of this is fixed here; that's Phase 3 (Section 8 of the
+master context) once each gap is triaged into a wave.
+
+Session / Tenant Gateway — P0
+Already covered by the hardening audit itself, not re-derived here: the
+role->permission derivation is missing entirely (`permissions: []`
+hardcoded, actor-context.guard.ts:63, 101 endpoints unreachable --
+Critical, now shipped as a fix), tenant-ownership checking on
+resource-addressed routes was a real guard-level gap later downgraded to
+Medium once RLS+FORCE was confirmed as the actual enforcement point, and
+JWKS key eviction/negative-caching were both High findings (also shipped).
+Credential scope and run identity were not specifically targeted by the
+audit's search patterns; not independently re-verified here.
+
+Capability Resolver — P0
+`capability_resolver/resolver.py:1-5` states its own contract: "this
+module deliberately performs no agent, embedding, performance, or
+database lookup." That's correct alignment with Rule 7/8/9 (resolver
+determines requirements, registry describes what exists, selection/binding
+picks concrete implementations -- three separate concepts) -- it is NOT
+supposed to query the registry directly. "Provider-independent" holds:
+output is capability tags (`text.summarization`, `code.generation`, ...)
+and a model TIER (FAST/STANDARD/ADVANCED/CEILING), never a specific
+provider. What does NOT hold: the doc implies this reasoning should be
+principled/registry-informed; instead tier inference for freeform text
+is two hardcoded English keyword tuples (`_ADVANCED_TIER_TERMS`,
+`_FAST_TIER_TERMS`, resolver.py:65-85) checked in a fixed order (ADVANCED
+first, so it wins every tie) -- this is the audit's own Medium finding,
+still open, unrelated to whether it's "registry-backed."
+
+Selection & Binding — P0
+`selection_binding/engine.py:184-187` -- the entire routing formula is
+`combined_score = similarity_weight * capability_similarity +
+performance_weight * performance_score`. Two factors, not the doc's nine
+(quality, latency, cost, permissions, historical reliability, availability,
+policy, risk, learned performance). `performance_score` maps to "learned
+performance" / "historical reliability" (real: averaged verdict over
+`performance_records`, engine.py:102-120). Tenant/workspace/status
+filtering in the SQL functions as a permissions gate structurally.
+Genuinely absent: latency, cost, availability, policy, risk -- none of
+these participate in scoring at all. `policy_client` (engine.py:339-346)
+only ever supplies a similarity_weight override, and fails open
+(exception -> default weight) with no log line, so a policy-service
+outage silently reverts every tenant to the hardcoded default rather than
+erroring. This is exactly the problem the doc's IMPROVE entry was written
+to close ("more than vector similarity") -- it now is more than pure
+similarity, but not by much: 2 of 9 named factors, not 9.
+
+Graph Compiler — P0
+Two live production paths, not one. `compileArchitectureWorkflow` /
+`#compileArchitectureInput` (graph-compiler.service.ts:157-196, comment:
+"Strict ENGINE-12 path... consumes approved architecture and pinned
+bindings only") matches the doc exactly -- compiles an already-produced
+ArchitectureSpec + binding decision, invents nothing. This is what
+planner-facade.service.ts:113 (the real create-workflow path) calls.
+But `compileWorkflow` (graph-compiler.service.ts:75-154, the older path)
+takes a raw task skeleton and calls `compileTaskSkeletonToDag` directly --
+no Architecture Synthesizer, no Capability Registry, no Selection &
+Binding in between. This path is not dead: recovery-dispatch.service.ts:381
+calls it for the `replan`/`recompile` recovery strategies. Same
+architectural pattern as ID-validation and the empty-package drift
+Section 5's Pattern 4 already named elsewhere in the corpus -- two ways
+to build a DAG, only one goes through the layer the doc says owns system
+topology.
+
+Tool Gateway — P1
+`invokeTool` (tool-gateway.service.ts:95-143) implements exactly ONE tool:
+`SEARCH_WEB_TOOL_NAME`. Every other tool name throws
+`ToolGatewayNotImplementedError` with its own honest message: "Tool X has
+no real dispatch yet; only search_web is wired" (:127-129). Of the doc's
+six protocol categories (REST, MCP, SaaS, browser, database, search) --
+only search is real. REST, MCP, SaaS, browser and database have zero
+dispatch code, not even a stub -- this is disclosed clearly at the call
+site rather than silently mocked, which is the right way to be
+incomplete. What IS real and solid: permission binding + `ensureAllowed`,
+per-tenant rate limiting, credential resolution/token minting with
+eviction, and audit logging on every branch (success/denied/error) --
+so the governance scaffolding the doc asks for (credentials, permissions,
+audit) is genuinely built; the protocol breadth is not. Independently
+confirms Section 10's RESTRUCTURE-1 finding (Sandbox hasn't shed
+browser/database tools to Tool Gateway) from the other direction: even if
+Sandbox handed those responsibilities over today, Tool Gateway has
+nowhere to dispatch them to yet.
+
+Recovery Policy Engine — P0
+`recovery-strategy-table.ts:9-19` -- 10 DB-locked strategies (not the
+doc's 11; there is no separate "rebind_tool" concept at all, DB or code).
+Per the module's own comment (:21-33) and recovery-dispatch.service.ts's
+switch (:139-171): 8 of 10 have real dispatch (retry, backoff,
+escalate_model, degrade, ask_user, terminate, replan, recompile -- the
+last two SHARE one mechanism, see below). `repair` is honestly
+unimplemented: returns `outcome: "escalated"` with
+`strategy_dispatch_deferred: "repair" has no real target system wired
+yet` (:161-166). `recompile` and `replan` are the doc's two different
+granularities (branch-level repair vs. full replan) but the code merges
+them into one call (`#replan`, :142-149) with a disclosed reason:
+`GraphCompilerService.compileWorkflow` (the legacy task-skeleton path,
+see Graph Compiler above) always needs a full task skeleton, and only
+Planner produces one -- so there is no narrower "recompile without a new
+plan" primitive to call. `swap_agent` (:305-311) has real logic gated
+behind two optional constructor dependencies (`capabilityResolver`,
+`selectionBinding`); when either is unset it degrades to the same honest
+deferred-escalation pattern as `repair` -- whether it runs for real in
+production depends on how `RecoveryDispatchService` is constructed at the
+composition root, not verified here. Net: multi-layer vocabulary exists
+and is mostly real, but "recompile branch" is not actually narrower than
+"full replan" today, and "repair" doesn't exist as a mechanism at all.
+
+Memory & Learning — P1
+`extraction.py`'s `propose_writeback` (:30-83) checks that
+tenant_id/run_id/workspace_id in the request match what orchestration
+returns for that run (:45-56) -- but never checks `summary.verdict`
+before writing a candidate. `_scope_for` (:86-95) READS verdict to choose
+a scope (safety_pattern / project / failure) but does not reject a
+`failed` or `abandoned` run; every run produces a stored candidate
+regardless of verdict. Separately, `verified_output_artifact_id` is
+accepted as a caller-supplied, regex-shape-validated string
+(models.py:61-64) and stored into `provenance` as-is
+(extraction.py:71) -- memory-service does not itself confirm that
+artifact actually passed verification; that trust is placed entirely in
+the caller. Not flagged as a confirmed defect (the caller may well be a
+trusted internal path -- not traced end-to-end here), but it means
+"verified" is asserted, not independently checked, at this boundary.
+What IS real: `provenance` capture is genuine and complete (run_id,
+workspace_id, verified_output_artifact_id, namespace, source_summary --
+extraction.py:68-74); the write is a `status='candidate'` row
+(repository.py:84), not a direct commit -- real two-phase/reversible
+structure; idempotent per run via an advisory lock plus existing-candidate
+lookup (repository.py:62-75); and `StoredMemoryRevocation`
+(memory_learning/models.py:94-96, with a `reverted_at` field) confirms an
+actual revocation mechanism exists. Absent entirely: any confidence-score
+field, anywhere in the request/response/candidate-content models.
+
+Policy Store — P1
+`PolicyKind` (policy_store/models.py:99-103) is a closed
+`Literal["routing_weights", "quality_thresholds", "recovery_preferences"]`
+-- exactly 3 of the doc's 6 named targets. `architecture pattern scores`,
+`agent performance` and `model performance` do not exist as policy kinds
+anywhere in this module. What's there is real, not stubbed:
+`PolicyVersionConflictError` (repository.py:33) confirms genuine
+versioning/optimistic-concurrency on updates, and
+`GetActivePolicyResponse`'s documented `found=False` (not a 404) path
+(models.py:111-114) is a deliberate, sane default-fallback contract for
+callers like the recovery-strategy table. Half the target surface is
+built; the other half (anything learning-driven about architecture
+choice or per-agent/per-model performance) doesn't exist yet.
+
 18. RESTRUCTURE — 2 CORE COMPONENTS + CACHE PLANE
 Workflow Lifecycle — P2
 Formerly Deployment Controller.
