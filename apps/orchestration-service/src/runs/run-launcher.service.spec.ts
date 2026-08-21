@@ -669,3 +669,101 @@ describe("RunLauncherService.dispatchNextQueuedRun", () => {
     expect(queue.acknowledge).not.toHaveBeenCalled();
   });
 });
+
+describe("RunLauncherService.startAndTransition (queue-backed)", () => {
+  it("drains every claimable entry for the tenant, not just the one it enqueued (ENGINE-FIX-P3-5)", async () => {
+    // Mirrors the audit's exact scenario: enqueue run A, but claimNext's
+    // priority/age ordering picks a different, already-queued run B
+    // first. Draining exactly one entry (the old behaviour) would return
+    // having dispatched B and left A sitting there until some later,
+    // unrelated launch for this tenant. Looping must dispatch both.
+    const RUN_B = "run_018f4d6e-2b4a-7a3e-8c1a-1234567890bb";
+    const runs = new Map<string, Record<string, unknown>>([
+      [RUN, {
+        id: RUN, workflow_id: WORKFLOW, workflow_version_id: WORKFLOW_VERSION,
+        parent_kind: "workflow", status: "pending", started_at: null, ended_at: null,
+        created_at: "2026-07-28T00:00:00.000Z",
+      }],
+      [RUN_B, {
+        id: RUN_B, workflow_id: WORKFLOW, workflow_version_id: WORKFLOW_VERSION,
+        parent_kind: "workflow", status: "pending", started_at: null, ended_at: null,
+        created_at: "2026-07-28T00:00:00.000Z",
+      }],
+    ]);
+    const query = vi.fn(async (statement: string, values: readonly unknown[] = []) => {
+      if (statement.includes("UPDATE runs SET status = 'running'")) {
+        const [, runId] = values as [string, string];
+        const row = runs.get(runId)!;
+        row.status = "running";
+        row.started_at = "2026-07-28T00:00:01.000Z";
+        return { rowCount: 1, rows: [row] };
+      }
+      if (statement.includes("SELECT") && statement.includes("FROM runs ")) {
+        const [, runId] = values as [string, string];
+        const row = runs.get(runId);
+        return { rowCount: row ? 1 : 0, rows: row ? [row] : [] };
+      }
+      return { rowCount: 0, rows: [] };
+    });
+    const store: OrchestrationTenantStore = {
+      withTenant: async (tenantId, operation) => {
+        expect(tenantId).toBe(BARE_TENANT);
+        return operation({ query } as never);
+      },
+    };
+    const durable = { startWorkflow: vi.fn().mockResolvedValue({}), terminateWorkflow: vi.fn() };
+    const queue = {
+      enqueue: vi.fn().mockResolvedValue(undefined),
+      claimNext: vi
+        .fn()
+        .mockResolvedValueOnce({
+          runId: RUN_B, priority: 0, compiledDag: compiledDag(),
+          alreadyRunning: false, leaseToken: "lease-b", attempt: 1,
+        })
+        .mockResolvedValueOnce({
+          runId: RUN, priority: 0, compiledDag: compiledDag(),
+          alreadyRunning: false, leaseToken: "lease-a", attempt: 1,
+        })
+        .mockResolvedValueOnce(undefined),
+      acknowledge: vi.fn().mockResolvedValue(undefined),
+      retryLater: vi.fn(),
+      discard: vi.fn(),
+    };
+    const launcher = new RunLauncherService(store, durable as never, undefined, undefined, queue as never);
+
+    const result = await launcher.startAndTransition(BARE_TENANT, runs.get(RUN) as never, compiledDag());
+
+    expect(result.id).toBe(RUN);
+    expect(result.status).toBe("running");
+    expect(queue.claimNext).toHaveBeenCalledTimes(3); // B, then A, then undefined -- proves it didn't stop after the first
+    expect(durable.startWorkflow).toHaveBeenCalledTimes(2); // both B and A actually got dispatched
+    expect(queue.acknowledge).toHaveBeenCalledTimes(2);
+    expect(runs.get(RUN_B)!.status).toBe("running"); // the displaced run wasn't left behind
+  });
+
+  it("stops draining once the queue reports empty", async () => {
+    const { store } = fakeStore({});
+    const durable = { startWorkflow: vi.fn().mockResolvedValue({}), terminateWorkflow: vi.fn() };
+    const queue = {
+      enqueue: vi.fn().mockResolvedValue(undefined),
+      claimNext: vi.fn().mockResolvedValueOnce({
+        runId: RUN, priority: 0, compiledDag: compiledDag(),
+        alreadyRunning: false, leaseToken: "lease-a", attempt: 1,
+      }).mockResolvedValueOnce(undefined),
+      acknowledge: vi.fn().mockResolvedValue(undefined),
+      retryLater: vi.fn(),
+      discard: vi.fn(),
+    };
+    const launcher = new RunLauncherService(store, durable as never, undefined, undefined, queue as never);
+
+    await launcher.startAndTransition(BARE_TENANT, {
+      id: RUN, workflow_id: WORKFLOW, workflow_version_id: WORKFLOW_VERSION,
+      parent_kind: "workflow", status: "pending", started_at: null, ended_at: null,
+      created_at: "2026-07-28T00:00:00.000Z",
+    } as never, compiledDag());
+
+    // Not 100 (the defensive cap) -- a normal empty-after-one queue must
+    // stop at the real undefined, not run to the bound every time.
+    expect(queue.claimNext).toHaveBeenCalledTimes(2);
+  });
+});

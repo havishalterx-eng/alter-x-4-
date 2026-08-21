@@ -659,11 +659,44 @@ export class RunLauncherService {
         ...(options.priority === undefined ? {} : { priority: options.priority }),
         ...(options.alreadyRunning === true ? { alreadyRunning: true } : {}),
       });
-      const dispatched = await this.dispatchNextQueuedRun(tenantId);
-      if (dispatched?.id === row.id) return dispatched;
+      await this.#drainQueuedRuns(tenantId);
       return this.getRun(`ten_${tenantId}`, row.id);
     }
     return this.startClaimedAndTransition(tenantId, row, compiledDag, options);
+  }
+
+  /**
+   * ENGINE-FIX-P3-5. Draining exactly one entry per enqueue meant a
+   * displaced run (claimNext orders by priority/age, not "the one that
+   * was just enqueued") only ever got dispatched by a *later, unrelated*
+   * launch for the same tenant -- never, if that was the tenant's last
+   * launch. Looping here until the tenant's queue is actually empty also
+   * opportunistically drains any retryLater-delayed or lease-expired
+   * entry whose time has since come, for the same reason: nothing else
+   * in this service returns to a tenant's queue without a new run.
+   *
+   * This is the audit's own "loop claimNext until it returns undefined"
+   * alternative, not the other option it names (a standalone cross-tenant
+   * background sweeper on an interval) -- that would need its own
+   * cross-tenant-capable DB role provisioned outside this codebase (no
+   * IaC deploys these services yet, see the deletion service's own
+   * DELETION_DATABASE_USER for what that would take), so it's
+   * deliberately not attempted here. This closes the common case (a
+   * tenant's own subsequent activity fully drains their backlog) without
+   * needing new infrastructure; a genuinely dormant tenant with a stuck
+   * retry and no further launches ever is not covered by either this fix
+   * or the absence of one -- still open.
+   *
+   * The cap is a defensive bound against a pathological claimNext bug,
+   * not a tenant-fairness mechanism -- this only ever touches the one
+   * tenant that just enqueued, so cross-tenant fairness doesn't apply.
+   */
+  async #drainQueuedRuns(tenantId: string): Promise<void> {
+    const MAX_DRAIN_PER_CALL = 100;
+    for (let iteration = 0; iteration < MAX_DRAIN_PER_CALL; iteration += 1) {
+      const dispatched = await this.dispatchNextQueuedRun(tenantId);
+      if (dispatched === undefined) return;
+    }
   }
 
   /** Claims one durable queue entry. Entry is only removed after its durable
