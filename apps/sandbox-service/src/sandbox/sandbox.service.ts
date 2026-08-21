@@ -11,7 +11,6 @@ import type {
 } from "@alterx/adapters";
 import type {
   ConfigProvider,
-  BrowserProvider,
   JsonValue,
   QueueProvider,
   SandboxCommandResult,
@@ -118,7 +117,6 @@ export class SandboxService {
   constructor(
     private readonly sandbox: SandboxProvider,
     private readonly tools?: SandboxToolDependencies,
-    private readonly browserVerifier?: BrowserProvider,
   ) {
     this.#mintCostEventId = tools?.mintCostEventId ?? createCostEventId;
   }
@@ -226,12 +224,35 @@ export class SandboxService {
     } catch (error) { return this.#verification("build", "infra_failure", {}, "SANDBOX_BUILD_INFRA_FAILURE", this.#safeErrorDetail(error)); }
   }
 
-  async verifyRender(previewUrl: string, files: readonly SandboxFile[], timeoutMs?: number): Promise<VerificationResult> {
+  // ENGINE-FIX-P3-16: was the one browser-driving entry point never gated
+  // by #requireBrowserPermission (the other five: createBrowserSession/
+  // navigateBrowser/clickBrowser/extractBrowser/closeBrowserSession all
+  // are). It also took no SandboxToolCallContext, so there was no tenant
+  // to check a policy against even if it had called the gate. Separately:
+  // in production this.browserVerifier was never populated at all --
+  // AppModule.register()/main.ts only ever construct and pass `tools`
+  // (which already carries a real BrowserAutomationProvider, and
+  // BrowserAutomationProvider extends BrowserProvider, so it already
+  // satisfies inspectPage) -- meaning render verification always returned
+  // "inconclusive" in real deployments regardless of this gap. Fixed by
+  // using tools.browser instead of the separate, always-undefined field,
+  // and gating it the same way its five siblings are.
+  async verifyRender(
+    context: SandboxToolCallContext,
+    previewUrl: string,
+    files: readonly SandboxFile[],
+    timeoutMs?: number,
+  ): Promise<VerificationResult> {
     const placeholders = this.detectPlaceholders(files);
     if (placeholders.length > 0) return this.#verification("render", "logic_failure", { placeholderCount: placeholders.length }, "SANDBOX_RENDER_PLACEHOLDER_DETECTED");
-    if (!this.browserVerifier) return this.#verification("render", "inconclusive", {}, "SANDBOX_RENDER_BROWSER_UNAVAILABLE");
+    if (!this.tools) return this.#verification("render", "inconclusive", {}, "SANDBOX_RENDER_BROWSER_UNAVAILABLE");
     try {
-      const page = await this.browserVerifier.inspectPage(timeoutMs === undefined ? { url: previewUrl } : { url: previewUrl, timeoutMs });
+      await this.#requireBrowserPermission(this.tools, context, "browser.verify_render");
+    } catch {
+      return this.#verification("render", "logic_failure", {}, "SANDBOX_RENDER_PERMISSION_DENIED");
+    }
+    try {
+      const page = await this.tools.browser.inspectPage(timeoutMs === undefined ? { url: previewUrl } : { url: previewUrl, timeoutMs });
       if (page.statusCode >= 500) return this.#verification("render", "infra_failure", { statusCode: page.statusCode }, "SANDBOX_RENDER_INFRA_FAILURE");
       if (page.pageError || page.consoleErrors.length > 0 || !page.hasVisibleContent) return this.#verification("render", "logic_failure", { statusCode: page.statusCode, consoleErrorCount: page.consoleErrors.length }, "SANDBOX_RENDER_LOGIC_FAILURE", page.pageError);
       return this.#verification("render", "passed", { statusCode: page.statusCode });
