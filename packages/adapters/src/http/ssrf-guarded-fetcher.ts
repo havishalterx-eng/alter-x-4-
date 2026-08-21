@@ -59,6 +59,14 @@ export interface SsrfGuardedFetchResult {
 
 const DEFAULT_MAX_REDIRECTS = 3;
 const DEFAULT_TIMEOUT_MS = 10_000;
+// A safety limit defaulting to "unlimited" is backwards -- the safe value
+// should be the one a caller gets for free. Sandbox already passes this
+// exact value explicitly; Tool Gateway's two construction sites
+// (main.ts, eval_credential_grpc_server.ts) pass no config at all and used
+// to inherit Number.MAX_SAFE_INTEGER, buffering an unbounded response
+// (twice: chunk array + concatenated buffer) until the request's own
+// timeout -- an OOM reachable by any tenant that can run a workflow.
+const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576;
 
 async function defaultDnsResolver(hostname: string): Promise<readonly ResolvedAddress[]> {
   const results = await dnsLookup(hostname, { all: true, verbatim: true });
@@ -146,7 +154,7 @@ export class SsrfGuardedFetcher {
     this.#maxRedirects = config.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#maxResponseBytes =
-      config.maxResponseBytes ?? Number.MAX_SAFE_INTEGER;
+      config.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
     if (
       !Number.isSafeInteger(this.#maxResponseBytes) ||
       this.#maxResponseBytes < 1
