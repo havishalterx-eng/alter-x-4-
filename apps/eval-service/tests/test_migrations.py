@@ -13,6 +13,7 @@ from alembic import command
 from src.db.chaos_scenarios import CHAOS_GOLDEN_SET
 from src.db.launch_golden_sets import LAUNCH_GOLDEN_SETS, case_id
 from src.db.redteam_suites import REDTEAM_GOLDEN_SETS
+from src.db.redteam_suites_v2 import REDTEAM_GOLDEN_SETS_V2
 from src.db.remaining_golden_sets import REMAINING_GOLDEN_SETS
 from src.hardening import MockHarness, RegressionCapturePipeline, SqlAlchemyRegressionCaseStore
 from src.promotion_gate import PromotionGateRecorder
@@ -264,7 +265,26 @@ def test_live_failing_case_is_persisted_once_as_a_regression_case(pg_url: str) -
         assert "regression" in stored["tags"]
 
 
-def test_live_redteam_suites_are_seeded_and_readable_by_eval_service(pg_url: str) -> None:
+def test_live_redteam_suites_v1_are_retired(pg_url: str) -> None:
+    # ENGINE-FIX-P3-23: v1 (domain="redteam") was never dispatchable --
+    # _score_case never recognized "redteam", so every v1 case scored a
+    # deterministic fail regardless of real system behavior. Migration
+    # 0008 retires these rows rather than deleting them (eval_cases FKs
+    # to golden_sets with ON DELETE RESTRICT, and the historical rows are
+    # real past-run evidence, not garbage) -- confirm they're actually
+    # retired, not just superseded in name only.
+    engine = sa.create_engine(pg_url)
+    with engine.connect() as conn:
+        _service_context(conn)
+        rows = conn.execute(
+            sa.text("SELECT status FROM golden_sets WHERE id = ANY(:ids)"),
+            {"ids": [str(golden_set.id) for golden_set in REDTEAM_GOLDEN_SETS]},
+        ).all()
+        assert len(rows) == len(REDTEAM_GOLDEN_SETS)
+        assert all(status == "retired" for (status,) in rows)
+
+
+def test_live_redteam_suites_v2_are_seeded_and_readable_by_eval_service(pg_url: str) -> None:
     engine = sa.create_engine(pg_url)
     with engine.connect() as conn:
         _service_context(conn)
@@ -273,25 +293,26 @@ def test_live_redteam_suites_are_seeded_and_readable_by_eval_service(pg_url: str
                 "SELECT golden_sets.name, count(eval_cases.id) "
                 "FROM golden_sets LEFT JOIN eval_cases "
                 "ON eval_cases.golden_set_id = golden_sets.id "
-                "WHERE golden_sets.name IN "
+                "WHERE golden_sets.status = 'active' AND golden_sets.name IN "
                 "('redteam-prompt-injection', 'redteam-jailbreak', 'redteam-ssrf', "
                 "'redteam-malicious-upload', 'redteam-cross-tenant-leakage') "
                 "GROUP BY golden_sets.name"
             )
         ).all()
         assert {str(name): int(count) for name, count in rows} == {
-            golden_set.name: len(golden_set.cases) for golden_set in REDTEAM_GOLDEN_SETS
+            golden_set.name: len(golden_set.cases) for golden_set in REDTEAM_GOLDEN_SETS_V2
         }
 
         ssrf_case = (
             conn.execute(
                 sa.text("SELECT input, expected, tags FROM eval_cases WHERE id = :case_id"),
-                {"case_id": case_id(REDTEAM_GOLDEN_SETS[2], 1)},
+                {"case_id": case_id(REDTEAM_GOLDEN_SETS_V2[2], 1)},
             )
             .mappings()
             .one()
         )
-        assert ssrf_case["input"]["attack"] == "ssrf"
+        assert ssrf_case["input"]["operation"] == "security_classify"
+        assert ssrf_case["input"]["suite"] == "ssrf"
         assert ssrf_case["expected"]["outcome"] == "blocked"
         assert "redteam" in ssrf_case["tags"]
 
