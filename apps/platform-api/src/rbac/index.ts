@@ -9,6 +9,7 @@ export {
 export * from "./rbac-exception.filter";
 export * from "./rbac.guard";
 export * from "./rbac.module";
+export * from "./param-workspace.resolver";
 export * from "./resource-tenant.resolver";
 export type {
   ActorContext as ActorContextType,

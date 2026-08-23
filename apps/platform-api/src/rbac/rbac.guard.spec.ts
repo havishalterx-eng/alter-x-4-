@@ -10,7 +10,11 @@ import {
   RequireTenantRole,
   RequireWorkspaceRole,
 } from "./decorators";
-import { RbacModule, resourceTenantResolverToken } from "./rbac.module";
+import {
+  ParamWorkspaceResolver,
+  WorkspaceLookupUnavailableError,
+} from "./param-workspace.resolver";
+import { RbacModule, resourceTenantResolverToken, resourceWorkspaceResolverToken } from "./rbac.module";
 import type { ResourceTenantResolver } from "./resource-tenant.resolver";
 import type { ActorContext as ActorContextType, StaffActorContext } from "./types";
 
@@ -36,6 +40,9 @@ class FakeResourceTenantResolver implements ResourceTenantResolver {
 
 const tenantA = "00000000-0000-7000-8000-000000000001";
 const tenantB = "00000000-0000-7000-8000-000000000002";
+// Both workspaces belong to tenantA on purpose: the pre-P5-1 spec mapped
+// them to DIFFERENT tenants, which is exactly why it could only prove
+// cross-TENANT denial and never caught the cross-workspace escalation.
 const workspaceA = "00000000-0000-7000-8000-000000000101";
 const workspaceB = "00000000-0000-7000-8000-000000000102";
 
@@ -106,6 +113,14 @@ class RbacTestController {
     return { ok: true };
   }
 
+  // ENGINE-FIX-P5-1 regression surface: same shape as env-vars' routes --
+  // a :projectId param with no workspace anywhere in the URL.
+  @RequireWorkspaceRole("admin")
+  @Get("projects/:projectId/admin")
+  projectAdmin(): { ok: true } {
+    return { ok: true };
+  }
+
   @RequireTenantRole("member")
   @Get("actor")
   actor(@ActorContext() actorContext: ActorContextType): { userId: string } {
@@ -160,28 +175,21 @@ describe("RbacGuard", () => {
       .useValue(
         new FakeResourceTenantResolver({
           [workspaceA]: tenantA,
-          [workspaceB]: tenantB,
+          [workspaceB]: tenantA,
         }),
       )
+      // Direct workspaceId params resolve to themselves; no project lookup
+      // in this file -- :projectId routes therefore exercise the documented
+      // legacy flat path here, and the binding behavior is covered by the
+      // workspaceId routes plus param-workspace.resolver.spec.ts.
+      .overrideProvider(resourceWorkspaceResolverToken)
+      .useValue(new ParamWorkspaceResolver())
       .compile();
 
     app = moduleRef.createNestApplication<NestFastifyApplication>(
       new FastifyAdapter(),
     );
-    app.getHttpAdapter().getInstance().addHook("preHandler", (request, _reply, done) => {
-      const actor = request.headers["x-test-actor"];
-      if (typeof actor === "string") {
-        (request as unknown as { actorContext?: ActorContextType }).actorContext = JSON.parse(
-          actor,
-        ) as ActorContextType;
-      }
-      const staff = request.headers["x-test-staff"];
-      if (typeof staff === "string") {
-        (request as unknown as { staffActorContext?: StaffActorContext }).staffActorContext =
-          JSON.parse(staff) as StaffActorContext;
-      }
-      done();
-    });
+    attachActorHook(app);
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
   });
@@ -281,7 +289,73 @@ describe("RbacGuard", () => {
       actor(["viewer"], tenantA, workspaceA),
     );
     expect(denied.statusCode).toBe(403);
-    expect(denied.json()).toMatchObject({ error_code: "RBAC_ROLE_DENIED" });
+    expect(denied.json()).toMatchObject({ error_code: "RBAC_WORKSPACE_ROLE_DENIED" });
+  });
+
+  // ENGINE-FIX-P5-1: the escalation this fix exists for. Before it, an
+  // admin of workspace A passed workspace B's admin gate inside the SAME
+  // tenant, because roles were checked against the flat any-workspace
+  // union. The spec previously could not even express this case: its two
+  // workspaces belonged to different tenants.
+  it("denies a role held in another workspace of the same tenant", async () => {
+    const adminOfAOnly = actor(["admin"], tenantA, workspaceA);
+
+    const own = await get(`/rbac-test/workspaces/${workspaceA}/admin`, adminOfAOnly);
+    expect(own.statusCode).toBe(200);
+
+    const other = await get(`/rbac-test/workspaces/${workspaceB}/admin`, adminOfAOnly);
+    expect(other.statusCode).toBe(403);
+    expect(other.json()).toMatchObject({ error_code: "RBAC_WORKSPACE_ROLE_DENIED" });
+  });
+
+  it("denies when the actor holds no membership binding for the target workspace at all", async () => {
+    const flatRoleOnly = actor(["editor"], tenantA, undefined);
+
+    const response = await get(
+      `/rbac-test/workspaces/${workspaceA}/editor`,
+      flatRoleOnly,
+    );
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ error_code: "RBAC_WORKSPACE_ROLE_DENIED" });
+  });
+
+  it("keeps the legacy flat-role behavior for routes with no resolvable workspace (documented)", async () => {
+    const response = await get(
+      "/rbac-test/projects/some-project/admin",
+      actor(["admin"], tenantA, workspaceA),
+    );
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("fails closed with RBAC_WORKSPACE_UNRESOLVABLE when workspace resolution errors on a bound route", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [RbacTestModule],
+    })
+      .overrideProvider(resourceTenantResolverToken)
+      .useValue(new FakeResourceTenantResolver({ [workspaceA]: tenantA }))
+      .overrideProvider(resourceWorkspaceResolverToken)
+      .useValue({
+        resolveWorkspaceId: async () => {
+          throw new WorkspaceLookupUnavailableError();
+        },
+      })
+      .compile();
+    const failingApp = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+    );
+    attachActorHook(failingApp);
+    await failingApp.init();
+    await failingApp.getHttpAdapter().getInstance().ready();
+
+    try {
+      const response = await injectGet(failingApp, `/rbac-test/workspaces/${workspaceA}/admin`, actor(["admin"], tenantA, workspaceA));
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toMatchObject({ error_code: "RBAC_WORKSPACE_UNRESOLVABLE" });
+    } finally {
+      await failingApp.close();
+    }
   });
 
   async function get(
@@ -289,22 +363,52 @@ describe("RbacGuard", () => {
     actorContext?: ActorContextType,
     staffContext?: StaffActorContext,
   ) {
-    const options: { method: "GET"; url: string; headers?: Record<string, string> } = {
-      method: "GET",
-      url,
-    };
-    if (actorContext || staffContext) {
-      options.headers = {};
-      if (actorContext) {
-        options.headers["x-test-actor"] = JSON.stringify(actorContext);
-      }
-      if (staffContext) {
-        options.headers["x-test-staff"] = JSON.stringify(staffContext);
-      }
-    }
-    return await app.getHttpAdapter().getInstance().inject(options);
+    return injectGet(app, url, actorContext, staffContext);
   }
 });
+
+type InjectApp = {
+  getHttpAdapter: () => { getInstance: () => { inject: (options: unknown) => Promise<{ statusCode: number; json: () => unknown }> } };
+};
+
+function attachActorHook(app: NestFastifyApplication): void {
+  app.getHttpAdapter().getInstance().addHook("preHandler", (request, _reply, done) => {
+    const actorHeader = request.headers["x-test-actor"];
+    if (typeof actorHeader === "string") {
+      (request as unknown as { actorContext?: ActorContextType }).actorContext = JSON.parse(
+        actorHeader,
+      ) as ActorContextType;
+    }
+    const staff = request.headers["x-test-staff"];
+    if (typeof staff === "string") {
+      (request as unknown as { staffActorContext?: StaffActorContext }).staffActorContext =
+        JSON.parse(staff) as StaffActorContext;
+    }
+    done();
+  });
+}
+
+async function injectGet(
+  target: InjectApp,
+  url: string,
+  actorContext?: ActorContextType,
+  staffContext?: StaffActorContext,
+): Promise<{ statusCode: number; json: () => unknown }> {
+  const options: { method: "GET"; url: string; headers?: Record<string, string> } = {
+    method: "GET",
+    url,
+  };
+  if (actorContext || staffContext) {
+    options.headers = {};
+    if (actorContext) {
+      options.headers["x-test-actor"] = JSON.stringify(actorContext);
+    }
+    if (staffContext) {
+      options.headers["x-test-staff"] = JSON.stringify(staffContext);
+    }
+  }
+  return await target.getHttpAdapter().getInstance().inject(options);
+}
 
 function actor(
   roles: string[],
@@ -320,6 +424,10 @@ function actor(
   };
   if (workspaceId) {
     context.workspace_id = workspaceId;
+    // ENGINE-FIX-P5-1: structured bindings are what the guard now consults
+    // for a resolved target workspace; the flat roles array alone no longer
+    // grants workspace-scoped routes.
+    context.workspaceRoles = roles.map((role) => ({ workspaceId, role }));
   }
   return context;
 }

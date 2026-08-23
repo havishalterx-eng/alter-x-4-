@@ -25,6 +25,10 @@ const actor: ActorContextType = {
   roles: ["admin"],
   permissions: [],
   session_id: "session-i18n",
+  // ENGINE-FIX-P5-1: the guard now answers @RequireWorkspaceRole for a
+  // resolved workspaceId from these structured bindings, not the flat
+  // roles array.
+  workspaceRoles: [{ workspaceId: "00000000-0000-7000-8000-000000000021", role: "admin" }],
 };
 
 // ENGINE-FIX-P3-21: this controller's PATCH workspaces/:workspaceId/language
@@ -126,7 +130,16 @@ describe("i18n routes", () => {
     const denied = await request(
       "PATCH",
       `/api/v1/i18n/workspaces/${actor.workspace_id}/language`,
-      { ...actor, roles: ["viewer"] },
+      {
+        ...actor,
+        roles: ["viewer"],
+        // ENGINE-FIX-P5-1: the structured binding is what the guard
+        // consults for the resolved workspace, so the downgraded actor's
+        // binding must be downgraded with it.
+        workspaceRoles: [
+          { workspaceId: "00000000-0000-7000-8000-000000000021", role: "viewer" },
+        ],
+      },
       { language: "hi" },
     );
     expect(denied.statusCode).toBe(403);

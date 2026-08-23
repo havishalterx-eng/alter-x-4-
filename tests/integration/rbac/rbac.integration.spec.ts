@@ -2,6 +2,7 @@ import type { ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { describe, expect, it } from "vitest";
 import { RbacDeniedError } from "../../../apps/platform-api/src/rbac/problem";
+import { ParamWorkspaceResolver } from "../../../apps/platform-api/src/rbac/param-workspace.resolver";
 import { RbacGuard } from "../../../apps/platform-api/src/rbac/rbac.guard";
 import type { ResourceTenantResolver } from "../../../apps/platform-api/src/rbac/resource-tenant.resolver";
 import {
@@ -77,8 +78,12 @@ describe("RBAC integration isolation", () => {
     if (actual === required) {
       await expect(result).resolves.toBe(true);
     } else {
+      // ENGINE-FIX-P5-1: the route's resolved target workspace now requires
+      // the role from the actor's binding FOR THAT workspace, so a
+      // mismatched role is a workspace-scoped denial, not the flat
+      // RBAC_ROLE_DENIED.
       await expect(result).rejects.toMatchObject({
-        problem: { error_code: "RBAC_ROLE_DENIED", status: 403 },
+        problem: { error_code: "RBAC_WORKSPACE_ROLE_DENIED", status: 403 },
       });
     }
   });
@@ -143,6 +148,9 @@ async function canActivate(testCase: GuardCase): Promise<boolean> {
       [workspaceA]: tenantA,
       [workspaceB]: tenantB,
     }),
+    // Direct workspaceId params resolve to themselves; no project lookup
+    // is needed for these cases.
+    new ParamWorkspaceResolver(),
   );
   const request: RbacRequest = { url: "/integration-rbac/test" };
   if (testCase.actorContext) {
@@ -191,6 +199,10 @@ function actor(roles: string[], tenantId: string, workspaceId?: string): ActorCo
   };
   if (workspaceId) {
     context.workspace_id = workspaceId;
+    // ENGINE-FIX-P5-1: the guard consults these structured bindings for a
+    // resolved target workspace; the flat array alone no longer grants
+    // workspace-scoped routes.
+    context.workspaceRoles = roles.map((role) => ({ workspaceId, role }));
   }
   return context;
 }
