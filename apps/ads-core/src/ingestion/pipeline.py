@@ -6,7 +6,7 @@ from typing import cast
 from src.db.ids import new_prefixed_id, validate_prefixed_id
 from src.storage.object_storage import ObjectNotFoundError, ObjectStorageProvider
 
-from .chunking import Chunk, ChunkSplitter
+from .chunking import Chunk, ChunkSplitter, UnsupportedContentTypeError
 from .embedding_client import EmbeddingClient, EmbeddingDimensions
 from .models import IngestionError, IngestionJobResponse, IngestionPayload, ReindexResponse
 from .normalization import ContentNormalizer
@@ -216,9 +216,28 @@ class IngestionPipeline:
             else:
                 document_id = str(dedup["document_id"])
                 scope_id = str(dedup["scope_id"])
-                chunks = self._chunk_splitter.split(
-                    content=normalized.content, content_type=content_type
-                )
+                try:
+                    chunks = self._chunk_splitter.split(
+                        content=normalized.content, content_type=content_type
+                    )
+                except UnsupportedContentTypeError as exc:
+                    # The raw/normalized objects stay in storage -- the upload
+                    # itself is valid and real, only chunk-and-index has no
+                    # extractor for this content type. Fail the job instead of
+                    # indexing a placeholder chunk that looks searchable but
+                    # never is (ENGINE-FIX-P3-25).
+                    return self._response(
+                        self._repository.fail(
+                            tenant_uuid=tenant_uuid,
+                            ingestion_job_id=job.ingestion_job_id,
+                            expected_stage="deduplicated",
+                            error={
+                                "code": "text_extraction_unavailable",
+                                "detail": str(exc),
+                            },
+                            stats={"chunking": {"content_type": content_type}},
+                        )
+                    )
                 embedded_chunks = tuple(
                     self._embed_chunk(tenant_uuid=tenant_uuid, chunk=chunk) for chunk in chunks
                 )
