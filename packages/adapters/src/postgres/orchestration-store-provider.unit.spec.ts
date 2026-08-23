@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   POSTGRES_ORCHESTRATION_FEATURE_DECISION,
   PostgresOrchestrationStoreProvider,
+  sharedOrchestrationPoolFactory,
 } from "./orchestration-store-provider";
 
 const migrationsFolder = "apps/orchestration-service/drizzle";
@@ -364,5 +365,69 @@ describe("PostgresOrchestrationStoreProvider", () => {
     await expect(provider.rollback()).rejects.toBe(failure);
     expect(client.query).toHaveBeenLastCalledWith("ROLLBACK");
     expect(client.release).toHaveBeenCalledOnce();
+  });
+});
+
+describe("sharedOrchestrationPoolFactory", () => {
+  it("returns the same pool for the same static connection string", () => {
+    const config: PoolConfig = {
+      connectionString: "postgresql://test.invalid/shared-pool-static-a",
+    };
+    const first = sharedOrchestrationPoolFactory(config);
+    const second = sharedOrchestrationPoolFactory({ ...config });
+
+    expect(second).toBe(first);
+    void first.end();
+  });
+
+  it("returns different pools for different connection strings", () => {
+    const first = sharedOrchestrationPoolFactory({
+      connectionString: "postgresql://test.invalid/shared-pool-static-b",
+    });
+    const second = sharedOrchestrationPoolFactory({
+      connectionString: "postgresql://test.invalid/shared-pool-static-c",
+    });
+
+    expect(second).not.toBe(first);
+    void first.end();
+    void second.end();
+  });
+
+  it("returns the same pool for the same IAM host/port/database/user", () => {
+    const config: PoolConfig = {
+      host: "orchestration-db.internal",
+      port: 5432,
+      database: "orchestration_db",
+      user: "orchestration_shared_a",
+    };
+    const first = sharedOrchestrationPoolFactory(config);
+    const second = sharedOrchestrationPoolFactory({ ...config });
+
+    expect(second).toBe(first);
+    void first.end();
+  });
+
+  it("returns a different pool for a different IAM user, even with the same host/port/database", () => {
+    // This is the actual bug under test -- app.module.ts's deletion/system
+    // store intentionally authenticates as a different role than the
+    // tenant-scoped stores. Sharing by connection identity, not one pool
+    // for everything, is what keeps that privilege separation intact.
+    const base = {
+      host: "orchestration-db.internal",
+      port: 5432,
+      database: "orchestration_db",
+    };
+    const tenantScoped = sharedOrchestrationPoolFactory({
+      ...base,
+      user: "orchestration_tenant_role",
+    });
+    const systemScoped = sharedOrchestrationPoolFactory({
+      ...base,
+      user: "orchestration_system_role",
+    });
+
+    expect(systemScoped).not.toBe(tenantScoped);
+    void tenantScoped.end();
+    void systemScoped.end();
   });
 });

@@ -118,6 +118,7 @@ export {
 } from "./postgres/audit-store-provider";
 export {
   PostgresOrchestrationStoreProvider,
+  sharedOrchestrationPoolFactory,
   POSTGRES_ORCHESTRATION_FEATURE_DECISION,
   bigint,
   boolean,
