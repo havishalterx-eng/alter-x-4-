@@ -1,10 +1,12 @@
 import {
   createMockAuditEventHandler,
+  createMockCacheProvider,
   createMockConfigProvider,
   createMockQueueProvider,
   createMockSearchProvider,
   createMockSecretsProvider,
   type AuditEventHandler,
+  type CacheProvider,
   type ConfigProvider,
   type QueueProvider,
   type SearchProvider,
@@ -98,6 +100,7 @@ interface ServiceOverrides {
   readonly databaseProvider?: DatabaseOperationProvider;
   readonly costQueue?: QueueProvider;
   readonly costEventsQueueName?: string;
+  readonly cacheProvider?: CacheProvider;
   readonly options?: ToolGatewayServiceOptions;
 }
 
@@ -112,6 +115,7 @@ function buildService(overrides: ServiceOverrides = {}): ToolGatewayService {
     overrides.databaseProvider ?? fakeDatabaseProvider(),
     overrides.costQueue ?? createMockQueueProvider(),
     overrides.costEventsQueueName ?? "test-cost-events",
+    overrides.cacheProvider ?? createMockCacheProvider(),
     overrides.options ?? {},
   );
 }
@@ -233,6 +237,82 @@ describe("ToolGatewayService", () => {
     ).toContainEqual(
       expect.objectContaining({ target_ref: "search.web", result: "success" }),
     );
+  });
+
+  describe("search.web caching (ENGINE-RESTRUCTURE-P4-3, real Cache/Reuse cross-cutting wiring)", () => {
+    function searchRequest(
+      overrides: Partial<Parameters<ToolGatewayService["invokeTool"]>[0]> = {},
+    ) {
+      return invokeRequest({
+        tool_name: "search.web",
+        input_json: JSON.stringify({ query: "hello world", maxResults: 3 }),
+        ...overrides,
+      });
+    }
+
+    it("reuses a cached result instead of calling the real SearchProvider again", async () => {
+      const search = vi.fn(async () => ({
+        results: [{ title: "t", url: "https://example.com", snippet: "s", score: 0.5 }],
+      }));
+      const cacheProvider = createMockCacheProvider();
+      const service = buildService({
+        searchProvider: { ...createMockSearchProvider(), search },
+        cacheProvider,
+      });
+
+      const first = await service.invokeTool(searchRequest());
+      const second = await service.invokeTool(searchRequest());
+
+      expect(search).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(second.output_json)).toEqual(JSON.parse(first.output_json));
+    });
+
+    it("shares the cache across tenants since search.web results are public web content", async () => {
+      const search = vi.fn(async () => ({
+        results: [{ title: "t", url: "https://example.com", snippet: "s", score: 0.5 }],
+      }));
+      const cacheProvider = createMockCacheProvider();
+      const service = buildService({
+        searchProvider: { ...createMockSearchProvider(), search },
+        cacheProvider,
+        secretsProvider: createMockSecretsProvider({
+          secrets: {
+            [SECRET_REF]: RAW_SECRET_VALUE,
+            [`/alter/prod/tenant/${TENANT_B}/integration/${INTEGRATION_A}/access-token`]:
+              RAW_SECRET_VALUE,
+          },
+        }),
+      });
+
+      await service.invokeTool(searchRequest());
+      await service.invokeTool(
+        searchRequest({
+          tenant_id: TENANT_B,
+          credential_ref: `/alter/prod/tenant/${TENANT_B}/integration/${INTEGRATION_A}/access-token`,
+        }),
+      );
+
+      expect(search).toHaveBeenCalledTimes(1);
+    });
+
+    it("falls through to a real search when the cache lookup itself fails (fail-open)", async () => {
+      const search = vi.fn(async () => ({
+        results: [{ title: "t", url: "https://example.com", snippet: "s", score: 0.5 }],
+      }));
+      const cacheProvider: CacheProvider = {
+        ...createMockCacheProvider(),
+        getValue: () => {
+          throw new Error("cache unavailable");
+        },
+      };
+      const service = buildService({
+        searchProvider: { ...createMockSearchProvider(), search },
+        cacheProvider,
+      });
+
+      await expect(service.invokeTool(searchRequest())).resolves.toBeDefined();
+      expect(search).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("rejects search.web input missing a query", async () => {

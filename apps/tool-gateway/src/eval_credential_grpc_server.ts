@@ -10,6 +10,7 @@ import {
 } from "@alterx/adapters";
 import {
   createMockAuditEventHandler,
+  createMockCacheProvider,
   createMockConfigProvider,
   createMockQueueProvider,
   createMockSearchProvider,
@@ -93,6 +94,7 @@ async function bootstrap(): Promise<void> {
       unexercisedDatabaseProvider,
       costQueue,
       "eval-credential-server-cost-events",
+      createMockCacheProvider(),
     ),
     new FastifyAdapter(),
   );
