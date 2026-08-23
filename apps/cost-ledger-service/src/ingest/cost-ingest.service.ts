@@ -93,10 +93,8 @@ export class CostIngestService {
       throw new CostUnrecognizedSourceError(request.source);
     }
     const usage = deriveUsage(request.source, request.usage_json);
-    const internalCostMinor = deriveInternalCostMinorInr(
-      request.amount_json,
-      this.usdToInrRate,
-    );
+    const amountUsd = parseUsdAmount(request.amount_json);
+    const internalCostMinor = String(Math.round(amountUsd * this.usdToInrRate * 100));
 
     const { workspace_id: workspaceId, workflow_id: workflowId } = await this.runsClient.getRunWorkspace(
       {
@@ -120,10 +118,10 @@ export class CostIngestService {
         `INSERT INTO cost_events (
            id, tenant_id, workspace_id, mode, parent_id, run_id, node_execution_id,
            source, provider, resource, quantity, unit, internal_cost_minor, currency,
-           is_retry, is_recovery, occurred_at
+           is_retry, is_recovery, occurred_at, fx_rate_used, amount_usd
          )
          SELECT $1, $2, $3, 'workflow', $4, $5, $6, $7, $8, $9, $10, $11, $12, 'INR',
-                $14, $15, $13
+                $14, $15, $13, $16, $17
          WHERE NOT EXISTS (SELECT 1 FROM cost_events WHERE id = $1)`,
         [
           bareCostEventUuid(costEventId),
@@ -141,6 +139,13 @@ export class CostIngestService {
           occurredAt,
           isRetry,
           isRecovery,
+          // ENGINE-FIX-P3-24: previously only the converted INR result was
+          // stored -- neither the rate applied nor the original USD amount.
+          // A rate change made old rows silently incomparable to new ones,
+          // with nothing in the data marking the boundary. Both new,
+          // additive/nullable (see 0005_fx_rate_and_usd_amount.sql).
+          String(this.usdToInrRate),
+          String(amountUsd),
         ],
       );
     });
@@ -190,9 +195,11 @@ function deriveUsage(source: string, usageJson: string): DerivedUsage {
 /**
  * amount_json.usd is a USD float (see model-gateway's ESTIMATED_USD_PER_TOKEN
  * comment: not billing-accurate). New rows store INR paise using the configured
- * placeholder rate. Existing USD rows are immutable and remain USD.
+ * placeholder rate (see ingestCostEvent -- internal_cost_minor is derived from
+ * this same parsed amount, rounded once at the call site). Existing USD rows
+ * are immutable and remain USD.
  */
-function deriveInternalCostMinorInr(amountJson: string, usdToInrRate: number): string {
+function parseUsdAmount(amountJson: string): number {
   let parsed: unknown;
   try {
     parsed = JSON.parse(amountJson);
@@ -206,7 +213,7 @@ function deriveInternalCostMinorInr(amountJson: string, usdToInrRate: number): s
   if (typeof usd !== "number" || usd < 0) {
     throw new CostValidationError("amount_json.usd must be a non-negative number");
   }
-  return String(Math.round(usd * usdToInrRate * 100));
+  return usd;
 }
 
 function requireSchema(

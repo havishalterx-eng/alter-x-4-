@@ -41,6 +41,12 @@ export const costEvents = pgTable(
     isRetry: boolean("is_retry").notNull().default(false),
     isRecovery: boolean("is_recovery").notNull().default(false),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    // ENGINE-FIX-P3-24: additive, nullable -- existing rows predate this
+    // column and have nothing real to backfill it with (the rate that
+    // produced their internal_cost_minor was never recorded). NULL means
+    // "predates this fix", not "unknown for a row inserted today".
+    fxRateUsed: numeric("fx_rate_used"),
+    amountUsd: numeric("amount_usd"),
   },
   (table) => [
     check(
@@ -55,6 +61,14 @@ export const costEvents = pgTable(
     check(
       "cost_events_internal_cost_minor_check",
       sql`${table.internalCostMinor} >= 0`,
+    ),
+    check(
+      "cost_events_fx_rate_used_check",
+      sql`${table.fxRateUsed} IS NULL OR ${table.fxRateUsed} > 0`,
+    ),
+    check(
+      "cost_events_amount_usd_check",
+      sql`${table.amountUsd} IS NULL OR ${table.amountUsd} >= 0`,
     ),
     index("idx_cost_events_tenant_occurred").on(
       table.tenantId,

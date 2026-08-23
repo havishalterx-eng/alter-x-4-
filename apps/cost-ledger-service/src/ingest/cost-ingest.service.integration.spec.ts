@@ -31,6 +31,8 @@ interface StoredCostEvent extends Record<string, unknown> {
   readonly unit: string;
   readonly internal_cost_minor: string;
   readonly currency: string;
+  readonly fx_rate_used: string | null;
+  readonly amount_usd: string | null;
 }
 
 function fakeRunsClient() {
@@ -92,7 +94,7 @@ describe.sequential("CostIngestService against a real Postgres cost_db", () => {
 
     const rows = await store.withTenant(BARE_TENANT, async (tx) => {
       const result = await tx.query<StoredCostEvent>(
-        "SELECT id, parent_id, run_id, node_execution_id, source, resource, quantity, unit, internal_cost_minor, currency FROM cost_events WHERE tenant_id = $1",
+        "SELECT id, parent_id, run_id, node_execution_id, source, resource, quantity, unit, internal_cost_minor, currency, fx_rate_used, amount_usd FROM cost_events WHERE tenant_id = $1",
         [BARE_TENANT],
       );
       return result.rows;
@@ -110,6 +112,12 @@ describe.sequential("CostIngestService against a real Postgres cost_db", () => {
       unit: "tokens",
       internal_cost_minor: "104", // round(0.0125 * 83 * 100) = 103.75 -> 104
       currency: "INR",
+      // ENGINE-FIX-P3-24: real Postgres round-trip proof the new columns
+      // (0005_fx_rate_and_usd_amount.sql) actually persist -- the unit
+      // spec only proves the query params get built correctly, not that
+      // the CHECK constraints/column types accept them.
+      fx_rate_used: "83",
+      amount_usd: "0.0125",
     });
   });
 

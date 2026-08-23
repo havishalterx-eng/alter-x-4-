@@ -19,6 +19,7 @@ describe("cost_db migration files", () => {
       "0002_billing_rollup_currency.sql",
       "0003_create_model_pricing.sql",
       "0004_create_model_outcomes.sql",
+      "0005_fx_rate_and_usd_amount.sql",
     ]);
     expect(
       readdirSync(resolve(COST_MIGRATIONS_PATH, "rollback"))
@@ -30,6 +31,7 @@ describe("cost_db migration files", () => {
       "0002_drop_billing_rollup_currency.sql",
       "0003_drop_model_pricing.sql",
       "0004_drop_model_outcomes.sql",
+      "0005_drop_fx_rate_and_usd_amount.sql",
     ]);
   });
 
@@ -131,6 +133,12 @@ describe("cost_db migration files", () => {
     );
     expect(allSql).toContain(
       'CONSTRAINT "billing_rollups_period_check" CHECK ("period_end" >= "period_start")',
+    );
+    expect(allSql).toContain(
+      `CONSTRAINT "cost_events_fx_rate_used_check" CHECK ("fx_rate_used" IS NULL OR "fx_rate_used" > 0)`,
+    );
+    expect(allSql).toContain(
+      `CONSTRAINT "cost_events_amount_usd_check" CHECK ("amount_usd" IS NULL OR "amount_usd" >= 0)`,
     );
   });
 

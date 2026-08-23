@@ -92,6 +92,8 @@ describe("CostIngestService.ingestCostEvent", () => {
       "2026-07-31T00:00:00.000Z",
       false,
       false,
+      "83", // fx_rate_used: the configured usdToInrRate applied to this row
+      "0.0015", // amount_usd: the original amount_json.usd, unrounded
     ]);
   });
 
@@ -117,8 +119,8 @@ describe("CostIngestService.ingestCostEvent", () => {
       node_execution_id: NODE,
     });
     const [, values] = query.mock.calls[0] as [string, unknown[]];
-    expect(values.at(-2)).toBe(true); // is_retry
-    expect(values.at(-1)).toBe(true); // is_recovery
+    expect(values.at(-4)).toBe(true); // is_retry
+    expect(values.at(-3)).toBe(true); // is_recovery
   });
 
   it("derives sandbox usage_json into resource/quantity/unit correctly", async () => {
