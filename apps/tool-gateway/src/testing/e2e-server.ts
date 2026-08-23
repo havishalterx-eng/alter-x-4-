@@ -7,6 +7,7 @@ import {
 } from "@nestjs/platform-fastify";
 
 import {
+  MockBrowserAutomationProvider,
   SsrfGuardedFetcher,
   TavilySearchProvider,
   startToolgwGrpcTransport,
@@ -70,6 +71,9 @@ async function bootstrap(): Promise<void> {
       createMockQueueProvider(),
       "toolgw-e2e-cost-events",
       createMockCacheProvider(),
+      // e2e fixture exercises search.web only; disclosed mock browser
+      // provider, same reasoning as unexercisedDatabaseProvider.
+      new MockBrowserAutomationProvider(new SsrfGuardedFetcher()),
     ),
     new FastifyAdapter(),
     { logger: false },

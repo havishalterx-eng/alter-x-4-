@@ -15,11 +15,13 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  MockBrowserAutomationProvider,
   SsrfGuardedFetcher,
   ToolGatewayNotImplementedError,
   ToolGatewayPermissionError,
   ToolGatewayRateLimitError,
   ToolGatewayValidationError,
+  type BrowserAutomationProvider,
   type DatabaseOperationProvider,
   type DnsResolver,
   type FetchFn,
@@ -101,6 +103,7 @@ interface ServiceOverrides {
   readonly costQueue?: QueueProvider;
   readonly costEventsQueueName?: string;
   readonly cacheProvider?: CacheProvider;
+  readonly browserProvider?: BrowserAutomationProvider;
   readonly options?: ToolGatewayServiceOptions;
 }
 
@@ -116,7 +119,18 @@ function buildService(overrides: ServiceOverrides = {}): ToolGatewayService {
     overrides.costQueue ?? createMockQueueProvider(),
     overrides.costEventsQueueName ?? "test-cost-events",
     overrides.cacheProvider ?? createMockCacheProvider(),
+    overrides.browserProvider ?? mockBrowserProvider(),
     overrides.options ?? {},
+  );
+}
+
+// Real MockBrowserAutomationProvider (not a hand-rolled fake) so the
+// browser.* dispatch tests re-prove exactly what sandbox-service's spec
+// proved before ENGINE-RESTRUCTURE-P4-1b moved the code: scoped session
+// isolation, real navigate/extract result shapes, SSRF-guarded URLs.
+function mockBrowserProvider(): BrowserAutomationProvider {
+  return new MockBrowserAutomationProvider(
+    new SsrfGuardedFetcher({}, noopDnsResolver(), noopFetchFn()),
   );
 }
 
@@ -517,6 +531,262 @@ describe("ToolGatewayService", () => {
       await expect(
         service.invokeTool(databaseInvokeRequest()),
       ).resolves.toBeDefined();
+    });
+  });
+
+  describe("browser.* dispatch (ENGINE-RESTRUCTURE-P4-1b, moved from SandboxService)", () => {
+    const SANDBOX_SESSION_ID = "ses_mock-1";
+    const BROWSER_CREDENTIAL_REF = `/alter/prod/tenant/${TENANT_A}/integration/browser-automation/session`;
+    const WRONG_TENANT_BROWSER_REF = `/alter/prod/tenant/${TENANT_B}/integration/browser-automation/session`;
+
+    function browserInvokeRequest(
+      overrides: Partial<Parameters<ToolGatewayService["invokeTool"]>[0]> = {},
+      inputOverrides: Record<string, unknown> = {},
+    ) {
+      return invokeRequest({
+        tool_name: "browser.session.create",
+        input_json: JSON.stringify({
+          session_id: SANDBOX_SESSION_ID,
+          ...inputOverrides,
+        }),
+        credential_ref: BROWSER_CREDENTIAL_REF,
+        ...overrides,
+      });
+    }
+
+    it("drives a scoped create/navigate/click/extract/close flow end to end", async () => {
+      const service = buildService();
+
+      const created = await service.invokeTool(browserInvokeRequest());
+      const { sessionId } = JSON.parse(created.output_json) as { sessionId: string };
+      expect(sessionId).toMatch(/^browser_mock-/);
+
+      await expect(
+        service.invokeTool(
+          browserInvokeRequest(
+            { tool_name: "browser.navigate" },
+            {
+              browser_session_id: sessionId,
+              url: "https://example.com/page",
+            },
+          ),
+        ),
+      ).resolves.toMatchObject({
+        output_json: JSON.stringify({
+          url: "https://example.com/page",
+          title: "Local mock page",
+        }),
+      });
+
+      await expect(
+        service.invokeTool(
+          browserInvokeRequest(
+            { tool_name: "browser.click" },
+            { browser_session_id: sessionId, selector: "#go" },
+          ),
+        ),
+      ).resolves.toMatchObject({ output_json: "{}" });
+
+      const extracted = await service.invokeTool(
+        browserInvokeRequest(
+          { tool_name: "browser.extract" },
+          { browser_session_id: sessionId, selector: "main" },
+        ),
+      );
+      expect(JSON.parse(extracted.output_json)).toEqual({
+        text: "mock:main",
+        url: "https://example.com/page",
+      });
+
+      await expect(
+        service.invokeTool(
+          browserInvokeRequest(
+            { tool_name: "browser.session.close" },
+            { browser_session_id: sessionId },
+          ),
+        ),
+      ).resolves.toMatchObject({ output_json: "{}" });
+    });
+
+    it("requires the exact tenant browser grant for every browser operation", async () => {
+      const resolveToolPermission = vi.fn(
+        async (request: { readonly tenantId: string; readonly toolName: string }) => ({
+          allowed: true,
+          rateLimitPerMinute: 60,
+          requiredScopes: [],
+        }),
+      );
+      const service = buildService({
+        configProvider: createMockConfigProvider({ resolveToolPermission }),
+      });
+
+      const created = await service.invokeTool(browserInvokeRequest());
+      const { sessionId } = JSON.parse(created.output_json) as { sessionId: string };
+      await service.invokeTool(
+        browserInvokeRequest(
+          { tool_name: "browser.navigate" },
+          { browser_session_id: sessionId, url: "https://example.com/page" },
+        ),
+      );
+      await service.invokeTool(
+        browserInvokeRequest(
+          { tool_name: "browser.click" },
+          { browser_session_id: sessionId, selector: "#go" },
+        ),
+      );
+      await service.invokeTool(
+        browserInvokeRequest(
+          { tool_name: "browser.extract" },
+          { browser_session_id: sessionId, selector: "main" },
+        ),
+      );
+      await service.invokeTool(
+        browserInvokeRequest(
+          { tool_name: "browser.session.close" },
+          { browser_session_id: sessionId },
+        ),
+      );
+
+      expect(resolveToolPermission.mock.calls.map(([request]) => request)).toEqual([
+        { tenantId: TENANT_A, toolName: "browser.session.create" },
+        { tenantId: TENANT_A, toolName: "browser.navigate" },
+        { tenantId: TENANT_A, toolName: "browser.click" },
+        { tenantId: TENANT_A, toolName: "browser.extract" },
+        { tenantId: TENANT_A, toolName: "browser.session.close" },
+      ]);
+    });
+
+    it.each(["browser.session.create", "browser.navigate", "browser.click", "browser.extract", "browser.session.close"])(
+      "denies %s when the tenant grant is absent and audits the denial",
+      async (toolName) => {
+        const auditClient = createMockAuditEventHandler();
+        const service = buildService({
+          configProvider: createMockConfigProvider({
+            toolPermission: {
+              allowed: false,
+              rateLimitPerMinute: 60,
+              requiredScopes: [],
+            },
+          }),
+          auditClient,
+        });
+
+        await expect(
+          service.invokeTool(browserInvokeRequest({ tool_name: toolName })),
+        ).rejects.toBeInstanceOf(ToolGatewayPermissionError);
+        expect(
+          (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
+        ).toContainEqual(
+          expect.objectContaining({ target_ref: toolName, result: "denied" }),
+        );
+      },
+    );
+
+    it("emits a real cost event scoped to tool_gateway.browser.* on success", async () => {
+      const publish = vi.fn<(queueName: string, message: unknown) => Promise<void>>(
+        async () => undefined,
+      );
+      const service = buildService({
+        costQueue: createMockQueueProvider({ publish }),
+        costEventsQueueName: "test-cost-events",
+      });
+
+      await service.invokeTool(browserInvokeRequest());
+
+      expect(publish).toHaveBeenCalledTimes(1);
+      const [queueName, event] = publish.mock.calls[0] as [string, Record<string, unknown>];
+      expect(queueName).toBe("test-cost-events");
+      expect(event).toMatchObject({ source: "tool_gateway" });
+      expect(JSON.parse(event.usage_json as string)).toMatchObject({
+        resource_type: "tool_gateway.browser.create",
+        outcome: "success",
+      });
+    });
+
+    it("rejects a browser credential_ref owned by a different tenant without touching SecretsProvider", async () => {
+      const getSecret = vi.fn(secretProvider().getSecret);
+      const service = buildService({
+        secretsProvider: { ...secretProvider(), getSecret },
+      });
+
+      await expect(
+        service.invokeTool(
+          browserInvokeRequest({ credential_ref: WRONG_TENANT_BROWSER_REF }),
+        ),
+      ).rejects.toThrow(/not owned by this tenant\/integration/);
+      expect(getSecret).not.toHaveBeenCalled();
+    });
+
+    it("skips secret resolution for the reserved browser-automation credential template", async () => {
+      const getSecret = vi.fn(secretProvider().getSecret);
+      const auditClient = createMockAuditEventHandler();
+      const service = buildService({ secretsProvider: { ...secretProvider(), getSecret }, auditClient });
+
+      await expect(service.invokeTool(browserInvokeRequest())).resolves.toBeDefined();
+
+      expect(getSecret).not.toHaveBeenCalledWith(BROWSER_CREDENTIAL_REF);
+      expect(getSecret).not.toHaveBeenCalled();
+      expect(
+        (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
+      ).toContainEqual(
+        expect.objectContaining({
+          target_ref: "browser.session.create",
+          result: "success",
+        }),
+      );
+    });
+
+    it("keeps provider-side session isolation: another sandbox session id cannot drive an existing browser session", async () => {
+      const auditClient = createMockAuditEventHandler();
+      const service = buildService({ auditClient });
+
+      const created = await service.invokeTool(browserInvokeRequest());
+      const { sessionId } = JSON.parse(created.output_json) as { sessionId: string };
+
+      await expect(
+        service.invokeTool(
+          browserInvokeRequest(
+            { tool_name: "browser.navigate" },
+            {
+              session_id: "ses_a-different-sandbox-session",
+              browser_session_id: sessionId,
+              url: "https://example.com/page",
+            },
+          ),
+        ),
+      ).rejects.toThrow(/not owned by this execution scope/);
+      expect(
+        (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
+      ).toContainEqual(expect.objectContaining({ result: "error" }));
+    });
+
+    it("validates browser input fields before dispatch", async () => {
+      const service = buildService();
+
+      await expect(
+        service.invokeTool(
+          browserInvokeRequest({ input_json: JSON.stringify({}) }),
+        ),
+      ).rejects.toThrow(/non-empty session_id/);
+      await expect(
+        service.invokeTool(
+          browserInvokeRequest({
+            tool_name: "browser.navigate",
+            input_json: JSON.stringify({ session_id: SANDBOX_SESSION_ID }),
+          }),
+        ),
+      ).rejects.toThrow(/non-empty browser_session_id/);
+      await expect(
+        service.invokeTool(
+          browserInvokeRequest({
+            tool_name: "browser.navigate",
+            input_json: JSON.stringify({
+              session_id: SANDBOX_SESSION_ID,
+              browser_session_id: "browser_mock-1",
+            }),
+          }),
+        ),
+      ).rejects.toThrow(/non-empty url/);
     });
   });
 

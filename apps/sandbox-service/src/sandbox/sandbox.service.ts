@@ -1,10 +1,4 @@
-import type {
-  BrowserAutomationProvider,
-  BrowserExtractionResult,
-  BrowserNavigationResult,
-  BrowserSession,
-  BrowserSessionScope,
-} from "@alterx/adapters";
+import type { BrowserAutomationProvider } from "@alterx/adapters";
 import type {
   ConfigProvider,
   JsonValue,
@@ -19,7 +13,6 @@ import { calculate as evaluateExpression } from "./calculator";
 import { createCostEventId } from "./cost-event-id";
 
 const WORKSPACE = "/workspace";
-const MAX_TOOL_OUTPUT_BYTES = 1_048_576;
 const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "pip"]);
 // Approved sandbox templates. Explicit, no server-side default -- a
 // caller must always name one of these, keeping every session's
@@ -211,19 +204,19 @@ export class SandboxService {
     } catch (error) { return this.#verification("build", "infra_failure", {}, "SANDBOX_BUILD_INFRA_FAILURE", this.#safeErrorDetail(error)); }
   }
 
-  // ENGINE-FIX-P3-16: was the one browser-driving entry point never gated
-  // by #requireBrowserPermission (the other five: createBrowserSession/
-  // navigateBrowser/clickBrowser/extractBrowser/closeBrowserSession all
-  // are). It also took no SandboxToolCallContext, so there was no tenant
-  // to check a policy against even if it had called the gate. Separately:
-  // in production this.browserVerifier was never populated at all --
-  // AppModule.register()/main.ts only ever construct and pass `tools`
-  // (which already carries a real BrowserAutomationProvider, and
-  // BrowserAutomationProvider extends BrowserProvider, so it already
-  // satisfies inspectPage) -- meaning render verification always returned
-  // "inconclusive" in real deployments regardless of this gap. Fixed by
-  // using tools.browser instead of the separate, always-undefined field,
-  // and gating it the same way its five siblings are.
+  // ENGINE-FIX-P3-16 + ENGINE-RESTRUCTURE-P4-1b: verifyRender is the only
+  // browser-driving entry point Sandbox still owns, and it stays here by
+  // design -- render verification is part of the isolated-computation
+  // responsibility (build/lint/test/render) the architecture doc keeps in
+  // Sandbox. It is permission-gated ("browser.verify_render") exactly like
+  // the five interactive browser methods used to be; those five
+  // (createBrowserSession/navigateBrowser/clickBrowser/extractBrowser/
+  // closeBrowserSession) moved to tool-gateway's invokeTool as
+  // browser.* dispatch (apps/tool-gateway/src/gateway/
+  // tool-gateway.service.ts). Earlier, ENGINE-FIX-P3-16 had fixed this
+  // method reading tools.browser instead of a separate always-undefined
+  // browserVerifier field -- that fix is what makes the remaining
+  // tools.browser usage here real.
   async verifyRender(
     context: SandboxToolCallContext,
     previewUrl: string,
@@ -285,138 +278,6 @@ export class SandboxService {
     return this.sandbox.execute(sessionId, command);
   }
 
-  async createBrowserSession(
-    context: SandboxToolCallContext,
-    sandboxSessionId: string,
-  ): Promise<BrowserSession> {
-    this.#validateToolContext(context);
-    this.#requireSession(sandboxSessionId);
-    const tools = this.#requireTools();
-    await this.#requireBrowserPermission(
-      tools,
-      context,
-      "browser.session.create",
-    );
-    return this.#costed(
-      context,
-      {
-        provider: tools.browser.metadata.providerId,
-        resourceType: "sandbox.browser.session",
-        units: 1,
-      },
-      () => tools.browser.createSession(this.#browserScope(context, sandboxSessionId)),
-    );
-  }
-
-  async navigateBrowser(
-    context: SandboxToolCallContext,
-    sandboxSessionId: string,
-    browserSessionId: string,
-    url: string,
-  ): Promise<BrowserNavigationResult> {
-    this.#validateToolContext(context);
-    this.#requireSession(sandboxSessionId);
-    const tools = this.#requireTools();
-    await this.#requireBrowserPermission(tools, context, "browser.navigate");
-    return this.#costed(
-      context,
-      {
-        provider: tools.browser.metadata.providerId,
-        resourceType: "sandbox.browser.navigate",
-        units: 1,
-      },
-      () =>
-        tools.browser.navigate(
-          this.#browserScope(context, sandboxSessionId),
-          browserSessionId,
-          url,
-        ),
-    );
-  }
-
-  async clickBrowser(
-    context: SandboxToolCallContext,
-    sandboxSessionId: string,
-    browserSessionId: string,
-    selector: string,
-  ): Promise<void> {
-    this.#validateToolContext(context);
-    this.#requireSession(sandboxSessionId);
-    const tools = this.#requireTools();
-    await this.#requireBrowserPermission(tools, context, "browser.click");
-    await this.#costed(
-      context,
-      {
-        provider: tools.browser.metadata.providerId,
-        resourceType: "sandbox.browser.click",
-        units: 1,
-      },
-      () =>
-        tools.browser.click(
-          this.#browserScope(context, sandboxSessionId),
-          browserSessionId,
-          selector,
-        ),
-    );
-  }
-
-  async extractBrowser(
-    context: SandboxToolCallContext,
-    sandboxSessionId: string,
-    browserSessionId: string,
-    selector?: string,
-  ): Promise<BrowserExtractionResult> {
-    this.#validateToolContext(context);
-    this.#requireSession(sandboxSessionId);
-    const tools = this.#requireTools();
-    await this.#requireBrowserPermission(tools, context, "browser.extract");
-    return this.#costed(
-      context,
-      {
-        provider: tools.browser.metadata.providerId,
-        resourceType: "sandbox.browser.extract",
-        units: 1,
-      },
-      async () => {
-        const result = await tools.browser.extract(
-          this.#browserScope(context, sandboxSessionId),
-          browserSessionId,
-          selector,
-        );
-        this.#requireBoundedOutput(result.text);
-        return result;
-      },
-    );
-  }
-
-  async closeBrowserSession(
-    context: SandboxToolCallContext,
-    sandboxSessionId: string,
-    browserSessionId: string,
-  ): Promise<void> {
-    this.#validateToolContext(context);
-    this.#requireSession(sandboxSessionId);
-    const tools = this.#requireTools();
-    await this.#requireBrowserPermission(
-      tools,
-      context,
-      "browser.session.close",
-    );
-    await this.#costed(
-      context,
-      {
-        provider: tools.browser.metadata.providerId,
-        resourceType: "sandbox.browser.close",
-        units: 1,
-      },
-      () =>
-        tools.browser.closeSession(
-          this.#browserScope(context, sandboxSessionId),
-          browserSessionId,
-        ),
-    );
-  }
-
   // ENGINE-RESTRUCTURE-P4-1: fetchUrl and executeDatabaseOperation moved
   // to tool-gateway (apps/tool-gateway/src/gateway/tool-gateway.service.ts)
   // -- the architecture doc's own finding is that Sandbox should own
@@ -428,6 +289,12 @@ export class SandboxService {
   // RPCs); executeDatabaseOperation's logic (permission scope check,
   // strict tenant/database credential-ownership check, cost-event
   // emission) is now database.* dispatch inside tool-gateway's invokeTool.
+  //
+  // ENGINE-RESTRUCTURE-P4-1b: the five interactive browser methods moved
+  // the same way (browser.session.create/browser.navigate/browser.click/
+  // browser.extract/browser.session.close dispatch cases), completing the
+  // Sandbox/Tool Gateway split. Only verifyRender's render-verification
+  // usage of tools.browser remains in Sandbox.
 
   async calculate(
     context: SandboxToolCallContext,
@@ -443,18 +310,6 @@ export class SandboxService {
       },
       async () => evaluateExpression(expression),
     );
-  }
-
-  #browserScope(
-    context: SandboxToolCallContext,
-    sandboxSessionId: string,
-  ): BrowserSessionScope {
-    return {
-      tenantId: context.tenantId,
-      runId: context.runId,
-      nodeExecutionId: context.nodeExecutionId,
-      sandboxSessionId,
-    };
   }
 
   async #requireBrowserPermission(
@@ -507,10 +362,11 @@ export class SandboxService {
         trace_id: context.traceId,
       }),
       amount_json: JSON.stringify({ usd: 0, estimated: true }),
-      // "sandbox.browser.*" resource types are browser automation, a
-      // distinct cost_events source from the rest of the Sandbox's tools
-      // (cost_events.source CHECK constraint, OUT-1).
-      source: usage.resourceType.startsWith("sandbox.browser.") ? "browser" : "sandbox",
+      // ENGINE-RESTRUCTURE-P4-1b: this used to branch to source="browser"
+      // for the sandbox.browser.* resource types; those moved to
+      // tool-gateway with the browser tools, so only the Sandbox's own
+      // source value remains (cost_events.source CHECK constraint, OUT-1).
+      source: "sandbox",
       occurred_at: new Date().toISOString(),
     } satisfies Readonly<Record<string, JsonValue>>;
     try {
@@ -547,12 +403,6 @@ export class SandboxService {
   ): void {
     if (!new RegExp(`^${prefix}_${UUID_V7_BODY}$`, "i").test(value)) {
       throw new Error(`${field} must be a ${prefix}_ prefixed UUIDv7`);
-    }
-  }
-
-  #requireBoundedOutput(output: string): void {
-    if (Buffer.byteLength(output, "utf8") > MAX_TOOL_OUTPUT_BYTES) {
-      throw new Error("Sandbox tool output exceeds maximum payload");
     }
   }
 

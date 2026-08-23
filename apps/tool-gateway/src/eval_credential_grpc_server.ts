@@ -4,6 +4,7 @@ import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fa
 import { NestFactory } from "@nestjs/core";
 
 import {
+  MockBrowserAutomationProvider,
   SsrfGuardedFetcher,
   startToolgwGrpcTransport,
   type DatabaseOperationProvider,
@@ -95,6 +96,9 @@ async function bootstrap(): Promise<void> {
       costQueue,
       "eval-credential-server-cost-events",
       createMockCacheProvider(),
+      // Eval-only entrypoint never dispatches browser.* tool calls; the
+      // mock is disclosed, same reasoning as unexercisedDatabaseProvider.
+      new MockBrowserAutomationProvider(urlFetcher),
     ),
     new FastifyAdapter(),
   );

@@ -15,6 +15,8 @@ import {
   ToolGatewayPermissionError,
   ToolGatewayRateLimitError,
   ToolGatewayValidationError,
+  type BrowserAutomationProvider,
+  type BrowserSessionScope,
   type DatabaseOperationProvider,
   type DatabaseOperationResult,
   type ToolgwHandler,
@@ -81,6 +83,38 @@ const SEARCH_WEB_TOOL_NAME = "search.web";
 // whole repo before moving it) -- this is a relocation, not a rewire.
 const DATABASE_OPERATIONS = new Set(["select", "insert", "update", "delete"]);
 const MAX_TOOL_OUTPUT_BYTES = 1_048_576;
+// ENGINE-RESTRUCTURE-P4-1b: browser.* moved here from sandbox-service's
+// SandboxService (createBrowserSession/navigateBrowser/clickBrowser/
+// extractBrowser/closeBrowserSession) -- same real, tested logic
+// (per-call tenant permission gate via resolveToolPermission, cost-event
+// emission, 1MB bounded extract output), relocated to the component the
+// architecture doc says owns external-tool integrations. Never had a real
+// caller in its old home either (grepped the whole repo before moving it)
+// -- this is a relocation, not a rewire. The tool_name strings are the
+// exact literals SandboxService.#requireBrowserPermission already resolved
+// tenant policy against, so existing per-tenant permission bindings stay
+// valid unchanged.
+const BROWSER_TOOL_NAMES = new Set([
+  "browser.session.create",
+  "browser.navigate",
+  "browser.click",
+  "browser.extract",
+  "browser.session.close",
+]);
+// ENGINE-RESTRUCTURE-P4-1b: reserved integration segment for the
+// deterministic browser credential_ref template
+// (`alter/{env}/tenant/{tenantId}/integration/browser-automation/session`).
+// This is a deliberate, narrow exception to "every credential_ref resolves
+// a real per-tenant secret": browser automation has no per-tenant
+// credential concept at all -- the real Browserbase API key is one
+// platform-wide secret, resolved once at startup into the provider below,
+// never per call. The template exists only to satisfy invokeTool's
+// existing format + tenant-ownership validation (the caller's own
+// tenant_id is embedded by construction), and this segment name is how
+// #resolveCredentialReference recognizes it and skips the otherwise-
+// mandatory SecretsProvider.getSecret() call. Nothing else may use this
+// integration segment name.
+const BROWSER_AUTOMATION_INTEGRATION = "browser-automation";
 // ENGINE-RESTRUCTURE-P4-3: real Cache/Reuse cross-cutting layer wiring
 // (architecture doc §12 RESTRUCTURE 3). 5 minutes balances real cost/
 // latency savings on repeated identical queries against staleness risk
@@ -111,6 +145,12 @@ export class ToolGatewayService implements ToolgwHandler {
     private readonly costQueue: QueueProvider,
     private readonly costEventsQueueName: string,
     private readonly cacheProvider: CacheProvider,
+    // ENGINE-RESTRUCTURE-P4-1b: the real browser automation provider
+    // (BrowserbasePlaywrightProvider in production, constructed in main.ts
+    // exactly like sandbox-service's createBrowserProvider did; mock under
+    // ALTER_CONFIG_SOURCE=mock). Its API key is resolved once here at
+    // startup from platform-wide config -- never per call.
+    private readonly browserProvider: BrowserAutomationProvider,
     options: ToolGatewayServiceOptions = {},
   ) {
     this.#credentialTokenTtlMs =
@@ -171,8 +211,19 @@ export class ToolGatewayService implements ToolgwHandler {
         return response;
       }
 
+      // ENGINE-RESTRUCTURE-P4-1b: no per-resource scope check beyond
+      // ensureAllowed() above -- unlike database.* (where owning database X
+      // must not imply database Y), browser automation has no per-resource
+      // id concept to scope against; SandboxService's own gate was exactly
+      // one resolveToolPermission call per tool_name.
+      if (isBrowserToolName(request.tool_name)) {
+        const response = await this.#dispatchBrowserTool(request);
+        await this.#auditToolInvocation(request, "success");
+        return response;
+      }
+
       throw new ToolGatewayNotImplementedError(
-        `Tool ${request.tool_name} has no real dispatch yet; only ${SEARCH_WEB_TOOL_NAME} and database.* are wired`,
+        `Tool ${request.tool_name} has no real dispatch yet; only ${SEARCH_WEB_TOOL_NAME}, database.* and browser.* are wired`,
       );
     } catch (error: unknown) {
       if (error instanceof ToolGatewayNotImplementedError) {
@@ -210,6 +261,87 @@ export class ToolGatewayService implements ToolgwHandler {
     await this.#storeCacheBestEffort(cacheKey, resultJson);
     return {
       output_json: resultJson,
+      audit_id: `aud_${this.#mintId()}`,
+    };
+  }
+
+  // ENGINE-RESTRUCTURE-P4-1b: ported from SandboxService's five browser
+  // methods -- same #costed wrapper (success AND error cost events), same
+  // provider-driven scope object, same 1MB output bound database.* uses.
+  // click/close have no provider return value; their output_json is an
+  // explicit empty object rather than a fabricated result.
+  async #dispatchBrowserTool(
+    request: ToolgwInvokeToolRequest,
+  ): Promise<ToolgwInvokeToolResponse> {
+    const input = parseBrowserToolInput(request.tool_name, request.input_json);
+    // sandboxSessionId is a historical carryover from when these methods
+    // lived in SandboxService (same treatment PR #39 gave the DEPLOYCTL_*
+    // naming) -- kept for interface compatibility with both real and mock
+    // BrowserAutomationProvider implementations. It is an opaque
+    // caller-supplied session-correlation string that both providers use
+    // for session-isolation enforcement (#assertScopeOwnedBy compares all
+    // four scope fields and embeds it in Browserbase userMetadata), not a
+    // claim that an E2B sandbox session exists.
+    const scope: BrowserSessionScope = {
+      tenantId: request.tenant_id,
+      runId: request.run_id,
+      nodeExecutionId: request.node_execution_id,
+      sandboxSessionId: input.sessionId,
+    };
+    const outputJson = await this.#costed(
+      request,
+      {
+        provider: this.browserProvider.metadata.providerId,
+        resourceType: `tool_gateway.browser.${browserResourceName(request.tool_name)}`,
+        units: 1,
+      },
+      async (): Promise<string> => {
+        let output: unknown;
+        switch (input.op) {
+          case "create":
+            output = await this.browserProvider.createSession(scope);
+            break;
+          case "navigate":
+            output = await this.browserProvider.navigate(
+              scope,
+              input.browserSessionId,
+              input.url,
+            );
+            break;
+          case "click":
+            await this.browserProvider.click(
+              scope,
+              input.browserSessionId,
+              input.selector,
+            );
+            output = {};
+            break;
+          case "extract":
+            output = await this.browserProvider.extract(
+              scope,
+              input.browserSessionId,
+              input.selector,
+            );
+            break;
+          case "close":
+            await this.browserProvider.closeSession(
+              scope,
+              input.browserSessionId,
+            );
+            output = {};
+            break;
+        }
+        const json = JSON.stringify(output);
+        if (Buffer.byteLength(json, "utf8") > MAX_TOOL_OUTPUT_BYTES) {
+          throw new ToolGatewayValidationError(
+            "Browser tool output exceeds the tool-gateway output limit",
+          );
+        }
+        return json;
+      },
+    );
+    return {
+      output_json: outputJson,
       audit_id: `aud_${this.#mintId()}`,
     };
   }
@@ -522,6 +654,15 @@ export class ToolGatewayService implements ToolgwHandler {
         );
       }
       assertCredentialReferenceOwnedBy(reference, tenantId);
+      // ENGINE-RESTRUCTURE-P4-1b: deliberate, narrow exception to "every
+      // raw credential_ref resolves a real secret" -- see the
+      // BROWSER_AUTOMATION_INTEGRATION constant comment. Format and
+      // tenant-ownership have already been validated above; what is
+      // skipped is only the SecretsProvider.getSecret() call, because no
+      // per-tenant browser-automation secret exists or needs to.
+      if (isBrowserAutomationCredentialReference(reference)) {
+        return;
+      }
       await this.#resolveRawSecretReference(reference, tenantId);
       return;
     }
@@ -738,6 +879,146 @@ function isDatabaseToolName(toolName: string): boolean {
     ? toolName.slice("database.".length)
     : undefined;
   return operation !== undefined && DATABASE_OPERATIONS.has(operation);
+}
+
+// ENGINE-RESTRUCTURE-P4-1b: exact tool_name literals SandboxService's
+// #requireBrowserPermission already resolved tenant policy against.
+function isBrowserToolName(toolName: string): boolean {
+  return BROWSER_TOOL_NAMES.has(toolName);
+}
+
+function browserResourceName(
+  toolName: string,
+): "create" | "navigate" | "click" | "extract" | "close" {
+  switch (toolName) {
+    case "browser.session.create":
+      return "create";
+    case "browser.navigate":
+      return "navigate";
+    case "browser.click":
+      return "click";
+    case "browser.extract":
+      return "extract";
+    case "browser.session.close":
+      return "close";
+    default:
+      throw new ToolGatewayValidationError(
+        `Browser tool name "${toolName}" does not name a supported operation`,
+      );
+  }
+}
+
+type BrowserToolInput =
+  | { readonly op: "create"; readonly sessionId: string }
+  | {
+      readonly op: "navigate";
+      readonly sessionId: string;
+      readonly browserSessionId: string;
+      readonly url: string;
+    }
+  | {
+      readonly op: "click";
+      readonly sessionId: string;
+      readonly browserSessionId: string;
+      readonly selector: string;
+    }
+  | {
+      readonly op: "extract";
+      readonly sessionId: string;
+      readonly browserSessionId: string;
+      readonly selector?: string;
+    }
+  | {
+      readonly op: "close";
+      readonly sessionId: string;
+      readonly browserSessionId: string;
+    };
+
+// session_id is the opaque sandboxSessionId correlation string (historical
+// field name, see #dispatchBrowserTool); browser_session_id is the id
+// returned by a previous browser.session.create call.
+function parseBrowserToolInput(
+  toolName: string,
+  inputJson: string,
+): BrowserToolInput {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(inputJson);
+  } catch {
+    throw new ToolGatewayValidationError("input_json must be valid JSON");
+  }
+  const record = parsed as { readonly [key: string]: unknown };
+  const requireString = (field: string): string => {
+    const value = record[field];
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new ToolGatewayValidationError(
+        `${toolName} input_json must include a non-empty ${field} string`,
+      );
+    }
+    return value;
+  };
+  const optionalString = (
+    field: string,
+  ): string | undefined => {
+    const value = record[field];
+    if (value === undefined) return undefined;
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new ToolGatewayValidationError(
+        `${toolName} input_json ${field}, if present, must be a non-empty string`,
+      );
+    }
+    return value;
+  };
+  const sessionId = requireString("session_id");
+  switch (toolName) {
+    case "browser.session.create":
+      return { op: "create", sessionId };
+    case "browser.navigate":
+      return {
+        op: "navigate",
+        sessionId,
+        browserSessionId: requireString("browser_session_id"),
+        url: requireString("url"),
+      };
+    case "browser.click":
+      return {
+        op: "click",
+        sessionId,
+        browserSessionId: requireString("browser_session_id"),
+        selector: requireString("selector"),
+      };
+    case "browser.extract": {
+      const selector = optionalString("selector");
+      return {
+        op: "extract",
+        sessionId,
+        browserSessionId: requireString("browser_session_id"),
+        ...(selector === undefined ? {} : { selector }),
+      };
+    }
+    case "browser.session.close":
+      return {
+        op: "close",
+        sessionId,
+        browserSessionId: requireString("browser_session_id"),
+      };
+    default:
+      throw new ToolGatewayValidationError(
+        `Browser tool name "${toolName}" does not name a supported operation`,
+      );
+  }
+}
+
+// ENGINE-RESTRUCTURE-P4-1b: recognizes the reserved deterministic
+// browser credential template. Ownership/format validation is the
+// caller's job (#resolveCredentialReference runs
+// assertCredentialReferenceOwnedBy first).
+function isBrowserAutomationCredentialReference(reference: string): boolean {
+  const ownership = parseTenantIntegrationSecretReference(reference);
+  return (
+    ownership !== undefined &&
+    ownership.integrationId === BROWSER_AUTOMATION_INTEGRATION
+  );
 }
 
 function databaseOperationFromToolName(
