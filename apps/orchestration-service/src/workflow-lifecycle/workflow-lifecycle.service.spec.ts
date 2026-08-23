@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   DeploymentConcurrencyError,
-  DeploymentControllerService,
+  WorkflowLifecycleService,
   DeploymentNotFoundError,
   DeploymentStateTransitionError,
   DeploymentValidationError,
   type OrchestrationTenantStore,
-} from "./deployment-controller.service";
+} from "./workflow-lifecycle.service";
 import type { EvalFacadeService } from "../eval-facade/eval-facade.service";
 
 // promoteVersion/startCanary gate on a real release-gate check
@@ -168,10 +168,10 @@ function version(
   return { id, status, trafficPercent };
 }
 
-describe("DeploymentControllerService", () => {
+describe("WorkflowLifecycleService", () => {
   it("persists a passing evaluation before canary eligibility", async () => {
     const { store, versions } = createFakeStore([version(VERSION_2, "compiled")]);
-    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    const service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
     await expect(service.testVersion({ tenant_id: TENANT_ID, workflow_id: WORKFLOW_ID, workflow_version_id: VERSION_2 })).resolves.toEqual({ status: "tested" });
     expect(versions[0]?.status).toBe("tested");
   });
@@ -186,7 +186,7 @@ describe("DeploymentControllerService", () => {
         failed_thresholds: ["workflow E2E"],
       }),
     } as unknown as EvalFacadeService;
-    const service = new DeploymentControllerService(store, evalFacade);
+    const service = new WorkflowLifecycleService(store, evalFacade);
 
     await expect(service.testVersion({ tenant_id: TENANT_ID, workflow_id: WORKFLOW_ID, workflow_version_id: VERSION_2 })).rejects.toThrow();
     expect(versions[0]?.status).toBe("compiled");
@@ -197,7 +197,7 @@ describe("DeploymentControllerService", () => {
       version(VERSION_1, "promoted"),
       version(VERSION_2, "canary", 10),
     ]);
-    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    const service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
 
     const result = await service.promoteVersion({
       tenant_id: TENANT_ID,
@@ -221,7 +221,7 @@ describe("DeploymentControllerService", () => {
       version(VERSION_1, "promoted"),
       version(VERSION_2, "tested"),
     ]);
-    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    const service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
 
     await expect(
       service.startCanary({
@@ -242,7 +242,7 @@ describe("DeploymentControllerService", () => {
       version(VERSION_1, "promoted"),
       version(VERSION_2, "canary", 15),
     ]);
-    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    const service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
 
     await expect(
       service.promoteVersion({
@@ -262,7 +262,7 @@ describe("DeploymentControllerService", () => {
       version(VERSION_1, "canary", 15),
       version(VERSION_2, "tested"),
     ]);
-    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    const service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
 
     await expect(
       service.startCanary({
@@ -283,7 +283,7 @@ describe("DeploymentControllerService", () => {
       version(VERSION_1, "retired"),
       version(VERSION_2, "promoted"),
     ]);
-    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    const service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
 
     await expect(
       service.rollbackVersion({
@@ -303,7 +303,7 @@ describe("DeploymentControllerService", () => {
 
   it("rejects promoting a retired version", async () => {
     const { store } = createFakeStore([version(VERSION_2, "retired")]);
-    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    const service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
 
     await expect(
       service.promoteVersion({
@@ -319,7 +319,7 @@ describe("DeploymentControllerService", () => {
       version(VERSION_1, "canary", 10),
       version(VERSION_2, "promoted"),
     ]);
-    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    const service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
 
     await expect(
       service.rollbackVersion({
@@ -332,7 +332,7 @@ describe("DeploymentControllerService", () => {
 
   it.each([0, 100, 1.5])("rejects invalid canary traffic %s", async (traffic) => {
     const { store } = createFakeStore([version(VERSION_2, "compiled")]);
-    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    const service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
 
     await expect(
       service.startCanary({
@@ -346,7 +346,7 @@ describe("DeploymentControllerService", () => {
 
   it("rejects malformed tenant/workflow/version identifiers", async () => {
     const { store } = createFakeStore([version(VERSION_2, "compiled")]);
-    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    const service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
 
     await expect(
       service.promoteVersion({
@@ -373,7 +373,7 @@ describe("DeploymentControllerService", () => {
 
   it("fails with a typed not-found error when tenant scope cannot see the workflow", async () => {
     const { store } = createFakeStore([], { workflowExists: false });
-    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    const service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
 
     await expect(
       service.promoteVersion({
@@ -389,7 +389,7 @@ describe("DeploymentControllerService", () => {
       [version(VERSION_2, "canary", 10)],
       { claimFailures: 2 },
     );
-    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    const service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
 
     await expect(
       service.promoteVersion({
@@ -406,7 +406,7 @@ describe("DeploymentControllerService", () => {
       [version(VERSION_2, "canary", 10)],
       { claimFailures: 3 },
     );
-    const service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    const service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
 
     await expect(
       service.promoteVersion({

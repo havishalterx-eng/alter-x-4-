@@ -56,7 +56,7 @@ The unblocking stream. Highest priority days 1–2, then continuous.
 
 ### WS3 — Engine Intelligence Pipeline (1 engineer, Python-heavy)
 
-intelligence-service (FastAPI) + orchestration entry: Conversation Manager (FAST intent), Clarification Loop, Planner (kernel + Workflow/Project/ManagerWorker strategies, ADVANCED/CEILING), Capability Resolver, Selection & Binding (capability embeddings 512-dim, auto-creation, performance weighting), Graph Compiler (skeleton → typed DAG: waves, branches, loops, merges, explicit edges; OPT-STD conditional-edge synthesis), Deployment Controller (versioning, canary, rollback), intelligence_db migrations.
+intelligence-service (FastAPI) + orchestration entry: Conversation Manager (FAST intent), Clarification Loop, Planner (kernel + Workflow/Project/ManagerWorker strategies, ADVANCED/CEILING), Capability Resolver, Selection & Binding (capability embeddings 512-dim, auto-creation, performance weighting), Graph Compiler (skeleton → typed DAG: waves, branches, loops, merges, explicit edges; OPT-STD conditional-edge synthesis), Workflow Lifecycle (versioning, canary, rollback), intelligence_db migrations.
 
 **Acceptance:** goal text → valid compiled immutable WorkflowDAG version passing schema validation; injected ambiguity triggers clarification; planner golden set ≥90% valid-DAG; canvas round-trip (draft edit → recompile) works.
 

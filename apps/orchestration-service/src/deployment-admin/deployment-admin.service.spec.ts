@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { OrchestrationTenantStore } from "../deployment-controller/deployment-controller.service";
+import type { OrchestrationTenantStore } from "../workflow-lifecycle/workflow-lifecycle.service";
 import {
   DeploymentAdminConflictError,
   DeploymentAdminNotFoundError,

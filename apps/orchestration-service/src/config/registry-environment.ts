@@ -1,6 +1,6 @@
 // Config for the Node Type Registry (EXEC-1) only. Deliberately separate
 // from environment.ts (Conversation Manager) -- same reasoning as
-// compiler-environment.ts / deployment-controller-environment.ts.
+// compiler-environment.ts / workflow-lifecycle-environment.ts.
 
 export interface RegistryEnvironment {
   readonly grpcBindAddress: string;

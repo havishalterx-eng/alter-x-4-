@@ -1,5 +1,5 @@
 // Mirrors apps/orchestration-service/db/schema/workflow_versions.ts's real
-// status CHECK constraint and the Deployment Controller's (PLAN-11) real
+// status CHECK constraint and the Workflow Lifecycle's (PLAN-11) real
 // promote/canary/rollback results -- typed public contract for a backend
 // that already exists and is tested, but had zero route wired to it.
 import { z } from "./zod";
@@ -23,7 +23,7 @@ export const TestVersionRequestSchema = z
   .strict();
 
 // Each operation's status is narrowed to the single literal the real
-// service always returns for it (deployment-controller.service.ts), not
+// service always returns for it (workflow-lifecycle.service.ts), not
 // the full WorkflowVersionStatusSchema enum -- more honest than claiming
 // promote could return anything other than "promoted".
 export const PromoteVersionResultSchema = z

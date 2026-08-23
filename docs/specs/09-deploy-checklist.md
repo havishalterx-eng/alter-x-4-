@@ -59,11 +59,11 @@
 
 1. Staging→prod gates all green (E2E, red-team, load/SLO, chaos, backup/restore, canary + auto-rollback verified — per Test Plan §4)
 2. Subsystem-owner sign-offs + cross-system UAT complete + CEO session review + final human go/no-go
-3. Deploy via canary (Deployment Controller); watch SLO panels through ramp
+3. Deploy via canary (Workflow Lifecycle); watch SLO panels through ramp
 4. Verify: event ingestion live, run start/resume, approvals flow, SSE streams, cost events landing, audit chain advancing
 5. Synthetic workflow + synthetic project build executed in prod (Alter internal tenant)
 6. Status page live; on-call rotation armed; rollback command rehearsed and documented
-7. **Rollback plan:** canary auto-rollback on regression; DAG/workflow version rollback via Deployment Controller; infra rollback via Terraform plan history; DB via PITR into new cluster + cutover; every rollback recorded in audit
+7. **Rollback plan:** canary auto-rollback on regression; DAG/workflow version rollback via Workflow Lifecycle; infra rollback via Terraform plan history; DB via PITR into new cluster + cutover; every rollback recorded in audit
 
 ## 7. Status Page (v1 required)
 

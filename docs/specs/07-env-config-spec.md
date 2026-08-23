@@ -17,7 +17,7 @@
 - Temporary backend integration stack per PR (disposable CI environment: containers + isolated DB namespace + LocalStack) — Engine changes get contract + integration tests here before staging
 - Isolated test database namespaces where required
 
-Promotion path: PR ephemeral checks → `dev` → `staging` (release candidate + eval golden-set gate) → `prod` (canary via Deployment Controller).
+Promotion path: PR ephemeral checks → `dev` → `staging` (release candidate + eval golden-set gate) → `prod` (canary via Workflow Lifecycle).
 
 ---
 

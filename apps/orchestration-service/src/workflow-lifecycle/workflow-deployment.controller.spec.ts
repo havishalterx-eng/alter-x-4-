@@ -2,8 +2,8 @@ import { HttpException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import {
   DeploymentNotFoundError,
-  type DeploymentControllerService,
-} from "./deployment-controller.service";
+  type WorkflowLifecycleService,
+} from "./workflow-lifecycle.service";
 import { WorkflowDeploymentController } from "./workflow-deployment.controller";
 
 const tenantId = "ten_018f47a5-7b2c-7d10-8f11-123456789abc";
@@ -11,7 +11,7 @@ const workflowId = "wf_018f47a5-7b2c-7d10-8f11-123456789abc";
 const workflowVersionId = "wfv_018f47a5-7b2c-7d10-8f11-123456789abc";
 
 describe("WorkflowDeploymentController", () => {
-  it("maps Platform workflow bodies to real Deployment Controller calls", async () => {
+  it("maps Platform workflow bodies to real Workflow Lifecycle calls", async () => {
     const deployments = service();
     const controller = new WorkflowDeploymentController(deployments.value);
     const request = authenticatedRequest();
@@ -85,7 +85,7 @@ function authenticatedRequest() {
 }
 
 function service(): {
-  value: DeploymentControllerService;
+  value: WorkflowLifecycleService;
   promoteVersion: ReturnType<typeof vi.fn>;
   startCanary: ReturnType<typeof vi.fn>;
   rollbackVersion: ReturnType<typeof vi.fn>;
@@ -98,7 +98,7 @@ function service(): {
       promoteVersion,
       startCanary,
       rollbackVersion,
-    } as unknown as DeploymentControllerService,
+    } as unknown as WorkflowLifecycleService,
     promoteVersion,
     startCanary,
     rollbackVersion,

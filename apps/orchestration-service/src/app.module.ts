@@ -58,8 +58,8 @@ import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import { ConversationManagerService } from "./conversation/conversation-manager.service";
 import { GraphCompilerService } from "./compiler/graph-compiler.service";
 import { CAPABILITY_CLIENT_PROTO_PATH } from "./compiler/capability-client.constants";
-import { DeploymentControllerService } from "./deployment-controller/deployment-controller.service";
-import { WorkflowDeploymentController } from "./deployment-controller/workflow-deployment.controller";
+import { WorkflowLifecycleService } from "./workflow-lifecycle/workflow-lifecycle.service";
+import { WorkflowDeploymentController } from "./workflow-lifecycle/workflow-deployment.controller";
 import {
   DEPLOYMENT_ADMIN_TOKEN_HASH,
   DeploymentAdminController,
@@ -467,7 +467,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       },
     },
     {
-      provide: DeploymentControllerService,
+      provide: WorkflowLifecycleService,
       useFactory: async (artifacts: ArtifactsService, evalFacade: EvalFacadeService) => {
         const dbConfig = sessionGatewayEnvironment(process.env);
         const store = orchestrationStore(dbConfig);
@@ -478,7 +478,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           const staticDeploymentBucket = await parameterStore.getParameter(
             dbConfig.artifactsBucketParameter,
           );
-          return new DeploymentControllerService(store, evalFacade, {
+          return new WorkflowLifecycleService(store, evalFacade, {
             artifacts,
             objects: new S3ObjectStorageProvider({ region: dbConfig.awsRegion }),
             staticDeploymentBucket,
@@ -491,7 +491,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
     },
     {
       provide: DEPLOYCTL_HANDLER,
-      useExisting: DeploymentControllerService,
+      useExisting: WorkflowLifecycleService,
     },
     {
       // No PostgresOrchestrationStoreProvider here -- the Node Type

@@ -4,7 +4,7 @@ import { DEPLOYCTL_HANDLER } from "@alterx/adapters";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../app.module";
 import { ArtifactsService } from "../artifacts/artifacts.service";
-import { DeploymentControllerService } from "../deployment-controller/deployment-controller.service";
+import { WorkflowLifecycleService } from "../workflow-lifecycle/workflow-lifecycle.service";
 
 describe("GET /health", () => {
   let app: NestFastifyApplication | undefined;
@@ -62,7 +62,7 @@ describe("GET /health", () => {
       // Health must not contact AWS during its isolated controller test.
       .overrideProvider(DEPLOYCTL_HANDLER)
       .useValue({})
-      .overrideProvider(DeploymentControllerService)
+      .overrideProvider(WorkflowLifecycleService)
       .useValue({})
       .compile();
 
