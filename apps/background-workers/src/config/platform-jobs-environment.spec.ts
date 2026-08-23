@@ -13,6 +13,7 @@ function environment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     ADS_CORE_INTERNAL_BASE_URL: "http://ads-core.internal",
     RETENTION_SWEEP_SERVICE_TOKEN_REF: "env:RETENTION_SWEEP_TOKEN",
     ORCHESTRATION_SERVICE_INTERNAL_BASE_URL: "http://orchestration-service.internal",
+    ORCHESTRATION_RETENTION_SWEEP_SERVICE_TOKEN_REF: "env:ORCHESTRATION_RETENTION_SWEEP_TOKEN",
     EVAL_FACADE_SERVICE_TOKEN_REF: "env:EVAL_FACADE_SERVICE_TOKEN",
     INTELLIGENCE_SERVICE_INTERNAL_BASE_URL: "http://intelligence-service.internal",
     MEMORY_SERVICE_INTERNAL_BASE_URL: "http://memory-service.internal",
@@ -35,6 +36,8 @@ describe("loadPlatformJobsEnvironment", () => {
       retentionSweepServiceTokenRef: "env:RETENTION_SWEEP_TOKEN",
       retentionSweepIntervalMs: 24 * 60 * 60 * 1000,
       orchestrationServiceInternalBaseUrl: "http://orchestration-service.internal",
+      orchestrationRetentionSweepServiceTokenRef: "env:ORCHESTRATION_RETENTION_SWEEP_TOKEN",
+      orchestrationRetentionSweepIntervalMs: 24 * 60 * 60 * 1000,
       evalFacadeServiceTokenRef: "env:EVAL_FACADE_SERVICE_TOKEN",
       benchmarkSweepIntervalMs: 24 * 60 * 60 * 1000,
       intelligenceServiceInternalBaseUrl: "http://intelligence-service.internal",
@@ -94,6 +97,22 @@ describe("loadPlatformJobsEnvironment", () => {
     expect(() =>
       loadPlatformJobsEnvironment(environment({ ORCHESTRATION_SERVICE_INTERNAL_BASE_URL: "" })),
     ).toThrow(PlatformJobsConfigurationError);
+  });
+
+  it("throws PlatformJobsConfigurationError when ORCHESTRATION_RETENTION_SWEEP_SERVICE_TOKEN_REF is missing", () => {
+    expect(() =>
+      loadPlatformJobsEnvironment(
+        environment({ ORCHESTRATION_RETENTION_SWEEP_SERVICE_TOKEN_REF: "" }),
+      ),
+    ).toThrow(PlatformJobsConfigurationError);
+  });
+
+  it("accepts a real custom orchestration retention sweep interval", () => {
+    expect(
+      loadPlatformJobsEnvironment(
+        environment({ ORCHESTRATION_RETENTION_SWEEP_INTERVAL_MS: "5000" }),
+      ).orchestrationRetentionSweepIntervalMs,
+    ).toBe(5000);
   });
 
   it("accepts a real custom benchmark sweep interval", () => {

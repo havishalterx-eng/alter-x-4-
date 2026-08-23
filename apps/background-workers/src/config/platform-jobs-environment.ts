@@ -12,6 +12,8 @@ export interface PlatformJobsEnvironment {
   readonly retentionSweepServiceTokenRef: string;
   readonly retentionSweepIntervalMs: number;
   readonly orchestrationServiceInternalBaseUrl: string;
+  readonly orchestrationRetentionSweepServiceTokenRef: string;
+  readonly orchestrationRetentionSweepIntervalMs: number;
   readonly evalFacadeServiceTokenRef: string;
   readonly benchmarkSweepIntervalMs: number;
   readonly intelligenceServiceInternalBaseUrl: string;
@@ -42,6 +44,7 @@ function requireValue(environment: NodeJS.ProcessEnv, field: string): string {
 const DEFAULT_DIGEST_INTERVAL_MS = 60 * 60 * 1000; // hourly
 const DEFAULT_CONNECTOR_HEALTH_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // hourly
 const DEFAULT_RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
+const DEFAULT_ORCHESTRATION_RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
 const DEFAULT_BENCHMARK_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
 const DEFAULT_DRIFT_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // hourly
 const DEFAULT_DRIFT_SWEEP_MINIMUM_OBSERVATIONS = 40; // 2 * memory-service's default window size
@@ -109,6 +112,15 @@ export function loadPlatformJobsEnvironment(
     orchestrationServiceInternalBaseUrl: requireValue(
       environment,
       "ORCHESTRATION_SERVICE_INTERNAL_BASE_URL",
+    ),
+    orchestrationRetentionSweepServiceTokenRef: requireValue(
+      environment,
+      "ORCHESTRATION_RETENTION_SWEEP_SERVICE_TOKEN_REF",
+    ),
+    orchestrationRetentionSweepIntervalMs: parseIntervalMs(
+      environment,
+      "ORCHESTRATION_RETENTION_SWEEP_INTERVAL_MS",
+      DEFAULT_ORCHESTRATION_RETENTION_SWEEP_INTERVAL_MS,
     ),
     evalFacadeServiceTokenRef: requireValue(environment, "EVAL_FACADE_SERVICE_TOKEN_REF"),
     benchmarkSweepIntervalMs: parseIntervalMs(
