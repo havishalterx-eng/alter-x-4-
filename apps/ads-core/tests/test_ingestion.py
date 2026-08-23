@@ -828,6 +828,51 @@ def test_long_text_splits_into_multiple_chunks_without_cutting_a_paragraph(
     assert any(paragraph_b.strip() in row["text_content"] for row in chunks)
 
 
+def test_adjacent_chunks_overlap_on_the_shared_boundary_paragraph(
+    database: DatabaseHarness,
+) -> None:
+    # ENGINE-FIX-P3-26 (Wave 4 item 2): a real retrieval hit near a chunk
+    # boundary needs shared context on both sides, or the idea that
+    # straddled the boundary is only ever half-visible to a search. The
+    # small boundary paragraph here fits under the overlap budget, so it
+    # must appear whole in BOTH chunks, not just the one that "owns" it.
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    para1 = "first window filler word " * 30  # ~750 chars
+    boundary = "BOUNDARY MARKER SENTENCE " * 2  # ~50 chars, fits the overlap budget
+    para3 = "second window filler word " * 35  # ~910 chars, forces a new window
+    content = f"{para1}\n\n{boundary}\n\n{para3}".encode()
+
+    result = _pipeline(database, max_content_bytes=len(content) + 10).ingest(
+        IngestionPayload(tenant_id, source_id, "text/plain", content)
+    )
+
+    assert result.stage == "indexed"
+    assert cast(int, _indexing_stats(result.stats)["chunk_count"]) == 2
+
+    with _tenant_scoped(database, tenant_uuid) as connection:
+        chunks = (
+            connection.execute(
+                sa.text(
+                    "SELECT seq, text_content FROM chunks WHERE document_id = :id ORDER BY seq"
+                ),
+                {"id": _dedup_stats(result.stats)["document_id"]},
+            )
+            .mappings()
+            .all()
+        )
+
+    assert len(chunks) == 2
+    boundary_text = boundary.strip()
+    assert boundary_text in chunks[0]["text_content"]
+    assert boundary_text in chunks[1]["text_content"]
+    # The overlap is a prefix of the second chunk, not a random substring.
+    assert chunks[1]["text_content"].startswith(boundary_text)
+    # The big filler paragraphs were not duplicated across the boundary.
+    assert para1.strip() not in chunks[1]["text_content"]
+    assert para3.strip() not in chunks[0]["text_content"]
+
+
 def test_reindex_reads_stored_content_and_atomically_activates_new_chunks(
     database: DatabaseHarness,
 ) -> None:
