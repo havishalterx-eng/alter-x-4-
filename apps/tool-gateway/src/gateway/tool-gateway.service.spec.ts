@@ -359,8 +359,8 @@ describe("ToolGatewayService", () => {
     });
 
     it("emits a real cost event scoped to tool_gateway on a successful dispatch", async () => {
-      const publish = vi.fn(
-        async (_queueName: string, _message: unknown): Promise<void> => undefined,
+      const publish = vi.fn<(queueName: string, message: unknown) => Promise<void>>(
+        async () => undefined,
       );
       const service = serviceWithScope([`database:${DATABASE_ID}`], {
         costQueue: createMockQueueProvider({ publish }),
