@@ -43,6 +43,9 @@ describe("loadToolGatewayEnvironment", () => {
           AUDIT_SERVICE_GRPC_ADDRESS: "audit-service:50051",
           CACHE_REDIS_HOST: "cache.internal",
           CACHE_REDIS_PORT: "6379",
+          BROWSERBASE_API_KEY_REF:
+            "/alter/prod/tool-gateway/system/browserbase-api-key",
+          BROWSERBASE_PROJECT_ID: "bb-project-1",
         }),
       ),
     ).toMatchObject({
@@ -54,6 +57,9 @@ describe("loadToolGatewayEnvironment", () => {
       auditServiceGrpcAddress: "audit-service:50051",
       cacheRedisHost: "cache.internal",
       cacheRedisPort: 6379,
+      browserbaseApiKeyReference:
+        "/alter/prod/tool-gateway/system/browserbase-api-key",
+      browserbaseProjectId: "bb-project-1",
     });
   });
 

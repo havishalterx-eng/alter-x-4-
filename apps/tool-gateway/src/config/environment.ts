@@ -18,6 +18,10 @@ export interface ToolGatewayAppConfigEnvironment
   readonly auditServiceGrpcAddress: string;
   readonly cacheRedisHost: string;
   readonly cacheRedisPort: number;
+  // ENGINE-RESTRUCTURE-P4-1b: same fields/env vars sandbox-service's
+  // createBrowserProvider consumed before the browser tools moved here.
+  readonly browserbaseApiKeyReference: string;
+  readonly browserbaseProjectId: string;
 }
 
 export interface ToolGatewayMockEnvironment
@@ -182,5 +186,10 @@ export function loadToolGatewayEnvironment(
       "CACHE_REDIS_PORT",
       requireValue(environment, "CACHE_REDIS_PORT"),
     ),
+    browserbaseApiKeyReference: requireValue(
+      environment,
+      "BROWSERBASE_API_KEY_REF",
+    ),
+    browserbaseProjectId: requireValue(environment, "BROWSERBASE_PROJECT_ID"),
   };
 }

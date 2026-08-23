@@ -5,6 +5,7 @@ import {
   SsrfGuardedFetcher,
   TOOLGW_HANDLER,
   ToolgwGrpcController,
+  type BrowserAutomationProvider,
   type DatabaseOperationProvider,
 } from "@alterx/adapters";
 import { M2mValidator, ServiceAuthGuard } from "@alterx/auth";
@@ -32,6 +33,7 @@ export class AppModule {
     costQueue: QueueProvider,
     costEventsQueueName: string,
     cacheProvider: CacheProvider,
+    browserProvider: BrowserAutomationProvider,
   ): DynamicModule {
     return {
       module: AppModule,
@@ -50,6 +52,7 @@ export class AppModule {
             costQueue,
             costEventsQueueName,
             cacheProvider,
+            browserProvider,
           ),
         },
       ],

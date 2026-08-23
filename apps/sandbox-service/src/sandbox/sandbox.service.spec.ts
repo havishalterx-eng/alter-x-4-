@@ -30,13 +30,6 @@ const CONTEXT: SandboxToolCallContext = {
   requestId: `req_${UUID}`,
   traceId: `trc_${UUID}`,
 };
-const BROWSER_TOOL_NAMES = [
-  "browser.session.create",
-  "browser.navigate",
-  "browser.click",
-  "browser.extract",
-  "browser.session.close",
-] as const;
 
 async function basicService(): Promise<SandboxService> {
   const sandbox = createMockSandboxProvider();
@@ -110,16 +103,6 @@ function toolHarness(options: {
     mintCostEventId: () => `cst_${UUID}`,
   });
   return { costQueue, fetchFn, messages, sandbox, service };
-}
-
-async function provision(harness: ReturnType<typeof toolHarness>): Promise<void> {
-  await harness.sandbox.createSession({
-    tenantId: CONTEXT.tenantId,
-    runId: CONTEXT.runId,
-    cycleId: "cycle_1",
-    templateId: "base",
-    environment: {},
-  });
 }
 
 describe("SandboxService existing EXEC-10 tools", () => {
@@ -226,101 +209,12 @@ describe("SandboxService existing EXEC-10 tools", () => {
 });
 
 describe("SandboxService EXEC-13 tools", () => {
-  it("drives scoped browser navigate/click/extract primitives", async () => {
-    const target = toolHarness();
-    await provision(target);
-    const browser = await target.service.createBrowserSession(CONTEXT, SESSION);
-
-    await expect(
-      target.service.navigateBrowser(
-        CONTEXT,
-        SESSION,
-        browser.sessionId,
-        "https://example.com/page",
-      ),
-    ).resolves.toEqual({
-      url: "https://example.com/page",
-      title: "Local mock page",
-    });
-    await expect(
-      target.service.clickBrowser(CONTEXT, SESSION, browser.sessionId, "#go"),
-    ).resolves.toBeUndefined();
-    await expect(
-      target.service.extractBrowser(CONTEXT, SESSION, browser.sessionId, "main"),
-    ).resolves.toEqual({
-      text: "mock:main",
-      url: "https://example.com/page",
-    });
-    await expect(
-      target.service.closeBrowserSession(CONTEXT, SESSION, browser.sessionId),
-    ).resolves.toBeUndefined();
-  });
-
-  it("requires the exact tenant browser grant for every Browserbase operation", async () => {
-    const resolveToolPermission = vi.fn(
-      async (request: ToolPermissionRequest) => {
-        void request;
-        return { allowed: true, rateLimitPerMinute: 60, requiredScopes: [] };
-      },
-    );
-    const target = toolHarness({
-      config: createMockConfigProvider({ resolveToolPermission }),
-    });
-    await provision(target);
-    const browser = await target.service.createBrowserSession(CONTEXT, SESSION);
-    await target.service.navigateBrowser(CONTEXT, SESSION, browser.sessionId, "https://example.com/page");
-    await target.service.clickBrowser(CONTEXT, SESSION, browser.sessionId, "#go");
-    await target.service.extractBrowser(CONTEXT, SESSION, browser.sessionId, "main");
-    await target.service.closeBrowserSession(CONTEXT, SESSION, browser.sessionId);
-
-    expect(resolveToolPermission.mock.calls.map(([request]) => request)).toEqual(
-      BROWSER_TOOL_NAMES.map((toolName) => ({
-        tenantId: CONTEXT.tenantId,
-        toolName,
-      })),
-    );
-  });
-
-  it("denies every browser operation when its tenant grant is absent", async () => {
-    const resolveToolPermission = vi.fn(
-      async (request: ToolPermissionRequest) => {
-        void request;
-        return { allowed: false, rateLimitPerMinute: 1, requiredScopes: [] };
-      },
-    );
-    const target = toolHarness({
-      config: createMockConfigProvider({ resolveToolPermission }),
-    });
-    await provision(target);
-
-    await expect(
-      target.service.createBrowserSession(CONTEXT, SESSION),
-    ).rejects.toThrow("Browser operation is not permitted for this tenant");
-    await expect(
-      target.service.navigateBrowser(
-        CONTEXT,
-        SESSION,
-        "browser_denied",
-        "https://example.com/page",
-      ),
-    ).rejects.toThrow("Browser operation is not permitted for this tenant");
-    await expect(
-      target.service.clickBrowser(CONTEXT, SESSION, "browser_denied", "#go"),
-    ).rejects.toThrow("Browser operation is not permitted for this tenant");
-    await expect(
-      target.service.extractBrowser(CONTEXT, SESSION, "browser_denied", "main"),
-    ).rejects.toThrow("Browser operation is not permitted for this tenant");
-    await expect(
-      target.service.closeBrowserSession(CONTEXT, SESSION, "browser_denied"),
-    ).rejects.toThrow("Browser operation is not permitted for this tenant");
-
-    expect(resolveToolPermission.mock.calls.map(([request]) => request)).toEqual(
-      BROWSER_TOOL_NAMES.map((toolName) => ({
-        tenantId: CONTEXT.tenantId,
-        toolName,
-      })),
-    );
-  });
+  // ENGINE-RESTRUCTURE-P4-1b: the interactive browser tests
+  // (scoped navigate/click/extract flow, exact per-tool-name permission
+  // grants, denial when the tenant grant is absent) moved with the code
+  // to apps/tool-gateway/src/gateway/tool-gateway.service.spec.ts --
+  // browser.* dispatch there re-proves the same behavior against the new
+  // home. Only the calculator and its cost telemetry remain in Sandbox.
 
   it("evaluates calculator expressions deterministically without external calls", async () => {
     const target = toolHarness();
@@ -391,14 +285,10 @@ describe("SandboxService EXEC-13 tools", () => {
     await expect(target.service.calculate(CONTEXT, "40 + 2")).resolves.toBe(42);
   });
 
-  it("rejects bare UUID tenant IDs consistently across both remaining tool families", async () => {
+  it("rejects bare UUID tenant IDs before tool dispatch", async () => {
     const target = toolHarness();
-    await provision(target);
     const bare = { ...CONTEXT, tenantId: UUID };
 
-    await expect(target.service.createBrowserSession(bare, SESSION)).rejects.toThrow(
-      "ten_ prefixed UUIDv7",
-    );
     await expect(target.service.calculate(bare, "1 + 1")).rejects.toThrow(
       "ten_ prefixed UUIDv7",
     );

@@ -7,12 +7,15 @@ import {
   AuditServiceClient,
   AwsAppConfigConfigProvider,
   AwsSecretsManagerProvider,
+  BrowserbasePlaywrightProvider,
+  MockBrowserAutomationProvider,
   PostgresToolDatabaseProvider,
   RedisCacheProvider,
   SqsQueueProvider,
   SsrfGuardedFetcher,
   TavilySearchProvider,
   startToolgwGrpcTransport,
+  type BrowserAutomationProvider,
 } from "@alterx/adapters";
 import {
   createMockAuditEventHandler,
@@ -109,6 +112,32 @@ function createCacheProvider(environment: ToolGatewayEnvironment): CacheProvider
   });
 }
 
+// ENGINE-RESTRUCTURE-P4-1b: browser automation moved here from sandbox-
+// service (createBrowserProvider, mirrored field-for-field -- same env
+// var names BROWSERBASE_API_KEY_REF / BROWSERBASE_PROJECT_ID). The real
+// Browserbase API key is one platform-wide secret resolved once at
+// startup; per-call credential_refs for browser.* use the reserved
+// browser-automation template and resolve no secret (see
+// tool-gateway.service.ts).
+async function createBrowserProvider(
+  environment: ToolGatewayEnvironment,
+  secretsProvider: SecretsProvider,
+  urlFetcher: SsrfGuardedFetcher,
+): Promise<BrowserAutomationProvider> {
+  if (environment.configSource === "mock") {
+    return new MockBrowserAutomationProvider(urlFetcher);
+  }
+  return new BrowserbasePlaywrightProvider(
+    {
+      apiKey: await secretsProvider.getSecret(
+        environment.browserbaseApiKeyReference,
+      ),
+      projectId: environment.browserbaseProjectId,
+    },
+    urlFetcher,
+  );
+}
+
 async function bootstrap(): Promise<void> {
   const environment = loadToolGatewayEnvironment(process.env);
   const configProvider = createConfigProvider(environment);
@@ -119,6 +148,11 @@ async function bootstrap(): Promise<void> {
   const databaseProvider = new PostgresToolDatabaseProvider(secretsProvider);
   const costQueue = createQueueProvider(environment);
   const cacheProvider = createCacheProvider(environment);
+  const browserProvider = await createBrowserProvider(
+    environment,
+    secretsProvider,
+    urlFetcher,
+  );
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule.register(
@@ -131,6 +165,7 @@ async function bootstrap(): Promise<void> {
       costQueue,
       `alter-${environment.alterEnvironment}-cost-events`,
       cacheProvider,
+      browserProvider,
     ),
     new FastifyAdapter(),
   );
