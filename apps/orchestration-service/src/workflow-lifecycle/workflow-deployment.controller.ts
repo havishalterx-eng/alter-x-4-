@@ -4,12 +4,12 @@ import type { ProblemDetails } from "@alterx/contracts";
 import { randomUUID } from "node:crypto";
 import {
   DeploymentConcurrencyError,
-  DeploymentControllerService,
+  WorkflowLifecycleService,
   DeploymentNotFoundError,
   DeploymentStateTransitionError,
   DeploymentValidationError,
   ReleaseGateFailedError,
-} from "./deployment-controller.service";
+} from "./workflow-lifecycle.service";
 
 interface VersionBody {
   readonly workflowVersionId?: string;
@@ -37,7 +37,7 @@ function tenantId(request: SessionGatewayRequest): string {
 
 @Controller("api/v1/workflows")
 export class WorkflowDeploymentController {
-  constructor(private readonly deployments: DeploymentControllerService) {}
+  constructor(private readonly deployments: WorkflowLifecycleService) {}
 
   @Post(":workflowId/actions/test-version")
   async testVersion(@Req() request: SessionGatewayRequest, @Param("workflowId") workflowId: string, @Body() body: VersionBody) {

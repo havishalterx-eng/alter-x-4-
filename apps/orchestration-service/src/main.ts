@@ -16,7 +16,7 @@ import { AppModule } from "./app.module";
 import { loadBlackboardEnvironment } from "./config/blackboard-environment";
 import { loadCompilerEnvironment } from "./config/compiler-environment";
 import { loadConversationManagerEnvironment } from "./config/environment";
-import { loadDeploymentControllerEnvironment } from "./config/deployment-controller-environment";
+import { loadWorkflowLifecycleEnvironment } from "./config/workflow-lifecycle-environment";
 import { loadNodeexecEnvironment } from "./config/nodeexec-environment";
 import { loadRegistryEnvironment } from "./config/registry-environment";
 import { loadRecoveryEnvironment } from "./config/recovery-environment";
@@ -25,7 +25,7 @@ import { loadArtifactContentEnvironment } from "./config/artifact-content-enviro
 import { BLACKBOARD_PROTO_PATH } from "./blackboard/grpc.constants";
 import { COMPILER_PROTO_PATH } from "./compiler/grpc.constants";
 import { CONVERSATION_PROTO_PATH } from "./conversation/grpc.constants";
-import { DEPLOYCTL_PROTO_PATH } from "./deployment-controller/grpc.constants";
+import { DEPLOYCTL_PROTO_PATH } from "./workflow-lifecycle/grpc.constants";
 import { NODEEXEC_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
 import { REGISTRY_PROTO_PATH } from "./registry/grpc.constants";
 import { RECOVERY_PROTO_PATH } from "./recovery/grpc.constants";
@@ -44,7 +44,7 @@ function parsePort(value: string | undefined): number {
 async function bootstrap(): Promise<void> {
   const conversationConfig = loadConversationManagerEnvironment(process.env);
   const compilerConfig = loadCompilerEnvironment(process.env);
-  const deploymentConfig = loadDeploymentControllerEnvironment(process.env);
+  const workflowLifecycleConfig = loadWorkflowLifecycleEnvironment(process.env);
   const registryConfig = loadRegistryEnvironment(process.env);
   const nodeexecConfig = loadNodeexecEnvironment(process.env);
   const recoveryConfig = loadRecoveryEnvironment(process.env);
@@ -72,7 +72,7 @@ async function bootstrap(): Promise<void> {
     protoPath: COMPILER_PROTO_PATH,
   });
   connectDeployctlGrpcTransport(app, {
-    bindAddress: deploymentConfig.grpcBindAddress,
+    bindAddress: workflowLifecycleConfig.grpcBindAddress,
     protoPath: DEPLOYCTL_PROTO_PATH,
   });
   connectRegistryGrpcTransport(app, {

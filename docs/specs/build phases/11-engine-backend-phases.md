@@ -77,7 +77,7 @@
 - **Capability Resolver**: per-node capability/model-tier/tool requirement inference (STANDARD).
 - **Selection & Binding Engine**: vector match on 512-dim capability embeddings, performance-weighted routing, agent auto-creation (STANDARD drafts personas), dynamic model routing. intelligence_db migrations (agents, agent_versions, capability_embeddings, performance_records).
 - **Graph Compiler**: bound skeleton → typed, versioned, immutable WorkflowDAG — waves, sequences, conditional branches, loops, merges, developer-hardcoded edges; OPT-STD conditional-edge expression synthesis; draft-vs-executable lifecycle; schema validation; `metadata.ui.*` passthrough (runtime-ignored).
-- **Deployment Controller** (co-deployed with compiler group): DAG version store, canary routing, automatic rollback on regression.
+- **Workflow Lifecycle** (co-deployed with compiler group): DAG version store, canary routing, automatic rollback on regression.
 
 **Why now:** the full "understand → decide → compile" chain, built while execution doesn't exist yet — planning bugs cost nothing expensive here. Gateways from the Gateways Phase gives it real model access.
 

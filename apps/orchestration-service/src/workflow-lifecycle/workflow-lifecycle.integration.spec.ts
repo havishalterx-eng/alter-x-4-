@@ -9,10 +9,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PostgresOrchestrationStoreProvider } from "@alterx/adapters";
 
 import {
-  DeploymentControllerService,
+  WorkflowLifecycleService,
   DeploymentNotFoundError,
   DeploymentStateTransitionError,
-} from "./deployment-controller.service";
+} from "./workflow-lifecycle.service";
 import type { EvalFacadeService } from "../eval-facade/eval-facade.service";
 
 // promoteVersion/startCanary gate on a real release-gate check
@@ -75,15 +75,15 @@ interface EvidenceVersion extends Record<string, unknown> {
   readonly evaluation_failed_at: Date | null;
 }
 
-describe.sequential("DeploymentControllerService Postgres integration", () => {
+describe.sequential("WorkflowLifecycleService Postgres integration", () => {
   let container: StartedPostgreSqlContainer;
   let store: PostgresOrchestrationStoreProvider;
-  let service: DeploymentControllerService;
+  let service: WorkflowLifecycleService;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer("postgres:16.6-alpine")
       .withDatabase("orchestration_db")
-      .withUsername("deployment_controller_test")
+      .withUsername("workflow_lifecycle_test")
       .withPassword(randomBytes(24).toString("hex"))
       .start();
     store = new PostgresOrchestrationStoreProvider({
@@ -92,7 +92,7 @@ describe.sequential("DeploymentControllerService Postgres integration", () => {
       migrationsFolder,
     });
     await store.migrate();
-    service = new DeploymentControllerService(store, PASSING_EVAL_FACADE);
+    service = new WorkflowLifecycleService(store, PASSING_EVAL_FACADE);
   }, 60_000);
 
   afterAll(async () => {
@@ -350,7 +350,7 @@ describe.sequential("DeploymentControllerService Postgres integration", () => {
     await seedWorkflow(TENANT_A, WORKSPACE_A, WORKFLOW_A, [
       { id: VERSION_2, status: "compiled" },
     ]);
-    const failingService = new DeploymentControllerService(store, FAILING_EVAL_FACADE);
+    const failingService = new WorkflowLifecycleService(store, FAILING_EVAL_FACADE);
 
     await expect(failingService.testVersion({
       tenant_id: TENANT_A_REQUEST,

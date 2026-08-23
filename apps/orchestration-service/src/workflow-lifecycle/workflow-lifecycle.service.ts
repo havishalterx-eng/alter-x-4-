@@ -392,7 +392,7 @@ function requireSingleWrite(rowCount: number): void {
   }
 }
 
-export class DeploymentControllerService {
+export class WorkflowLifecycleService {
   constructor(
     private readonly store: OrchestrationTenantStore,
     private readonly evalFacade: EvalFacadeService,

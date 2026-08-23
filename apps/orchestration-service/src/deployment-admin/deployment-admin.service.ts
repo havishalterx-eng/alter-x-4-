@@ -3,7 +3,7 @@ import {
   type DeploymentAdminActionRequest,
   type DeploymentAdminActionResult,
 } from "@alterx/contracts";
-import type { OrchestrationTenantStore } from "../deployment-controller/deployment-controller.service";
+import type { OrchestrationTenantStore } from "../workflow-lifecycle/workflow-lifecycle.service";
 
 type DeploymentStatus = "pending" | "active" | "failed" | "rolled_back" | "suspended";
 

@@ -1,6 +1,6 @@
 // Config for the Node Execution Service (EXEC-6) only. Deliberately
 // separate from environment.ts (Conversation Manager) -- same reasoning
-// as compiler/registry/deployment-controller-environment.ts.
+// as compiler/registry/workflow-lifecycle-environment.ts.
 
 export interface NodeexecEnvironment {
   readonly grpcBindAddress: string;

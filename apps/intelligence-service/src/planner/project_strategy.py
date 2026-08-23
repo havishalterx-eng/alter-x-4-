@@ -31,9 +31,9 @@ PROJECT_STAGES: list[tuple[str, str, str]] = [
     ("build_verify", "tool", "SandboxService"),
     ("render_verify", "tool", "SandboxService"),
     ("human_review_gate", "tool", "HumanActionCentre"),
-    ("deploy_preview", "tool", "DeploymentController"),
+    ("deploy_preview", "tool", "WorkflowLifecycle"),
     ("acceptance_verify", "tool", "VerificationQualityGate"),
-    ("deploy_production_and_monitor", "tool", "DeploymentController"),
+    ("deploy_production_and_monitor", "tool", "WorkflowLifecycle"),
 ]
 
 _STAGE_COUNT = 14

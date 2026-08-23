@@ -179,7 +179,7 @@ LLM access map (reconciled from original 7-tier index):
 | Verification & Quality Gate | ADVANCED reviewer + FAST hallucination classifier |
 | Executor / LLMTask nodes | per-node alias declared in WorkflowDAG spec |
 
-Deliberately LLM-free (unchanged): Session Gateway, Event & Trigger Gateway, ADS Client (embeddings only), Cache Layer (embeddings only), Deployment Controller, Durable Substrate, Node Type Registry, Blackboard, Provisioning Service, Model Gateway, Tool Gateway, Policy Store, Drift Detector, Cost Ledger, Observability/Contract/Governance planes.
+Deliberately LLM-free (unchanged): Session Gateway, Event & Trigger Gateway, ADS Client (embeddings only), Cache Layer (embeddings only), Workflow Lifecycle, Durable Substrate, Node Type Registry, Blackboard, Provisioning Service, Model Gateway, Tool Gateway, Policy Store, Drift Detector, Cost Ledger, Observability/Contract/Governance planes.
 
 ### 4.2 Provider-adapter law (mandatory)
 
@@ -321,7 +321,7 @@ Shared: goal analysis, clarification, decomposition, capability resolution, agen
 - **Layer 1 — sandbox preflight (E2B, pre-push):** install, typecheck, lint, unit + integration tests, build verification, render verification, placeholder detection, secret scanning, dependency scanning, Code Audit agent review. Fast feedback; self-healing happens here first.
 - **Layer 2 — GitHub Actions (canonical):** clean-environment build, full test suite, security checks, architecture rules, deployment checks, artifact generation, preview deployment. Authoritative external CI result.
 - CI failure loop: `GitHub webhook → Event & Trigger Gateway → project lifecycle workflow → Recovery Policy Engine → fresh repair run → audit → push fix → CI rerun`.
-- **The implementation agent never approves its own code** — independent Code Audit agent + Quality Gate before merge; Deployment Controller ships approved commits only.
+- **The implementation agent never approves its own code** — independent Code Audit agent + Quality Gate before merge; Workflow Lifecycle ships approved commits only.
 
 #### Sandbox render verification (current gRPC behavior)
 
@@ -333,7 +333,7 @@ The code deliberately supports two sanctioned promotion patterns because the evi
 
 - **Agent draft → active: live-traffic confidence building.** Auto-created agents start as `draft` (`apps/intelligence-service/src/agent_auto_creation/engine.py:26`). Each successful real performance observation invokes the promotion check before the observation transaction commits (`apps/intelligence-service/src/performance/repository.py:74`, `apps/intelligence-service/src/performance/repository.py:92`, `apps/intelligence-service/src/performance/repository.py:98`). The check counts successful observations and updates only a still-draft agent to `active` once the configured threshold is met (`apps/intelligence-service/src/performance/repository.py:101`, `apps/intelligence-service/src/performance/repository.py:114`, `apps/intelligence-service/src/performance/repository.py:125`); the configured default is three (`apps/intelligence-service/src/config.py:21`). This is appropriate where confidence accumulates from real execution outcomes, so it does not wait for a batch evaluation run.
 
-- **Workflow version → tested: formal eval release gate.** `testVersion` runs the `workflow E2E` golden set and checks a release gate for that exact workflow/version before changing the version status to `tested` (`apps/orchestration-service/src/deployment-controller/deployment-controller.service.ts:496`, `apps/orchestration-service/src/deployment-controller/deployment-controller.service.ts:497`, `apps/orchestration-service/src/deployment-controller/deployment-controller.service.ts:507`). The eval service persists an auditable approve/block decision only for a completed, scored eval run; its default minimum pass rate is 100% (`apps/eval-service/src/release_gates.py:25`, `apps/eval-service/src/release_gates.py:32`, `apps/eval-service/src/release_gates.py:42`). This is appropriate for versioned, deployable workflow artifacts that need a formal pre-release gate.
+- **Workflow version → tested: formal eval release gate.** `testVersion` runs the `workflow E2E` golden set and checks a release gate for that exact workflow/version before changing the version status to `tested` (`apps/orchestration-service/src/workflow-lifecycle/workflow-lifecycle.service.ts:496`, `apps/orchestration-service/src/workflow-lifecycle/workflow-lifecycle.service.ts:497`, `apps/orchestration-service/src/workflow-lifecycle/workflow-lifecycle.service.ts:507`). The eval service persists an auditable approve/block decision only for a completed, scored eval run; its default minimum pass rate is 100% (`apps/eval-service/src/release_gates.py:25`, `apps/eval-service/src/release_gates.py:32`, `apps/eval-service/src/release_gates.py:42`). This is appropriate for versioned, deployable workflow artifacts that need a formal pre-release gate.
 
 These patterns must remain distinct: forcing live agent confidence through a batch eval gate would delay a real-traffic signal, while promoting a deployable workflow version from traffic observations would bypass its explicit release evidence.
 
