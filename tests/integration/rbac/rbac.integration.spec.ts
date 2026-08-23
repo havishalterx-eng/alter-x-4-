@@ -150,7 +150,7 @@ async function canActivate(testCase: GuardCase): Promise<boolean> {
     }),
     // Direct workspaceId params resolve to themselves; no project lookup
     // is needed for these cases.
-    new ParamWorkspaceResolver(),
+    new ParamWorkspaceResolver([{ paramNames: ["workspaceId", "workspace_id"] }]),
   );
   const request: RbacRequest = { url: "/integration-rbac/test" };
   if (testCase.actorContext) {

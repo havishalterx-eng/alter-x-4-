@@ -44,6 +44,9 @@ function toEscalationResponse(row: EscalationRow): Record<string, unknown> {
     recovery_action_id: row.recovery_action_id,
     reason: row.reason,
     status: row.status,
+    // ENGINE-FIX-P5-1b: additive -- owning workspace for platform-api's
+    // workspace-bound RBAC resolver.
+    workspace_id: row.workspace_id ?? null,
     claimed_by: row.claimed_by,
     claimed_at: row.claimed_at,
     resolved_by: row.resolved_by,

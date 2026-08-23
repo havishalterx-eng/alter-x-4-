@@ -183,7 +183,7 @@ describe("RbacGuard", () => {
       // legacy flat path here, and the binding behavior is covered by the
       // workspaceId routes plus param-workspace.resolver.spec.ts.
       .overrideProvider(resourceWorkspaceResolverToken)
-      .useValue(new ParamWorkspaceResolver())
+      .useValue(new ParamWorkspaceResolver([{ paramNames: ["workspaceId", "workspace_id"] }]))
       .compile();
 
     app = moduleRef.createNestApplication<NestFastifyApplication>(

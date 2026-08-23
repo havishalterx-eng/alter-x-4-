@@ -43,6 +43,9 @@ export interface ApprovalRow extends Record<string, unknown> {
   readonly node_execution_id: string;
   readonly requested_action: Record<string, unknown>;
   readonly status: string;
+  // ENGINE-FIX-P5-1b: additive, consumed by platform-api's workspace-bound
+  // RBAC resolver via the approval read response.
+  readonly workspace_id?: string;
   readonly requested_at: string;
   readonly decided_at: string | null;
   readonly decided_by: string | null;
@@ -80,7 +83,7 @@ function normalizeLimit(limit: number | undefined): number {
   return limit;
 }
 
-const APPROVAL_SELECT_COLUMNS = `id, run_id, node_execution_id, requested_action, status,
+const APPROVAL_SELECT_COLUMNS = `id, run_id, node_execution_id, requested_action, status, workspace_id,
        requested_at::text, decided_at::text, decided_by::text, decision_note,
        expiry_at::text`;
 

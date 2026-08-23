@@ -107,6 +107,10 @@ export interface RunRow extends Record<string, unknown> {
   readonly workflow_id: string | null;
   readonly project_id?: string | null;
   readonly workflow_version_id: string | null;
+  // ENGINE-FIX-P5-1b: additive on every RUN_SELECT_COLUMNS consumer so the
+  // run read response can disclose owning workspace to platform-api's
+  // workspace-bound RBAC resolver.
+  readonly workspace_id?: string;
   readonly provisioning_session_id?: string | null;
   readonly provisioning_cycle_id?: string | null;
   readonly provisioning_template_id?: string | null;
@@ -223,6 +227,7 @@ function temporalDurationUntil(deadlineAt: string | null | undefined): string {
 }
 
 const RUN_SELECT_COLUMNS = `id, workflow_id, project_id, workflow_version_id,
+       workspace_id,
        provisioning_session_id, provisioning_cycle_id, provisioning_template_id,
        provisioning_closed_at::text, parent_kind, status, started_at::text,
        ended_at::text, deadline_at::text, created_at::text, triggering_event_id`;

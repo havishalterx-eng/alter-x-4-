@@ -1,167 +1,250 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { EngineClient } from "../engine/engine-client";
 import {
-  EngineProjectWorkspaceLookup,
+  CachedEngineResourceLookup,
+  ConnectionWorkspaceLookup,
+  defaultWorkspaceResolutionRules,
+  legacyFlatRules,
   ParamWorkspaceResolver,
   WorkspaceLookupUnavailableError,
-  type ProjectWorkspaceLookup,
+  type ResourceWorkspaceLookup,
+  type WorkspaceResolutionRule,
 } from "./param-workspace.resolver";
-import type { ActorContext as ActorContextType } from "./types";
+import type { PlatformDb } from "../signup/platform-db";
+import type { RbacRequest } from "./types";
 
 const tenantId = "018f47a5-7b2c-7d10-8f11-123456789abc";
-const projectId = "prj_018f47a5-7b2c-7d10-8f11-123456789abc";
 const workspaceA = "ws_018f47a5-7b2c-7d10-8f11-123456789aba";
 const workspaceB = "ws_018f47a5-7b2c-7d10-8f11-123456789abb";
+const projectId = "prj_018f47a5-7b2c-7d10-8f11-123456789abc";
+const workflowId = "wf_018f47a5-7b2c-7d10-8f11-123456789abc";
+const runId = "run_018f47a5-7b2c-7d10-8f11-123456789abc";
+const triggerId = "trg_018f47a5-7b2c-7d10-8f11-123456789abc";
+const approvalId = "apr_018f47a5-7b2c-7d10-8f11-123456789abc";
+const escalationId = "esc_018f47a5-7b2c-7d10-8f11-123456789abc";
+const clarificationId = "clr_018f47a5-7b2c-7d10-8f11-123456789abc";
+const connectionId = "018f47a5-7b2c-7d10-8f11-123456789abd";
 
 function request(
   params: Record<string, string>,
-  actor?: Partial<ActorContextType>,
-): Parameters<ParamWorkspaceResolver["resolveWorkspaceId"]>[0] {
+  url = "/test",
+): RbacRequest {
   return {
     params,
-    url: "/test",
-    ...(actor === undefined
-      ? {}
-      : {
-          actorContext: {
-            user_id: "usr_x",
-            tenant_id: tenantId,
-            roles: [],
-            permissions: [],
-            session_id: "sess_x",
-            ...actor,
-          },
-        }),
-  } as Parameters<ParamWorkspaceResolver["resolveWorkspaceId"]>[0];
+    url,
+    actorContext: {
+      user_id: "usr_x",
+      tenant_id: tenantId,
+      roles: [],
+      permissions: [],
+      session_id: "sess_x",
+    },
+  };
 }
 
-describe("ParamWorkspaceResolver", () => {
-  it("returns a direct workspaceId param without any lookup", async () => {
-    const lookup = vi.fn();
-    const resolver = new ParamWorkspaceResolver({ getProjectWorkspace: lookup });
+function staticLookup(value: string | undefined): ResourceWorkspaceLookup {
+  return { getWorkspaceId: async () => value };
+}
 
-    const resolved = await resolver.resolveWorkspaceId(request({ workspaceId: workspaceA }));
+describe("defaultWorkspaceResolutionRules dispatch", () => {
+  const getMock = vi.fn<(path: string) => Promise<{ status: number; body?: Record<string, unknown> }>>(
+    async (path) => {
+      if (path.includes("/workflows/")) return { status: 200, body: { workspace_id: workspaceA } };
+      if (path.includes("/projects/")) return { status: 200, body: { workspace_id: workspaceA } };
+      if (path.includes("/runs/")) return { status: 200, body: { workspace_id: workspaceB } };
+      if (path.includes("/triggers/")) return { status: 200, body: { workspaceId: workspaceB } };
+      if (path.includes("/approvals/")) return { status: 200, body: { workspace_id: workspaceA } };
+      if (path.includes("/escalations/")) return { status: 200, body: { workspace_id: workspaceB } };
+      if (path.includes("/clarifications/")) return { status: 200, body: { workspace_id: workspaceA } };
+      if (path.endsWith("/missing")) return { status: 404 };
+      return { status: 500 };
+    },
+  );
+  const queryTenantMock = vi.fn<
+    (tenantId: string, sql: string, params: readonly unknown[]) => Promise<Record<string, unknown>[]>
+  >(async () => [{ workspace_id: workspaceA }]);
+  const deps = {
+    engineClient: { get: getMock } as unknown as EngineClient,
+    db: { queryTenant: queryTenantMock } as unknown as PlatformDb,
+  };
+  const resolver = new ParamWorkspaceResolver(defaultWorkspaceResolutionRules(deps));
 
-    expect(resolved).toBe(workspaceA);
-    expect(lookup).not.toHaveBeenCalled();
+  beforeEach(() => {
+    getMock.mockClear();
+    queryTenantMock.mockClear();
   });
 
-  it("resolves a projectId param through the project lookup", async () => {
-    const lookup = vi.fn<(t: string, p: string) => Promise<string | undefined>>(
-      async () => workspaceB,
+  it.each([
+    ["projects", "/api/v1/projects/p/env-vars", { projectId }, workspaceA],
+    ["workflows", "/api/v1/workflows/w/actions/compile", { workflowId: workflowId }, workspaceA],
+    ["runs", "/api/v1/runs/r", { runId }, workspaceB],
+    ["triggers (bare id)", "/api/v1/triggers/t/status", { id: triggerId }, workspaceB],
+    ["approvals", "/api/v1/approvals/a/actions/approve", { approvalId: approvalId }, workspaceA],
+    ["escalations", "/api/v1/escalations/e/actions/claim", { escalationId: escalationId }, workspaceB],
+    ["clarifications", "/api/v1/clarifications/c/actions/assign", { clarificationId: clarificationId }, workspaceA],
+  ])("resolves %s", async (_label, url, params, expected) => {
+    await expect(
+      resolver.resolveWorkspaceId(request(params as Record<string, string>, url)),
+    ).resolves.toBe(expected);
+  });
+
+  it("passes a direct workspaceId param through without any lookup", async () => {
+    await expect(
+      resolver.resolveWorkspaceId(request({ workspaceId: workspaceA })),
+    ).resolves.toBe(workspaceA);
+    expect(getMock).not.toHaveBeenCalled();
+  });
+
+  it("extracts snake_case workspace_id from run reads and camelCase from trigger reads", async () => {
+    await expect(
+      resolver.resolveWorkspaceId(request({ runId }, "/api/v1/runs/x")),
+    ).resolves.toBe(workspaceB);
+    await expect(
+      resolver.resolveWorkspaceId(request({ id: triggerId }, "/api/v1/triggers/x")),
+    ).resolves.toBe(workspaceB);
+  });
+
+  it("maps annotation items by their sibling type param", async () => {
+    getMock.mockClear();
+    getMock.mockImplementation(async (path: string) =>
+      path.includes("/escalations/")
+        ? { status: 200, body: { workspace_id: workspaceA } }
+        : { status: 404 },
     );
-    const resolver = new ParamWorkspaceResolver({ getProjectWorkspace: lookup });
 
-    const resolved = await resolver.resolveWorkspaceId(
-      request({ projectId }, {}),
+    await expect(
+      resolver.resolveWorkspaceId(
+        request({ type: "escalation", id: escalationId }, "/api/v1/action-items/escalation/e/annotations"),
+      ),
+    ).resolves.toBe(workspaceA);
+    expect(getMock).toHaveBeenCalledWith(
+      `/api/v1/escalations/${escalationId}`,
+      expect.objectContaining({ tenantId }),
     );
-
-    expect(resolved).toBe(workspaceB);
-    expect(lookup).toHaveBeenCalledWith(tenantId, projectId);
   });
 
-  it("returns undefined for a projectId param when the actor carries no tenant context", async () => {
-    const lookup = vi.fn();
-    const resolver = new ParamWorkspaceResolver({ getProjectWorkspace: lookup });
-
+  it("returns undefined for an unknown annotation type instead of guessing", async () => {
     await expect(
-      resolver.resolveWorkspaceId(request({ projectId })),
-    ).resolves.toBeUndefined();
-    expect(lookup).not.toHaveBeenCalled();
-  });
-
-  it("returns undefined for routes that name no workspace-bearing param", async () => {
-    const resolver = new ParamWorkspaceResolver({ getProjectWorkspace: async () => workspaceA });
-
-    await expect(resolver.resolveWorkspaceId(request({}))).resolves.toBeUndefined();
-    await expect(
-      resolver.resolveWorkspaceId(request({ runId: "run_1" })),
+      resolver.resolveWorkspaceId(
+        request({ type: "mystery", id: "x" }, "/api/v1/action-items/mystery/x/annotations"),
+      ),
     ).resolves.toBeUndefined();
   });
 
-  it("returns undefined for projectId routes when no project lookup is wired (legacy flat path)", async () => {
-    const resolver = new ParamWorkspaceResolver();
-
+  it("resolves connection ids from the local platform_db, not the engine", async () => {
     await expect(
-      resolver.resolveWorkspaceId(request({ projectId })),
+      resolver.resolveWorkspaceId(
+        request({ connectionId }, "/api/v1/integrations/connections/c/actions/health"),
+      ),
+    ).resolves.toBe(workspaceA);
+    expect(deps.db.queryTenant).toHaveBeenCalledWith(
+      tenantId,
+      expect.stringContaining("oauth_connections"),
+      expect.anything(),
+    );
+    expect(getMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("connections"),
+      expect.anything(),
+    );
+  });
+
+  it("treats a malformed connection id as missing rather than querying", async () => {
+    await expect(
+      resolver.resolveWorkspaceId(
+        request({ connectionId: "not-a-uuid" }, "/api/v1/integrations/connections/x/health"),
+      ),
+    ).resolves.toBeUndefined();
+    expect(queryTenantMock).not.toHaveBeenCalled(); // beforeEach-cleared; malformed never reaches the DB
+  });
+
+  it("keeps unrelated generic :id routes unbound (documented legacy path)", async () => {
+    await expect(
+      resolver.resolveWorkspaceId(request({ id: triggerId }, "/api/v1/channels/voice/id")),
     ).resolves.toBeUndefined();
   });
 });
 
-type FakeEngineClient = {
-  get: (
-    path: string,
-    context: unknown,
-  ) => Promise<{ status: number; body?: Record<string, unknown> }>;
-};
-
-function fakeClient(
-  impl: FakeEngineClient["get"],
-): unknown {
-  return { get: vi.fn(impl) };
-}
-
-describe("EngineProjectWorkspaceLookup", () => {
-  it("returns the project's owning workspace from the engine read", async () => {
-    const client = fakeClient(async () => ({
-      status: 200,
-      body: { id: projectId, workspace_id: workspaceA },
-    }));
-    const lookup = new EngineProjectWorkspaceLookup(client as never);
-
-    await expect(lookup.getProjectWorkspace(tenantId, projectId)).resolves.toBe(workspaceA);
-  });
-
-  it("collapses a foreign/missing project to undefined via the engine's 404", async () => {
-    const client = fakeClient(async () => ({ status: 404 }));
-    const lookup = new EngineProjectWorkspaceLookup(client as never);
-
-    await expect(lookup.getProjectWorkspace(tenantId, projectId)).resolves.toBeUndefined();
-  });
-
-  it("fails closed on any non-200/404 engine response", async () => {
-    const client = fakeClient(async () => ({ status: 503 }));
-    const lookup = new EngineProjectWorkspaceLookup(client as never);
-
-    await expect(lookup.getProjectWorkspace(tenantId, projectId)).rejects.toBeInstanceOf(
-      WorkspaceLookupUnavailableError,
+describe("CachedEngineResourceLookup caching contract", () => {
+  it("caches positive results per resource and never re-fetches within TTL", async () => {
+    const get = vi.fn(async () => ({ status: 200, body: { workspace_id: workspaceA } }));
+    const lookup = new CachedEngineResourceLookup(
+      { get } as never,
+      (id) => `/api/v1/workflows/${id}`,
+      (body) => (typeof body.workspace_id === "string" ? body.workspace_id : undefined),
     );
+
+    await expect(lookup.getWorkspaceId(tenantId, workflowId)).resolves.toBe(workspaceA);
+    await expect(lookup.getWorkspaceId(tenantId, workflowId)).resolves.toBe(workspaceA);
+    expect(get).toHaveBeenCalledTimes(1);
   });
 
-  it("never caches a failed lookup, so recovery needs no TTL wait", async () => {
+  it("collapses 404 to undefined with a short negative cache", async () => {
+    const get = vi.fn(async () => ({ status: 404 }));
+    const lookup = new CachedEngineResourceLookup(
+      { get } as never,
+      (id) => `/api/v1/workflows/${id}`,
+      (body) => (typeof body.workspace_id === "string" ? body.workspace_id : undefined),
+    );
+
+    await expect(lookup.getWorkspaceId(tenantId, workflowId)).resolves.toBeUndefined();
+    await expect(lookup.getWorkspaceId(tenantId, workflowId)).resolves.toBeUndefined();
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed on non-200/404 and never caches the failure", async () => {
     let status = 503;
-    const client = fakeClient(async () =>
-      status === 200
-        ? { status: 200, body: { workspace_id: workspaceA } }
-        : { status },
+    const get = vi.fn(async () => ({
+      status,
+      body: status === 200 ? { workspace_id: workspaceA } : {},
+    }));
+    const lookup = new CachedEngineResourceLookup(
+      { get } as never,
+      (id) => `/api/v1/workflows/${id}`,
+      (body) => (typeof body.workspace_id === "string" ? body.workspace_id : undefined),
     );
-    const lookup = new EngineProjectWorkspaceLookup(client as never);
 
-    await expect(lookup.getProjectWorkspace(tenantId, projectId)).rejects.toBeInstanceOf(
+    await expect(lookup.getWorkspaceId(tenantId, workflowId)).rejects.toBeInstanceOf(
       WorkspaceLookupUnavailableError,
     );
     status = 200;
-    await expect(lookup.getProjectWorkspace(tenantId, projectId)).resolves.toBe(workspaceA);
-  });
-
-  it("caches a positive result so repeat checks do not re-hit the engine", async () => {
-    const get = vi.fn(async () => ({
-      status: 200,
-      body: { workspace_id: workspaceA },
-    }));
-    const lookup = new EngineProjectWorkspaceLookup({ get } as never);
-
-    await expect(lookup.getProjectWorkspace(tenantId, projectId)).resolves.toBe(workspaceA);
-    await expect(lookup.getProjectWorkspace(tenantId, projectId)).resolves.toBe(workspaceA);
-    expect(get).toHaveBeenCalledTimes(1);
+    await expect(lookup.getWorkspaceId(tenantId, workflowId)).resolves.toBe(workspaceA);
   });
 });
 
-describe("guard wiring contract (compile-time shape)", () => {
-  it("accepts any ProjectWorkspaceLookup implementation", async () => {
-    const stub: ProjectWorkspaceLookup = {
-      getProjectWorkspace: async () => undefined,
+describe("ConnectionWorkspaceLookup fail-closed contract", () => {
+  it("surfaces database failure as WorkspaceLookupUnavailableError, not undefined", async () => {
+    const db = {
+      queryTenant: vi.fn(async (): Promise<Record<string, unknown>[]> => {
+        throw new Error("pool exhausted");
+      }),
     };
-    await expect(stub.getProjectWorkspace(tenantId, projectId)).resolves.toBeUndefined();
+    const lookup = new ConnectionWorkspaceLookup(db as never);
+
+    await expect(
+      lookup.getWorkspaceId(tenantId, connectionId),
+    ).rejects.toBeInstanceOf(WorkspaceLookupUnavailableError);
+  });
+});
+
+describe("legacy composition", () => {
+  it("binds nothing, so the guard keeps its documented flat-role behavior", async () => {
+    const resolver = new ParamWorkspaceResolver(legacyFlatRules());
+
+    await expect(
+      resolver.resolveWorkspaceId(request({ projectId, workspaceId: workspaceB })),
+    ).resolves.toBeUndefined();
+    await expect(
+      resolver.resolveWorkspaceId(request({ id: triggerId }, "/api/v1/triggers/t")),
+    ).resolves.toBeUndefined();
+  });
+
+  it("accepts custom rule arrays additively", async () => {
+    const rules: readonly WorkspaceResolutionRule[] = [
+      { paramNames: ["customId"], lookup: staticLookup(workspaceB) },
+    ];
+    const resolver = new ParamWorkspaceResolver(rules);
+
+    await expect(resolver.resolveWorkspaceId(request({ customId: "c" }))).resolves.toBe(workspaceB);
   });
 });

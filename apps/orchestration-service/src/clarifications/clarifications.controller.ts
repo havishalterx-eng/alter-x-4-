@@ -38,6 +38,9 @@ function response(row: ClarificationRow): Record<string, unknown> {
     requested_at: row.requested_at,
     answered_at: row.answered_at,
     expiry_at: row.expiry_at,
+    // ENGINE-FIX-P5-1b: additive -- owning workspace for platform-api's
+    // workspace-bound RBAC resolver.
+    workspace_id: row.workspace_id ?? null,
   };
 }
 
@@ -53,6 +56,17 @@ export class ClarificationsController {
         ...(query.limit === undefined ? {} : { limit: Number(query.limit) }),
       });
       return { data: page.data.map(response), page: page.page };
+    } catch (error: unknown) {
+      throw mapError(error, request.url);
+    }
+  }
+
+  @Get(":id")
+  async get(@Req() request: SessionGatewayRequest, @Param("id") clarificationId: string) {
+    try {
+      return response(
+        await this.clarifications.getById(requiredTenantId(request), clarificationId),
+      );
     } catch (error: unknown) {
       throw mapError(error, request.url);
     }
