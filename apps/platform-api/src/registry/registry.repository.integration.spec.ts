@@ -18,13 +18,18 @@ describe.skipIf(!databaseUrl)("RegistryRepository integration", () => {
     schemaName = `registry_${randomUUID().replaceAll("-", "_")}`;
     roleName = `registry_role_${randomUUID().replaceAll("-", "_")}`;
     admin = new pg.Client({ connectionString: databaseUrl }); await admin.connect();
-    await admin.query(`CREATE SCHEMA "${schemaName}"`); await admin.query(`SET search_path TO "${schemaName}"`);
+    await admin.query(`CREATE SCHEMA "${schemaName}"`);
+    // public stays on the path alongside the private schema: the shared
+    // marketplace-migrations' pg_trgm extension is pinned to SCHEMA public
+    // (see 0003_search_indexes.sql), so gin_trgm_ops needs to resolve from
+    // there regardless of which spec's migration run actually created it.
+    await admin.query(`SET search_path TO "${schemaName}", public`);
     // Advisory lock shared with marketplace/publisher/search specs -- CREATE
     // EXTENSION IF NOT EXISTS races on pg_extension under concurrent workers.
     await admin.query("SELECT pg_advisory_lock(729312)");
     try { await migrations(admin); } finally { await admin.query("SELECT pg_advisory_unlock(729312)"); }
-    const password = randomUUID(); await admin.query(`CREATE ROLE "${roleName}" LOGIN PASSWORD '${password}'`); await admin.query(`GRANT USAGE ON SCHEMA "${schemaName}" TO "${roleName}"`); await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "${schemaName}" TO "${roleName}"`);
-    const url = new URL(databaseUrl!); url.username = roleName; url.password = password; url.searchParams.set("options", `-c search_path=${schemaName}`); pool = new pg.Pool({ connectionString: url.toString() }); repository = new RegistryRepository(pool);
+    const password = randomUUID(); await admin.query(`CREATE ROLE "${roleName}" LOGIN PASSWORD '${password}'`); await admin.query(`GRANT USAGE ON SCHEMA "${schemaName}" TO "${roleName}"`); await admin.query(`GRANT USAGE ON SCHEMA public TO "${roleName}"`); await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "${schemaName}" TO "${roleName}"`);
+    const url = new URL(databaseUrl!); url.username = roleName; url.password = password; url.searchParams.set("options", `-c search_path=${schemaName},public`); pool = new pg.Pool({ connectionString: url.toString() }); repository = new RegistryRepository(pool);
   });
   afterEach(async () => { await pool?.end(); if (admin) { await admin.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`); await admin.query(`DROP ROLE IF EXISTS "${roleName}"`); await admin.end(); } });
   it("hides tenant draft manifests and reports from other tenants", async () => {
