@@ -1,10 +1,12 @@
 import {
   createMockAuditEventHandler,
   createMockConfigProvider,
+  createMockQueueProvider,
   createMockSearchProvider,
   createMockSecretsProvider,
   type AuditEventHandler,
   type ConfigProvider,
+  type QueueProvider,
   type SearchProvider,
   type SecretsProvider,
 } from "@alterx/shared-clients";
@@ -16,6 +18,7 @@ import {
   ToolGatewayPermissionError,
   ToolGatewayRateLimitError,
   ToolGatewayValidationError,
+  type DatabaseOperationProvider,
   type DnsResolver,
   type FetchFn,
 } from "@alterx/adapters";
@@ -77,12 +80,24 @@ function noopFetchFn(): FetchFn {
   });
 }
 
+function fakeDatabaseProvider(
+  execute: DatabaseOperationProvider["execute"] = vi.fn(async () => ({
+    rowCount: 1,
+    rows: [{ answer: 42 }],
+  })),
+): DatabaseOperationProvider {
+  return { providerId: "mock.database", execute };
+}
+
 interface ServiceOverrides {
   readonly configProvider?: ConfigProvider;
   readonly secretsProvider?: SecretsProvider;
   readonly searchProvider?: SearchProvider;
   readonly urlFetcher?: SsrfGuardedFetcher;
   readonly auditClient?: AuditEventHandler;
+  readonly databaseProvider?: DatabaseOperationProvider;
+  readonly costQueue?: QueueProvider;
+  readonly costEventsQueueName?: string;
   readonly options?: ToolGatewayServiceOptions;
 }
 
@@ -94,6 +109,9 @@ function buildService(overrides: ServiceOverrides = {}): ToolGatewayService {
     overrides.urlFetcher ??
       new SsrfGuardedFetcher({}, noopDnsResolver(), noopFetchFn()),
     overrides.auditClient ?? createMockAuditEventHandler(),
+    overrides.databaseProvider ?? fakeDatabaseProvider(),
+    overrides.costQueue ?? createMockQueueProvider(),
+    overrides.costEventsQueueName ?? "test-cost-events",
     overrides.options ?? {},
   );
 }
@@ -266,6 +284,160 @@ describe("ToolGatewayService", () => {
     expect(
       (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
     ).toContainEqual(expect.objectContaining({ result: "error" }));
+  });
+
+  describe("database.* dispatch (ENGINE-RESTRUCTURE-P4-1, moved from SandboxService)", () => {
+    const DATABASE_ID = "db_accounts";
+    const DATABASE_CREDENTIAL_REF = `/alter/prod/tenant/${TENANT_A}/integration/${DATABASE_ID}/password`;
+    const WRONG_DATABASE_CREDENTIAL_REF = `/alter/prod/tenant/${TENANT_A}/integration/db_other/password`;
+
+    function databaseSecretsProvider() {
+      return createMockSecretsProvider({
+        secrets: {
+          [SECRET_REF]: RAW_SECRET_VALUE,
+          [DATABASE_CREDENTIAL_REF]: "postgres://db-connection-string",
+          [WRONG_DATABASE_CREDENTIAL_REF]: "postgres://db-connection-string",
+          [WRONG_TENANT_SECRET_REF]: "postgres://db-connection-string",
+        },
+      });
+    }
+
+    function databaseInvokeRequest(
+      overrides: Partial<Parameters<ToolGatewayService["invokeTool"]>[0]> = {},
+    ) {
+      return invokeRequest({
+        tool_name: "database.select",
+        input_json: JSON.stringify({
+          databaseId: DATABASE_ID,
+          statement: "SELECT 1",
+          parameters: [],
+        }),
+        credential_ref: DATABASE_CREDENTIAL_REF,
+        ...overrides,
+      });
+    }
+
+    function serviceWithScope(
+      requiredScopes: readonly string[],
+      overrides: ServiceOverrides = {},
+    ): ToolGatewayService {
+      return buildService({
+        secretsProvider: databaseSecretsProvider(),
+        configProvider: createMockConfigProvider({
+          toolPermission: { allowed: true, rateLimitPerMinute: 60, requiredScopes },
+        }),
+        ...overrides,
+      });
+    }
+
+    it("dispatches a real database operation and audits success", async () => {
+      const auditClient = createMockAuditEventHandler();
+      const execute = vi.fn(async () => ({ rowCount: 1, rows: [{ answer: 42 }] }));
+      const service = serviceWithScope([`database:${DATABASE_ID}`], {
+        databaseProvider: fakeDatabaseProvider(execute),
+        auditClient,
+      });
+
+      const response = await service.invokeTool(databaseInvokeRequest());
+
+      expect(JSON.parse(response.output_json)).toEqual({
+        rowCount: 1,
+        rows: [{ answer: 42 }],
+      });
+      expect(execute).toHaveBeenCalledWith({
+        credentialReference: DATABASE_CREDENTIAL_REF,
+        databaseId: DATABASE_ID,
+        operation: "select",
+        statement: "SELECT 1",
+        parameters: [],
+      });
+      expect(
+        (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
+      ).toContainEqual(
+        expect.objectContaining({ target_ref: "database.select", result: "success" }),
+      );
+    });
+
+    it("emits a real cost event scoped to tool_gateway on a successful dispatch", async () => {
+      const publish = vi.fn(
+        async (_queueName: string, _message: unknown): Promise<void> => undefined,
+      );
+      const service = serviceWithScope([`database:${DATABASE_ID}`], {
+        costQueue: createMockQueueProvider({ publish }),
+        costEventsQueueName: "test-cost-events",
+      });
+
+      await service.invokeTool(databaseInvokeRequest());
+
+      expect(publish).toHaveBeenCalledTimes(1);
+      const [queueName, event] = publish.mock.calls[0] as [string, Record<string, unknown>];
+      expect(queueName).toBe("test-cost-events");
+      expect(event).toMatchObject({ source: "tool_gateway" });
+      expect(JSON.parse(event.usage_json as string)).toMatchObject({
+        resource_type: "tool_gateway.database.select",
+        outcome: "success",
+      });
+    });
+
+    it("rejects a database.* tool_name naming an unsupported operation", async () => {
+      const service = serviceWithScope([`database:${DATABASE_ID}`]);
+
+      await expect(
+        service.invokeTool(
+          databaseInvokeRequest({ tool_name: "database.drop" }),
+        ),
+      ).rejects.toBeInstanceOf(ToolGatewayNotImplementedError);
+    });
+
+    it("rejects a credential_ref naming a different database (strict ownership)", async () => {
+      const service = serviceWithScope([`database:${DATABASE_ID}`, "database:db_other"]);
+
+      await expect(
+        service.invokeTool(
+          databaseInvokeRequest({ credential_ref: WRONG_DATABASE_CREDENTIAL_REF }),
+        ),
+      ).rejects.toThrow(/not owned by this tenant\/database/);
+    });
+
+    it("rejects a credential_ref owned by a different tenant", async () => {
+      const otherTenantDatabaseRef = `/alter/prod/tenant/${TENANT_B}/integration/${DATABASE_ID}/password`;
+      const service = serviceWithScope([`database:${DATABASE_ID}`], {
+        secretsProvider: createMockSecretsProvider({
+          secrets: {
+            [SECRET_REF]: RAW_SECRET_VALUE,
+            [otherTenantDatabaseRef]: "postgres://db-connection-string",
+          },
+        }),
+      });
+
+      await expect(
+        service.invokeTool(
+          databaseInvokeRequest({ credential_ref: otherTenantDatabaseRef }),
+        ),
+      ).rejects.toThrow(/not owned/);
+    });
+
+    it("denies a database scope the tenant's tool permission binding doesn't grant, and audits the denial", async () => {
+      const auditClient = createMockAuditEventHandler();
+      const service = serviceWithScope(["database:some_other_db"], { auditClient });
+
+      await expect(
+        service.invokeTool(databaseInvokeRequest()),
+      ).rejects.toBeInstanceOf(ToolGatewayPermissionError);
+      expect(
+        (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
+      ).toContainEqual(
+        expect.objectContaining({ target_ref: "database.select", result: "denied" }),
+      );
+    });
+
+    it("grants access via a database:* wildcard scope", async () => {
+      const service = serviceWithScope(["database:*"]);
+
+      await expect(
+        service.invokeTool(databaseInvokeRequest()),
+      ).resolves.toBeDefined();
+    });
   });
 
   it("accepts a canonical tenant integration secret path and mints an opaque token", async () => {

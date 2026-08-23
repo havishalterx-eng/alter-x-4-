@@ -10,14 +10,26 @@ import {
   SsrfGuardedFetcher,
   TavilySearchProvider,
   startToolgwGrpcTransport,
+  type DatabaseOperationProvider,
 } from "@alterx/adapters";
 import {
   createMockAuditEventHandler,
   createMockConfigProvider,
+  createMockQueueProvider,
   createMockSecretsProvider,
 } from "@alterx/shared-clients";
 
 import { AppModule } from "../app.module";
+
+// This e2e fixture exercises search.web only -- a fake database provider
+// that fails loudly if ever invoked is more honest than a working mock
+// nobody's e2e coverage exercises.
+const unexercisedDatabaseProvider: DatabaseOperationProvider = {
+  providerId: "e2e-fixture-unexercised",
+  execute: () => {
+    throw new Error("e2e-server fixture does not exercise database.* tool dispatch");
+  },
+};
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
@@ -53,6 +65,9 @@ async function bootstrap(): Promise<void> {
       }),
       new SsrfGuardedFetcher(),
       createMockAuditEventHandler(),
+      unexercisedDatabaseProvider,
+      createMockQueueProvider(),
+      "toolgw-e2e-cost-events",
     ),
     new FastifyAdapter(),
     { logger: false },
