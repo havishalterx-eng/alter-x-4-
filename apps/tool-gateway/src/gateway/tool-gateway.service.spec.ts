@@ -11,6 +11,7 @@ import {
   type QueueProvider,
   type SearchProvider,
   type SecretsProvider,
+  type ToolPermissionRequest,
 } from "@alterx/shared-clients";
 import { describe, expect, it, vi } from "vitest";
 
@@ -609,13 +610,17 @@ describe("ToolGatewayService", () => {
     });
 
     it("requires the exact tenant browser grant for every browser operation", async () => {
-      const resolveToolPermission = vi.fn(
-        async (request: { readonly tenantId: string; readonly toolName: string }) => ({
-          allowed: true,
-          rateLimitPerMinute: 60,
-          requiredScopes: [],
-        }),
-      );
+      const resolveToolPermission = vi.fn<
+        (request: ToolPermissionRequest) => Promise<{
+          readonly allowed: boolean;
+          readonly rateLimitPerMinute: number;
+          readonly requiredScopes: readonly string[];
+        }>
+      >(async () => ({
+        allowed: true,
+        rateLimitPerMinute: 60,
+        requiredScopes: [],
+      }));
       const service = buildService({
         configProvider: createMockConfigProvider({ resolveToolPermission }),
       });
