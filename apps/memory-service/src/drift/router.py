@@ -66,6 +66,7 @@ async def drift_lifespan(app: FastAPI) -> AsyncIterator[None]:
         window_size=settings.drift_window_size,
         failure_threshold=settings.drift_failure_threshold,
         outcome_client=_default_outcome_client,
+        significance_level=settings.drift_significance_level,
     )
     try:
         yield

@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     cost_ledger_service_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     drift_failure_threshold: float = Field(default=0.2, ge=0, le=1)
     drift_window_size: int = Field(default=20, ge=2, le=100)
+    # gt=0, not ge=0: DriftDetector rejects a significance_level of exactly
+    # 0 (would mean "never statistically significant", not a real gate).
+    drift_significance_level: float = Field(default=0.05, gt=0, le=1)
 
     model_config = SettingsConfigDict(
         env_file=".env.local",
