@@ -21,7 +21,11 @@ from testcontainers.community.postgres import PostgresContainer
 from alembic import command
 from alter.modelgw.v1 import modelgw_pb2, modelgw_pb2_grpc
 from src.db.ids import new_prefixed_id
-from src.ingestion.chunking import ChunkSplitter, ParagraphAwareChunkSplitter
+from src.ingestion.chunking import (
+    ChunkSplitter,
+    ParagraphAwareChunkSplitter,
+    UnsupportedContentTypeError,
+)
 from src.ingestion.embedding_client import (
     EmbeddingClient,
     EmbeddingDimensions,
@@ -627,11 +631,85 @@ def test_binary_content_normalization_is_an_honest_passthrough(
         IngestionPayload(tenant_id, source_id, "image/png", png_content)
     )
 
-    assert result.stage == "indexed"
+    # Normalization itself still runs and stays an honest passthrough --
+    # the job fails one stage later, at chunking (see
+    # test_binary_content_fails_instead_of_indexing_a_placeholder).
+    assert result.stage == "failed"
     normalization = _normalization_stats(result.stats)
     assert normalization["normalized_by"] == "passthrough"
     assert normalization["limitations"] == ["no_text_extraction_for_binary_content"]
     assert normalization["normalized_content_hash"] == hashlib.sha256(png_content).hexdigest()
+
+
+def test_binary_content_fails_instead_of_indexing_a_placeholder(
+    database: DatabaseHarness,
+) -> None:
+    # ENGINE-FIX-P3-25 (Wave 4 item 1): pdf/png/jpeg have no real
+    # text-extractor anywhere in this repo. Chunking them used to
+    # manufacture one "[image/png content, N bytes]" placeholder chunk and
+    # embed+index it as if it were real content -- the job reported
+    # "indexed" with no error, but the document was never really
+    # searchable. It must fail loudly instead.
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    embedding_client = FakeEmbeddingClient()
+    png_content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+
+    result = _pipeline(database, embedding_client=embedding_client).ingest(
+        IngestionPayload(tenant_id, source_id, "image/png", png_content)
+    )
+
+    assert result.stage == "failed"
+    assert result.error is not None
+    assert result.error.code == "text_extraction_unavailable"
+    assert result.stats["stage_history"] == [
+        "received",
+        "validated",
+        "scanned",
+        "normalized",
+        "deduplicated",
+        "failed",
+    ]
+    assert result.stats["chunking"] == {"content_type": "image/png"}
+    # No placeholder text ever reached the embedding client -- nothing got
+    # a fake vector.
+    assert embedding_client.calls == []
+
+    # The raw upload is still real and stored -- only chunk-and-index was
+    # rejected, not the upload itself.
+    document_id = _dedup_stats(result.stats)["document_id"]
+    with _tenant_scoped(database, tenant_uuid) as connection:
+        chunk_count = connection.scalar(
+            sa.text("SELECT count(*) FROM chunks WHERE document_id = :document_id"),
+            {"document_id": document_id},
+        )
+        document_count = connection.scalar(
+            sa.text("SELECT count(*) FROM documents WHERE id = :document_id"),
+            {"document_id": document_id},
+        )
+    assert chunk_count == 0
+    assert document_count == 1
+
+
+def test_reindex_of_a_binary_document_also_rejects_instead_of_placeholding(
+    database: DatabaseHarness,
+) -> None:
+    # A retry/reindex call on a document whose original ingestion already
+    # failed at chunking (raw content persisted, zero chunks) must hit the
+    # same honest rejection -- not silently succeed with a placeholder on
+    # the second attempt.
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    storage = InMemoryObjectStorageProvider()
+    png_content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+    failed = _pipeline(database, object_storage=storage).ingest(
+        IngestionPayload(tenant_id, source_id, "image/png", png_content)
+    )
+    document_id = str(_dedup_stats(failed.stats)["document_id"])
+    pipeline = _pipeline(database, object_storage=storage)
+
+    with pytest.raises(UnsupportedContentTypeError):
+        pipeline.reindex(tenant_id=tenant_id, document_id=document_id)
 
 
 def _indexing_stats(stats: dict[str, object]) -> dict[str, object]:
