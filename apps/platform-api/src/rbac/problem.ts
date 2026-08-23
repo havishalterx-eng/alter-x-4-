@@ -7,7 +7,9 @@ export interface RbacProblemDetails {
   error_code:
     | "RBAC_PERMISSION_DENIED"
     | "RBAC_TENANT_MISMATCH"
-    | "RBAC_ROLE_DENIED";
+    | "RBAC_ROLE_DENIED"
+    | "RBAC_WORKSPACE_ROLE_DENIED"
+    | "RBAC_WORKSPACE_UNRESOLVABLE";
   trace_id: string;
   request_id: string;
   retryable: false;

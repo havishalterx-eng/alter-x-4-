@@ -21,6 +21,19 @@ export interface ActorContext {
   permissions: string[];
   session_id: string;
   auth_time?: number;
+  // ENGINE-FIX-P5-1: per-workspace role bindings, kept alongside the flat
+  // `roles` array. The flat array exists for tenant-role checks and
+  // permission derivation; it must never be used to answer a
+  // @RequireWorkspaceRole question about a SPECIFIC workspace -- an actor
+  // who is admin of workspace A is not thereby admin of workspace B in the
+  // same tenant. RbacGuard consults this list (via the request's resolved
+  // target workspace) instead.
+  workspaceRoles?: readonly WorkspaceRoleBinding[];
+}
+
+export interface WorkspaceRoleBinding {
+  readonly workspaceId: string;
+  readonly role: string;
 }
 
 export interface RbacRequest {

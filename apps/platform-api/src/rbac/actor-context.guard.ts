@@ -61,6 +61,13 @@ export class ActorContextGuard implements CanActivate {
           ? { workspace_id: workspaceRoles[0].workspaceId }
           : {}),
         roles: [...tenantRoles, ...workspaceRoles].map((row) => row.role),
+        // ENGINE-FIX-P5-1: structured per-workspace bindings so RbacGuard
+        // can check a workspace role against the SPECIFIC workspace a route
+        // addresses, instead of the flat any-workspace union.
+        workspaceRoles: workspaceRoles
+          .filter((row): row is RoleRow & { workspaceId: string } =>
+            typeof row.workspaceId === "string" && row.workspaceId.length > 0)
+          .map((row) => ({ workspaceId: row.workspaceId, role: row.role })),
         // ENGINE-FIX-P3-7: was hardcoded to [], which -- combined with
         // RbacGuard comparing every route's declared @RequirePermission(...)
         // against this array -- denied all 101 @RequirePermission routes

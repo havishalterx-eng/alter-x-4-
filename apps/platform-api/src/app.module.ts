@@ -5,7 +5,7 @@ import { EntitlementsModule } from "./entitlements/entitlements.module";
 import { HealthController } from "./health/health.controller";
 import { IdentityBrokerModule } from "./identity-broker/identity-broker.module";
 import { IdentityModule } from "./identity/identity.module";
-import { RbacModule } from "./rbac/rbac.module";
+import { EnforcingRbacModule } from "./rbac/rbac.module";
 import { MembersModule } from "./members/members.module";
 import { SignupModule } from "./signup/signup.module";
 import { TenantsModule } from "./tenants/tenants.module";
@@ -52,7 +52,7 @@ import { AdminDeploymentModule } from "./admin-deployments";
     DbModule,
     IdentityModule,
     IdentityBrokerModule,
-    RbacModule,
+    EnforcingRbacModule,
     EntitlementsModule,
     AbuseModule,
     SignupModule,
