@@ -35,6 +35,7 @@ import { IntervalJobSchedulerRunner } from "./platform-jobs/interval-job-schedul
 import {
   CONNECTOR_HEALTH_SWEEP_JOB_TYPE,
   RETENTION_SWEEP_JOB_TYPE,
+  ORCHESTRATION_RETENTION_SWEEP_JOB_TYPE,
   BENCHMARK_SWEEP_JOB_TYPE,
   DRIFT_SWEEP_JOB_TYPE,
   AUDIT_CHAIN_VERIFY_JOB_TYPE,
@@ -159,6 +160,9 @@ async function bootstrap(): Promise<void> {
   const retentionSweepServiceToken = await resolveRuntimeSecret(
     platformJobsConfig.retentionSweepServiceTokenRef,
   );
+  const orchestrationRetentionSweepServiceToken = await resolveRuntimeSecret(
+    platformJobsConfig.orchestrationRetentionSweepServiceTokenRef,
+  );
   const evalFacadeServiceToken = await resolveRuntimeSecret(
     platformJobsConfig.evalFacadeServiceTokenRef,
   );
@@ -186,6 +190,7 @@ async function bootstrap(): Promise<void> {
       adsCoreInternalBaseUrl: platformJobsConfig.adsCoreInternalBaseUrl,
       retentionSweepServiceToken,
       orchestrationServiceInternalBaseUrl: platformJobsConfig.orchestrationServiceInternalBaseUrl,
+      orchestrationRetentionSweepServiceToken,
       evalFacadeServiceToken,
       intelligenceServiceInternalBaseUrl: platformJobsConfig.intelligenceServiceInternalBaseUrl,
       memoryServiceInternalBaseUrl: platformJobsConfig.memoryServiceInternalBaseUrl,
@@ -232,6 +237,16 @@ async function bootstrap(): Promise<void> {
   );
   retentionSweepRunner.start();
 
+  // P5-2: orchestration-service's own retention sweep -- distinct tables,
+  // distinct policy, distinct schedule from ads-core's above.
+  const orchestrationRetentionSweepRunner = new IntervalJobSchedulerRunner(
+    digestDurableExecution,
+    ORCHESTRATION_RETENTION_SWEEP_JOB_TYPE,
+    "orchestration-retention-sweep",
+    platformJobsConfig.orchestrationRetentionSweepIntervalMs,
+  );
+  orchestrationRetentionSweepRunner.start();
+
   const benchmarkSweepRunner = new IntervalJobSchedulerRunner(
     digestDurableExecution,
     BENCHMARK_SWEEP_JOB_TYPE,
@@ -265,6 +280,7 @@ async function bootstrap(): Promise<void> {
     void digestSchedulerRunner.stop();
     void connectorHealthSweepRunner.stop();
     void retentionSweepRunner.stop();
+    void orchestrationRetentionSweepRunner.stop();
     void benchmarkSweepRunner.stop();
     void driftSweepRunner.stop();
     void auditChainVerifyRunner.stop();

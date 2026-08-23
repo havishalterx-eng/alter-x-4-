@@ -77,11 +77,16 @@ function createConnectorHealthSweepHandler(
 }
 
 /**
- * Real retention sweep trigger: calls ads-core's real, pre-existing
- * internal, shared-secret-authenticated retention route directly
- * (ads-core is not behind platform-api). Thin real HTTP relay -- all real
- * retention logic (AdsDeletionProvider.apply_retention_policy) already
- * exists in ads-core; this handler only supplies the missing schedule.
+ * Real retention sweep trigger: calls a service's own real, pre-existing
+ * internal, shared-secret-authenticated retention route directly (each
+ * caller of this factory is not behind platform-api). Thin real HTTP
+ * relay -- the retention logic itself already exists in the target
+ * service (ads-core's AdsDeletionProvider.apply_retention_policy,
+ * orchestration-service's DeletionService.applyRetentionPolicy); this
+ * handler only supplies the missing schedule. Reused once per service
+ * that owns its own tenant-scoped retention sweep -- ads-core's data and
+ * orchestration-service's data are different tables under different
+ * policies, so one schedule cannot stand in for the other.
  */
 function createRetentionSweepHandler(
   baseUrl: string,
@@ -289,6 +294,7 @@ export interface PlatformJobHandlerDependencies {
   readonly adsCoreInternalBaseUrl?: string;
   readonly retentionSweepServiceToken?: string;
   readonly orchestrationServiceInternalBaseUrl?: string;
+  readonly orchestrationRetentionSweepServiceToken?: string;
   readonly evalFacadeServiceToken?: string;
   readonly intelligenceServiceInternalBaseUrl?: string;
   readonly memoryServiceInternalBaseUrl?: string;
@@ -332,6 +338,19 @@ export function createPlatformJobHandlers(
       createRetentionSweepHandler(
         dependencies.adsCoreInternalBaseUrl,
         dependencies.retentionSweepServiceToken,
+        fetchImpl,
+      ),
+    );
+  }
+  if (
+    dependencies?.orchestrationServiceInternalBaseUrl &&
+    dependencies.orchestrationRetentionSweepServiceToken
+  ) {
+    handlers.set(
+      "platform.orchestration-retention-sweep",
+      createRetentionSweepHandler(
+        dependencies.orchestrationServiceInternalBaseUrl,
+        dependencies.orchestrationRetentionSweepServiceToken,
         fetchImpl,
       ),
     );
