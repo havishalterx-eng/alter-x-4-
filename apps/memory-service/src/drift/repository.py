@@ -33,6 +33,7 @@ class SqlAlchemyDriftRepository:
         baseline_count: int,
         recent_count: int,
         threshold: float,
+        p_value: float,
         action_taken: DriftAction,
     ) -> StoredDriftScore:
         with self._system_sessions.begin() as session:
@@ -50,6 +51,11 @@ class SqlAlchemyDriftRepository:
                     "baseline_count": baseline_count,
                     "recent_count": recent_count,
                     "flag_threshold": threshold,
+                    # ENGINE-FIX-P3-28: acted on only when BOTH score >
+                    # flag_threshold AND p_value < significance_level --
+                    # see DriftDetector._is_significant_drift.
+                    "p_value": p_value,
+                    "significance_test": "fisher_exact_two_tailed",
                 },
                 action_taken=action_taken,
             )
@@ -73,6 +79,7 @@ class SqlAlchemyDriftRepository:
         baseline_count: int,
         recent_count: int,
         threshold: float,
+        p_value: float,
         action_taken: DriftAction,
     ) -> StoredDriftScore:
         return self._record_outcome_score(
@@ -85,6 +92,7 @@ class SqlAlchemyDriftRepository:
             baseline_count=baseline_count,
             recent_count=recent_count,
             threshold=threshold,
+            p_value=p_value,
             action_taken=action_taken,
         )
 
@@ -98,6 +106,7 @@ class SqlAlchemyDriftRepository:
         baseline_count: int,
         recent_count: int,
         threshold: float,
+        p_value: float,
         action_taken: DriftAction,
     ) -> StoredDriftScore:
         return self._record_outcome_score(
@@ -110,6 +119,7 @@ class SqlAlchemyDriftRepository:
             baseline_count=baseline_count,
             recent_count=recent_count,
             threshold=threshold,
+            p_value=p_value,
             action_taken=action_taken,
         )
 
@@ -125,6 +135,7 @@ class SqlAlchemyDriftRepository:
         baseline_count: int,
         recent_count: int,
         threshold: float,
+        p_value: float,
         action_taken: DriftAction,
     ) -> StoredDriftScore:
         # Model/provider outcomes have no tenant_id at all (real model
@@ -147,6 +158,11 @@ class SqlAlchemyDriftRepository:
                     "baseline_count": baseline_count,
                     "recent_count": recent_count,
                     "flag_threshold": threshold,
+                    # ENGINE-FIX-P3-28: acted on only when BOTH score >
+                    # flag_threshold AND p_value < significance_level --
+                    # see DriftDetector._is_significant_drift.
+                    "p_value": p_value,
+                    "significance_test": "fisher_exact_two_tailed",
                     **window_extra,
                 },
                 action_taken=action_taken,
