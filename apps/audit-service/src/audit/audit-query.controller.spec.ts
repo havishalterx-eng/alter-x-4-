@@ -2,8 +2,10 @@ import { createHash } from "node:crypto";
 
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import { APP_GUARD } from "@nestjs/core";
 import { ProblemDetailsSchema } from "@alterx/contracts";
 import { AuditValidationError } from "@alterx/shared-clients";
+import { ServiceAuthGuard, type M2mValidator } from "@alterx/auth";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -193,4 +195,69 @@ describe("AuditQueryController RFC 9457 internal surface", () => {
       headers: authorization === undefined ? {} : { authorization },
     });
   }
+});
+
+// ENGINE-FIX-PHASE2-N2 regression: the bug only manifests when the app-wide
+// ServiceAuthGuard is actually wired (as it is in real boot, via
+// AppModule.register()'s APP_GUARD provider) -- the suite above never
+// wires it, so it couldn't have caught this. Wire it here for real,
+// alongside the controller, with an M2mValidator stub that unconditionally
+// rejects: if @Public() weren't in effect, every request below would 401
+// from the guard before the controller's own authorize() ever ran.
+describe("AuditQueryController under the real app-wide ServiceAuthGuard", () => {
+  let app: NestFastifyApplication;
+  const rejectingValidator = {
+    validate: vi.fn().mockRejectedValue(new Error("stub: no request should ever reach this")),
+  } as unknown as M2mValidator;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      controllers: [AuditQueryController],
+      providers: [
+        { provide: AuditService, useValue: { queryEvents, recordEvent, verifyChainIncremental } },
+        {
+          provide: AUDIT_QUERY_SERVICE_TOKEN_HASH,
+          useValue: createHash("sha256").update(TOKEN).digest("hex"),
+        },
+        { provide: APP_GUARD, useFactory: () => new ServiceAuthGuard(rejectingValidator) },
+      ],
+    }).compile();
+    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it("reaches the controller's own shared-secret check instead of 401'ing from the JWT guard", async () => {
+    queryEvents.mockResolvedValue({ events: [], next_cursor: null });
+    const response = await app.getHttpAdapter().getInstance().inject({
+      method: "GET",
+      url: "/internal/audit-events",
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(rejectingValidator.validate).not.toHaveBeenCalled();
+  });
+
+  it("verify-chain also reaches the controller's own check, not the JWT guard", async () => {
+    verifyChainIncremental.mockResolvedValue({ valid: true, checkedEvents: 0 });
+    const response = await app.getHttpAdapter().getInstance().inject({
+      method: "POST",
+      url: "/internal/audit-events/verify-chain",
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(rejectingValidator.validate).not.toHaveBeenCalled();
+  });
+
+  it("still 401s a request with no credentials at all -- @Public() removes the JWT guard, not authentication", async () => {
+    const response = await app.getHttpAdapter().getInstance().inject({
+      method: "GET",
+      url: "/internal/audit-events",
+    });
+    expect(response.statusCode).toBe(401);
+  });
 });
