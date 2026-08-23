@@ -24,12 +24,27 @@ describe("MarketplaceSearchRepository PostgreSQL integration", () => {
     schemaName = `search_${randomUUID().replaceAll("-", "_")}`;
     roleName = `search_role_${randomUUID().replaceAll("-", "_")}`;
     admin = new pg.Client({ connectionString: container.getConnectionUri() }); await admin.connect();
-    await admin.query(`CREATE SCHEMA "${schemaName}"`); await admin.query(`SET search_path TO "${schemaName}"`); await migrations(admin);
-    const password = randomUUID(); await admin.query(`CREATE ROLE "${roleName}" LOGIN PASSWORD '${password}'`); await admin.query(`GRANT USAGE ON SCHEMA "${schemaName}" TO "${roleName}"`); await admin.query(`GRANT SELECT ON ALL TABLES IN SCHEMA "${schemaName}" TO "${roleName}"`);
-    const url = new URL(container.getConnectionUri()); url.username = roleName; url.password = password; url.searchParams.set("options", `-c search_path=${schemaName}`);
+    await admin.query(`CREATE SCHEMA "${schemaName}"`);
+    // public stays on the path alongside the private schema: this file's
+    // own beforeEach reruns marketplace-migrations' pg_trgm extension
+    // create into a fresh schema every test, but CREATE EXTENSION is
+    // once-per-database -- only the first test in this file actually
+    // creates it (into whichever schema is first on its own search_path
+    // at that moment), every later test's IF NOT EXISTS no-ops, and
+    // gin_trgm_ops then needs to resolve from wherever the first test put
+    // it. Pinning the migration to SCHEMA public (0003_search_indexes.sql)
+    // and keeping public on every test's search_path here makes that
+    // deterministic instead of only ever working for the first test.
+    await admin.query(`SET search_path TO "${schemaName}", public`); await migrations(admin);
+    const password = randomUUID(); await admin.query(`CREATE ROLE "${roleName}" LOGIN PASSWORD '${password}'`); await admin.query(`GRANT USAGE ON SCHEMA "${schemaName}" TO "${roleName}"`); await admin.query(`GRANT USAGE ON SCHEMA public TO "${roleName}"`); await admin.query(`GRANT SELECT ON ALL TABLES IN SCHEMA "${schemaName}" TO "${roleName}"`);
+    const url = new URL(container.getConnectionUri()); url.username = roleName; url.password = password; url.searchParams.set("options", `-c search_path=${schemaName},public`);
     pool = new pg.Pool({ connectionString: url.toString() }); repository = new MarketplaceSearchRepository(pool);
   });
-  afterEach(async () => { await pool?.end(); if (admin) { await admin.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`); await admin.query(`DROP ROLE IF EXISTS "${roleName}"`); await admin.end(); } });
+  // REVOKE the public-schema USAGE grant before DROP ROLE: public itself is
+  // never dropped, so that grant outlives the private schema's own DROP ...
+  // CASCADE and otherwise blocks the role drop ("role ... cannot be dropped
+  // because some objects depend on it").
+  afterEach(async () => { await pool?.end(); if (admin) { await admin.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`); await admin.query(`REVOKE USAGE ON SCHEMA public FROM "${roleName}"`); await admin.query(`DROP ROLE IF EXISTS "${roleName}"`); await admin.end(); } });
   afterAll(async () => { await container?.stop(); });
 
   it("ranks FTS exact matches above partial matches and returns a one-character trigram typo", async () => {

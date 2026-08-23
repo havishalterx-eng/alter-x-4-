@@ -19,7 +19,11 @@ describe.skipIf(!databaseUrl)("PublisherRepository PostgreSQL", () => {
     admin = new pg.Client({ connectionString: databaseUrl });
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schemaName}"`);
-    await admin.query(`SET search_path TO "${schemaName}"`);
+    // public stays on the path alongside the private schema: the shared
+    // marketplace-migrations' pg_trgm extension is pinned to SCHEMA public
+    // (see 0003_search_indexes.sql), so gin_trgm_ops needs to resolve from
+    // there regardless of which spec's migration run actually created it.
+    await admin.query(`SET search_path TO "${schemaName}", public`);
     // CREATE EXTENSION IF NOT EXISTS is not safe under true concurrent
     // execution -- multiple integration-spec files run in parallel vitest
     // workers against the same physical database and can race on the
@@ -33,7 +37,7 @@ describe.skipIf(!databaseUrl)("PublisherRepository PostgreSQL", () => {
       await admin.query("SELECT pg_advisory_unlock(729312)");
     }
     const url = new URL(databaseUrl);
-    url.searchParams.set("options", `-c search_path=${schemaName}`);
+    url.searchParams.set("options", `-c search_path=${schemaName},public`);
     pool = new pg.Pool({ connectionString: url.toString() });
     repository = new PublisherRepository(pool);
   });

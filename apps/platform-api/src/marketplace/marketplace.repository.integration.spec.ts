@@ -35,7 +35,11 @@ describe.skipIf(!databaseUrl)("MarketplaceRepository PostgreSQL RLS", () => {
     admin = new pg.Client({ connectionString: databaseUrl });
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schemaName}"`);
-    await admin.query(`SET search_path TO "${schemaName}"`);
+    // public stays on the path alongside the private schema: the shared
+    // marketplace-migrations' pg_trgm extension is pinned to SCHEMA public
+    // (see 0003_search_indexes.sql), so gin_trgm_ops needs to resolve from
+    // there regardless of which spec's migration run actually created it.
+    await admin.query(`SET search_path TO "${schemaName}", public`);
     // CREATE EXTENSION IF NOT EXISTS is not safe under true concurrent
     // execution -- multiple integration-spec files run in parallel vitest
     // workers against the same physical database and can race on the
@@ -51,6 +55,7 @@ describe.skipIf(!databaseUrl)("MarketplaceRepository PostgreSQL RLS", () => {
     const password = randomUUID();
     await admin.query(`CREATE ROLE "${roleName}" LOGIN PASSWORD '${password}'`);
     await admin.query(`GRANT USAGE ON SCHEMA "${schemaName}" TO "${roleName}"`);
+    await admin.query(`GRANT USAGE ON SCHEMA public TO "${roleName}"`);
     await admin.query(
       `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES
        IN SCHEMA "${schemaName}" TO "${roleName}"`,
@@ -58,7 +63,7 @@ describe.skipIf(!databaseUrl)("MarketplaceRepository PostgreSQL RLS", () => {
     const url = new URL(databaseUrl);
     url.username = roleName;
     url.password = password;
-    url.searchParams.set("options", `-c search_path=${schemaName}`);
+    url.searchParams.set("options", `-c search_path=${schemaName},public`);
     pool = new pg.Pool({ connectionString: url.toString() });
     repository = new MarketplaceRepository(pool);
   });
@@ -67,6 +72,13 @@ describe.skipIf(!databaseUrl)("MarketplaceRepository PostgreSQL RLS", () => {
     await pool?.end();
     if (admin) {
       await admin.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
+      // The public-schema USAGE grant (added so gin_trgm_ops resolves
+      // regardless of which spec's migration run actually created it)
+      // outlives the private schema's own DROP ... CASCADE, since public
+      // itself is never dropped -- revoke it explicitly or DROP ROLE
+      // fails with "role ... cannot be dropped because some objects
+      // depend on it".
+      await admin.query(`REVOKE USAGE ON SCHEMA public FROM "${roleName}"`);
       await admin.query(`DROP ROLE IF EXISTS "${roleName}"`);
       await admin.end();
     }
