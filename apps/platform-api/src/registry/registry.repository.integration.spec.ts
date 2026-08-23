@@ -31,7 +31,11 @@ describe.skipIf(!databaseUrl)("RegistryRepository integration", () => {
     const password = randomUUID(); await admin.query(`CREATE ROLE "${roleName}" LOGIN PASSWORD '${password}'`); await admin.query(`GRANT USAGE ON SCHEMA "${schemaName}" TO "${roleName}"`); await admin.query(`GRANT USAGE ON SCHEMA public TO "${roleName}"`); await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "${schemaName}" TO "${roleName}"`);
     const url = new URL(databaseUrl!); url.username = roleName; url.password = password; url.searchParams.set("options", `-c search_path=${schemaName},public`); pool = new pg.Pool({ connectionString: url.toString() }); repository = new RegistryRepository(pool);
   });
-  afterEach(async () => { await pool?.end(); if (admin) { await admin.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`); await admin.query(`DROP ROLE IF EXISTS "${roleName}"`); await admin.end(); } });
+  // REVOKE the public-schema USAGE grant before DROP ROLE: public itself is
+  // never dropped, so that grant outlives the private schema's own DROP ...
+  // CASCADE and otherwise blocks the role drop ("role ... cannot be dropped
+  // because some objects depend on it").
+  afterEach(async () => { await pool?.end(); if (admin) { await admin.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`); await admin.query(`REVOKE USAGE ON SCHEMA public FROM "${roleName}"`); await admin.query(`DROP ROLE IF EXISTS "${roleName}"`); await admin.end(); } });
   it("hides tenant draft manifests and reports from other tenants", async () => {
     const manifest = await repository.createManifest(tenantA, `tlm_${randomUUID()}`, { name: "Private", ecosystem: "npm", trust_level: "unverified_private" });
     const version = await repository.createVersion(tenantA, `tlv_${randomUUID()}`, manifest.id, { version: "1.0.0", artifact_ref: "s3://bucket/private.tgz", capabilities: [], permissions: [] });

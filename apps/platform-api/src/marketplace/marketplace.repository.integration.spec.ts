@@ -72,6 +72,13 @@ describe.skipIf(!databaseUrl)("MarketplaceRepository PostgreSQL RLS", () => {
     await pool?.end();
     if (admin) {
       await admin.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
+      // The public-schema USAGE grant (added so gin_trgm_ops resolves
+      // regardless of which spec's migration run actually created it)
+      // outlives the private schema's own DROP ... CASCADE, since public
+      // itself is never dropped -- revoke it explicitly or DROP ROLE
+      // fails with "role ... cannot be dropped because some objects
+      // depend on it".
+      await admin.query(`REVOKE USAGE ON SCHEMA public FROM "${roleName}"`);
       await admin.query(`DROP ROLE IF EXISTS "${roleName}"`);
       await admin.end();
     }

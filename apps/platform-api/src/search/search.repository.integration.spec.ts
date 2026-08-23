@@ -40,7 +40,11 @@ describe("MarketplaceSearchRepository PostgreSQL integration", () => {
     const url = new URL(container.getConnectionUri()); url.username = roleName; url.password = password; url.searchParams.set("options", `-c search_path=${schemaName},public`);
     pool = new pg.Pool({ connectionString: url.toString() }); repository = new MarketplaceSearchRepository(pool);
   });
-  afterEach(async () => { await pool?.end(); if (admin) { await admin.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`); await admin.query(`DROP ROLE IF EXISTS "${roleName}"`); await admin.end(); } });
+  // REVOKE the public-schema USAGE grant before DROP ROLE: public itself is
+  // never dropped, so that grant outlives the private schema's own DROP ...
+  // CASCADE and otherwise blocks the role drop ("role ... cannot be dropped
+  // because some objects depend on it").
+  afterEach(async () => { await pool?.end(); if (admin) { await admin.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`); await admin.query(`REVOKE USAGE ON SCHEMA public FROM "${roleName}"`); await admin.query(`DROP ROLE IF EXISTS "${roleName}"`); await admin.end(); } });
   afterAll(async () => { await container?.stop(); });
 
   it("ranks FTS exact matches above partial matches and returns a one-character trigram typo", async () => {
