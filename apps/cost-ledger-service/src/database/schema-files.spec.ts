@@ -52,6 +52,8 @@ describe("cost_db Drizzle schemas", () => {
     for (const expected of [
       'check(\n      "cost_events_mode_check"',
       'check(\n      "cost_events_source_check"',
+      'check(\n      "cost_events_fx_rate_used_check"',
+      'check(\n      "cost_events_amount_usd_check"',
       'index("idx_cost_events_tenant_occurred")',
       'index("idx_cost_events_tenant_run")',
       'index("idx_cost_events_tenant_parent")',

@@ -36,6 +36,13 @@
       "when": 1785561004000,
       "tag": "0004_create_model_outcomes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785561005000,
+      "tag": "0005_fx_rate_and_usd_amount",
+      "breakpoints": true
     }
   ]
 }
