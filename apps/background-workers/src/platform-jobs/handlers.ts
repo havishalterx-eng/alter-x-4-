@@ -112,6 +112,44 @@ function createRetentionSweepHandler(
 const LAUNCH_FLOOR_GOLDEN_SETS = ["planner", "intent", "retrieval", "verification"] as const;
 
 /**
+ * ENGINE-FIX-P3-27 (Wave 4 item 3): the real PRD quality floor for
+ * retrieval, mirrored from apps/eval-service/src/promotion_gate.py's own
+ * _THRESHOLDS["retrieval_recall"] (0.90) and docs/specs/06-task-
+ * breakdown.md's "Retrieval recall@10 >=90%" exit check. Kept here as a
+ * disclosed duplicate, not a cross-language import (promotion_gate.py is
+ * Python, this is TS) -- if that value ever changes, this one needs
+ * updating too. Scoped to retrieval only: it's the only launch-floor
+ * golden set with a real, PRD-sourced number to check against here (the
+ * other 3 don't have an equivalent published target).
+ */
+const RETRIEVAL_RECALL_MINIMUM = 0.9;
+
+function isBelowRetrievalRecallThreshold(runEvaluationResponseBody: unknown): boolean {
+  if (
+    typeof runEvaluationResponseBody !== "object" ||
+    runEvaluationResponseBody === null ||
+    !("results_json" in runEvaluationResponseBody)
+  ) {
+    return false;
+  }
+  const resultsJson = (runEvaluationResponseBody as { results_json: unknown }).results_json;
+  if (typeof resultsJson !== "string") {
+    return false;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(resultsJson);
+  } catch {
+    return false;
+  }
+  if (typeof parsed !== "object" || parsed === null || !("pass_rate" in parsed)) {
+    return false;
+  }
+  const passRate = (parsed as { pass_rate: unknown }).pass_rate;
+  return typeof passRate === "number" && passRate < RETRIEVAL_RECALL_MINIMUM;
+}
+
+/**
  * Real scheduled benchmark sweep: calls orchestration-service's real,
  * pre-existing internal eval-facade route once per real launch-floor
  * golden set, with trigger="scheduled" so the resulting EvalRun rows are
@@ -119,6 +157,13 @@ const LAUNCH_FLOOR_GOLDEN_SETS = ["planner", "intent", "retrieval", "verificatio
  * same route BenchmarksService already relays staff-initiated runs
  * through). Per-golden-set error isolation, same real pattern as the
  * other sweep handlers.
+ *
+ * Before this fix, the sweep only tracked whether the RunEvaluation HTTP
+ * call itself succeeded -- a real recall regression (a low but real
+ * pass_rate) still counted as "processed", so the number just sat in the
+ * eval_runs table, unexamined, unless a human went and queried it by
+ * hand. retrievalRecallBelowThreshold makes that regression a real,
+ * visible part of the sweep's own recorded result.
  */
 function createBenchmarkSweepHandler(
   baseUrl: string,
@@ -128,6 +173,7 @@ function createBenchmarkSweepHandler(
   return async (): Promise<JsonValue> => {
     let goldenSetsProcessed = 0;
     let goldenSetsFailed = 0;
+    let retrievalRecallBelowThreshold = false;
     for (const goldenSetName of LAUNCH_FLOOR_GOLDEN_SETS) {
       try {
         const response = await fetchImpl(`${baseUrl}/internal/eval/run-evaluation`, {
@@ -142,11 +188,14 @@ function createBenchmarkSweepHandler(
           throw new Error(`HTTP ${response.status} ${await response.text()}`);
         }
         goldenSetsProcessed += 1;
+        if (goldenSetName === "retrieval") {
+          retrievalRecallBelowThreshold = isBelowRetrievalRecallThreshold(await response.json());
+        }
       } catch {
         goldenSetsFailed += 1;
       }
     }
-    return { goldenSetsProcessed, goldenSetsFailed };
+    return { goldenSetsProcessed, goldenSetsFailed, retrievalRecallBelowThreshold };
   };
 }
 

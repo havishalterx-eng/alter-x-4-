@@ -194,7 +194,11 @@ describe("createPlatformJobHandlers", () => {
         }),
       );
     }
-    expect(result).toEqual({ goldenSetsProcessed: 4, goldenSetsFailed: 0 });
+    expect(result).toEqual({
+      goldenSetsProcessed: 4,
+      goldenSetsFailed: 0,
+      retrievalRecallBelowThreshold: false,
+    });
   });
 
   it("real isolates a single golden-set failure from the rest of the sweep", async () => {
@@ -220,7 +224,75 @@ describe("createPlatformJobHandlers", () => {
     const result = await handlers.get("platform.benchmark-sweep")!({});
 
     expect(fetchImpl).toHaveBeenCalledTimes(4);
-    expect(result).toEqual({ goldenSetsProcessed: 3, goldenSetsFailed: 1 });
+    expect(result).toEqual({
+      goldenSetsProcessed: 3,
+      goldenSetsFailed: 1,
+      retrievalRecallBelowThreshold: false,
+    });
+  });
+
+  it("flags a real retrieval recall regression instead of letting it sit unexamined", async () => {
+    const fetchImpl = vi.fn(async (url: string, init: { body: string }) => {
+      const { golden_set_name: goldenSetName } = JSON.parse(init.body) as {
+        golden_set_name: string;
+      };
+      const passRate = goldenSetName === "retrieval" ? 0.5 : 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          evaluation_run_id: "evr_1",
+          status: "completed",
+          results_json: JSON.stringify({ golden_set_name: goldenSetName, pass_rate: passRate }),
+        }),
+        text: async () => "",
+      };
+    }) as unknown as typeof fetch;
+
+    const handlers = createPlatformJobHandlers({
+      orchestrationServiceInternalBaseUrl: "http://orchestration-service.internal",
+      evalFacadeServiceToken: "real-token",
+      fetchImpl,
+    });
+    const result = await handlers.get("platform.benchmark-sweep")!({});
+
+    expect(result).toEqual({
+      goldenSetsProcessed: 4,
+      goldenSetsFailed: 0,
+      retrievalRecallBelowThreshold: true,
+    });
+  });
+
+  it("does not flag retrieval recall when it clears the real 0.90 PRD floor", async () => {
+    const fetchImpl = vi.fn(async (url: string, init: { body: string }) => {
+      const { golden_set_name: goldenSetName } = JSON.parse(init.body) as {
+        golden_set_name: string;
+      };
+      const passRate = goldenSetName === "retrieval" ? 0.95 : 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          evaluation_run_id: "evr_1",
+          status: "completed",
+          results_json: JSON.stringify({ golden_set_name: goldenSetName, pass_rate: passRate }),
+        }),
+        text: async () => "",
+      };
+    }) as unknown as typeof fetch;
+
+    const handlers = createPlatformJobHandlers({
+      orchestrationServiceInternalBaseUrl: "http://orchestration-service.internal",
+      evalFacadeServiceToken: "real-token",
+      fetchImpl,
+    });
+    const result = await handlers.get("platform.benchmark-sweep")!({});
+
+    expect(result).toEqual({
+      goldenSetsProcessed: 4,
+      goldenSetsFailed: 0,
+      retrievalRecallBelowThreshold: false,
+    });
   });
 
   it("discovers and scores every eligible drift candidate", async () => {
