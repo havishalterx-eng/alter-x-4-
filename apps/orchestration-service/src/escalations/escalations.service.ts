@@ -44,6 +44,9 @@ export interface EscalationRow extends Record<string, unknown> {
   readonly recovery_action_id: string;
   readonly reason: string;
   readonly status: string;
+  // ENGINE-FIX-P5-1b: additive, consumed by platform-api's workspace-bound
+  // RBAC resolver via the escalation read response.
+  readonly workspace_id?: string;
   readonly claimed_by: string | null;
   readonly claimed_at: string | null;
   readonly resolved_by: string | null;
@@ -89,7 +92,7 @@ function normalizeLimit(limit: number | undefined): number {
 }
 
 const ESCALATION_SELECT_COLUMNS = `id, run_id, node_execution_id, recovery_action_id, reason,
-       status, claimed_by::text, claimed_at::text, resolved_by::text,
+       status, workspace_id, claimed_by::text, claimed_at::text, resolved_by::text,
        resolved_at::text, resolution_note, created_at::text`;
 
 /**

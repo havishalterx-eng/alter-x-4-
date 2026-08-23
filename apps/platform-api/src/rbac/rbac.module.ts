@@ -9,7 +9,7 @@ import { SignupModule } from "../signup/signup.module";
 import { PlatformDb } from "../signup/platform-db";
 import { ActorContextGuard } from "./actor-context.guard";
 import {
-  EngineProjectWorkspaceLookup,
+  defaultWorkspaceResolutionRules,
   ParamWorkspaceResolver,
 } from "./param-workspace.resolver";
 import { RbacExceptionFilter } from "./rbac-exception.filter";
@@ -111,9 +111,11 @@ export class RbacModule {}
 
 const enforcingWorkspaceResolverProvider = {
   provide: resourceWorkspaceResolverToken,
-  useFactory: (engineClient: EngineClient) =>
-    new ParamWorkspaceResolver(new EngineProjectWorkspaceLookup(engineClient)),
-  inject: [EngineClient],
+  useFactory: (engineClient: EngineClient, db: PlatformDb) =>
+    new ParamWorkspaceResolver(
+      defaultWorkspaceResolutionRules({ engineClient, db }),
+    ),
+  inject: [EngineClient, PlatformDb],
 };
 
 /**

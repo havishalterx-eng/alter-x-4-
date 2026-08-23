@@ -45,6 +45,9 @@ export interface ClarificationRow extends Record<string, unknown> {
   readonly requested_at: string;
   readonly answered_at: string | null;
   readonly expiry_at: string;
+  // ENGINE-FIX-P5-1b: additive, consumed by platform-api's workspace-bound
+  // RBAC resolver via the clarification read response.
+  readonly workspace_id?: string;
 }
 
 export interface ClarificationPage {
@@ -57,7 +60,7 @@ export interface ClarificationPage {
 }
 
 const SELECT_COLUMNS = `id, conversation_id, question, status, assignee_user_id::text,
-       assigned_at::text, requested_at::text, answered_at::text, expiry_at::text`;
+       assigned_at::text, requested_at::text, answered_at::text, expiry_at::text, workspace_id`;
 
 function bareTenantUuid(tenantId: string): string {
   const parsed = TenantIdSchema.safeParse(tenantId);
@@ -90,6 +93,23 @@ function normalizeLimit(limit: number | undefined): number {
 
 export class ClarificationsService {
   constructor(private readonly store: OrchestrationTenantStore) {}
+
+  // ENGINE-FIX-P5-1b: single-resource read so platform-api's workspace-bound
+  // RBAC resolver can answer "which workspace owns this clarification"
+  // through the same public, tenant-scoped surface as its sibling reads.
+  async getById(tenantIdInput: string, clarificationIdInput: string): Promise<ClarificationRow> {
+    const tenantId = bareTenantUuid(tenantIdInput);
+    requireClarificationId(clarificationIdInput);
+    return this.store.withTenant(tenantId, async (tx) => {
+      const result = await tx.query<ClarificationRow>(
+        `SELECT ${SELECT_COLUMNS} FROM clarifications WHERE tenant_id = $1 AND id = $2`,
+        [tenantId, clarificationIdInput],
+      );
+      const row = result.rows[0];
+      if (row === undefined) throw new ClarificationNotFoundError(clarificationIdInput);
+      return row;
+    });
+  }
 
   async list(
     tenantIdInput: string,

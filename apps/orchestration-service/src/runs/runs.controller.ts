@@ -66,6 +66,9 @@ function toRunResponse(row: RunRow): Record<string, unknown> {
     workflow_id: row.workflow_id,
     project_id: row.project_id ?? null,
     workflow_version_id: row.workflow_version_id,
+    // ENGINE-FIX-P5-1b: additive -- owning workspace, consumed by
+    // platform-api's workspace-bound RBAC resolver.
+    workspace_id: row.workspace_id ?? null,
     parent_kind: row.parent_kind,
     status: row.status,
     started_at: row.started_at,

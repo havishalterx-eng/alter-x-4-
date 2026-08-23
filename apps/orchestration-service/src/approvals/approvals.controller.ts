@@ -43,6 +43,9 @@ function toApprovalResponse(row: ApprovalRow): Record<string, unknown> {
     node_execution_id: row.node_execution_id,
     requested_action: row.requested_action,
     status: row.status,
+    // ENGINE-FIX-P5-1b: additive -- owning workspace for platform-api's
+    // workspace-bound RBAC resolver.
+    workspace_id: row.workspace_id ?? null,
     requested_at: row.requested_at,
     decided_at: row.decided_at,
     decided_by: row.decided_by,
