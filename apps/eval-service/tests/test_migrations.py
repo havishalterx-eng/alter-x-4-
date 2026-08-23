@@ -277,7 +277,13 @@ def test_live_redteam_suites_v1_are_retired(pg_url: str) -> None:
     with engine.connect() as conn:
         _service_context(conn)
         rows = conn.execute(
-            sa.text("SELECT status FROM golden_sets WHERE id = ANY(:ids)"),
+            # id is uuid; Postgres has no implicit text[]->uuid[] cast for
+            # ANY(), unlike a bare scalar `id = 'text-uuid'` comparison --
+            # confirmed by CI (psycopg2.errors.UndefinedFunction: operator
+            # does not exist: uuid = text), not something local mypy/ruff
+            # or an import-only smoke check could have caught without a
+            # real Postgres to run the query against.
+            sa.text("SELECT status FROM golden_sets WHERE id = ANY(CAST(:ids AS uuid[]))"),
             {"ids": [str(golden_set.id) for golden_set in REDTEAM_GOLDEN_SETS]},
         ).all()
         assert len(rows) == len(REDTEAM_GOLDEN_SETS)
