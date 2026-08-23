@@ -20,6 +20,7 @@ import {
   type RecordEventRequest,
 } from "@alterx/contracts";
 import { createUuidV7 } from "./audit-id";
+import { Public } from "@alterx/auth";
 import { AuditValidationError } from "@alterx/shared-clients";
 import { AuditService } from "./audit.service";
 
@@ -58,6 +59,16 @@ interface RawQuery {
 // concepts this service deliberately doesn't). tenant_id omitted or empty
 // performs a genuinely cross-tenant query; only a trusted internal caller
 // (platform-api) should ever be able to reach this route.
+//
+// ENGINE-FIX-PHASE2-N2: @Public() opts this controller out of the app-wide
+// ServiceAuthGuard (Auth0 M2M JWT), which otherwise reads the same
+// Authorization header this controller's own authorize() checks and
+// rejects it first -- every real caller here (background-workers'
+// audit-chain-verify sweep, platform-api's AuditEventsClient) sends the
+// raw shared secret, never a JWT, so the route 401'd before its own,
+// correct, timing-safe check ever ran. Same pattern already established
+// for HMAC-authenticated routes (see integration-webhook.controller.ts).
+@Public()
 @UseFilters(AuditQueryProblemFilter)
 @Controller("internal/audit-events")
 export class AuditQueryController {
