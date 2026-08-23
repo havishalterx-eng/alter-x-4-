@@ -10,6 +10,7 @@ import {
 import { M2mValidator, ServiceAuthGuard } from "@alterx/auth";
 import type {
   AuditEventHandler,
+  CacheProvider,
   ConfigProvider,
   QueueProvider,
   SearchProvider,
@@ -30,6 +31,7 @@ export class AppModule {
     databaseProvider: DatabaseOperationProvider,
     costQueue: QueueProvider,
     costEventsQueueName: string,
+    cacheProvider: CacheProvider,
   ): DynamicModule {
     return {
       module: AppModule,
@@ -47,6 +49,7 @@ export class AppModule {
             databaseProvider,
             costQueue,
             costEventsQueueName,
+            cacheProvider,
           ),
         },
       ],

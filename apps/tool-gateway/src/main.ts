@@ -8,6 +8,7 @@ import {
   AwsAppConfigConfigProvider,
   AwsSecretsManagerProvider,
   PostgresToolDatabaseProvider,
+  RedisCacheProvider,
   SqsQueueProvider,
   SsrfGuardedFetcher,
   TavilySearchProvider,
@@ -15,11 +16,13 @@ import {
 } from "@alterx/adapters";
 import {
   createMockAuditEventHandler,
+  createMockCacheProvider,
   createMockConfigProvider,
   createMockQueueProvider,
   createMockSearchProvider,
   createMockSecretsProvider,
   type AuditEventHandler,
+  type CacheProvider,
   type ConfigProvider,
   type QueueProvider,
   type SearchProvider,
@@ -96,6 +99,16 @@ function createQueueProvider(environment: ToolGatewayEnvironment): QueueProvider
       });
 }
 
+function createCacheProvider(environment: ToolGatewayEnvironment): CacheProvider {
+  if (environment.configSource === "mock") {
+    return createMockCacheProvider();
+  }
+  return new RedisCacheProvider({
+    host: environment.cacheRedisHost,
+    port: environment.cacheRedisPort,
+  });
+}
+
 async function bootstrap(): Promise<void> {
   const environment = loadToolGatewayEnvironment(process.env);
   const configProvider = createConfigProvider(environment);
@@ -105,6 +118,7 @@ async function bootstrap(): Promise<void> {
   const auditClient = createAuditClient(environment);
   const databaseProvider = new PostgresToolDatabaseProvider(secretsProvider);
   const costQueue = createQueueProvider(environment);
+  const cacheProvider = createCacheProvider(environment);
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule.register(
@@ -116,6 +130,7 @@ async function bootstrap(): Promise<void> {
       databaseProvider,
       costQueue,
       `alter-${environment.alterEnvironment}-cost-events`,
+      cacheProvider,
     ),
     new FastifyAdapter(),
   );

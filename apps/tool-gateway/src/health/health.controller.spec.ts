@@ -2,6 +2,7 @@ import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fa
 import { Test } from "@nestjs/testing";
 import {
   createMockAuditEventHandler,
+  createMockCacheProvider,
   createMockConfigProvider,
   createMockQueueProvider,
   createMockSearchProvider,
@@ -46,6 +47,7 @@ describe("GET /health", () => {
           unexercisedDatabaseProvider,
           createMockQueueProvider(),
           "health-spec-cost-events",
+          createMockCacheProvider(),
         ),
       ],
     }).compile();

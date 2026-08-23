@@ -14,6 +14,7 @@ import {
 } from "@alterx/adapters";
 import {
   createMockAuditEventHandler,
+  createMockCacheProvider,
   createMockConfigProvider,
   createMockQueueProvider,
   createMockSecretsProvider,
@@ -68,6 +69,7 @@ async function bootstrap(): Promise<void> {
       unexercisedDatabaseProvider,
       createMockQueueProvider(),
       "toolgw-e2e-cost-events",
+      createMockCacheProvider(),
     ),
     new FastifyAdapter(),
     { logger: false },

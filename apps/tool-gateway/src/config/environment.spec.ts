@@ -41,6 +41,8 @@ describe("loadToolGatewayEnvironment", () => {
           TAVILY_API_KEY_SECRET_REF:
             "/alter/prod/tool-gateway/system/tavily-api-key",
           AUDIT_SERVICE_GRPC_ADDRESS: "audit-service:50051",
+          CACHE_REDIS_HOST: "cache.internal",
+          CACHE_REDIS_PORT: "6379",
         }),
       ),
     ).toMatchObject({
@@ -50,6 +52,8 @@ describe("loadToolGatewayEnvironment", () => {
       appConfigConfigurationProfileId: "profile-1",
       tavilyApiKeySecretRef: "/alter/prod/tool-gateway/system/tavily-api-key",
       auditServiceGrpcAddress: "audit-service:50051",
+      cacheRedisHost: "cache.internal",
+      cacheRedisPort: 6379,
     });
   });
 
@@ -103,6 +107,8 @@ describe("loadToolGatewayEnvironment", () => {
         TAVILY_API_KEY_SECRET_REF:
           "/alter/prod/tool-gateway/system/tavily-api-key",
         AUDIT_SERVICE_GRPC_ADDRESS: "audit-service:50051",
+        CACHE_REDIS_HOST: "cache.internal",
+        CACHE_REDIS_PORT: "6379",
       },
     ],
     [
@@ -115,6 +121,8 @@ describe("loadToolGatewayEnvironment", () => {
         APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
         TAVILY_API_KEY_SECRET_REF: "",
         AUDIT_SERVICE_GRPC_ADDRESS: "audit-service:50051",
+        CACHE_REDIS_HOST: "cache.internal",
+        CACHE_REDIS_PORT: "6379",
       },
     ],
     [
@@ -128,6 +136,38 @@ describe("loadToolGatewayEnvironment", () => {
         TAVILY_API_KEY_SECRET_REF:
           "/alter/prod/tool-gateway/system/tavily-api-key",
         AUDIT_SERVICE_GRPC_ADDRESS: "",
+        CACHE_REDIS_HOST: "cache.internal",
+        CACHE_REDIS_PORT: "6379",
+      },
+    ],
+    [
+      "CACHE_REDIS_HOST",
+      {
+        ALTER_ENV: "dev",
+        ALTER_CONFIG_SOURCE: "appconfig",
+        APPCONFIG_APPLICATION_ID: "app-1",
+        APPCONFIG_ENVIRONMENT_ID: "env-1",
+        APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+        TAVILY_API_KEY_SECRET_REF:
+          "/alter/prod/tool-gateway/system/tavily-api-key",
+        AUDIT_SERVICE_GRPC_ADDRESS: "audit-service:50051",
+        CACHE_REDIS_HOST: "",
+        CACHE_REDIS_PORT: "6379",
+      },
+    ],
+    [
+      "CACHE_REDIS_PORT",
+      {
+        ALTER_ENV: "dev",
+        ALTER_CONFIG_SOURCE: "appconfig",
+        APPCONFIG_APPLICATION_ID: "app-1",
+        APPCONFIG_ENVIRONMENT_ID: "env-1",
+        APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+        TAVILY_API_KEY_SECRET_REF:
+          "/alter/prod/tool-gateway/system/tavily-api-key",
+        AUDIT_SERVICE_GRPC_ADDRESS: "audit-service:50051",
+        CACHE_REDIS_HOST: "cache.internal",
+        CACHE_REDIS_PORT: "not-a-port",
       },
     ],
   ])("rejects invalid %s", (field, override) => {

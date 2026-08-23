@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import type {
   ToolgwFetchUrlRequest,
@@ -21,6 +21,7 @@ import {
 } from "@alterx/adapters";
 import type {
   AuditEventHandler,
+  CacheProvider,
   ConfigProvider,
   JsonValue,
   QueueProvider,
@@ -80,6 +81,12 @@ const SEARCH_WEB_TOOL_NAME = "search.web";
 // whole repo before moving it) -- this is a relocation, not a rewire.
 const DATABASE_OPERATIONS = new Set(["select", "insert", "update", "delete"]);
 const MAX_TOOL_OUTPUT_BYTES = 1_048_576;
+// ENGINE-RESTRUCTURE-P4-3: real Cache/Reuse cross-cutting layer wiring
+// (architecture doc §12 RESTRUCTURE 3). 5 minutes balances real cost/
+// latency savings on repeated identical queries against staleness risk
+// for time-sensitive ones (news, prices) -- ponytail: fixed constant, add
+// a per-query override only if a real caller ever needs one.
+const SEARCH_CACHE_TTL_SECONDS = 5 * 60;
 
 export class ToolGatewayService implements ToolgwHandler {
   readonly #credentialTokens = new Map<string, CredentialRecord>();
@@ -103,6 +110,7 @@ export class ToolGatewayService implements ToolgwHandler {
     private readonly databaseProvider: DatabaseOperationProvider,
     private readonly costQueue: QueueProvider,
     private readonly costEventsQueueName: string,
+    private readonly cacheProvider: CacheProvider,
     options: ToolGatewayServiceOptions = {},
   ) {
     this.#credentialTokenTtlMs =
@@ -185,15 +193,46 @@ export class ToolGatewayService implements ToolgwHandler {
     request: ToolgwInvokeToolRequest,
   ): Promise<ToolgwInvokeToolResponse> {
     const input = parseSearchWebInput(request.input_json);
+    const cacheKey = searchCacheKey(input);
+    const cachedResultJson = await this.#lookupCacheBestEffort(cacheKey);
+    if (cachedResultJson !== undefined) {
+      return {
+        output_json: cachedResultJson,
+        audit_id: `aud_${this.#mintId()}`,
+      };
+    }
     const result = await this.searchProvider.search({
       tenantId: request.tenant_id,
       query: input.query,
       ...(input.maxResults === undefined ? {} : { maxResults: input.maxResults }),
     });
+    const resultJson = JSON.stringify(result);
+    await this.#storeCacheBestEffort(cacheKey, resultJson);
     return {
-      output_json: JSON.stringify(result),
+      output_json: resultJson,
       audit_id: `aud_${this.#mintId()}`,
     };
+  }
+
+  // ENGINE-RESTRUCTURE-P4-3: cache is acceleration only, never a hard
+  // dependency -- a cache outage must fall through to (or not block) a
+  // real search, exactly the same fail-open contract model-gateway's own
+  // semantic cache and Blackboard's hot-context cache already use.
+  async #lookupCacheBestEffort(key: string): Promise<string | undefined> {
+    try {
+      return await this.cacheProvider.getValue(key);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async #storeCacheBestEffort(key: string, valueJson: string): Promise<void> {
+    try {
+      await this.cacheProvider.setValue(key, valueJson, SEARCH_CACHE_TTL_SECONDS);
+    } catch {
+      // A cache write failure must never turn an otherwise-successful
+      // search into an error.
+    }
   }
 
   async #dispatchDatabaseOperation(
@@ -624,6 +663,20 @@ function validateFetchUrlRequest(request: ToolgwFetchUrlRequest): void {
 interface SearchWebInput {
   readonly query: string;
   readonly maxResults?: number;
+}
+
+// ENGINE-RESTRUCTURE-P4-3: deliberately NOT tenant-scoped. search.web
+// results are public web content, not tenant-owned data -- two tenants
+// issuing the identical query get the identical, already-public results
+// faster, with no cross-tenant information exposure in either direction
+// (the cache key is derived only from the query text itself). Hashed
+// rather than embedded raw so an arbitrarily long/unusual query never
+// produces an invalid or awkward-to-inspect Redis key.
+function searchCacheKey(input: SearchWebInput): string {
+  const hash = createHash("sha256")
+    .update(JSON.stringify({ query: input.query, maxResults: input.maxResults ?? null }))
+    .digest("hex");
+  return `search.web:${hash}`;
 }
 
 function parseSearchWebInput(inputJson: string): SearchWebInput {

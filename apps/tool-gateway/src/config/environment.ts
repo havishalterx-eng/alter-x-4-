@@ -16,6 +16,8 @@ export interface ToolGatewayAppConfigEnvironment
   readonly appConfigConfigurationProfileId: string;
   readonly tavilyApiKeySecretRef: string;
   readonly auditServiceGrpcAddress: string;
+  readonly cacheRedisHost: string;
+  readonly cacheRedisPort: number;
 }
 
 export interface ToolGatewayMockEnvironment
@@ -56,6 +58,17 @@ function parsePort(value: string | undefined): number {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new ToolGatewayConfigurationError(
       "PORT",
+      "must be an integer from 1 to 65535",
+    );
+  }
+  return port;
+}
+
+function parseRequiredPort(field: string, value: string): number {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new ToolGatewayConfigurationError(
+      field,
       "must be an integer from 1 to 65535",
     );
   }
@@ -163,6 +176,11 @@ export function loadToolGatewayEnvironment(
     auditServiceGrpcAddress: requireValue(
       environment,
       "AUDIT_SERVICE_GRPC_ADDRESS",
+    ),
+    cacheRedisHost: requireValue(environment, "CACHE_REDIS_HOST"),
+    cacheRedisPort: parseRequiredPort(
+      "CACHE_REDIS_PORT",
+      requireValue(environment, "CACHE_REDIS_PORT"),
     ),
   };
 }
