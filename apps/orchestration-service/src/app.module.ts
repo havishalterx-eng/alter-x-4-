@@ -34,6 +34,7 @@ import {
   S3ObjectStorageProvider,
   NodeexecGrpcController,
   PostgresOrchestrationStoreProvider,
+  sharedOrchestrationPoolFactory,
   RedisCacheProvider,
   RecoveryGrpcController,
   RegistryGrpcController,
@@ -223,7 +224,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: DeploymentAdminService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        return new DeploymentAdminService(new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig)));
+        return new DeploymentAdminService(orchestrationStore(dbConfig));
       },
     },
     {
@@ -235,7 +236,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: WhatsappAccountRegistryService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        return new WhatsappAccountRegistryService(new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig)));
+        return new WhatsappAccountRegistryService(orchestrationStore(dbConfig));
       },
     },
     {
@@ -249,12 +250,12 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: OrchestrationDeletionService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const tenantStore = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const tenantStore = orchestrationStore(dbConfig);
         const deletionDatabaseUser = process.env.DELETION_DATABASE_USER?.trim();
         if (deletionDatabaseUser === undefined || deletionDatabaseUser.length === 0) {
           throw new Error("DELETION_DATABASE_USER is required for internal deletion sweeps");
         }
-        const systemStore = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig, deletionDatabaseUser));
+        const systemStore = orchestrationStore(dbConfig, deletionDatabaseUser);
         return new OrchestrationDeletionService(tenantStore, systemStore);
       },
     },
@@ -279,7 +280,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
             },
             replayStore,
           ),
-          new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(config)),
+          orchestrationStore(config),
         );
       },
     },
@@ -306,7 +307,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         const conversationConfig = loadConversationManagerEnvironment(
           process.env,
         );
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const modelGateway = new ModelGatewayClient({
           address: conversationConfig.modelGatewayAddress,
           protoPath: MODELGW_CLIENT_PROTO_PATH,
@@ -323,7 +324,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // its own PostgresOrchestrationStoreProvider against the same
         // database rather than refactoring the guard wiring.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const runLauncherConfig = loadRunLauncherEnvironment(process.env);
         const durable = new TemporalDurableExecutionProvider({
           address: runLauncherConfig.temporalAddress,
@@ -356,7 +357,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: TriggerBindingService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const bindingConfig = loadTriggerBindingEnvironment(process.env);
         const dispatchConfig = loadTriggerDispatchEnvironment(process.env);
         return new TriggerBindingService(
@@ -383,7 +384,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // Same reasoning as RUNS_HANDLER above: its own store instance,
         // isolated from the guard's.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         return new TriggerEventDispatchService(store, launcher);
       },
     },
@@ -394,7 +395,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // own PostgresOrchestrationStoreProvider rather than reaching into
         // the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         return new WorkflowReadService(store);
       },
     },
@@ -402,14 +403,14 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: TemplateVariablesService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        return new TemplateVariablesService(new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig)));
+        return new TemplateVariablesService(orchestrationStore(dbConfig));
       },
     },
     {
       provide: ClarificationsService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        return new ClarificationsService(new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig)));
+        return new ClarificationsService(orchestrationStore(dbConfig));
       },
     },
     {
@@ -417,7 +418,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       useFactory: () => {
         // Same reasoning as WorkflowReadService above.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         return new ProjectReadService(store);
       },
     },
@@ -426,7 +427,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       inject: [RunLauncherService, CONVERSATION_HANDLER],
       useFactory: (launcher: RunLauncherService, conversations: import("@alterx/adapters").ConversationHandler) => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const recoveryConfig = loadRecoveryEnvironment(process.env);
         return new ProjectDomainService(
           store,
@@ -440,7 +441,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: ArtifactsService,
       useFactory: async () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const parameterStore = new AwsSsmParameterProvider({ region: dbConfig.awsRegion });
         try {
           const bucketName = await parameterStore.getParameter(dbConfig.artifactsBucketParameter);
@@ -457,7 +458,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // above: constructs its own PostgresOrchestrationStoreProvider
         // rather than reaching into the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const recoveryConfig = loadRecoveryEnvironment(process.env);
         return new GraphCompilerService(store, new CapabilityServiceClient({
           address: recoveryConfig.capabilityResolverAddress,
@@ -469,7 +470,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: DeploymentControllerService,
       useFactory: async (artifacts: ArtifactsService, evalFacade: EvalFacadeService) => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const parameterStore = new AwsSsmParameterProvider({
           region: dbConfig.awsRegion,
         });
@@ -503,7 +504,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: NODEEXEC_HANDLER,
       useFactory: async (artifacts: ArtifactsService) => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const conversationConfig = loadConversationManagerEnvironment(
           process.env,
         );
@@ -639,7 +640,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // (see the ApprovalsService comment above): not maximally
         // efficient, but correct and isolated.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const lookup = new RunWorkspaceLookupService(store);
         return {
           getRunWorkspace: async (request: { tenant_id: string; run_id: string }) => {
@@ -665,7 +666,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: NodeExecutionLedgerService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         return new NodeExecutionLedgerService(store);
       },
     },
@@ -673,14 +674,14 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       provide: RunStreamEventService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        return new RunStreamEventService(new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig)));
+        return new RunStreamEventService(orchestrationStore(dbConfig));
       },
     },
     {
       provide: RunObservabilityService,
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
-        return new RunObservabilityService(new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig)));
+        return new RunObservabilityService(orchestrationStore(dbConfig));
       },
     },
     {
@@ -690,7 +691,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // above: constructs its own PostgresOrchestrationStoreProvider
         // rather than reaching into the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const runLauncherConfig = loadRunLauncherEnvironment(process.env);
         const durable = new TemporalDurableExecutionProvider({
           address: runLauncherConfig.temporalAddress,
@@ -727,7 +728,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // above: constructs its own PostgresOrchestrationStoreProvider
         // rather than reaching into the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const runLauncherConfig = loadRunLauncherEnvironment(process.env);
         const durable = new TemporalDurableExecutionProvider({
           address: runLauncherConfig.temporalAddress,
@@ -747,7 +748,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // PostgresOrchestrationStoreProvider rather than reaching into the
         // guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         return new EscalationsService(store);
       },
     },
@@ -758,7 +759,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // above: constructs its own PostgresOrchestrationStoreProvider
         // rather than reaching into the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const cache = new RedisCacheProvider(
           parseRedisHostPort(dbConfig.redisUrl),
         );
@@ -773,7 +774,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // above: constructs its own PostgresOrchestrationStoreProvider
         // rather than reaching into the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const whatsappConfig = loadWhatsappWebhookEnvironment(process.env);
         return new WhatsappWebhookService(
           store,
@@ -790,7 +791,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         // own PostgresOrchestrationStoreProvider rather than reaching into
         // the guard's private instance.
         const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+        const store = orchestrationStore(dbConfig);
         const dispatchConfig = loadConversationDispatchEnvironment(process.env);
         const dispatchClient = new ConversationDispatchClient({
           address: dispatchConfig.temporalAddress,
@@ -860,6 +861,25 @@ function orchestrationStoreConfig(
 }
 
 /**
+ * ENGINE-FIX-P3-22 (Wave 3 item 6). Every real call site below used to do
+ * `orchestrationStore(...)`
+ * directly -- ~30 of them, each spinning up its own unshared `Pool`
+ * against the same database (see sharedOrchestrationPoolFactory's own
+ * doc comment for the full reasoning). This is the one place that adds
+ * the shared pool factory, so every caller gets it by construction
+ * instead of needing to remember a second constructor argument.
+ */
+function orchestrationStore(
+  env: SessionGatewayEnvironment,
+  userOverride?: string,
+): PostgresOrchestrationStoreProvider {
+  return new PostgresOrchestrationStoreProvider(
+    orchestrationStoreConfig(env, userOverride),
+    { poolFactory: sharedOrchestrationPoolFactory },
+  );
+}
+
+/**
  * HEAL-8: NodeexecService, RunLauncherService, and RunsController (via its
  * own RunOutcomeService provider below) all need a RunOutcomeService --
  * the real writer for the VACR/VADR metric ledger, and the reader behind
@@ -868,7 +888,7 @@ function orchestrationStoreConfig(
  */
 function buildRunOutcomeService(): RunOutcomeService {
   const dbConfig = sessionGatewayEnvironment(process.env);
-  const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+  const store = orchestrationStore(dbConfig);
   return new RunOutcomeService(store);
 }
 
@@ -882,7 +902,7 @@ function buildRunOutcomeService(): RunOutcomeService {
  */
 function buildRecoveryPolicyService(): RecoveryPolicyService {
   const dbConfig = sessionGatewayEnvironment(process.env);
-  const store = new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig));
+  const store = orchestrationStore(dbConfig);
   const modelConfig = loadConversationManagerEnvironment(process.env);
   const modelGateway = new ModelGatewayClient({
     address: modelConfig.modelGatewayAddress,

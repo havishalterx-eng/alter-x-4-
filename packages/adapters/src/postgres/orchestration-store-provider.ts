@@ -311,3 +311,43 @@ export class PostgresOrchestrationStoreProvider
     await this.#pool.end();
   }
 }
+
+const sharedOrchestrationPools = new Map<string, Pool>();
+
+/**
+ * ENGINE-FIX-P3-22 (Wave 3 item 6). orchestration-service's app.module.ts
+ * builds ~30 separate DI `useFactory` providers, each independently doing
+ * `new PostgresOrchestrationStoreProvider(orchestrationStoreConfig(dbConfig))`
+ * -- the constructor's own default (no poolFactory override) means every
+ * one of those spins up its own fresh `new Pool(...)`, all pointed at the
+ * same database with the same credentials. ~30 pools x pg's default
+ * `max: 10` connections is up to 300 connections from one process --
+ * same failure shape platform-api's ENGINE-FIX-P3-6 fixed for its 29
+ * `new Pool({connectionString})` sites, just via this provider's
+ * constructor instead of ad-hoc pool construction.
+ *
+ * Pass as `{ poolFactory: sharedOrchestrationPoolFactory }` at every call
+ * site that should share a connection. Keyed by the resolved connection
+ * identity (connectionString for static auth; host/port/database/user for
+ * iam auth) rather than one single pool for everything, so call sites
+ * that intentionally authenticate as a different role (e.g. the
+ * deletion/system store's userOverride) still get their own pool instead
+ * of silently reusing the tenant-scoped one.
+ *
+ * A plain module-level cache, not a DI-provided singleton -- matches
+ * ENGINE-FIX-P3-6's own reasoning: routing this through Nest's DI graph
+ * instead would mean every one of the ~30 call sites (and every test that
+ * constructs one of the services around them in isolation) needs to
+ * change how it's wired, not just add one constructor argument.
+ */
+export function sharedOrchestrationPoolFactory(config: PoolConfig): Pool {
+  const key =
+    config.connectionString !== undefined
+      ? `static:${config.connectionString}`
+      : `iam:${config.host}:${config.port}/${config.database}:${config.user}`;
+  const existing = sharedOrchestrationPools.get(key);
+  if (existing) return existing;
+  const pool = new Pool(config);
+  sharedOrchestrationPools.set(key, pool);
+  return pool;
+}
