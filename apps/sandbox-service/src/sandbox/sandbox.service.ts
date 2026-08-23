@@ -4,10 +4,6 @@ import type {
   BrowserNavigationResult,
   BrowserSession,
   BrowserSessionScope,
-  DatabaseOperationProvider,
-  DatabaseOperationRequest,
-  DatabaseOperationResult,
-  SsrfGuardedFetcher,
 } from "@alterx/adapters";
 import type {
   ConfigProvider,
@@ -31,7 +27,6 @@ const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "pip"]);
 // named provider-specific template IDs as they're actually adopted;
 // never widen it to "anything goes."
 const SANDBOX_TEMPLATE_ALLOWLIST = new Set(["base", "node", "python"]);
-const DATABASE_OPERATIONS = new Set(["select", "insert", "update", "delete"]);
 const FORBIDDEN_COMMANDS = [
   /\b(?:rm|rmdir|del|erase|format|mkfs|fdisk|parted|dd|shutdown|reboot|poweroff|halt|kill|pkill|killall|sudo|su)\b/i,
   /(?:^|\s)(?:bash|sh|zsh|fish|powershell|pwsh|cmd)(?:\s+(?:-[A-Za-z]*c|\/c))\b/i,
@@ -89,17 +84,9 @@ export interface SandboxToolCallContext {
   readonly traceId: string;
 }
 
-export interface SandboxUrlFetchResult {
-  readonly statusCode: number;
-  readonly body: string;
-  readonly finalUrl: string;
-}
-
 export interface SandboxToolDependencies {
   readonly browser: BrowserAutomationProvider;
   readonly config: ConfigProvider;
-  readonly database: DatabaseOperationProvider;
-  readonly urlFetcher: SsrfGuardedFetcher;
   readonly costQueue: QueueProvider;
   readonly costEventsQueueName: string;
   readonly mintCostEventId?: () => string;
@@ -430,73 +417,17 @@ export class SandboxService {
     );
   }
 
-  async fetchUrl(
-    context: SandboxToolCallContext,
-    url: string,
-  ): Promise<SandboxUrlFetchResult> {
-    this.#validateToolContext(context);
-    const tools = this.#requireTools();
-    return this.#costed(
-      context,
-      {
-        provider: "ssrf-guarded-fetcher",
-        resourceType: "sandbox.url.fetch",
-        units: 1,
-      },
-      async () => {
-        const fetched = await tools.urlFetcher.fetch(url);
-        if (fetched.body.byteLength > MAX_TOOL_OUTPUT_BYTES) {
-          throw new Error("URL fetch response exceeds sandbox output limit");
-        }
-        return {
-          statusCode: fetched.statusCode,
-          body: new TextDecoder().decode(fetched.body),
-          finalUrl: fetched.finalUrl,
-        };
-      },
-    );
-  }
-
-  async executeDatabaseOperation(
-    context: SandboxToolCallContext,
-    request: DatabaseOperationRequest,
-  ): Promise<DatabaseOperationResult> {
-    this.#validateToolContext(context);
-    this.#assertDatabaseCredentialOwnedBy(
-      request.credentialReference,
-      context.tenantId,
-      request.databaseId,
-    );
-    const tools = this.#requireTools();
-    return this.#costed(
-      context,
-      {
-        provider: tools.database.providerId,
-        resourceType: `sandbox.database.${request.operation}`,
-        units: 1,
-      },
-      async () => {
-        if (!DATABASE_OPERATIONS.has(request.operation)) {
-          throw new Error("Database operation is not supported");
-        }
-        const permission = await tools.config.resolveToolPermission({
-          tenantId: context.tenantId,
-          toolName: `database.${request.operation}`,
-        });
-        const databaseScope = `database:${request.databaseId}`;
-        if (
-          !permission.allowed ||
-          (!permission.requiredScopes.includes(databaseScope) &&
-            !permission.requiredScopes.includes("database:*"))
-        ) {
-          throw new Error("Database operation is not permitted for this tenant");
-        }
-        const result = await tools.database.execute(request);
-        this.#requireBoundedOutput(JSON.stringify(result));
-        return result;
-      },
-    );
-  }
+  // ENGINE-RESTRUCTURE-P4-1: fetchUrl and executeDatabaseOperation moved
+  // to tool-gateway (apps/tool-gateway/src/gateway/tool-gateway.service.ts)
+  // -- the architecture doc's own finding is that Sandbox should own
+  // isolated computation only, not general business/external-tool
+  // integrations. Neither had a real caller anywhere in this repo before
+  // the move either (grepped the whole tree to confirm) -- a relocation,
+  // not a rewire. fetchUrl's real replacement was already fully built and
+  // working in tool-gateway before this change (its own InvokeTool/FetchUrl
+  // RPCs); executeDatabaseOperation's logic (permission scope check,
+  // strict tenant/database credential-ownership check, cost-event
+  // emission) is now database.* dispatch inside tool-gateway's invokeTool.
 
   async calculate(
     context: SandboxToolCallContext,
@@ -616,26 +547,6 @@ export class SandboxService {
   ): void {
     if (!new RegExp(`^${prefix}_${UUID_V7_BODY}$`, "i").test(value)) {
       throw new Error(`${field} must be a ${prefix}_ prefixed UUIDv7`);
-    }
-  }
-
-  #assertDatabaseCredentialOwnedBy(
-    reference: string,
-    tenantId: string,
-    databaseId: string,
-  ): void {
-    const segments = reference.split("/").filter(Boolean);
-    if (
-      segments.length < 7 ||
-      segments[0] !== "alter" ||
-      segments[2] !== "tenant" ||
-      segments[3] !== tenantId ||
-      segments[4] !== "integration" ||
-      segments[5] !== databaseId
-    ) {
-      throw new Error(
-        "Database credential reference is not owned by this tenant/database",
-      );
     }
   }
 

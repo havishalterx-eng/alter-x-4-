@@ -5,11 +5,13 @@ import {
   SsrfGuardedFetcher,
   TOOLGW_HANDLER,
   ToolgwGrpcController,
+  type DatabaseOperationProvider,
 } from "@alterx/adapters";
 import { M2mValidator, ServiceAuthGuard } from "@alterx/auth";
 import type {
   AuditEventHandler,
   ConfigProvider,
+  QueueProvider,
   SearchProvider,
   SecretsProvider,
 } from "@alterx/shared-clients";
@@ -25,6 +27,9 @@ export class AppModule {
     searchProvider: SearchProvider,
     urlFetcher: SsrfGuardedFetcher,
     auditClient: AuditEventHandler,
+    databaseProvider: DatabaseOperationProvider,
+    costQueue: QueueProvider,
+    costEventsQueueName: string,
   ): DynamicModule {
     return {
       module: AppModule,
@@ -39,6 +44,9 @@ export class AppModule {
             searchProvider,
             urlFetcher,
             auditClient,
+            databaseProvider,
+            costQueue,
+            costEventsQueueName,
           ),
         },
       ],

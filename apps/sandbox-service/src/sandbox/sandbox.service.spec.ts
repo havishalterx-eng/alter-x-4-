@@ -2,7 +2,6 @@ import {
   MockBrowserAutomationProvider,
   SsrfGuardedFetcher,
   type BrowserAutomationProvider,
-  type DatabaseOperationProvider,
   type FetchFn,
   type ResolvedAddress,
 } from "@alterx/adapters";
@@ -24,7 +23,6 @@ import {
 
 const SESSION = "ses_mock-1";
 const UUID = "018f47a2-7b11-7b11-8a11-1234567890ab";
-const OTHER_UUID = "018f47a2-7b11-7b11-8a11-0000000000bb";
 const CONTEXT: SandboxToolCallContext = {
   tenantId: `ten_${UUID}`,
   runId: `run_${UUID}`,
@@ -32,8 +30,6 @@ const CONTEXT: SandboxToolCallContext = {
   requestId: `req_${UUID}`,
   traceId: `trc_${UUID}`,
 };
-const DATABASE_ID = "db_accounts";
-const CREDENTIAL_REFERENCE = `/alter/test/tenant/${CONTEXT.tenantId}/integration/${DATABASE_ID}/password`;
 const BROWSER_TOOL_NAMES = [
   "browser.session.create",
   "browser.navigate",
@@ -60,7 +56,6 @@ function arrayBuffer(value: string): ArrayBuffer {
 
 function toolHarness(options: {
   readonly publish?: (queueName: string, message: JsonValue) => Promise<void>;
-  readonly database?: DatabaseOperationProvider;
   readonly config?: ConfigProvider;
   readonly browser?: BrowserAutomationProvider;
 } = {}) {
@@ -103,35 +98,18 @@ function toolHarness(options: {
       messages.push({ queueName, message });
       await inMemoryQueue.publish(queueName, message);
     });
-  const database =
-    options.database ??
-    ({
-      providerId: "mock.database",
-      execute: vi.fn(async () => ({
-        rowCount: 1,
-        rows: [{ answer: 42 }],
-      })),
-    } satisfies DatabaseOperationProvider);
   const costQueue = createMockQueueProvider({
     publish,
     consume: (queueName) => inMemoryQueue.consume(queueName),
   });
   const service = new SandboxService(sandbox, {
     browser: options.browser ?? new MockBrowserAutomationProvider(urlFetcher),
-    config: options.config ?? createMockConfigProvider({
-      toolPermission: {
-        allowed: true,
-        rateLimitPerMinute: 60,
-        requiredScopes: [`database:${DATABASE_ID}`],
-      },
-    }),
-    database,
-    urlFetcher,
+    config: options.config ?? createMockConfigProvider(),
     costQueue,
     costEventsQueueName: "alter-test-cost-events",
     mintCostEventId: () => `cst_${UUID}`,
   });
-  return { costQueue, database, fetchFn, messages, sandbox, service };
+  return { costQueue, fetchFn, messages, sandbox, service };
 }
 
 async function provision(harness: ReturnType<typeof toolHarness>): Promise<void> {
@@ -142,16 +120,6 @@ async function provision(harness: ReturnType<typeof toolHarness>): Promise<void>
     templateId: "base",
     environment: {},
   });
-}
-
-function databaseRequest() {
-  return {
-    credentialReference: CREDENTIAL_REFERENCE,
-    databaseId: DATABASE_ID,
-    operation: "select" as const,
-    statement: "SELECT answer FROM values WHERE id = $1",
-    parameters: [1] as const,
-  };
 }
 
 describe("SandboxService existing EXEC-10 tools", () => {
@@ -354,92 +322,6 @@ describe("SandboxService EXEC-13 tools", () => {
     );
   });
 
-  it("reuses seeded SSRF defenses for private, metadata, and redirect targets", async () => {
-    const target = toolHarness();
-
-    await expect(
-      target.service.fetchUrl(CONTEXT, "https://internal.example.com/"),
-    ).rejects.toThrow("blocked private/internal IP");
-    await expect(
-      target.service.fetchUrl(
-        CONTEXT,
-        "https://169.254.169.254/latest/meta-data/",
-      ),
-    ).rejects.toThrow("blocked private/internal IPv4");
-    await expect(
-      target.service.fetchUrl(CONTEXT, "https://redirect.example.com/start"),
-    ).rejects.toThrow("blocked private/internal IP");
-    expect(target.fetchFn).toHaveBeenCalledTimes(1);
-    expect(target.messages).toHaveLength(3);
-    for (const { message } of target.messages) {
-      expect(
-        JSON.parse(
-          (message as Record<string, string>).usage_json ?? "{}",
-        ),
-      ).toMatchObject({
-        resource_type: "sandbox.url.fetch",
-        outcome: "error",
-      });
-    }
-  });
-
-  it("fetches public URL and returns bounded content", async () => {
-    const target = toolHarness();
-    await expect(
-      target.service.fetchUrl(CONTEXT, "https://example.com/"),
-    ).resolves.toEqual({
-      statusCode: 200,
-      body: "public response",
-      finalUrl: "https://example.com/",
-    });
-  });
-
-  it("enforces tenant-owned DB credential and AppConfig-derived DB scope", async () => {
-    const target = toolHarness();
-    await expect(
-      target.service.executeDatabaseOperation(CONTEXT, databaseRequest()),
-    ).resolves.toEqual({ rowCount: 1, rows: [{ answer: 42 }] });
-
-    await expect(
-      target.service.executeDatabaseOperation(CONTEXT, {
-        ...databaseRequest(),
-        credentialReference: `/alter/test/tenant/ten_${OTHER_UUID}/integration/${DATABASE_ID}/password`,
-      }),
-    ).rejects.toThrow("not owned");
-    await expect(
-      target.service.executeDatabaseOperation(CONTEXT, {
-        ...databaseRequest(),
-        operation: "drop" as "select",
-        statement: "DROP TABLE values WHERE id = $1",
-      }),
-    ).rejects.toThrow("not supported");
-
-    const denied = toolHarness();
-    const deniedService = new SandboxService(denied.sandbox, {
-      browser: new MockBrowserAutomationProvider(
-        new SsrfGuardedFetcher({}, async () => [
-          { address: "93.184.216.34", family: 4 },
-        ]),
-      ),
-      config: createMockConfigProvider({
-        toolPermission: {
-          allowed: true,
-          rateLimitPerMinute: 60,
-          requiredScopes: ["database:other"],
-        },
-      }),
-      database: denied.database,
-      urlFetcher: new SsrfGuardedFetcher({}, async () => [
-        { address: "93.184.216.34", family: 4 },
-      ]),
-      costQueue: createMockQueueProvider(),
-      costEventsQueueName: "alter-test-cost-events",
-    });
-    await expect(
-      deniedService.executeDatabaseOperation(CONTEXT, databaseRequest()),
-    ).rejects.toThrow("not permitted");
-  });
-
   it("evaluates calculator expressions deterministically without external calls", async () => {
     const target = toolHarness();
     await expect(target.service.calculate(CONTEXT, "2 + 3 * (4 ^ 2)")).resolves.toBe(
@@ -509,7 +391,7 @@ describe("SandboxService EXEC-13 tools", () => {
     await expect(target.service.calculate(CONTEXT, "40 + 2")).resolves.toBe(42);
   });
 
-  it("rejects bare UUID tenant IDs consistently across all four tool families", async () => {
+  it("rejects bare UUID tenant IDs consistently across both remaining tool families", async () => {
     const target = toolHarness();
     await provision(target);
     const bare = { ...CONTEXT, tenantId: UUID };
@@ -517,12 +399,6 @@ describe("SandboxService EXEC-13 tools", () => {
     await expect(target.service.createBrowserSession(bare, SESSION)).rejects.toThrow(
       "ten_ prefixed UUIDv7",
     );
-    await expect(
-      target.service.fetchUrl(bare, "https://example.com"),
-    ).rejects.toThrow("ten_ prefixed UUIDv7");
-    await expect(
-      target.service.executeDatabaseOperation(bare, databaseRequest()),
-    ).rejects.toThrow("ten_ prefixed UUIDv7");
     await expect(target.service.calculate(bare, "1 + 1")).rejects.toThrow(
       "ten_ prefixed UUIDv7",
     );

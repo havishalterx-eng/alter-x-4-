@@ -7,6 +7,8 @@ import {
   AuditServiceClient,
   AwsAppConfigConfigProvider,
   AwsSecretsManagerProvider,
+  PostgresToolDatabaseProvider,
+  SqsQueueProvider,
   SsrfGuardedFetcher,
   TavilySearchProvider,
   startToolgwGrpcTransport,
@@ -14,10 +16,12 @@ import {
 import {
   createMockAuditEventHandler,
   createMockConfigProvider,
+  createMockQueueProvider,
   createMockSearchProvider,
   createMockSecretsProvider,
   type AuditEventHandler,
   type ConfigProvider,
+  type QueueProvider,
   type SearchProvider,
   type SecretsProvider,
 } from "@alterx/shared-clients";
@@ -81,6 +85,17 @@ function createAuditClient(
   });
 }
 
+function createQueueProvider(environment: ToolGatewayEnvironment): QueueProvider {
+  return environment.configSource === "mock"
+    ? createMockQueueProvider()
+    : new SqsQueueProvider({
+        region: environment.region,
+        ...(process.env.AWS_ENDPOINT_URL
+          ? { endpoint: process.env.AWS_ENDPOINT_URL, useQueueUrlAsEndpoint: false }
+          : {}),
+      });
+}
+
 async function bootstrap(): Promise<void> {
   const environment = loadToolGatewayEnvironment(process.env);
   const configProvider = createConfigProvider(environment);
@@ -88,6 +103,8 @@ async function bootstrap(): Promise<void> {
   const searchProvider = await createSearchProvider(environment, secretsProvider);
   const urlFetcher = new SsrfGuardedFetcher();
   const auditClient = createAuditClient(environment);
+  const databaseProvider = new PostgresToolDatabaseProvider(secretsProvider);
+  const costQueue = createQueueProvider(environment);
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule.register(
@@ -96,6 +113,9 @@ async function bootstrap(): Promise<void> {
       searchProvider,
       urlFetcher,
       auditClient,
+      databaseProvider,
+      costQueue,
+      `alter-${environment.alterEnvironment}-cost-events`,
     ),
     new FastifyAdapter(),
   );

@@ -3,13 +3,30 @@ import "reflect-metadata";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { NestFactory } from "@nestjs/core";
 
-import { SsrfGuardedFetcher, startToolgwGrpcTransport } from "@alterx/adapters";
+import {
+  SsrfGuardedFetcher,
+  startToolgwGrpcTransport,
+  type DatabaseOperationProvider,
+} from "@alterx/adapters";
 import {
   createMockAuditEventHandler,
   createMockConfigProvider,
+  createMockQueueProvider,
   createMockSearchProvider,
   createMockSecretsProvider,
 } from "@alterx/shared-clients";
+
+// Eval-only entrypoint never dispatches database.* tool calls -- a fake
+// that fails loudly if it's ever somehow invoked is more honest here than
+// a working mock nobody exercises.
+const unexercisedDatabaseProvider: DatabaseOperationProvider = {
+  providerId: "eval-credential-server-unexercised",
+  execute: () => {
+    throw new Error(
+      "eval_credential_grpc_server does not exercise database.* tool dispatch",
+    );
+  },
+};
 
 import { AppModule } from "./app.module";
 import { TOOLGW_PROTO_PATH } from "./gateway/grpc.constants";
@@ -64,9 +81,19 @@ async function bootstrap(): Promise<void> {
   const searchProvider = createMockSearchProvider();
   const urlFetcher = new SsrfGuardedFetcher();
   const auditClient = createMockAuditEventHandler();
+  const costQueue = createMockQueueProvider();
 
   const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule.register(configProvider, secretsProvider, searchProvider, urlFetcher, auditClient),
+    AppModule.register(
+      configProvider,
+      secretsProvider,
+      searchProvider,
+      urlFetcher,
+      auditClient,
+      unexercisedDatabaseProvider,
+      costQueue,
+      "eval-credential-server-cost-events",
+    ),
     new FastifyAdapter(),
   );
   await startToolgwGrpcTransport(app, {

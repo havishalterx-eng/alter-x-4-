@@ -3,10 +3,18 @@ import { Test } from "@nestjs/testing";
 import {
   createMockAuditEventHandler,
   createMockConfigProvider,
+  createMockQueueProvider,
   createMockSearchProvider,
   createMockSecretsProvider,
 } from "@alterx/shared-clients";
-import { SsrfGuardedFetcher } from "@alterx/adapters";
+import { SsrfGuardedFetcher, type DatabaseOperationProvider } from "@alterx/adapters";
+
+const unexercisedDatabaseProvider: DatabaseOperationProvider = {
+  providerId: "health-spec-unexercised",
+  execute: () => {
+    throw new Error("health.controller.spec.ts does not exercise database.* tool dispatch");
+  },
+};
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 
@@ -35,6 +43,9 @@ describe("GET /health", () => {
             }),
           ),
           createMockAuditEventHandler(),
+          unexercisedDatabaseProvider,
+          createMockQueueProvider(),
+          "health-spec-cost-events",
         ),
       ],
     }).compile();

@@ -14,7 +14,6 @@ import {
   BrowserbasePlaywrightProvider,
   E2bSandboxProvider,
   MockBrowserAutomationProvider,
-  PostgresToolDatabaseProvider,
   SqsQueueProvider,
   SsrfGuardedFetcher,
   startSandboxGrpcTransport,
@@ -62,13 +61,7 @@ function createConfigProvider(
   environment: SandboxEnvironment,
 ): ConfigProvider {
   if (environment.localMock) {
-    return createMockConfigProvider({
-      toolPermission: {
-        allowed: true,
-        rateLimitPerMinute: 60,
-        requiredScopes: ["database:*"],
-      },
-    });
+    return createMockConfigProvider();
   }
   return new AwsAppConfigConfigProvider({
     region: environment.region,
@@ -130,7 +123,6 @@ async function bootstrap(): Promise<void> {
   );
   const config = createConfigProvider(environment);
   const costQueue = createQueueProvider(environment);
-  const database = new PostgresToolDatabaseProvider(secrets);
   const artifacts = new ArtifactContentClient({
     address: environment.artifactContentServiceAddress,
     protoPath: ARTIFACT_CONTENT_PROTO_PATH,
@@ -140,8 +132,6 @@ async function bootstrap(): Promise<void> {
     AppModule.register(sandbox, artifacts, {
       browser,
       config,
-      database,
-      urlFetcher,
       costQueue,
       costEventsQueueName: `alter-${environment.alterEnvironment}-cost-events`,
     }),

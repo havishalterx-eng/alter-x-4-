@@ -15,15 +15,21 @@ import {
   ToolGatewayPermissionError,
   ToolGatewayRateLimitError,
   ToolGatewayValidationError,
+  type DatabaseOperationProvider,
+  type DatabaseOperationResult,
   type ToolgwHandler,
 } from "@alterx/adapters";
 import type {
   AuditEventHandler,
   ConfigProvider,
+  JsonValue,
+  QueueProvider,
   SearchProvider,
   SecretsProvider,
   ToolPermissionBinding,
 } from "@alterx/shared-clients";
+
+import { createCostEventId } from "./cost-event-id";
 
 interface CredentialRecord {
   readonly secretValue: string;
@@ -50,6 +56,13 @@ export interface ToolGatewayServiceOptions {
   readonly now?: () => Date;
   readonly mintCredentialToken?: () => string;
   readonly mintId?: () => string;
+  readonly mintCostEventId?: () => string;
+}
+
+interface CostUsage {
+  readonly provider: string;
+  readonly resourceType: string;
+  readonly units: number;
 }
 
 const DEFAULT_CREDENTIAL_TOKEN_TTL_MS = 5 * 60 * 1000;
@@ -59,6 +72,14 @@ const DEFAULT_MAX_ARTIFACTS = 1_000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const OPAQUE_CREDENTIAL_TOKEN_PREFIX = "cred_";
 const SEARCH_WEB_TOOL_NAME = "search.web";
+// ENGINE-RESTRUCTURE-P4-1: database.* moved here from sandbox-service's
+// SandboxService.executeDatabaseOperation -- same real, tested logic
+// (permission check, tenant/database credential-ownership check, bounded
+// output), just relocated to the component the architecture doc says
+// owns it. Never had a real caller in its old home either (grepped the
+// whole repo before moving it) -- this is a relocation, not a rewire.
+const DATABASE_OPERATIONS = new Set(["select", "insert", "update", "delete"]);
+const MAX_TOOL_OUTPUT_BYTES = 1_048_576;
 
 export class ToolGatewayService implements ToolgwHandler {
   readonly #credentialTokens = new Map<string, CredentialRecord>();
@@ -71,6 +92,7 @@ export class ToolGatewayService implements ToolgwHandler {
   readonly #now: () => Date;
   readonly #mintCredentialToken: () => string;
   readonly #mintId: () => string;
+  readonly #mintCostEventId: () => string;
 
   constructor(
     private readonly configProvider: ConfigProvider,
@@ -78,6 +100,9 @@ export class ToolGatewayService implements ToolgwHandler {
     private readonly searchProvider: SearchProvider,
     private readonly urlFetcher: SsrfGuardedFetcher,
     private readonly auditClient: AuditEventHandler,
+    private readonly databaseProvider: DatabaseOperationProvider,
+    private readonly costQueue: QueueProvider,
+    private readonly costEventsQueueName: string,
     options: ToolGatewayServiceOptions = {},
   ) {
     this.#credentialTokenTtlMs =
@@ -90,6 +115,7 @@ export class ToolGatewayService implements ToolgwHandler {
     this.#mintCredentialToken =
       options.mintCredentialToken ?? (() => `cred_${randomUUID()}`);
     this.#mintId = options.mintId ?? uuidV7;
+    this.#mintCostEventId = options.mintCostEventId ?? createCostEventId;
   }
 
   async invokeTool(
@@ -124,8 +150,21 @@ export class ToolGatewayService implements ToolgwHandler {
         return response;
       }
 
+      if (isDatabaseToolName(request.tool_name)) {
+        const input = parseDatabaseOperationInput(request.input_json);
+        try {
+          enforceDatabaseScope(binding, input.databaseId);
+        } catch (error: unknown) {
+          await this.#auditToolInvocation(request, "denied");
+          throw error;
+        }
+        const response = await this.#dispatchDatabaseOperation(request, input);
+        await this.#auditToolInvocation(request, "success");
+        return response;
+      }
+
       throw new ToolGatewayNotImplementedError(
-        `Tool ${request.tool_name} has no real dispatch yet; only ${SEARCH_WEB_TOOL_NAME} is wired`,
+        `Tool ${request.tool_name} has no real dispatch yet; only ${SEARCH_WEB_TOOL_NAME} and database.* are wired`,
       );
     } catch (error: unknown) {
       if (error instanceof ToolGatewayNotImplementedError) {
@@ -155,6 +194,92 @@ export class ToolGatewayService implements ToolgwHandler {
       output_json: JSON.stringify(result),
       audit_id: `aud_${this.#mintId()}`,
     };
+  }
+
+  async #dispatchDatabaseOperation(
+    request: ToolgwInvokeToolRequest,
+    input: DatabaseOperationInput,
+  ): Promise<ToolgwInvokeToolResponse> {
+    const operation = databaseOperationFromToolName(request.tool_name);
+    assertDatabaseCredentialOwnedBy(
+      request.credential_ref,
+      request.tenant_id,
+      input.databaseId,
+    );
+    const result = await this.#costed(
+      request,
+      {
+        provider: this.databaseProvider.providerId,
+        resourceType: `tool_gateway.database.${operation}`,
+        units: 1,
+      },
+      async (): Promise<DatabaseOperationResult> => {
+        const executed = await this.databaseProvider.execute({
+          credentialReference: request.credential_ref,
+          databaseId: input.databaseId,
+          operation,
+          statement: input.statement,
+          parameters: input.parameters,
+        });
+        const outputJson = JSON.stringify(executed);
+        if (Buffer.byteLength(outputJson, "utf8") > MAX_TOOL_OUTPUT_BYTES) {
+          throw new ToolGatewayValidationError(
+            "Database operation output exceeds the tool-gateway output limit",
+          );
+        }
+        return executed;
+      },
+    );
+    return {
+      output_json: JSON.stringify(result),
+      audit_id: `aud_${this.#mintId()}`,
+    };
+  }
+
+  async #costed<T>(
+    request: ToolgwInvokeToolRequest,
+    usage: CostUsage,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      const result = await operation();
+      await this.#emitCostEventBestEffort(request, usage, "success");
+      return result;
+    } catch (error: unknown) {
+      await this.#emitCostEventBestEffort(request, usage, "error");
+      throw error;
+    }
+  }
+
+  async #emitCostEventBestEffort(
+    request: ToolgwInvokeToolRequest,
+    usage: CostUsage,
+    outcome: "success" | "error",
+  ): Promise<void> {
+    const event = {
+      tenant_id: request.tenant_id,
+      cost_event_id: this.#mintCostEventId(),
+      run_id: request.run_id,
+      node_execution_id: request.node_execution_id,
+      provider_reference: usage.provider,
+      usage_json: JSON.stringify({
+        resource_type: usage.resourceType,
+        provider: usage.provider,
+        units: usage.units,
+        outcome,
+      }),
+      amount_json: JSON.stringify({ usd: 0, estimated: true }),
+      // Real cost_events.source CHECK constraint value for this service
+      // (matches "model_gateway"/"sandbox"/"storage"/"browser" siblings).
+      source: "tool_gateway",
+      occurred_at: this.#now().toISOString(),
+    } satisfies Readonly<Record<string, JsonValue>>;
+    try {
+      await this.costQueue.publish(this.costEventsQueueName, event);
+    } catch {
+      // Match Sandbox/Model Gateway telemetry pattern: queue outage cannot
+      // turn an otherwise valid tool result into an execution failure.
+    }
   }
 
   async #auditToolInvocation(
@@ -530,6 +655,114 @@ function parseSearchWebInput(inputJson: string): SearchWebInput {
       ? {}
       : { maxResults: record.maxResults }),
   };
+}
+
+// ENGINE-RESTRUCTURE-P4-1: ported verbatim from SandboxService's own
+// inline scope check inside executeDatabaseOperation -- ensureAllowed()
+// above only confirms the tenant may use database.* tools AT ALL; this is
+// a stricter, per-database check on top (a tenant permitted for database X
+// is not automatically permitted for database Y just because both share
+// the same tool_name family). Real, load-bearing: sandbox.service.spec.ts
+// had a dedicated test proving a requiredScopes mismatch denies a request
+// tool_name-level ensureAllowed() would otherwise pass.
+function enforceDatabaseScope(
+  binding: ToolPermissionBinding,
+  databaseId: string,
+): void {
+  const databaseScope = `database:${databaseId}`;
+  if (
+    !binding.requiredScopes.includes(databaseScope) &&
+    !binding.requiredScopes.includes("database:*")
+  ) {
+    throw new ToolGatewayPermissionError(
+      `Database operation is not permitted for database "${databaseId}"`,
+    );
+  }
+}
+
+function isDatabaseToolName(toolName: string): boolean {
+  const operation = toolName.startsWith("database.")
+    ? toolName.slice("database.".length)
+    : undefined;
+  return operation !== undefined && DATABASE_OPERATIONS.has(operation);
+}
+
+function databaseOperationFromToolName(
+  toolName: string,
+): "select" | "insert" | "update" | "delete" {
+  const operation = toolName.slice("database.".length);
+  if (!DATABASE_OPERATIONS.has(operation)) {
+    throw new ToolGatewayValidationError(
+      `Database tool name "${toolName}" does not name a supported operation`,
+    );
+  }
+  return operation as "select" | "insert" | "update" | "delete";
+}
+
+interface DatabaseOperationInput {
+  readonly databaseId: string;
+  readonly statement: string;
+  readonly parameters: readonly JsonValue[];
+}
+
+function parseDatabaseOperationInput(inputJson: string): DatabaseOperationInput {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(inputJson);
+  } catch {
+    throw new ToolGatewayValidationError("input_json must be valid JSON");
+  }
+  const record = parsed as {
+    readonly databaseId?: unknown;
+    readonly statement?: unknown;
+    readonly parameters?: unknown;
+  };
+  if (typeof record.databaseId !== "string" || record.databaseId.trim().length === 0) {
+    throw new ToolGatewayValidationError(
+      "database.* input_json must include a non-empty databaseId string",
+    );
+  }
+  if (typeof record.statement !== "string" || record.statement.trim().length === 0) {
+    throw new ToolGatewayValidationError(
+      "database.* input_json must include a non-empty statement string",
+    );
+  }
+  if (record.parameters !== undefined && !Array.isArray(record.parameters)) {
+    throw new ToolGatewayValidationError(
+      "database.* input_json parameters, if present, must be an array",
+    );
+  }
+  return {
+    databaseId: record.databaseId,
+    statement: record.statement,
+    parameters: (record.parameters ?? []) as readonly JsonValue[],
+  };
+}
+
+// ENGINE-RESTRUCTURE-P4-1: ported verbatim from SandboxService's own
+// #assertDatabaseCredentialOwnedBy -- stricter than the generic
+// assertCredentialReferenceOwnedBy below (which only confirms the
+// credential belongs to SOME integration owned by this tenant): this also
+// confirms the credential's own integration segment names the EXACT
+// databaseId being operated on, not just any integration this tenant owns.
+function assertDatabaseCredentialOwnedBy(
+  reference: string,
+  tenantId: string,
+  databaseId: string,
+): void {
+  const segments = reference.split("/").filter(Boolean);
+  if (
+    segments.length < 7 ||
+    segments[0] !== "alter" ||
+    segments[2] !== "tenant" ||
+    segments[3] !== tenantId ||
+    segments[4] !== "integration" ||
+    segments[5] !== databaseId
+  ) {
+    throw new ToolGatewayValidationError(
+      "credential_ref is not owned by this tenant/database",
+    );
+  }
 }
 
 function assertCredentialReferenceOwnedBy(
