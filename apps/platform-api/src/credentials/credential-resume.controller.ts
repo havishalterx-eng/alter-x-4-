@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Headers,
   HttpCode,
+  Logger,
   Param,
   Post,
   UseFilters,
@@ -22,6 +24,8 @@ import { CredentialHttpError } from "./problem";
 @Controller("/api/v1/runs/:runId/nodes/:nodeExecutionId/credentials")
 @UseFilters(CredentialExceptionFilter)
 export class CredentialResumeController {
+  private readonly logger = new Logger(CredentialResumeController.name);
+
   constructor(
     private readonly credentials: CredentialService,
     private readonly engineClient: EngineClient,
@@ -36,21 +40,34 @@ export class CredentialResumeController {
     @Param("nodeExecutionId") nodeExecutionId: string,
     @Body() body: unknown,
     @ActorContext() actor: ActorContextType,
+    @Headers("traceparent") traceparent: string | undefined,
   ): Promise<CredentialView> {
     const instance = `/api/v1/runs/${runId}/nodes/${nodeExecutionId}/credentials`;
+    const resumeName = `resume-${nodeExecutionId}`;
 
-    // 1. Validate the incoming body against CreateCredential logic but with a specific name.
-    const rawBody = body as Record<string, unknown>;
-    const createBody = {
-      ...rawBody,
-      name: `resume-${nodeExecutionId}`, // Auto-generated name for resumed credentials
-    };
-    const parsed = parseCreateCredential(createBody, instance);
+    // A retry-signal failure below leaves a real, already-created
+    // credential with no compensating delete (there is nothing wrong with
+    // the credential itself -- only the signal failed) and no way to
+    // report that back to a client that then retries this endpoint with a
+    // fresh idempotency key. Without this check, every such retry created
+    // another credential named identically, accumulating orphaned secrets
+    // in the vault forever. Reuse the one already created for this node
+    // instead of creating a duplicate.
+    const existing = (await this.credentials.list(actor.tenant_id)).find(
+      (credential) => credential.name === resumeName,
+    );
 
-    // 2. Store the credential via the exact real path.
-    const credential = await this.credentials.create(actor.tenant_id, parsed);
+    let credential: CredentialView;
+    if (existing) {
+      credential = existing;
+    } else {
+      const rawBody = body as Record<string, unknown>;
+      const createBody = { ...rawBody, name: resumeName };
+      const parsed = parseCreateCredential(createBody, instance);
+      credential = await this.credentials.create(actor.tenant_id, parsed);
+    }
 
-    // 3. Signal the real running Temporal workflow with nodeRetryDecidedSignal.
+    // Real running Temporal workflow signal.
     try {
       await this.engineClient.post(
         `/api/v1/runs/${runId}/actions/retry-signal`,
@@ -63,14 +80,19 @@ export class CredentialResumeController {
           authTime: actor.auth_time ?? 0,
           roles: actor.roles,
           permissions: actor.permissions,
-          traceparent: "",
+          traceparent: traceparent ?? "",
         },
         { idempotencyKey: `retry-signal-${nodeExecutionId}` }
       );
     } catch (error: unknown) {
-      // If signalling fails, the credential was still created, but the workflow isn't resumed.
-      // We throw a 502 Bad Gateway to indicate the downstream signal failed.
-      console.error("ORCHESTRATION ERROR", error);
+      // If signalling fails, the credential was still created (or reused
+      // above), but the workflow isn't resumed. 502 tells the caller the
+      // downstream signal failed; a retry now reuses the same credential
+      // rather than creating another one.
+      this.logger.error(
+        `Failed to signal orchestration retry for run ${runId} node ${nodeExecutionId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
       throw new CredentialHttpError(
         502,
         "ORCHESTRATION_SIGNAL_FAILED",

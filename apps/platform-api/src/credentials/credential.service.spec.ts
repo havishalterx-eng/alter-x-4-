@@ -169,6 +169,19 @@ describe("CredentialService", () => {
       service.update(tenantId, created.id, { name: "raced" }),
     ).rejects.toMatchObject({ status: 404 });
 
+    // F2 (Phase 5): a failed metadata write after the provider secret has
+    // already been overwritten must restore the prior value -- otherwise
+    // the provider is left holding a secret the DB has no record of, with
+    // no compensation at all (putSecret overwrites in place; there is no
+    // separate old/new slot the way create()'s delete-on-failure has).
+    const reference = secretReference(tenantId, created.id);
+    const priorValue = values.get(reference);
+    vi.mocked(repository.update).mockResolvedValueOnce(undefined);
+    await expect(
+      service.update(tenantId, created.id, { value: "attempted-rotation" }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(values.get(reference)).toBe(priorValue);
+
     vi.mocked(provider.putSecret).mockRejectedValueOnce(new Error(secret));
     await expect(
       service.update(tenantId, created.id, { value: "new-secret" }),

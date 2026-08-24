@@ -95,9 +95,20 @@ export class CredentialService {
       targetRef: id,
     });
 
+    const reference = secretReference(tenantId, id);
+    // putSecret overwrites in place -- unlike create()'s fresh reference,
+    // there is no separate old/new slot to roll back between. The old
+    // value must be read out *before* the overwrite so it can be restored
+    // if the DB write below fails; without this, a failed update silently
+    // leaves the new secret live with the DB still describing the old one
+    // (or, on total DB failure, an unrecoverable overwrite with nothing to
+    // compensate at all).
+    const priorValue =
+      input.value === undefined ? undefined : await this.secrets.getSecret(reference);
+
     try {
       if (input.value !== undefined) {
-        await this.secrets.putSecret(secretReference(tenantId, id), input.value);
+        await this.secrets.putSecret(reference, input.value);
       }
       const updated = await this.repository.update(
         tenantId,
@@ -114,6 +125,9 @@ export class CredentialService {
       if (!updated) throw notFound(instance);
       return project(updated);
     } catch (error) {
+      if (priorValue !== undefined) {
+        await bestEffortRestore(this.secrets, reference, priorValue);
+      }
       if (error instanceof CredentialHttpError) throw error;
       throw providerFailure(error, instance);
     }
@@ -222,5 +236,21 @@ async function bestEffortDelete(
     await provider.deleteSecret(reference);
   } catch {
     // Preserve the original provider or metadata-store failure.
+  }
+}
+
+async function bestEffortRestore(
+  provider: MutableSecretsProvider,
+  reference: string,
+  priorValue: string,
+): Promise<void> {
+  try {
+    await provider.putSecret(reference, priorValue);
+  } catch {
+    // Preserve the original provider or metadata-store failure. The
+    // secret is left holding the new value with no matching DB update --
+    // a real gap, but a narrower one than an unconditional silent
+    // overwrite, and one that already surfaces as a provider error
+    // rather than nothing at all.
   }
 }

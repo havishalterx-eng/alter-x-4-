@@ -25,7 +25,10 @@ const STORE = "orchestration-service";
 // verifyDeletion certified erasure complete while their rows survived.
 // Adding a new tenant-scoped table without adding it here reintroduces that
 // gap; there is currently no schema-derived check that would catch it.
-const TABLES = [
+// Exported only so deletion.integration.spec.ts can assert this exact,
+// real, production array against a live schema -- not a hand-copied
+// duplicate of it that could itself silently drift from this one.
+export const TABLES = [
   "trigger_webhook_secrets",
   "workflow_template_variable_values", "workflow_template_variable_definitions",
   "workflows", "workflow_versions", "triggers", "trigger_versions", "clarifications", "conversations",
@@ -51,7 +54,8 @@ const TABLES = [
 // CREATE TABLE / ALTER TABLE ... REFERENCES statements in that folder and
 // run Kahn's algorithm over the 29 TABLES nodes; child must precede parent
 // for every edge.
-const DELETE_ORDER = [
+// Exported for the same reason as TABLES above.
+export const DELETE_ORDER = [
   "approvals", "blackboard_checkpoints", "clarifications", "conversation_goal_states",
   "deployments", "artifacts", "escalations", "project_plans", "recovery_actions",
   "run_dispatch_queue", "run_outcomes", "run_stream_events", "trigger_integration_bindings",

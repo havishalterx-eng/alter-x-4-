@@ -5,7 +5,7 @@ import { PostgresOrchestrationStoreProvider } from "@alterx/adapters";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { OrchestrationDeletionService } from "./deletion.service";
+import { DELETE_ORDER, OrchestrationDeletionService, TABLES } from "./deletion.service";
 
 const migrationsFolder = resolve(process.cwd(), "apps/orchestration-service/drizzle");
 const TENANT_A = "018f4d6e-2b4a-7a3e-8c1a-1234567890a1";
@@ -56,6 +56,38 @@ describe.sequential("OrchestrationDeletionService real Postgres", () => {
     await adminStore?.close();
     await postgres?.stop();
   }, 60_000);
+
+  // F4 (Phase 5): the fix for ENGINE-FIX-P0-2 filled in the ten tables
+  // TABLES/DELETE_ORDER were missing, but left them hand-maintained with
+  // no schema-derived check -- the exact drift risk that caused the
+  // original gap could reopen the moment a future migration adds another
+  // tenant-scoped table and nobody remembers to update these two arrays.
+  // This test closes that: it asks the real, live schema which tables
+  // actually carry a tenant_id column and asserts TABLES/DELETE_ORDER
+  // cover exactly that set -- not a hand-copied duplicate of either array,
+  // the real production exports imported above. A migration that adds a
+  // tenant-scoped table without updating both arrays now fails CI here
+  // instead of silently reintroducing a false "erasure complete".
+  it("TABLES and DELETE_ORDER cover every real tenant-scoped table, no more and no less", async () => {
+    const result = await adminStore.withTenant(TENANT_A, async (tx) =>
+      tx.query<{ table_name: string }>(
+        `SELECT DISTINCT c.table_name
+           FROM information_schema.columns c
+           JOIN information_schema.tables t
+             ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+          WHERE c.table_schema = 'public'
+            AND c.column_name = 'tenant_id'
+            AND t.table_type = 'BASE TABLE'`,
+      ),
+    );
+    const realTenantTables = new Set(result.rows.map((row) => row.table_name));
+
+    expect(new Set(TABLES)).toEqual(realTenantTables);
+    expect(new Set(DELETE_ORDER)).toEqual(realTenantTables);
+    // DELETE_ORDER must be a real permutation, not just the same set with a
+    // duplicate standing in for a missing entry.
+    expect(DELETE_ORDER).toHaveLength(new Set(DELETE_ORDER).size);
+  });
 
   it("deletes all 29 tenant tables while preserving a second tenant", async () => {
     await seedAll(adminStore, TENANT_A, "a");
