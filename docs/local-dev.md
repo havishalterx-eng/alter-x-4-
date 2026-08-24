@@ -22,7 +22,7 @@ shell-safe value. Never commit `.env.local`.
 
 ```bash
 docker compose --env-file .env.local up -d --build --wait \
-  engine-db ads-db redis localstack temporal otel
+  engine-db ads-db cost-db redis localstack temporal otel
 docker compose --env-file .env.local ps
 ```
 
@@ -86,6 +86,27 @@ docker compose --env-file .env.local exec -T engine-db sh -c \
   'PGPASSWORD="$AUDIT_DB_PASSWORD" psql -U audit_service -d audit_db -Atc \
   "SELECT current_user, to_regclass('"'"'public.audit_events'"'"');"'
 # audit_service|audit_events
+```
+
+## Run cost-ledger-service migrations
+
+cost-ledger-service owns its own `cost-db` cluster, started above. Its first
+migration creates the `cost_ledger_provisioner` role with `BYPASSRLS`, which
+needs superuser or `CREATEROLE` -- `cost-db`'s `POSTGRES_USER` is that
+superuser via the official image's initdb, same as `platform-db`/`ads-db`/
+`engine-db`. Apply and verify migrations directly (full `serve` boot also
+needs a LocalStack `database_credentials` secret for `cost-ledger-service`,
+not yet seeded here -- future work, same as audit-service's app-level
+observability wiring above):
+
+```bash
+docker compose --env-file .env.local exec -T cost-db sh -c \
+  'PGPASSWORD="$COST_DB_PASSWORD" psql -U cost_ledger_service -d cost_db \
+  -v ON_ERROR_STOP=1 -f - ' < apps/cost-ledger-service/drizzle/0001_create_billing_rollups.sql
+docker compose --env-file .env.local exec -T cost-db sh -c \
+  'PGPASSWORD="$COST_DB_PASSWORD" psql -U cost_ledger_service -d cost_db -Atc \
+  "SELECT rolname FROM pg_roles WHERE rolname = '"'"'cost_ledger_provisioner'"'"';"'
+# cost_ledger_provisioner
 ```
 
 ## Provider choices

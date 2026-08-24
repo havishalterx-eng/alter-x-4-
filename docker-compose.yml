@@ -60,6 +60,32 @@ services:
       - ads_db_data:/var/lib/postgresql/data
       - ./infrastructure/local/ads-db-init.sh:/docker-entrypoint-initdb.d/10-ads-roles.sh:ro
 
+  # ENGINE-FIX-PHASE2-N5: cost-ledger-service's own cluster. Its first
+  # migration (0001_create_billing_rollups.sql) does `CREATE ROLE
+  # cost_ledger_provisioner BYPASSRLS`, which needs superuser/CREATEROLE --
+  # nothing previously gave cost-ledger a Postgres instance to run against
+  # locally at all (CI/tests are unaffected: they bootstrap their own
+  # Testcontainers superuser). POSTGRES_USER here becomes that superuser via
+  # the official image's initdb, same as platform-db/ads-db/engine-db.
+  # POSTGRES_USER is literally "cost_ledger_service" because the migration's
+  # own GRANT cost_ledger_provisioner TO cost_ledger_service expects that
+  # role to already exist as the connecting user.
+  cost-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: cost_db
+      POSTGRES_USER: cost_ledger_service
+      POSTGRES_PASSWORD: ${COST_DB_PASSWORD:?Set COST_DB_PASSWORD in .env.local}
+    ports:
+      - "127.0.0.1:5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cost_ledger_service -d cost_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - cost_db_data:/var/lib/postgresql/data
+
   redis:
     image: redis:7.4.2-alpine
     command: ["redis-server", "--appendonly", "yes"]
@@ -208,5 +234,6 @@ volumes:
   platform_db_data:
   engine_db_data:
   ads_db_data:
+  cost_db_data:
   redis_data:
   tempo_data:
