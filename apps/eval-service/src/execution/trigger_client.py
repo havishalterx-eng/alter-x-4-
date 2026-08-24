@@ -1,4 +1,4 @@
-"""Real client for HARD-7j (`workflow` golden-set domain, register_trigger
+﻿"""Real client for HARD-7j (`workflow` golden-set domain, register_trigger
 operation only).
 
 Target is apps/orchestration-service/src/eval_trigger_registry_http_server.ts,
@@ -23,6 +23,8 @@ from dataclasses import dataclass
 import httpx
 import psycopg2
 
+from src.execution.internal_auth import internal_service_auth_headers
+
 
 @dataclass(frozen=True)
 class RegisterTriggerResult:
@@ -31,7 +33,9 @@ class RegisterTriggerResult:
 
 class TriggerRegistryClient(httpx.Client):
     def __init__(self, base_url: str, db_url: str, timeout_seconds: float = 30.0) -> None:
-        super().__init__(base_url=base_url, timeout=timeout_seconds)
+        super().__init__(
+            base_url=base_url, timeout=timeout_seconds, headers=internal_service_auth_headers(),
+        )
         self._db_url = db_url
 
     def _seed_workflow(self, *, tenant_uuid: str, workflow_id: str) -> None:

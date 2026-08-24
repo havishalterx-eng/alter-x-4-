@@ -35,6 +35,7 @@ from src.execution.verification_severity_client import VerificationSeverityEvalC
 from src.execution.workflow_client import WorkflowEvalClient
 from src.promotion_gate import PromotionGateRecorder
 from src.release_gates import ReleaseGateRecorder
+from src.service_auth import ServiceAuthInterceptor, assert_configured_at_startup
 
 
 class Closable(Protocol):
@@ -186,8 +187,10 @@ def _build_service(settings: Settings) -> tuple[EvalGrpcService, Engine, tuple[C
 
 async def serve() -> None:
     settings = get_settings()
+    assert_configured_at_startup()
     service, engine, clients = _build_service(settings)
-    server = grpc.aio.server()
+    # ENGINE-FIX-P5-SEC-1: every RPC requires the internal service credential.
+    server = grpc.aio.server(interceptors=[ServiceAuthInterceptor()])
     eval_pb2_grpc.add_EvalServiceServicer_to_server(service, server)  # type: ignore[no-untyped-call]
     server.add_insecure_port(settings.grpc_bind_address)
     await server.start()

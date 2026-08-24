@@ -15,10 +15,12 @@ from .problem_understanding.router import problem_understanding_lifespan
 from .problem_understanding.router import router as problem_understanding_router
 from .selection_binding.router import router as selection_binding_router
 from .selection_binding.router import selection_binding_lifespan
+from .service_auth import assert_configured_at_startup, fastapi_dependency
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    assert_configured_at_startup()
     capability_server = await start_capability_server(
         get_settings().capability_grpc_bind_address
     )
@@ -32,7 +34,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await capability_server.stop(0)
 
 
-app = FastAPI(lifespan=lifespan)
+# ENGINE-FIX-P5-SEC-1: application-level internal-service auth. /health is the
+# only exempt route; every router below (and any future one) is covered by
+# construction, not by per-router discipline.
+app = FastAPI(
+    lifespan=lifespan,
+    dependencies=[fastapi_dependency(frozenset({"/health"}))],
+)
 
 app.include_router(planner_router)
 app.include_router(problem_understanding_router)
@@ -42,6 +50,6 @@ app.include_router(capability_registry_router)
 app.include_router(architecture_synthesizer_router)
 
 
-@app.get("/health")
+@app.get("/health", dependencies=[])
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "intelligence-service"}

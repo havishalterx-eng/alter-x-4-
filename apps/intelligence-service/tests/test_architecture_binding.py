@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -95,5 +95,5 @@ def test_zero_score_weights_are_rejected_at_route_boundary() -> None:
     app.include_router(router)
     payload = request().model_dump(mode="json")
     payload["policy"] = {"reliability_weight": 0, "latency_weight": 0, "cost_weight": 0}
-    response = TestClient(app).post("/selection-binding/bind-architecture", json=payload)
+    response = TestClient(app, headers={"authorization": "Bearer integration-token"}).post("/selection-binding/bind-architecture", json=payload)
     assert response.status_code == 422

@@ -1,4 +1,4 @@
-import { status } from "@grpc/grpc-js";
+﻿import { status } from "@grpc/grpc-js";
 import { describe, expect, it, vi } from "vitest";
 
 import { EvalServiceClient, EvalServiceClientError } from "./eval-client";
@@ -67,5 +67,23 @@ describe("EvalServiceClient", () => {
     );
     await expect(client.checkReleaseGate({ release_gate_key: "engine", evaluation_run_id: "evr_1" }))
       .rejects.toMatchObject({ code: "upstream" } satisfies Partial<EvalServiceClientError>);
+  });
+
+  // ENGINE-FIX-P5-SEC-1: eval-service's gRPC interceptor requires the
+  // internal service credential on every RPC.
+  it("sends the configured internal service credential as authorization metadata", async () => {
+    const grpc = {
+      runEvaluation: vi.fn((_request, _options, callback) =>
+        callback(null, { evaluation_run_id: "evr_1", status: "completed", results_json: "{}" }),
+      ),
+    };
+    const client = new EvalServiceClient(
+      { address: "localhost:50062", protoPath: "unused", authorization: "Bearer service-token" },
+      grpc as never,
+    );
+
+    await client.runEvaluation({ golden_set_name: "planner" });
+    const options = (grpc.runEvaluation as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(options.metadata.get("authorization")).toEqual(["Bearer service-token"]);
   });
 });

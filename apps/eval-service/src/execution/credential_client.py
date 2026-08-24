@@ -1,4 +1,4 @@
-"""Real client for tenant-isolation's platform_credential_get/delete cases
+﻿"""Real client for tenant-isolation's platform_credential_get/delete cases
 (follow-up to HARD-7g).
 
 Target is apps/platform-api/src/eval_credential_http_server.ts, a real,
@@ -18,6 +18,8 @@ from dataclasses import dataclass
 import httpx
 import psycopg2
 
+from src.execution.internal_auth import internal_service_auth_headers
+
 
 @dataclass(frozen=True)
 class CredentialLookupResult:
@@ -26,7 +28,9 @@ class CredentialLookupResult:
 
 class CredentialEvalClient(httpx.Client):
     def __init__(self, base_url: str, db_url: str, timeout_seconds: float = 30.0) -> None:
-        super().__init__(base_url=base_url, timeout=timeout_seconds)
+        super().__init__(
+            base_url=base_url, timeout=timeout_seconds, headers=internal_service_auth_headers(),
+        )
         self._db_url = db_url
 
     def seed_cross_tenant_credential(self, *, other_tenant_uuid: str) -> str:

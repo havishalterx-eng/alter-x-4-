@@ -6,11 +6,13 @@ import grpc
 
 from alter.capability.v1 import capability_pb2_grpc
 
+from ..service_auth import ServiceAuthInterceptor
 from .grpc_service import CapabilityGrpcService
 
 
 async def start_capability_server(bind_address: str) -> grpc.aio.Server:
-    server = grpc.aio.server()
+    # ENGINE-FIX-P5-SEC-1: every RPC requires the internal service credential.
+    server = grpc.aio.server(interceptors=[ServiceAuthInterceptor()])
     capability_pb2_grpc.add_CapabilityServiceServicer_to_server(  # type: ignore[no-untyped-call]
         CapabilityGrpcService(), server
     )

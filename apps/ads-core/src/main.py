@@ -32,7 +32,7 @@ app = FastAPI(
     dependencies=[
         fastapi_dependency(
             frozenset({"/health"}),
-            exempt_path_prefixes=("/internal/deletion/",),
+            exempt_path_prefixes=frozenset({"/internal/deletion/"}),
         )
     ],
 )

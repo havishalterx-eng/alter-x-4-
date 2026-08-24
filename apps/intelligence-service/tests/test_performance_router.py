@@ -1,4 +1,4 @@
-"""Real-Postgres coverage for the performance_records writer.
+﻿"""Real-Postgres coverage for the performance_records writer.
 
 Until this endpoint existed, performance_records had zero real writers
 anywhere in the monorepo -- everything downstream (agent performance
@@ -155,7 +155,7 @@ def client(postgres_url: str) -> Generator[TestClient, None, None]:
         await engine.dispose()
 
     app.dependency_overrides[get_db_session] = override_session
-    with TestClient(app) as test_client:
+    with TestClient(app, headers={"authorization": "Bearer integration-token"}) as test_client:
         yield test_client
     app.dependency_overrides.clear()
 

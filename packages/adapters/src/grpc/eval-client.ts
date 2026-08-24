@@ -1,4 +1,4 @@
-import { credentials, loadPackageDefinition, status, type Client } from "@grpc/grpc-js";
+﻿import { credentials, loadPackageDefinition, status, type Client, Metadata } from "@grpc/grpc-js";
 import { loadSync } from "@grpc/proto-loader";
 
 import type {
@@ -12,6 +12,10 @@ export interface EvalServiceClientConfig {
   readonly address: string;
   readonly protoPath: string;
   readonly timeoutMs?: number;
+  /** ENGINE-FIX-P5-SEC-1: internal service credential, sent as
+   * `Authorization: Bearer <token>` metadata on every RPC. Required by the
+   * eval-service gRPC interceptor in production. */
+  readonly authorization?: string;
 }
 
 export interface EvalServiceHandlerClient {
@@ -40,12 +44,12 @@ export class EvalServiceClientError extends Error {
 interface EvalGrpcClient extends Client {
   runEvaluation(
     request: Pick<EvalRunEvaluationRequest, "golden_set_name" | "trigger">,
-    options: { readonly deadline: Date },
+    options: { readonly deadline: Date; readonly metadata?: Metadata },
     callback: (error: Error | null, response?: EvalRunEvaluationResponse) => void,
   ): void;
   checkReleaseGate(
     request: Pick<EvalCheckReleaseGateRequest, "release_gate_key" | "evaluation_run_id">,
-    options: { readonly deadline: Date },
+    options: { readonly deadline: Date; readonly metadata?: Metadata },
     callback: (error: Error | null, response?: EvalCheckReleaseGateResponse) => void,
   ): void;
 }
@@ -55,9 +59,14 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 export class EvalServiceClient implements EvalServiceHandlerClient {
   readonly #client: EvalGrpcClient;
   readonly #timeoutMs: number;
+  readonly #metadata: Metadata;
 
   constructor(config: EvalServiceClientConfig, client?: EvalGrpcClient) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#metadata = new Metadata();
+    if (config.authorization) {
+      this.#metadata.set("authorization", config.authorization);
+    }
     this.#client = client ?? EvalServiceClient.#buildClient(config);
   }
 
@@ -91,7 +100,7 @@ export class EvalServiceClient implements EvalServiceHandlerClient {
     return this.#request((deadline, callback) =>
       this.#client.runEvaluation(
         { golden_set_name: request.golden_set_name, trigger: request.trigger ?? "" },
-        { deadline },
+        { deadline, metadata: this.#metadata },
         callback,
       ),
     );
@@ -101,7 +110,7 @@ export class EvalServiceClient implements EvalServiceHandlerClient {
     request: Pick<EvalCheckReleaseGateRequest, "release_gate_key" | "evaluation_run_id">,
   ): Promise<EvalCheckReleaseGateResponse> {
     return this.#request((deadline, callback) =>
-      this.#client.checkReleaseGate(request, { deadline }, callback),
+      this.#client.checkReleaseGate(request, { deadline, metadata: this.#metadata }, callback),
     );
   }
 

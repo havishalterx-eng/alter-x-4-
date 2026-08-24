@@ -1,4 +1,4 @@
-"""Real Postgres HTTP coverage for ArchitectureSpec Registry bindings."""
+﻿"""Real Postgres HTTP coverage for ArchitectureSpec Registry bindings."""
 
 import asyncio
 from collections.abc import AsyncGenerator, Generator
@@ -74,7 +74,7 @@ def client(postgres_url: str) -> Generator[TestClient, None, None]:
         await engine.dispose()
 
     app.dependency_overrides[get_db_session] = session
-    with TestClient(app) as value:
+    with TestClient(app, headers={"authorization": "Bearer integration-token"}) as value:
         yield value
 
 

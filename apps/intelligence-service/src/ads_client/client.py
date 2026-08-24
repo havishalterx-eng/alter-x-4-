@@ -1,4 +1,4 @@
-"""The ADS Client -- the only path from the Planner into ADS Q.
+﻿"""The ADS Client -- the only path from the Planner into ADS Q.
 
 `GrpcAdsClient` is the production implementation. It preserves the Planning
 interface while translating it to the locked ADS Q protobuf contract.
@@ -69,6 +69,15 @@ class GrpcAdsClient:
         self._channel = channel or grpc.aio.insecure_channel(target)
         self._stub = adsq_pb2_grpc.AdsqServiceStub(self._channel)
 
+    def _auth_metadata(self) -> list[tuple[str, str]]:
+        """Caller half of ads-core's service-auth (ENGINE-FIX-P5-SEC-1)."""
+        import os
+
+        token = os.environ.get("INTERNAL_SERVICE_TOKEN", "").strip()
+        if not token:
+            return []
+        return [("authorization", f"Bearer {token}")]
+
     async def close(self) -> None:
         await self._channel.close()
 
@@ -85,6 +94,7 @@ class GrpcAdsClient:
                     requester="intelligence-service",
                 ),
                 timeout=self._timeout_seconds,
+                metadata=self._auth_metadata(),
             )
         except self._grpc.aio.AioRpcError:
             # The locked Planning request has no authorized scope inputs yet.
@@ -104,6 +114,7 @@ class GrpcAdsClient:
                     ],
                 ),
                 timeout=self._timeout_seconds,
+                metadata=self._auth_metadata(),
             )
         except self._grpc.aio.AioRpcError as exc:
             raise AdsUnavailableError("ADS Q reranking is unavailable") from exc
@@ -116,6 +127,7 @@ class GrpcAdsClient:
                     tenant_id=request.tenant_id, document_id=request.document_id
                 ),
                 timeout=self._timeout_seconds,
+                metadata=self._auth_metadata(),
             )
         except self._grpc.aio.AioRpcError as exc:
             if exc.code() == self._grpc.StatusCode.NOT_FOUND:

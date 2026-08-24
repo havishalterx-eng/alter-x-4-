@@ -1,4 +1,4 @@
-"""Real clients for HARD-7f (`injection` golden-set domain).
+﻿"""Real clients for HARD-7f (`injection` golden-set domain).
 
 The domain spans three genuinely different real mechanisms, not one:
 - suites "injection"/"jailbreak" -> a real, live LLM call
@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import httpx
+
+from src.execution.internal_auth import internal_service_auth_headers
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
@@ -43,7 +45,9 @@ class SecurityEvalClient(httpx.Client):
     """Real HTTP client to eval_security_http_server.ts."""
 
     def __init__(self, base_url: str, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> None:
-        super().__init__(base_url=base_url, timeout=timeout_seconds)
+        super().__init__(
+            base_url=base_url, timeout=timeout_seconds, headers=internal_service_auth_headers(),
+        )
 
     def classify_injection(
         self, *, tenant_id: str, run_id: str, node_execution_id: str, text: str

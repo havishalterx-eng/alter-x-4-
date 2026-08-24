@@ -1,4 +1,4 @@
-"""Real client for tenant-isolation's memory_drift_observations case.
+﻿"""Real client for tenant-isolation's memory_drift_observations case.
 
 Targets memory-service's real, unmodified production FastAPI app
 (src.main:app, run directly via uvicorn -- same shape as
@@ -24,6 +24,8 @@ from dataclasses import dataclass
 import httpx
 import psycopg2
 
+from src.execution.internal_auth import internal_service_auth_headers
+
 
 def _uuid7_shaped() -> str:
     """Real _raw_id()/raw_uuid7() (DriftDetector) requires a
@@ -47,7 +49,9 @@ class MemoryDriftEvalClient(httpx.Client):
         *,
         service_token: str = "",
     ) -> None:
-        headers = {"Authorization": f"Bearer {service_token}"} if service_token else None
+        headers = internal_service_auth_headers()
+        if service_token:
+            headers["Authorization"] = f"Bearer {service_token}"
         super().__init__(base_url=base_url, timeout=timeout_seconds, headers=headers)
         self._system_db_url = system_db_url
 

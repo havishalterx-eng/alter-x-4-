@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from alter.adsq.v1 import adsq_pb2_grpc
 from src.config import get_settings
 from src.ingestion.embedding_client import GrpcEmbeddingClient
+from src.service_auth import SyncServiceAuthInterceptor, assert_configured_at_startup
 
 from .grpc_service import AdsqGrpcService
 from .repository import SqlAlchemyRetrievalRepository
@@ -18,6 +19,7 @@ from .service import RetrievalService
 
 def serve() -> None:
     settings = get_settings()
+    assert_configured_at_startup()
     engine = create_engine(settings.ads_db_url_sync, pool_pre_ping=True)
     embeddings = GrpcEmbeddingClient(settings.model_gateway_grpc_target)
     service = RetrievalService(
@@ -27,7 +29,11 @@ def serve() -> None:
         embeddings=embeddings,
         max_concurrency=settings.ads_q_max_concurrency,
     )
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=16))
+    # ENGINE-FIX-P5-SEC-1: every RPC requires the internal service credential.
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=16),
+        interceptors=[SyncServiceAuthInterceptor()],
+    )
     adsq_pb2_grpc.add_AdsqServiceServicer_to_server(  # type: ignore[no-untyped-call]
         AdsqGrpcService(service), server
     )

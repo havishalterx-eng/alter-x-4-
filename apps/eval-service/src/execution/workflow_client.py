@@ -1,4 +1,4 @@
-"""Real client for tenant-isolation's workflow_get and workflow_update cases.
+﻿"""Real client for tenant-isolation's workflow_get and workflow_update cases.
 
 Targets apps/orchestration-service/src/eval_workflow_read_http_server.ts, a
 real, disclosed eval-only entrypoint: WorkflowReadController is real and
@@ -22,6 +22,8 @@ from dataclasses import dataclass
 import httpx
 import psycopg2
 
+from src.execution.internal_auth import internal_service_auth_headers
+
 
 @dataclass(frozen=True)
 class WorkflowLookupResult:
@@ -30,7 +32,9 @@ class WorkflowLookupResult:
 
 class WorkflowEvalClient(httpx.Client):
     def __init__(self, base_url: str, db_url: str, timeout_seconds: float = 30.0) -> None:
-        super().__init__(base_url=base_url, timeout=timeout_seconds)
+        super().__init__(
+            base_url=base_url, timeout=timeout_seconds, headers=internal_service_auth_headers(),
+        )
         self._db_url = db_url
 
     def seed_cross_tenant_workflow(self, *, other_tenant_uuid: str) -> str:

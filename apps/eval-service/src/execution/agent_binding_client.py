@@ -1,4 +1,4 @@
-"""Real client for tenant-isolation's agent_selection_binding case.
+﻿"""Real client for tenant-isolation's agent_selection_binding case.
 
 Targets intelligence-service's real, unmodified production FastAPI app
 (src.main:app, run directly via uvicorn) calling POST /selection-binding/
@@ -38,6 +38,8 @@ import uuid
 import httpx
 import psycopg2
 
+from src.execution.internal_auth import internal_service_auth_headers
+
 
 def _uuid7_shaped() -> str:
     """Real TenantId/WorkspaceId/RunId (selection_binding/models.py)
@@ -49,7 +51,9 @@ def _uuid7_shaped() -> str:
 
 class AgentBindingEvalClient(httpx.Client):
     def __init__(self, base_url: str, db_url: str, timeout_seconds: float = 30.0) -> None:
-        super().__init__(base_url=base_url, timeout=timeout_seconds)
+        super().__init__(
+            base_url=base_url, timeout=timeout_seconds, headers=internal_service_auth_headers(),
+        )
         self._db_url = db_url
 
     def seed_cross_tenant_agent(self, *, other_tenant_uuid: str, workspace_uuid: str) -> str:

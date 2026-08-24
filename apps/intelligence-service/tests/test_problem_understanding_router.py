@@ -1,4 +1,4 @@
-"""App-level coverage for the private Problem Understanding route."""
+﻿"""App-level coverage for the private Problem Understanding route."""
 
 from collections.abc import Generator
 
@@ -53,7 +53,7 @@ def kernel() -> RecordingKernel:
 @pytest.fixture
 def client(kernel: RecordingKernel) -> AsyncClient:
     app.dependency_overrides[get_kernel] = lambda: kernel
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"authorization": "Bearer integration-token"})
 
 
 @pytest.fixture(autouse=True)

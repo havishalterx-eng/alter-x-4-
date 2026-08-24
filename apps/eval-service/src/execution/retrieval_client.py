@@ -1,4 +1,4 @@
-"""Real gRPC client to ads-core's AdsqService (HARD-7c).
+﻿"""Real gRPC client to ads-core's AdsqService (HARD-7c).
 
 alter.adsq.v1 is already generated under alter/ for the other domains'
 proto packages -- this adds the adsq subpackage the same way (see
@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import grpc
 
 from alter.adsq.v1 import adsq_pb2, adsq_pb2_grpc
+from src.execution.internal_auth import internal_service_auth_metadata
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
@@ -47,6 +48,7 @@ class RetrievalClient:
                 requester=requester,
             ),
             timeout=self._timeout_seconds,
+            metadata=internal_service_auth_metadata(),
         )
         return RetrieveResult(document_ids=tuple(hit.document_id for hit in response.hits))
 

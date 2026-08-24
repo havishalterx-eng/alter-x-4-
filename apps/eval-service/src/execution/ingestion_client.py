@@ -1,4 +1,4 @@
-"""Real client for tenant-isolation's ads_get_ingestion_job and
+﻿"""Real client for tenant-isolation's ads_get_ingestion_job and
 ads_upload_download cases.
 
 Both real routes live under ingestion/router.py's own
@@ -43,6 +43,8 @@ from dataclasses import dataclass
 import httpx
 import psycopg2
 
+from src.execution.internal_auth import internal_service_auth_headers
+
 
 @dataclass(frozen=True)
 class IngestionJobLookupResult:
@@ -63,7 +65,9 @@ class IngestionEvalClient(httpx.Client):
         *,
         service_token: str = "",
     ) -> None:
-        headers = {"Authorization": f"Bearer {service_token}"} if service_token else None
+        headers = internal_service_auth_headers()
+        if service_token:
+            headers["Authorization"] = f"Bearer {service_token}"
         super().__init__(base_url=base_url, timeout=timeout_seconds, headers=headers)
         self._db_url = db_url
 

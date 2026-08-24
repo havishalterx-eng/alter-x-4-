@@ -1,4 +1,4 @@
-"""Real Registry-backed HTTP coverage for Architecture Synthesizer."""
+﻿"""Real Registry-backed HTTP coverage for Architecture Synthesizer."""
 
 import asyncio
 from collections.abc import AsyncGenerator, Generator
@@ -74,7 +74,7 @@ def client(postgres_url: str) -> Generator[TestClient, None, None]:
         await engine.dispose()
 
     app.dependency_overrides[get_db_session] = override_session
-    with TestClient(app) as test_client:
+    with TestClient(app, headers={"authorization": "Bearer integration-token"}) as test_client:
         yield test_client
 
 

@@ -64,6 +64,25 @@ INTERNAL_SERVICE_TOKEN_SHA256="$INTERNAL_SERVICE_TOKEN_SHA256" \
 embedding provider before ingestion or retrieval can succeed. Do not replace it
 with test-only embeddings for manual E2E checks.
 
+### Internal service credential (all Python services)
+
+ENGINE-FIX-P5-SEC-1: ads-core, memory-service, intelligence-service,
+eval-service and verification-service all fail closed at boot unless the
+SHA-256 of the shared internal token is configured, and every non-health
+route/RPC requires it as `Authorization: Bearer <INTERNAL_SERVICE_TOKEN>`.
+Reuse the two variables exported above for every service you start, e.g.:
+
+```bash
+INTERNAL_SERVICE_TOKEN_SHA256="$INTERNAL_SERVICE_TOKEN_SHA256" \
+  INTERNAL_SERVICE_TOKEN="$ADS_LOCAL_SERVICE_TOKEN" \
+  uv run --project apps/intelligence-service uvicorn src.main:app --app-dir apps/intelligence-service \
+  --host 127.0.0.1 --port 8002
+```
+
+Callers that speak gRPC to these services (the TS clients in
+`packages/adapters/src/grpc/`) take an `authorization: "Bearer …"` config
+field fed from `INTERNAL_SERVICE_TOKEN`.
+
 ## Run audit-service
 
 Export local variables, build, and serve from host:

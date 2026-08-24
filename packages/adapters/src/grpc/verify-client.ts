@@ -1,4 +1,4 @@
-import { credentials, loadPackageDefinition, status, type Client } from "@grpc/grpc-js";
+﻿import { credentials, loadPackageDefinition, status, type Client, Metadata } from "@grpc/grpc-js";
 import { loadSync } from "@grpc/proto-loader";
 
 import type {
@@ -10,6 +10,10 @@ export interface VerifyServiceClientConfig {
   readonly address: string;
   readonly protoPath: string;
   readonly timeoutMs?: number;
+  /** ENGINE-FIX-P5-SEC-1: internal service credential, sent as
+   * `Authorization: Bearer <token>` metadata on every RPC. Required by the
+   * verification-service gRPC interceptor in production. */
+  readonly authorization?: string;
 }
 
 export interface VerifyServiceHandlerClient {
@@ -32,7 +36,7 @@ export class VerifyServiceClientError extends Error {
 interface VerifyGrpcClient extends Client {
   scoreNodeInline(
     request: ScoreNodeInlineRequest,
-    options: { readonly deadline: Date },
+    options: { readonly deadline: Date; readonly metadata?: Metadata },
     callback: (error: Error | null, response?: ScoreNodeInlineResponse) => void,
   ): void;
 }
@@ -42,9 +46,14 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 export class VerifyServiceClient implements VerifyServiceHandlerClient {
   readonly #client: VerifyGrpcClient;
   readonly #timeoutMs: number;
+  readonly #metadata: Metadata;
 
   constructor(config: VerifyServiceClientConfig, client?: VerifyGrpcClient) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#metadata = new Metadata();
+    if (config.authorization) {
+      this.#metadata.set("authorization", config.authorization);
+    }
     this.#client = client ?? VerifyServiceClient.#buildClient(config);
   }
 
@@ -75,7 +84,7 @@ export class VerifyServiceClient implements VerifyServiceHandlerClient {
     return new Promise<ScoreNodeInlineResponse>((resolve, reject) => {
       this.#client.scoreNodeInline(
         request,
-        { deadline: new Date(Date.now() + this.#timeoutMs) },
+        { deadline: new Date(Date.now() + this.#timeoutMs), metadata: this.#metadata },
         (error, response) => {
           if (error !== null) {
             reject(new VerifyServiceClientError(errorCode(error)));

@@ -1,4 +1,4 @@
-"""Real client for tenant-isolation's project_get and project_deploy cases.
+﻿"""Real client for tenant-isolation's project_get and project_deploy cases.
 
 Targets apps/orchestration-service/src/eval_project_read_http_server.ts, a
 real, disclosed eval-only entrypoint: ProjectReadController is real and
@@ -26,6 +26,8 @@ from dataclasses import dataclass
 import httpx
 import psycopg2
 
+from src.execution.internal_auth import internal_service_auth_headers
+
 
 @dataclass(frozen=True)
 class ProjectLookupResult:
@@ -34,7 +36,9 @@ class ProjectLookupResult:
 
 class ProjectEvalClient(httpx.Client):
     def __init__(self, base_url: str, db_url: str, timeout_seconds: float = 30.0) -> None:
-        super().__init__(base_url=base_url, timeout=timeout_seconds)
+        super().__init__(
+            base_url=base_url, timeout=timeout_seconds, headers=internal_service_auth_headers(),
+        )
         self._db_url = db_url
 
     def seed_cross_tenant_project(self, *, other_tenant_uuid: str) -> str:

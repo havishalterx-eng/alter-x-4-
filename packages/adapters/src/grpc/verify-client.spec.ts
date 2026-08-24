@@ -1,4 +1,4 @@
-import { status } from "@grpc/grpc-js";
+﻿import { status } from "@grpc/grpc-js";
 import { describe, expect, it, vi } from "vitest";
 
 import { VerifyServiceClient } from "./verify-client";
@@ -37,5 +37,23 @@ describe("VerifyServiceClient", () => {
     const client = new VerifyServiceClient({ address: "localhost:50054", protoPath: "unused" }, grpc as never);
 
     await expect(client.scoreNodeInline(request)).rejects.toMatchObject({ code: "deadline_exceeded" });
+  });
+
+  // ENGINE-FIX-P5-SEC-1: verification-service's gRPC interceptor requires the
+  // internal service credential on every RPC.
+  it("sends the configured internal service credential as authorization metadata", async () => {
+    const grpc = {
+      scoreNodeInline: vi.fn((_request, _options, callback) => callback(null, {
+        verdict: "pass", score: 1, threshold: 0.8, reviewer_model: "deterministic", details_json: "{}",
+      })),
+    };
+    const client = new VerifyServiceClient(
+      { address: "localhost:50054", protoPath: "unused", authorization: "Bearer service-token" },
+      grpc as never,
+    );
+
+    await client.scoreNodeInline(request);
+    const options = (grpc.scoreNodeInline as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(options.metadata.get("authorization")).toEqual(["Bearer service-token"]);
   });
 });

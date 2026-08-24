@@ -1,4 +1,4 @@
-"""Real HTTP client to intelligence-service's PlannerService (HARD-7b/7h).
+﻿"""Real HTTP client to intelligence-service's PlannerService (HARD-7b/7h).
 
 PlannerService is defined as a gRPC contract in alter/planner/v1/planner.proto,
 but intelligence-service's actual transport is HTTP/FastAPI mirroring the RPC
@@ -12,6 +12,8 @@ import json
 from dataclasses import dataclass
 
 import httpx
+
+from src.execution.internal_auth import internal_service_auth_headers
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
@@ -32,7 +34,8 @@ class DecomposeResult:
 
 class PlannerClient:
     def __init__(self, base_url: str, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> None:
-        self._client = httpx.Client(base_url=base_url, timeout=timeout_seconds)
+        self._client = httpx.Client(
+            headers=internal_service_auth_headers(),base_url=base_url, timeout=timeout_seconds)
 
     def select_strategy(self, *, tenant_id: str, objective: str, mode: str) -> SelectStrategyResult:
         response = self._client.post(

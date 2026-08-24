@@ -1,4 +1,4 @@
-"""Real client for tenant-isolation's idempotency_replay case.
+﻿"""Real client for tenant-isolation's idempotency_replay case.
 
 Targets two instances of apps/platform-api/src/eval_credential_http_server.ts
 (the same real, disclosed eval-only entrypoint HARD-7g's platform_credential
@@ -19,6 +19,8 @@ from dataclasses import dataclass
 import httpx
 import psycopg2
 
+from src.execution.internal_auth import internal_service_auth_headers
+
 
 @dataclass(frozen=True)
 class IdempotencyReplayResult:
@@ -34,8 +36,16 @@ class IdempotencyReplayClient:
         db_url: str,
         timeout_seconds: float = 30.0,
     ) -> None:
-        self._tenant_a = httpx.Client(base_url=tenant_a_base_url, timeout=timeout_seconds)
-        self._tenant_b = httpx.Client(base_url=tenant_b_base_url, timeout=timeout_seconds)
+        self._tenant_a = httpx.Client(
+            headers=internal_service_auth_headers(),
+            base_url=tenant_a_base_url,
+            timeout=timeout_seconds,
+        )
+        self._tenant_b = httpx.Client(
+            headers=internal_service_auth_headers(),
+            base_url=tenant_b_base_url,
+            timeout=timeout_seconds,
+        )
         self._db_url = db_url
 
     def _seed_credential(self, *, tenant_uuid: str) -> str:
