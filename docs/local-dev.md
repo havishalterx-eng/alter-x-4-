@@ -22,7 +22,7 @@ shell-safe value. Never commit `.env.local`.
 
 ```bash
 docker compose --env-file .env.local up -d --build --wait \
-  engine-db ads-db cost-db redis localstack temporal otel
+  engine-db ads-db cost-db redis localstack temporal tempo grafana
 docker compose --env-file .env.local ps
 ```
 
@@ -31,12 +31,15 @@ Expected local endpoints:
 - Engine PostgreSQL: `127.0.0.1:5433`, database `audit_db`, role
   `audit_service`
 - ADS PostgreSQL: `127.0.0.1:5434`, database `ads_db`, role `ads_core`
+- Cost PostgreSQL: `127.0.0.1:5435`, database `cost_db`, role
+  `cost_ledger_service`
 - LocalStack edge: `http://127.0.0.1:4566`
 - Temporal gRPC: `127.0.0.1:7233`
 - Temporal Web UI: `http://127.0.0.1:8233`
-- OTLP/gRPC: `127.0.0.1:4317`
-- OTLP/HTTP: `http://127.0.0.1:4318`
-- OTel collector health: `http://127.0.0.1:13133`
+- Tempo OTLP/gRPC (trace ingest): `127.0.0.1:4317`
+- Tempo OTLP/HTTP (trace ingest): `http://127.0.0.1:4318`
+- Tempo query API / health: `http://127.0.0.1:3200/ready`
+- Grafana UI (anonymous admin, local only): `http://127.0.0.1:3300`
 
 LocalStack ready hook creates `/alter/local/audit-service/system/database_credentials`
 from local runtime values and creates `alter-local-cost-events` with its DLQ.
@@ -117,10 +120,12 @@ docker compose --env-file .env.local exec -T cost-db sh -c \
   conflict with this stack's zero-account contract.
 - Temporal container is official `temporalio/temporal` CLI dev server with
   bundled Web UI.
-- OTel collector is passive and exports basic signal counts to console. Shared
-  mock `ObservabilityProvider` (`createMockObservabilityProvider()`) is
-  available in `packages/shared-clients` for apps that wire it. No app
-  currently does, including `audit-service`; app-level observability
+- Tracing is a real `grafana/tempo` OTLP receiver (gRPC 4317 / HTTP 4318,
+  local disk storage) with `grafana/grafana` wired to it as a datasource for
+  browsing traces -- not a passive console-only collector. Shared mock
+  `ObservabilityProvider` (`createMockObservabilityProvider()`) is available
+  in `packages/shared-clients` for apps that wire it. No app currently sends
+  it real traces, including `audit-service`; app-level observability
   integration remains future per-app work. No fake SaaS credential path is
   added.
 - Shared mock providers remain available for services without local container
@@ -140,6 +145,8 @@ project.
 
 No live AWS, Temporal Cloud, Grafana Cloud, Sentry, or LocalStack accounts are
 used. Token-free LocalStack `4.14.0` no longer receives upstream updates and
-must be reviewed before any production-like use. OTel collector output is
-diagnostic only; app-level observability wiring remains a future service
-integration task.
+must be reviewed before any production-like use. Tempo/Grafana are real and
+running, but no app sends them real traces yet; app-level observability
+wiring remains a future service integration task. `presidio-analyzer`/
+`presidio-anonymizer` (PII detection for `model-gateway`) and
+`cost-ledger-service`'s own HTTP boot are not yet covered by this doc.
