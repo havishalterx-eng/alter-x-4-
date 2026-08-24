@@ -48,7 +48,11 @@ def kernel() -> PlannerKernel:
 @pytest.fixture
 def client(kernel: PlannerKernel) -> AsyncClient:
     app.dependency_overrides[get_kernel] = lambda: kernel
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"authorization": "Bearer integration-token"})
+    return AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"authorization": "Bearer integration-token"},
+    )
 
 
 @pytest.fixture(autouse=True)
