@@ -1,0 +1,15 @@
+# Normalize every text file to LF in the repository and on checkout,
+# regardless of each contributor's local core.autocrlf setting -- this is a
+# Node/TS/Python/Terraform/SQL backend monorepo with no reason for CRLF
+# anywhere, and Linux CI runners don't rewrite line endings on checkout, so
+# whatever is actually stored is exactly what CI sees.
+* text=auto eol=lf
+
+# Explicit belt-and-suspenders for the one category where a wrong line
+# ending is a hard failure, not diff noise: a CRLF shebang breaks
+# immediately on Linux ("/bin/bash^M: No such file or directory").
+*.sh text eol=lf
+
+# Only real binary checked into the repo today -- keep it out of
+# `* text=auto`'s heuristic entirely rather than trusting auto-detection.
+*.png binary
