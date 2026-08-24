@@ -56,8 +56,16 @@ export function loadRecoveryEnvironment(
   } catch {
     throw new RecoveryConfigurationError("MEMORY_SERVICE_BASE_URL must be a valid URL");
   }
+  // ENGINE-FIX-PHASE2-N3: 50061 collides with this same service's own
+  // ARTIFACT_CONTENT_GRPC_BIND_ADDRESS default (artifact-content-environment.ts)
+  // -- with both left at default, this client would dial its own
+  // artifact-content server instead of a real Capability Resolver, failing
+  // with a confusing per-RPC protocol error instead of a clean refused
+  // connection. 50062 is unused by any other default in this repo (checked
+  // orchestration-service's own 50052-50061 range plus every other
+  // service's GRPC_BIND_ADDRESS default).
   const capabilityResolverAddress =
-    environment.CAPABILITY_RESOLVER_ADDRESS?.trim() ?? "localhost:50061";
+    environment.CAPABILITY_RESOLVER_ADDRESS?.trim() ?? "localhost:50062";
   if (capabilityResolverAddress.length === 0) {
     throw new RecoveryConfigurationError("CAPABILITY_RESOLVER_ADDRESS must be non-empty");
   }
