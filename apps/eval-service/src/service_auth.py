@@ -119,7 +119,7 @@ def assert_configured_at_startup() -> None:
     _expected_digest()
 
 
-class ServiceAuthInterceptor:
+class ServiceAuthInterceptor(grpc.aio.ServerInterceptor):  # type: ignore[misc]
     """grpc.aio server interceptor enforcing the service credential on every RPC."""
 
     def __init__(self, exempt_methods: frozenset[str] = frozenset()) -> None:
