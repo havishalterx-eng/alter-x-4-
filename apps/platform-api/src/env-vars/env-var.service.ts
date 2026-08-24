@@ -75,9 +75,16 @@ export class EnvVarService {
   ): Promise<EnvVarView> {
     const instance = itemInstance(projectId, id);
     await this.requireRecord(tenantId, projectId, id, instance);
+    const reference = secretReference(tenantId, id);
+    // Same compensation gap as credential.service.ts's update(): putSecret
+    // overwrites in place, so the old value must be read out before the
+    // overwrite to have anything to restore if the DB write below fails.
+    const priorValue =
+      input.value === undefined ? undefined : await this.secrets.getSecret(reference);
+
     try {
       if (input.value !== undefined) {
-        await this.secrets.putSecret(secretReference(tenantId, id), input.value);
+        await this.secrets.putSecret(reference, input.value);
       }
       const updated = await this.repository.update(
         tenantId,
@@ -94,6 +101,9 @@ export class EnvVarService {
       if (!updated) throw notFound(instance);
       return project(updated);
     } catch (error) {
+      if (priorValue !== undefined) {
+        await bestEffortRestore(this.secrets, reference, priorValue);
+      }
       if (error instanceof EnvVarHttpError) throw error;
       if (isUniqueViolation(error)) {
         throw new EnvVarHttpError(
@@ -214,5 +224,19 @@ async function bestEffortDelete(
     await provider.deleteSecret(reference);
   } catch {
     // Preserve original provider or metadata-store failure.
+  }
+}
+
+async function bestEffortRestore(
+  provider: MutableSecretsProvider,
+  reference: string,
+  priorValue: string,
+): Promise<void> {
+  try {
+    await provider.putSecret(reference, priorValue);
+  } catch {
+    // Preserve the original provider or metadata-store failure. The
+    // secret is left holding the new value with no matching DB update --
+    // a real gap, but narrower than an unconditional silent overwrite.
   }
 }

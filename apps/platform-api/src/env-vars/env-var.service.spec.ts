@@ -198,6 +198,17 @@ describe("EnvVarService", () => {
     await expect(
       service.update(tenantId, projectId, created.id, { key: "OTHER_KEY" }),
     ).rejects.toMatchObject({ status: 404 });
+
+    // F2 (Phase 5): same compensation gap as credentials -- a failed
+    // metadata write after the provider secret has already been
+    // overwritten must restore the prior value.
+    const reference = secretReference(tenantId, created.id);
+    const priorValue = values.get(reference);
+    vi.mocked(repository.update).mockResolvedValueOnce(undefined);
+    await expect(
+      service.update(tenantId, projectId, created.id, { value: "attempted-rotation" }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(values.get(reference)).toBe(priorValue);
     vi.mocked(repository.delete).mockResolvedValueOnce(false);
     await expect(
       service.delete(tenantId, projectId, created.id),
