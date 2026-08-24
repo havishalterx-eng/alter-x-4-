@@ -84,6 +84,29 @@ def require_tenant(actor: Actor, tenant_id: str | None) -> None:
         raise ServiceAuthError("Cross-tenant internal service access is not allowed.")
 
 
+_AUTH_EXEMPT_PATHS: frozenset[str] = frozenset()
+_AUTH_EXEMPT_PREFIXES: frozenset[str] = frozenset()
+
+
+def _require(request: Request, authorization: str | None = Header(default=None)) -> None:
+    if request.url.path in _AUTH_EXEMPT_PATHS or any(
+        request.url.path.startswith(prefix) for prefix in _AUTH_EXEMPT_PREFIXES
+    ):
+        return
+    try:
+        verify_service_token(authorization)
+    except ServiceAuthNotConfigured as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal service auth not configured: {error}",
+        )
+    except ServiceAuthError as error:
+        raise HTTPException(
+            status_code=401,
+            detail=f"Unauthorized internal service request: {error}",
+        )
+
+
 def fastapi_dependency(
     exempt_paths: frozenset[str] = frozenset(),
     exempt_path_prefixes: frozenset[str] = frozenset(),
@@ -91,25 +114,9 @@ def fastapi_dependency(
     """Return a FastAPI dependency that enforces the service token on every request
     except those whose path is in ``exempt_paths`` (e.g. ``/health``) or starts with
     one of ``exempt_path_prefixes``."""
-
-    def _require(request: Request, authorization: str | None = Header(default=None)) -> None:
-        if request.url.path in exempt_paths or any(
-            request.url.path.startswith(prefix) for prefix in exempt_path_prefixes
-        ):
-            return
-        try:
-            verify_service_token(authorization)
-        except ServiceAuthNotConfigured as error:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Internal service auth not configured: {error}",
-            )
-        except ServiceAuthError as error:
-            raise HTTPException(
-                status_code=401,
-                detail=f"Unauthorized internal service request: {error}",
-            )
-
+    global _AUTH_EXEMPT_PATHS, _AUTH_EXEMPT_PREFIXES
+    _AUTH_EXEMPT_PATHS = exempt_paths
+    _AUTH_EXEMPT_PREFIXES = exempt_path_prefixes
     return Depends(_require)
 
 
