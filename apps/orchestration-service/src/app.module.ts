@@ -18,7 +18,6 @@ import {
   ConversationDispatchClient,
   ConversationGrpcController,
   DeployctlGrpcController,
-  EvalServiceClient,
   EventBridgeEventPublisher,
   MemoryServiceClient,
   ModelGatewayClient,
@@ -57,11 +56,6 @@ import { GraphCompilerService } from "./compiler/graph-compiler.service";
 import { CAPABILITY_CLIENT_PROTO_PATH } from "./compiler/capability-client.constants";
 import { WorkflowLifecycleService } from "./workflow-lifecycle/workflow-lifecycle.service";
 import { WorkflowDeploymentController } from "./workflow-lifecycle/workflow-deployment.controller";
-import {
-  DEPLOYMENT_ADMIN_TOKEN_HASH,
-  DeploymentAdminController,
-} from "./deployment-admin/deployment-admin.controller";
-import { DeploymentAdminService } from "./deployment-admin/deployment-admin.service";
 import { RegistryService } from "./registry/registry.service";
 import { NodeexecService } from "./registry/nodeexec.service";
 import { SsmSelectionBindingFailClosedConfig } from "./registry/selection-binding-fail-closed-config";
@@ -136,30 +130,15 @@ import { WhatsappWebhookController } from "./webhooks/whatsapp-webhook.controlle
 import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
 import { WhatsappAccountRegistryService } from "./webhooks/whatsapp-account-registry.service";
 import { WhatsappAccountsController } from "./webhooks/whatsapp-accounts.controller";
-import {
-  DeletionController,
-  ORCHESTRATION_DELETION_TOKEN_HASH,
-} from "./deletion/deletion.controller";
-import { OrchestrationDeletionService } from "./deletion/deletion.service";
-import { DeletionRequestController } from "./deletion/deletion-request.controller";
 import { ArtifactsController } from "./artifacts/artifacts.controller";
 import { ArtifactsService } from "./artifacts/artifacts.service";
 import { ArtifactContentGrpcService } from "./artifacts/artifact-content-grpc.service";
 import { GeneratedFileMaterializer } from "./registry/generated-file-materializer";
-import {
-  EVAL_FACADE_CONFIG,
-  loadEvalFacadeEnvironment,
-  type EvalFacadeEnvironment,
-} from "./eval-facade/config";
-import {
-  EvalFacadeController,
-  EVAL_FACADE_TOKEN_HASH,
-} from "./eval-facade/eval-facade.controller";
 import { EvalFacadeService } from "./eval-facade/eval-facade.service";
-import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
+import { OperationsModule } from "./operations.module";
 
 @Module({
-  imports: [OrchestrationInfrastructureModule],
+  imports: [OrchestrationInfrastructureModule, OperationsModule],
   controllers: [
     HealthController,
     ConversationGrpcController,
@@ -192,45 +171,8 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
     ArtifactsController,
     WhatsappWebhookController,
     WhatsappAccountsController,
-    DeletionController,
-    DeletionRequestController,
-    EvalFacadeController,
-    DeploymentAdminController,
   ],
   providers: [
-    {
-      provide: EVAL_FACADE_CONFIG,
-      useFactory: () => loadEvalFacadeEnvironment(process.env),
-    },
-    {
-      provide: EVAL_FACADE_TOKEN_HASH,
-      inject: [EVAL_FACADE_CONFIG],
-      useFactory: (config: EvalFacadeEnvironment) => config.tokenHash,
-    },
-    {
-      provide: EvalServiceClient,
-      inject: [EVAL_FACADE_CONFIG],
-      useFactory: (config: EvalFacadeEnvironment) => new EvalServiceClient({
-        address: config.grpcTarget,
-        protoPath: EVAL_PROTO_PATH,
-        authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
-      }),
-    },
-    EvalFacadeService,
-    {
-      provide: DEPLOYMENT_ADMIN_TOKEN_HASH,
-      useFactory: () => requireSha256Fingerprint(
-        process.env.DEPLOYMENT_ADMIN_SERVICE_TOKEN_SHA256,
-        "DEPLOYMENT_ADMIN_SERVICE_TOKEN_SHA256",
-      ),
-    },
-    {
-      provide: DeploymentAdminService,
-      useFactory: () => {
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        return new DeploymentAdminService(orchestrationStore(dbConfig));
-      },
-    },
     {
       provide: ARTIFACT_CONTENT_HANDLER,
       useFactory: (artifacts: ArtifactsService) => new ArtifactContentGrpcService(artifacts),
@@ -241,26 +183,6 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
         return new WhatsappAccountRegistryService(orchestrationStore(dbConfig));
-      },
-    },
-    {
-      provide: ORCHESTRATION_DELETION_TOKEN_HASH,
-      useFactory: () => requireSha256Fingerprint(
-        process.env.DELETION_SERVICE_TOKEN_SHA256,
-        "DELETION_SERVICE_TOKEN_SHA256",
-      ),
-    },
-    {
-      provide: OrchestrationDeletionService,
-      useFactory: () => {
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const tenantStore = orchestrationStore(dbConfig);
-        const deletionDatabaseUser = process.env.DELETION_DATABASE_USER?.trim();
-        if (deletionDatabaseUser === undefined || deletionDatabaseUser.length === 0) {
-          throw new Error("DELETION_DATABASE_USER is required for internal deletion sweeps");
-        }
-        const systemStore = orchestrationStore(dbConfig, deletionDatabaseUser);
-        return new OrchestrationDeletionService(tenantStore, systemStore);
       },
     },
     {
@@ -912,10 +834,3 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
   );
 }
 
-function requireSha256Fingerprint(value: string | undefined, field: string): string {
-  const normalized = value?.trim() ?? "";
-  if (!/^[0-9a-f]{64}$/i.test(normalized)) {
-    throw new Error(`${field} must be a 64-character SHA-256 fingerprint`);
-  }
-  return normalized;
-}
