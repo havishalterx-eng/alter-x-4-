@@ -33,8 +33,6 @@ import {
   AwsSsmParameterProvider,
   S3ObjectStorageProvider,
   NodeexecGrpcController,
-  PostgresOrchestrationStoreProvider,
-  sharedOrchestrationPoolFactory,
   RedisCacheProvider,
   RecoveryGrpcController,
   RegistryGrpcController,
@@ -52,7 +50,6 @@ import {
   SessionGatewayGuard,
   SessionGatewayRateLimitGuard,
   SessionGatewayUploadAllowlistGuard,
-  lazyAuth0M2mTokenProviderFromEnvironment,
 } from "@alterx/auth";
 import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import { ConversationManagerService } from "./conversation/conversation-manager.service";
@@ -98,7 +95,12 @@ import { loadConversationDispatchEnvironment } from "./config/conversation-dispa
 import { loadWhatsappWebhookEnvironment } from "./config/whatsapp-webhook-environment";
 import { loadNodeexecEnvironment } from "./config/nodeexec-environment";
 import { SANDBOX_CLIENT_PROTO_PATH } from "./registry/sandbox-client.constants";
-import { ORCHESTRATION_MIGRATIONS_PATH } from "./database/migrations-path";
+import {
+  OrchestrationInfrastructureModule,
+  internalM2mTokenProvider,
+  orchestrationStore,
+  sessionGatewayEnvironment,
+} from "./orchestration-infrastructure.module";
 import { HealthController } from "./health/health.controller";
 import { RecoveryPolicyService } from "./recovery/recovery-policy.service";
 import { RecoveryDispatchService } from "./recovery/recovery-dispatch.service";
@@ -157,6 +159,7 @@ import { EvalFacadeService } from "./eval-facade/eval-facade.service";
 import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
 
 @Module({
+  imports: [OrchestrationInfrastructureModule],
   controllers: [
     HealthController,
     ConversationGrpcController,
@@ -815,74 +818,6 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
 })
 export class AppModule {}
 
-interface SessionGatewayEnvironment {
-  readonly auth0Domain: string;
-  readonly apiAudience: string;
-  readonly actorTokenIssuer: string;
-  readonly actorTokenAudience: string;
-  readonly actorTokenJwksUrl: string;
-  readonly redisUrl: string;
-  readonly databaseAuthentication: "static" | "iam";
-  readonly databaseConnectionString: string;
-  readonly databaseHost: string;
-  readonly databasePort: number;
-  readonly databaseName: string;
-  readonly databaseUser: string;
-  readonly awsRegion: string;
-  readonly artifactsBucketParameter: string;
-  readonly selectionBindingFailClosedParameter: string;
-  readonly auth0JwksUrl?: string;
-}
-
-/**
- * Every PostgresOrchestrationStoreProvider call site in this file used to
- * inline `authentication: "iam"` directly, which meant orchestration-service
- * could only ever connect to a real AWS RDS instance -- never a local
- * Postgres, even for local dev/testing. This mirrors audit-service's
- * local (static) vs non-local (iam) branch so ALTER_ENV=local can run
- * against a plain username/password Postgres instead.
- */
-function orchestrationStoreConfig(
-  env: SessionGatewayEnvironment,
-  userOverride?: string,
-): import("@alterx/adapters").PostgresOrchestrationStoreConfig {
-  if (env.databaseAuthentication === "static") {
-    return {
-      authentication: "static",
-      connectionString: env.databaseConnectionString,
-      migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-    };
-  }
-  return {
-    authentication: "iam",
-    host: env.databaseHost,
-    port: env.databasePort,
-    database: env.databaseName,
-    user: userOverride ?? env.databaseUser,
-    region: env.awsRegion,
-    migrationsFolder: ORCHESTRATION_MIGRATIONS_PATH,
-  };
-}
-
-/**
- * ENGINE-FIX-P3-22 (Wave 3 item 6). Every real call site below used to do
- * `orchestrationStore(...)`
- * directly -- ~30 of them, each spinning up its own unshared `Pool`
- * against the same database (see sharedOrchestrationPoolFactory's own
- * doc comment for the full reasoning). This is the one place that adds
- * the shared pool factory, so every caller gets it by construction
- * instead of needing to remember a second constructor argument.
- */
-function orchestrationStore(
-  env: SessionGatewayEnvironment,
-  userOverride?: string,
-): PostgresOrchestrationStoreProvider {
-  return new PostgresOrchestrationStoreProvider(
-    orchestrationStoreConfig(env, userOverride),
-    { poolFactory: sharedOrchestrationPoolFactory },
-  );
-}
-
 /**
  * HEAL-8: NodeexecService, RunLauncherService, and RunsController (via its
  * own RunOutcomeService provider below) all need a RunOutcomeService --
@@ -977,98 +912,10 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
   );
 }
 
-function internalM2mTokenProvider() {
-  return lazyAuth0M2mTokenProviderFromEnvironment(process.env);
-}
-
 function requireSha256Fingerprint(value: string | undefined, field: string): string {
   const normalized = value?.trim() ?? "";
   if (!/^[0-9a-f]{64}$/i.test(normalized)) {
     throw new Error(`${field} must be a 64-character SHA-256 fingerprint`);
   }
   return normalized;
-}
-
-function sessionGatewayEnvironment(
-  env: NodeJS.ProcessEnv,
-): SessionGatewayEnvironment {
-  assertProductionSessionGatewayConfiguration(env);
-
-  const base = {
-    auth0Domain: requiredEnvironment(env, "AUTH0_DOMAIN"),
-    apiAudience: requiredEnvironment(env, "AUTH0_API_AUDIENCE"),
-    actorTokenIssuer: requiredEnvironment(env, "ACTOR_TOKEN_ISSUER"),
-    actorTokenAudience: requiredEnvironment(env, "ACTOR_TOKEN_AUDIENCE"),
-    actorTokenJwksUrl: requiredEnvironment(env, "ACTOR_TOKEN_JWKS_URL"),
-    redisUrl: requiredEnvironment(env, "REDIS_ENDPOINT"),
-    awsRegion: requiredEnvironment(env, "AWS_REGION"),
-    artifactsBucketParameter: requiredEnvironment(env, "ALTER_ARTIFACTS_BUCKET_PARAM"),
-    // Optional -- unlike artifactsBucketParameter this is never required to
-    // boot. No SSM parameter at this path (the real default state of any
-    // deployment that hasn't deliberately opted in) means the kill switch
-    // reads as off; see SsmSelectionBindingFailClosedConfig.
-    selectionBindingFailClosedParameter:
-      env.SELECTION_BINDING_FAIL_CLOSED_PARAM ??
-      "/alterx/orchestration-service/selection-binding-fail-closed",
-    ...(env.AUTH0_JWKS_URL ? { auth0JwksUrl: env.AUTH0_JWKS_URL } : {}),
-  };
-
-  if (env.ALTER_ENV?.trim() === "local") {
-    return {
-      ...base,
-      databaseAuthentication: "static",
-      databaseConnectionString: requiredEnvironment(env, "ORCHESTRATION_DATABASE_URL"),
-      databaseHost: "",
-      databasePort: 0,
-      databaseName: "",
-      databaseUser: "",
-    };
-  }
-
-  return {
-    ...base,
-    databaseAuthentication: "iam",
-    databaseConnectionString: "",
-    databaseHost: requiredEnvironment(env, "ORCHESTRATION_DATABASE_HOST"),
-    databasePort: requiredPort(env, "ORCHESTRATION_DATABASE_PORT"),
-    databaseName: requiredEnvironment(env, "ORCHESTRATION_DATABASE_NAME"),
-    databaseUser: requiredEnvironment(env, "ORCHESTRATION_DATABASE_USER"),
-  };
-}
-
-function assertProductionSessionGatewayConfiguration(
-  env: NodeJS.ProcessEnv,
-): void {
-  if (env.NODE_ENV !== "production") {
-    return;
-  }
-  if (env.INGRESS_SESSION_GATEWAY_CORE_ENABLED !== "true") {
-    throw new Error(
-      "Production Session Gateway requires feature flag ingress.sessionGatewayCore",
-    );
-  }
-  if (env.ACTOR_TOKEN_TEST_SIGNER_ENABLED === "true") {
-    throw new Error("Actor-token test signer cannot be enabled in production");
-  }
-}
-
-function requiredEnvironment(
-  env: NodeJS.ProcessEnv,
-  name: string,
-): string {
-  const value = env[name]?.trim();
-  if (!value) {
-    throw new Error(`Missing required Session Gateway configuration: ${name}`);
-  }
-  return value;
-}
-
-function requiredPort(env: NodeJS.ProcessEnv, name: string): number {
-  const value = Number(requiredEnvironment(env, name));
-  if (!Number.isInteger(value) || value < 1 || value > 65_535) {
-    throw new Error(
-      `Invalid Session Gateway configuration: ${name} must be a port`,
-    );
-  }
-  return value;
 }
