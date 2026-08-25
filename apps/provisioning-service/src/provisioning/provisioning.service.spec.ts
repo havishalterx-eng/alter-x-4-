@@ -1,4 +1,4 @@
-import { createMockSandboxProvider, createMockSecretsProvider, type SecretsProvider } from "@alterx/shared-clients";
+import { createMockSandboxProvider, createMockSecretsProvider, type SandboxProvider, type SecretsProvider } from "@alterx/shared-clients";
 import { describe, expect, it, vi } from "vitest";
 import { ProvisioningService } from "./provisioning.service";
 
@@ -40,6 +40,35 @@ describe("ProvisioningService", () => {
     const service = new ProvisioningService(sandbox, secrets());
     await service.provision(request);
     await service.closeCycle(request.tenantId, request.runId, request.projectId, request.cycleId);
+    expect(sandbox.sessions.size).toBe(0);
+  });
+
+  it("closes an in-flight session when the cycle is cancelled before provisioning registers it", async () => {
+    const sandbox = createMockSandboxProvider();
+    let releaseWriteFiles!: () => void;
+    const writeFilesGate = new Promise<void>((resolve) => {
+      releaseWriteFiles = resolve;
+    });
+    const gated: SandboxProvider = {
+      ...sandbox,
+      writeFiles: async (sessionId, files) => {
+        await writeFilesGate;
+        return sandbox.writeFiles(sessionId, files);
+      },
+    };
+    const service = new ProvisioningService(gated, secrets());
+
+    const provisioning = service.provision(request);
+    const closing = service.closeCycle(
+      request.tenantId,
+      request.runId,
+      request.projectId,
+      request.cycleId,
+    );
+    releaseWriteFiles();
+    await closing;
+    await provisioning;
+
     expect(sandbox.sessions.size).toBe(0);
   });
 

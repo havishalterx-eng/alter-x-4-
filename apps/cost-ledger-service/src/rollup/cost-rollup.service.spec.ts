@@ -175,6 +175,67 @@ describe("CostRollupService", () => {
     ]);
   });
 
+  it("rejects a sub-day window instead of silently overwriting the daily billing snapshot", async () => {
+    const { store, provisionerQuery } = fakeStore([
+      { internal_cost_minor: "1000", retry_cost_minor: "0", recovery_cost_minor: "0", event_count: "1" },
+    ]);
+    const service = new CostRollupService(store, 0.3, PSEUDONYM_KEY);
+
+    await expect(
+      service.queryRollups({
+        tenant_id: TENANT,
+        workspace_id: WORKSPACE,
+        start_at: "2026-01-01T06:00:00.000Z",
+        end_at: "2026-01-01T12:00:00.000Z",
+        dimensions: [],
+        parent_id: "",
+        currency: "INR",
+      }),
+    ).rejects.toThrow(RollupValidationError);
+    expect(provisionerQuery).not.toHaveBeenCalled();
+  });
+
+  it("rejects a full-day window that is not aligned to UTC midnight boundaries", async () => {
+    const { store, provisionerQuery } = fakeStore([]);
+    const service = new CostRollupService(store, 0.3, PSEUDONYM_KEY);
+
+    await expect(
+      service.queryRollups({
+        tenant_id: TENANT,
+        workspace_id: WORKSPACE,
+        start_at: "2026-01-01T18:30:00.000Z",
+        end_at: "2026-01-02T18:30:00.000Z",
+        dimensions: [],
+        parent_id: "",
+        currency: "INR",
+      }),
+    ).rejects.toThrow(RollupValidationError);
+    expect(provisionerQuery).not.toHaveBeenCalled();
+  });
+
+  it("still upserts a multi-day, day-aligned window exactly as before", async () => {
+    const { store, provisionerQuery } = fakeStore([
+      { internal_cost_minor: "1000", retry_cost_minor: "0", recovery_cost_minor: "0", event_count: "1" },
+    ]);
+    const service = new CostRollupService(store, 0.3, PSEUDONYM_KEY);
+
+    const response = await service.queryRollups({
+      tenant_id: TENANT,
+      workspace_id: WORKSPACE,
+      start_at: "2026-01-01T00:00:00.000Z",
+      end_at: "2026-01-04T00:00:00.000Z",
+      dimensions: [],
+      parent_id: "",
+      currency: "INR",
+    });
+
+    expect(JSON.parse(response.rollups_json).start_at).toBe("2026-01-01T00:00:00.000Z");
+    expect(provisionerQuery).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO billing_rollups"),
+      expect.arrayContaining([service.pseudonym(TENANT.slice("ten_".length))]),
+    );
+  });
+
   it("rejects unsupported parent IDs and currencies", async () => {
     const { store } = fakeStore([]);
     const service = new CostRollupService(store, 0.3, PSEUDONYM_KEY);
