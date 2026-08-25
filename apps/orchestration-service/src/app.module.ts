@@ -9,24 +9,19 @@ import {
   RECOVERY_HANDLER,
   REGISTRY_HANDLER,
   RUNS_HANDLER,
-  RUNS_DISPATCH_HANDLER,
   BlackboardGrpcController,
   CapabilityServiceClient,
   CompilerGrpcController,
-  ConversationDispatchClient,
   ConversationGrpcController,
   DeployctlGrpcController,
-  EventBridgeEventPublisher,
   MemoryServiceClient,
   ModelGatewayClient,
   PerformanceRecorderClient,
   PlannerClient,
   PolicyStoreClient,
   ProvisioningClient,
-  RunDispatchGrpcController,
   SandboxServiceClient,
   SelectionBindingClient,
-  AwsSecretsManagerProvider,
   AwsSsmParameterProvider,
   S3ObjectStorageProvider,
   NodeexecGrpcController,
@@ -82,8 +77,6 @@ import { BlackboardGrpcService } from "./blackboard/blackboard-grpc.service";
 import { BlackboardService } from "./blackboard/blackboard.service";
 import { parseRedisHostPort } from "./config/blackboard-environment";
 import { loadConversationManagerEnvironment } from "./config/environment";
-import { loadConversationDispatchEnvironment } from "./config/conversation-dispatch-environment";
-import { loadWhatsappWebhookEnvironment } from "./config/whatsapp-webhook-environment";
 import { loadNodeexecEnvironment } from "./config/nodeexec-environment";
 import { SANDBOX_CLIENT_PROTO_PATH } from "./registry/sandbox-client.constants";
 import {
@@ -100,18 +93,6 @@ import { RecoveryDispatchService } from "./recovery/recovery-dispatch.service";
 import { PostgresRecoveryRunReader } from "./recovery/recovery-run-reader";
 import { RecoveryTriggerService } from "./recovery/recovery-trigger.service";
 import { loadRecoveryEnvironment } from "./config/recovery-environment";
-import { TriggerRegistryController } from "./trigger-registry/trigger-registry.controller";
-import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
-import { TriggerEventDispatchService } from "./trigger-registry/trigger-event-dispatch.service";
-import { loadTriggerDispatchEnvironment } from "./config/trigger-dispatch-environment";
-import {
-  IntegrationWebhookController,
-  PostgresTriggerBindingStore,
-  TriggerBindingController,
-  TriggerBindingService,
-  WebhookEndpointController,
-  loadTriggerBindingEnvironment,
-} from "./trigger-bindings";
 import { WorkflowReadController } from "./workflow-read/workflow-read.controller";
 import { NodeTypeController } from "./registry/node-type.controller";
 import { WorkflowReadService } from "./workflow-read/workflow-read.service";
@@ -124,19 +105,15 @@ import { ProjectReadService } from "./project-read/project-read.service";
 import { ProjectDomainService } from "./project-read/project-domain.service";
 import { MEMORY_CLIENT_PROTO_PATH, TOOLGW_CLIENT_PROTO_PATH, VERIFY_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
 import { VerifyGateService } from "./registry/verify-gate.service";
-import { ConversationDispatchService } from "./webhooks/conversation-dispatch.service";
-import { WhatsappWebhookController } from "./webhooks/whatsapp-webhook.controller";
-import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
-import { WhatsappAccountRegistryService } from "./webhooks/whatsapp-account-registry.service";
-import { WhatsappAccountsController } from "./webhooks/whatsapp-accounts.controller";
 import { ArtifactsService } from "./artifacts/artifacts.service";
 import { GeneratedFileMaterializer } from "./registry/generated-file-materializer";
 import { EvalFacadeService } from "./eval-facade/eval-facade.service";
 import { OperationsModule } from "./operations.module";
 import { ArtifactModule } from "./artifact.module";
+import { IngressModule } from "./ingress.module";
 
 @Module({
-  imports: [OrchestrationInfrastructureModule, OperationsModule, ArtifactModule, RunLauncherModule],
+  imports: [OrchestrationInfrastructureModule, OperationsModule, ArtifactModule, RunLauncherModule, IngressModule],
   controllers: [
     HealthController,
     ConversationGrpcController,
@@ -147,7 +124,6 @@ import { ArtifactModule } from "./artifact.module";
     BlackboardGrpcController,
     RecoveryGrpcController,
     RunsGrpcController,
-    RunDispatchGrpcController,
     NodeExecutionsController,
     RunStreamController,
     RunsController,
@@ -155,27 +131,14 @@ import { ArtifactModule } from "./artifact.module";
     RunLearningController,
     ApprovalsController,
     EscalationsController,
-    TriggerRegistryController,
-    TriggerBindingController,
-    WebhookEndpointController,
-    IntegrationWebhookController,
     WorkflowReadController,
     NodeTypeController,
     WorkflowDeploymentController,
     TemplateVariablesController,
     ClarificationsController,
     ProjectReadController,
-    WhatsappWebhookController,
-    WhatsappAccountsController,
   ],
   providers: [
-    {
-      provide: WhatsappAccountRegistryService,
-      useFactory: () => {
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        return new WhatsappAccountRegistryService(orchestrationStore(dbConfig));
-      },
-    },
     {
       provide: APP_GUARD,
       useFactory: () => {
@@ -231,78 +194,6 @@ import { ArtifactModule } from "./artifact.module";
           accessTokenProvider: internalM2mTokenProvider(),
         });
         return new ConversationManagerService(store, modelGateway);
-      },
-    },
-    {
-      provide: TriggerRegistryService,
-      useFactory: () => {
-        // Same reasoning as CONVERSATION_HANDLER above: the guard's store
-        // instance is not reachable from this factory, so this constructs
-        // its own PostgresOrchestrationStoreProvider against the same
-        // database rather than refactoring the guard wiring.
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = orchestrationStore(dbConfig);
-        const runLauncherConfig = loadRunLauncherEnvironment(process.env);
-        const durable = new TemporalDurableExecutionProvider({
-          address: runLauncherConfig.temporalAddress,
-          namespace: runLauncherConfig.temporalNamespace,
-          taskQueue: runLauncherConfig.taskQueue,
-          ...(runLauncherConfig.temporalApiKey === undefined
-            ? {}
-            : { apiKey: runLauncherConfig.temporalApiKey }),
-        });
-        // INGR-7: the same Temporal provider also owns cron trigger
-        // Schedules. Its metadata claims the primary canonical interface
-        // (DurableExecutionProvider); the CronScheduleManager capability
-        // rides along structurally, so this is a boundary cast.
-        return new TriggerRegistryService(
-          store,
-          undefined,
-          durable as unknown as import("@alterx/shared-clients").CronScheduleManager,
-        );
-      },
-    },
-    {
-      // ENG-BINDING. Same reasoning as TriggerRegistryService above:
-      // constructs its own PostgresOrchestrationStoreProvider rather than
-      // reaching into the guard's private instance.
-      //
-      // Signing secrets are held by AWS Secrets Manager, the only
-      // MutableSecretsProvider wired in this repo. Nothing about the feature
-      // depends on that choice -- TriggerBindingService takes the interface,
-      // so swapping in another provider is a one-line change here.
-      provide: TriggerBindingService,
-      useFactory: () => {
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = orchestrationStore(dbConfig);
-        const bindingConfig = loadTriggerBindingEnvironment(process.env);
-        const dispatchConfig = loadTriggerDispatchEnvironment(process.env);
-        return new TriggerBindingService(
-          new PostgresTriggerBindingStore(store),
-          new AwsSecretsManagerProvider({ region: dbConfig.awsRegion }),
-          {
-            webhookBaseUrl: bindingConfig.webhookBaseUrl,
-            maxSkewSeconds: bindingConfig.maxSkewSeconds,
-          },
-          new EventBridgeEventPublisher({
-            region: dbConfig.awsRegion,
-            busName: dispatchConfig.eventBridgeBusName,
-            ...(dispatchConfig.eventBridgeEndpoint === undefined
-              ? {}
-              : { endpoint: dispatchConfig.eventBridgeEndpoint }),
-          }),
-        );
-      },
-    },
-    {
-      provide: RUNS_DISPATCH_HANDLER,
-      inject: [RunLauncherService],
-      useFactory: (launcher: RunLauncherService) => {
-        // Same reasoning as RUNS_HANDLER above: its own store instance,
-        // isolated from the guard's.
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = orchestrationStore(dbConfig);
-        return new TriggerEventDispatchService(store, launcher);
       },
     },
     {
@@ -638,46 +529,6 @@ import { ArtifactModule } from "./artifact.module";
         );
         const blackboard = new BlackboardService(store, cache);
         return new BlackboardGrpcService(blackboard);
-      },
-    },
-    {
-      provide: WhatsappWebhookService,
-      useFactory: () => {
-        // Same reasoning as CONVERSATION_HANDLER/TriggerRegistryService
-        // above: constructs its own PostgresOrchestrationStoreProvider
-        // rather than reaching into the guard's private instance.
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = orchestrationStore(dbConfig);
-        const whatsappConfig = loadWhatsappWebhookEnvironment(process.env);
-        return new WhatsappWebhookService(
-          store,
-          whatsappConfig,
-          undefined,
-          new WhatsappAccountRegistryService(store),
-        );
-      },
-    },
-    {
-      provide: ConversationDispatchService,
-      useFactory: () => {
-        // Same reasoning as WhatsappWebhookService above: constructs its
-        // own PostgresOrchestrationStoreProvider rather than reaching into
-        // the guard's private instance.
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = orchestrationStore(dbConfig);
-        const dispatchConfig = loadConversationDispatchEnvironment(process.env);
-        const dispatchClient = new ConversationDispatchClient({
-          address: dispatchConfig.temporalAddress,
-          namespace: dispatchConfig.temporalNamespace,
-          taskQueue: dispatchConfig.taskQueue,
-          ...(dispatchConfig.temporalApiKey === undefined
-            ? {}
-            : { apiKey: dispatchConfig.temporalApiKey }),
-        });
-        return new ConversationDispatchService(store, dispatchClient, {
-          taskQueue: dispatchConfig.taskQueue,
-          idleTimeoutSeconds: dispatchConfig.idleTimeoutSeconds,
-        });
       },
     },
   ],
