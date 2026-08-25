@@ -72,9 +72,15 @@ describe.sequential("Graph Compiler -> Capability Resolver gRPC", () => {
     });
     resolver.stdout?.on("data", (chunk: Buffer) => resolverOutput.push(chunk.toString()));
     resolver.stderr?.on("data", (chunk: Buffer) => resolverOutput.push(chunk.toString()));
+    let lastCheckError: unknown;
     await new Promise<void>((resolveReady, rejectReady) => {
       const deadline = setTimeout(
-        () => rejectReady(new Error(`Capability Resolver did not start:\n${resolverOutput.join("")}`)),
+        () =>
+          rejectReady(
+            new Error(
+              `Capability Resolver did not start (last check error: ${String(lastCheckError)}):\n${resolverOutput.join("")}`,
+            ),
+          ),
         20_000,
       );
       const client = new CapabilityServiceClient({
@@ -94,7 +100,8 @@ describe.sequential("Graph Compiler -> Capability Resolver gRPC", () => {
           });
           clearTimeout(deadline);
           resolveReady();
-        } catch {
+        } catch (error: unknown) {
+          lastCheckError = error;
           setTimeout(check, 100);
         }
       };
