@@ -11,8 +11,6 @@ import {
   RUNS_HANDLER,
   RUNS_DISPATCH_HANDLER,
   BlackboardGrpcController,
-  ARTIFACT_CONTENT_HANDLER,
-  ArtifactContentGrpcController,
   CapabilityServiceClient,
   CompilerGrpcController,
   ConversationDispatchClient,
@@ -130,15 +128,14 @@ import { WhatsappWebhookController } from "./webhooks/whatsapp-webhook.controlle
 import { WhatsappWebhookService } from "./webhooks/whatsapp-webhook.service";
 import { WhatsappAccountRegistryService } from "./webhooks/whatsapp-account-registry.service";
 import { WhatsappAccountsController } from "./webhooks/whatsapp-accounts.controller";
-import { ArtifactsController } from "./artifacts/artifacts.controller";
 import { ArtifactsService } from "./artifacts/artifacts.service";
-import { ArtifactContentGrpcService } from "./artifacts/artifact-content-grpc.service";
 import { GeneratedFileMaterializer } from "./registry/generated-file-materializer";
 import { EvalFacadeService } from "./eval-facade/eval-facade.service";
 import { OperationsModule } from "./operations.module";
+import { ArtifactModule } from "./artifact.module";
 
 @Module({
-  imports: [OrchestrationInfrastructureModule, OperationsModule],
+  imports: [OrchestrationInfrastructureModule, OperationsModule, ArtifactModule],
   controllers: [
     HealthController,
     ConversationGrpcController,
@@ -150,7 +147,6 @@ import { OperationsModule } from "./operations.module";
     RecoveryGrpcController,
     RunsGrpcController,
     RunDispatchGrpcController,
-    ArtifactContentGrpcController,
     NodeExecutionsController,
     RunStreamController,
     RunsController,
@@ -168,16 +164,10 @@ import { OperationsModule } from "./operations.module";
     TemplateVariablesController,
     ClarificationsController,
     ProjectReadController,
-    ArtifactsController,
     WhatsappWebhookController,
     WhatsappAccountsController,
   ],
   providers: [
-    {
-      provide: ARTIFACT_CONTENT_HANDLER,
-      useFactory: (artifacts: ArtifactsService) => new ArtifactContentGrpcService(artifacts),
-      inject: [ArtifactsService],
-    },
     {
       provide: WhatsappAccountRegistryService,
       useFactory: () => {
@@ -361,20 +351,6 @@ import { OperationsModule } from "./operations.module";
           conversations,
           launcher,
         );
-      },
-    },
-    {
-      provide: ArtifactsService,
-      useFactory: async () => {
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = orchestrationStore(dbConfig);
-        const parameterStore = new AwsSsmParameterProvider({ region: dbConfig.awsRegion });
-        try {
-          const bucketName = await parameterStore.getParameter(dbConfig.artifactsBucketParameter);
-          return new ArtifactsService(store, new S3ObjectStorageProvider({ region: dbConfig.awsRegion }), bucketName);
-        } finally {
-          parameterStore.close();
-        }
       },
     },
     {
