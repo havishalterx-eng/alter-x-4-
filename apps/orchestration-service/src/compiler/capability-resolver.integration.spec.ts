@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
@@ -12,6 +13,13 @@ import {
   type OrchestrationTenantStore,
 } from "./graph-compiler.service";
 import { CAPABILITY_CLIENT_PROTO_PATH } from "./capability-client.constants";
+
+// Shared internal-service credential for the spawned intelligence-service.
+// Must match the SHA-256 the callee enforces (apps/intelligence-service/tests/conftest.py).
+const INTERNAL_SERVICE_TOKEN = "integration-token";
+const INTERNAL_SERVICE_TOKEN_SHA256 = createHash("sha256")
+  .update(INTERNAL_SERVICE_TOKEN)
+  .digest("hex");
 
 const TENANT_ID = "ten_018f47a5-7b2c-7d10-8f11-123456789abc";
 const WORKFLOW_ID = "wf_018f47a5-7b2c-7d10-8f11-123456789abc";
@@ -55,12 +63,16 @@ describe.sequential("Graph Compiler -> Capability Resolver gRPC", () => {
     address = `127.0.0.1:${await availablePort()}`;
     resolver = spawn(process.platform === "win32" ? "uv.exe" : "uv", ["run", "uvicorn", "src.main:app", "--port", String(await availablePort())], {
       cwd: resolve(process.cwd(), "apps/intelligence-service"),
-      env: { ...process.env, CAPABILITY_GRPC_BIND_ADDRESS: address },
+      env: {
+        ...process.env,
+        CAPABILITY_GRPC_BIND_ADDRESS: address,
+        INTERNAL_SERVICE_TOKEN_SHA256,
+      },
       stdio: "ignore",
     });
     await new Promise<void>((resolveReady, rejectReady) => {
       const deadline = setTimeout(() => rejectReady(new Error("Capability Resolver did not start")), 20_000);
-      const client = new CapabilityServiceClient({ address, protoPath: CAPABILITY_CLIENT_PROTO_PATH, timeoutMs: 250 });
+      const client = new CapabilityServiceClient({ address, protoPath: CAPABILITY_CLIENT_PROTO_PATH, authorization: INTERNAL_SERVICE_TOKEN, timeoutMs: 250 });
       const check = async (): Promise<void> => {
         try {
           await client.resolveNodeRequirements({
@@ -82,10 +94,29 @@ describe.sequential("Graph Compiler -> Capability Resolver gRPC", () => {
 
   afterAll(() => resolver?.kill());
 
+  it("rejects an unauthenticated caller (UNAUTHENTICATED)", async () => {
+    // No valid internal-service token -> the gRPC interceptor must reject.
+    const client = new CapabilityServiceClient({
+      address,
+      protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+      authorization: "",
+      timeoutMs: 250,
+    });
+    await expect(
+      client.resolveNodeRequirements({
+        tenant_id: TENANT_ID,
+        run_id: "",
+        node_key: "ready",
+        node_type: "Gate",
+        node_config_json: "{}",
+      }),
+    ).rejects.toThrow();
+  });
+
   it("compiles representative nodes through the live typed resolver", async () => {
     const compiler = new GraphCompilerService(
       fakeStore(),
-      new CapabilityServiceClient({ address, protoPath: CAPABILITY_CLIENT_PROTO_PATH }),
+      new CapabilityServiceClient({ address, protoPath: CAPABILITY_CLIENT_PROTO_PATH, authorization: INTERNAL_SERVICE_TOKEN }),
     );
     const result = await compiler.compileWorkflow({
       tenant_id: TENANT_ID,

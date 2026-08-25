@@ -26,10 +26,20 @@ class ScoreNodeInlineResult:
 
 
 class VerificationClient:
-    def __init__(self, target: str, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self,
+        target: str,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        *,
+        service_token: str = "",
+    ) -> None:
         self._channel = grpc.insecure_channel(target)
         self._stub = verify_pb2_grpc.VerifyServiceStub(self._channel)  # type: ignore[no-untyped-call]
         self._timeout_seconds = timeout_seconds
+        # Same optional-credential convention as IngestionEvalClient: attach
+        # the internal service credential when one is configured so the
+        # callee's gRPC interceptor accepts the call.
+        self._metadata = (("authorization", f"Bearer {service_token}"),) if service_token else None
 
     def score_node_inline(
         self,
@@ -53,6 +63,7 @@ class VerificationClient:
                 output_json=output_json,
             ),
             timeout=self._timeout_seconds,
+            metadata=self._metadata,
         )
         return ScoreNodeInlineResult(
             verdict=response.verdict,

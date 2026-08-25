@@ -1,4 +1,4 @@
-import { credentials, loadPackageDefinition, status, type Client } from "@grpc/grpc-js";
+import { credentials, loadPackageDefinition, Metadata, status, type Client } from "@grpc/grpc-js";
 import { loadSync } from "@grpc/proto-loader";
 
 import type {
@@ -9,6 +9,7 @@ import type {
 export interface VerifyServiceClientConfig {
   readonly address: string;
   readonly protoPath: string;
+  readonly authorization: string;
   readonly timeoutMs?: number;
 }
 
@@ -32,6 +33,7 @@ export class VerifyServiceClientError extends Error {
 interface VerifyGrpcClient extends Client {
   scoreNodeInline(
     request: ScoreNodeInlineRequest,
+    metadata: Metadata,
     options: { readonly deadline: Date },
     callback: (error: Error | null, response?: ScoreNodeInlineResponse) => void,
   ): void;
@@ -42,9 +44,12 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 export class VerifyServiceClient implements VerifyServiceHandlerClient {
   readonly #client: VerifyGrpcClient;
   readonly #timeoutMs: number;
+  readonly #metadata: Metadata;
 
   constructor(config: VerifyServiceClientConfig, client?: VerifyGrpcClient) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#metadata = new Metadata();
+    this.#metadata.set("authorization", config.authorization);
     this.#client = client ?? VerifyServiceClient.#buildClient(config);
   }
 
@@ -75,6 +80,7 @@ export class VerifyServiceClient implements VerifyServiceHandlerClient {
     return new Promise<ScoreNodeInlineResponse>((resolve, reject) => {
       this.#client.scoreNodeInline(
         request,
+        this.#metadata,
         { deadline: new Date(Date.now() + this.#timeoutMs) },
         (error, response) => {
           if (error !== null) {

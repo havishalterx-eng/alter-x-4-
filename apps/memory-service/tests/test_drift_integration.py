@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import socket
@@ -256,6 +257,9 @@ def drift_stack() -> Generator[dict[str, str], None, None]:
                 DRIFT_READER_PASSWORD,
             )
         )
+        environment["INTERNAL_SERVICE_TOKEN_SHA256"] = hashlib.sha256(
+            b"integration-token"
+        ).hexdigest()
         process = subprocess.Popen(
             [
                 "uv",

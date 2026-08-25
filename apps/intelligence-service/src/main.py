@@ -15,10 +15,13 @@ from .problem_understanding.router import problem_understanding_lifespan
 from .problem_understanding.router import router as problem_understanding_router
 from .selection_binding.router import router as selection_binding_router
 from .selection_binding.router import selection_binding_lifespan
+from .service_auth import assert_configured_at_startup
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # A missing credential is a boot failure, never a per-request surprise.
+    assert_configured_at_startup()
     capability_server = await start_capability_server(
         get_settings().capability_grpc_bind_address
     )
@@ -32,7 +35,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await capability_server.stop(0)
 
 
-app = FastAPI(lifespan=lifespan)
+# NOTE: intelligence-service's HTTP app is its public API (planner,
+# problem-understanding, selection-binding, performance, capability-registry,
+# architecture-synthesizer) and is reached by the platform/frontend without a
+# service credential, so it is intentionally NOT behind the internal
+# service-to-service token. The service-to-service boundary for intelligence is
+# its gRPC surface (capability_resolver), which is protected by
+# ServiceAuthInterceptor in capability_resolver/grpc_server.py.
+app = FastAPI(
+    lifespan=lifespan,
+)
 
 app.include_router(planner_router)
 app.include_router(problem_understanding_router)

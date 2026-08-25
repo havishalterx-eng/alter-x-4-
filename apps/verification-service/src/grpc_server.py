@@ -7,6 +7,7 @@ import grpc
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alter.verify.v1 import verify_pb2_grpc
+from src.service_auth import ServiceAuthInterceptor, assert_configured_at_startup
 from src.verification.grpc_service import VerifyGrpcService
 from src.verification.kernel import VerificationKernel
 from src.verification.m2m_auth import lazy_auth0_m2m_token_provider_from_environment
@@ -15,6 +16,8 @@ from src.verification.policy_client import HttpQualityThresholdPolicyClient
 
 
 async def serve() -> None:
+    # A missing credential is a boot failure, never a per-RPC surprise.
+    assert_configured_at_startup()
     database_url_raw = _required_environment("ORCHESTRATION_DATABASE_URL")
     database_url = database_url_raw.replace("postgres://", "postgresql+asyncpg://").replace(
         "postgresql://", "postgresql+asyncpg://"
@@ -54,7 +57,9 @@ async def serve() -> None:
     # ADVANCED Model Gateway reviewer client is built (separate, real,
     # disclosed follow-up).
     kernel = VerificationKernel(model_gateway, policy_client)
-    server = grpc.aio.server()
+    # Every RPC requires the internal service credential -- interceptor, not
+    # per-RPC checks, so a new RPC cannot forget it.
+    server = grpc.aio.server(interceptors=[ServiceAuthInterceptor()])
     verify_pb2_grpc.add_VerifyServiceServicer_to_server(  # type: ignore[no-untyped-call]
         VerifyGrpcService(sessions, model_gateway, kernel), server
     )

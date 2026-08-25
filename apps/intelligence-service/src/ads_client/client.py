@@ -61,6 +61,7 @@ class GrpcAdsClient:
         *,
         timeout_seconds: float = 3.0,
         channel: Any | None = None,
+        service_token: str = "",
     ) -> None:
         grpc, adsq_pb2, adsq_pb2_grpc = _load_grpc_bindings()
         self._timeout_seconds = timeout_seconds
@@ -68,6 +69,12 @@ class GrpcAdsClient:
         self._adsq_pb2 = adsq_pb2
         self._channel = channel or grpc.aio.insecure_channel(target)
         self._stub = adsq_pb2_grpc.AdsqServiceStub(self._channel)
+        # Same optional-credential convention as the eval clients: attach the
+        # internal service credential when one is configured so the callee's
+        # gRPC interceptor (ads-core's SyncServiceAuthInterceptor) accepts it.
+        self._metadata = (
+            (("authorization", f"Bearer {service_token}"),) if service_token else None
+        )
 
     async def close(self) -> None:
         await self._channel.close()
@@ -85,6 +92,7 @@ class GrpcAdsClient:
                     requester="intelligence-service",
                 ),
                 timeout=self._timeout_seconds,
+                metadata=self._metadata,
             )
         except self._grpc.aio.AioRpcError:
             # The locked Planning request has no authorized scope inputs yet.
@@ -104,6 +112,7 @@ class GrpcAdsClient:
                     ],
                 ),
                 timeout=self._timeout_seconds,
+                metadata=self._metadata,
             )
         except self._grpc.aio.AioRpcError as exc:
             raise AdsUnavailableError("ADS Q reranking is unavailable") from exc
@@ -116,6 +125,7 @@ class GrpcAdsClient:
                     tenant_id=request.tenant_id, document_id=request.document_id
                 ),
                 timeout=self._timeout_seconds,
+                metadata=self._metadata,
             )
         except self._grpc.aio.AioRpcError as exc:
             if exc.code() == self._grpc.StatusCode.NOT_FOUND:

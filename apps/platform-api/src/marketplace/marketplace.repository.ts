@@ -122,6 +122,21 @@ export class MarketplaceRepository implements OnModuleDestroy {
     });
   }
 
+  // Cross-tenant lookup for the staff publish plane, which carries no tenant
+  // actor. Listings have no RLS policy, so a direct pool query is safe here.
+  async findListingById(id: string): Promise<ListingRecord | undefined> {
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query<ListingRow>(
+        "SELECT * FROM listings WHERE id = $1",
+        [id],
+      );
+      return result.rows[0] ? mapListing(result.rows[0]) : undefined;
+    } finally {
+      client.release();
+    }
+  }
+
   createListing(
     tenantId: string,
     id: string,

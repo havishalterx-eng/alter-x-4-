@@ -48,12 +48,17 @@ class AssessSeverityLookupResult:
 
 class VerificationSeverityEvalClient:
     def __init__(
-        self, target: str, db_url: str, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
+        self,
+        target: str,
+        db_url: str,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        service_token: str | None = None,
     ) -> None:
         self._channel = grpc.insecure_channel(target)
         self._stub = verify_pb2_grpc.VerifyServiceStub(self._channel)  # type: ignore[no-untyped-call]
         self._timeout_seconds = timeout_seconds
         self._db_url = db_url
+        self._metadata = (("authorization", f"Bearer {service_token}"),) if service_token else None
 
     def seed_cross_tenant_node(self, *, other_tenant_uuid: str) -> tuple[str, str]:
         workflow_id = f"wf_{uuid.uuid4()}"
@@ -105,6 +110,7 @@ class VerificationSeverityEvalClient:
                     finding_json="{}",
                 ),
                 timeout=self._timeout_seconds,
+                metadata=self._metadata,
             )
             return AssessSeverityLookupResult(not_found=False)
         except grpc.RpcError as error:

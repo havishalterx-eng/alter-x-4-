@@ -326,6 +326,7 @@ def verification_server_target(
             "ORCHESTRATION_DATABASE_URL": "postgresql+asyncpg://unused:unused@127.0.0.1:1/unused",
             "MODEL_GATEWAY_GRPC_TARGET": model_gateway_target,
             "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+            "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             **local_m2m_issuer.environment(),
         },
     )
@@ -401,6 +402,7 @@ def verification_severity_server_target() -> Generator[tuple[str, str], None, No
                 "ORCHESTRATION_DATABASE_URL": asyncpg_db_url,
                 "MODEL_GATEWAY_GRPC_TARGET": "127.0.0.1:1",
                 "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+                "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             },
         )
         try:
@@ -500,6 +502,7 @@ def intelligence_server_target(
             "PATH": os.environ.get("PATH", ""),
             "ADSQ_GRPC_TARGET": "127.0.0.1:1",
             "MODEL_GATEWAY_GRPC_TARGET": f"127.0.0.1:{model_gateway_port}",
+            "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             **local_m2m_issuer.environment(),
         },
     )
@@ -550,6 +553,7 @@ def ads_core_server_target() -> Generator[str, None, None]:
                 "EVAL_ADS_WORKSPACE_ID": _EVAL_ADS_WORKSPACE_UUID,
                 "EVAL_ADS_SCOPE_ID": _EVAL_ADS_SCOPE_ID,
                 "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+                "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             },
         )
         try:
@@ -720,7 +724,9 @@ def test_verification_golden_set_executes_for_real_and_all_20_cases_pass(
     verification_server_target: str,
 ) -> None:
     _skip_without_real_llm_key()
-    verification_client = VerificationClient(verification_server_target)
+    verification_client = VerificationClient(
+        verification_server_target, service_token=_EVAL_INTERNAL_SERVICE_TOKEN
+    )
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
@@ -838,7 +844,9 @@ def test_rerunning_produces_a_second_independent_real_eval_run(
     verification_server_target: str,
 ) -> None:
     _skip_without_real_llm_key()
-    verification_client = VerificationClient(verification_server_target)
+    verification_client = VerificationClient(
+        verification_server_target, service_token=_EVAL_INTERNAL_SERVICE_TOKEN
+    )
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
@@ -988,7 +996,9 @@ def test_unknown_golden_set_raises(
     sessions: sessionmaker[Session],
     verification_server_target: str,
 ) -> None:
-    verification_client = VerificationClient(verification_server_target)
+    verification_client = VerificationClient(
+        verification_server_target, service_token=_EVAL_INTERNAL_SERVICE_TOKEN
+    )
     planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
@@ -1087,7 +1097,9 @@ def test_planner_select_strategy_cases_execute_for_real(
     intelligence_server_target: str,
 ) -> None:
     verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
-    planner_client = PlannerClient(intelligence_server_target)
+    planner_client = PlannerClient(
+        intelligence_server_target, service_token=_EVAL_INTERNAL_SERVICE_TOKEN
+    )
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
@@ -1779,6 +1791,7 @@ def ads_isolation_server_target() -> Generator[str, None, None]:
                 "EVAL_ADS_TENANT_B_WORKSPACE_ID": "018f4d6e-cccc-7ccc-8ccc-cccccccccccc",
                 "EVAL_ADS_TENANT_B_SCOPE_ID": "scp_018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
                 "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+                "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             },
         )
         try:
@@ -2504,6 +2517,7 @@ def agent_binding_server_target(
                     "INTELLIGENCE_DB_URL_SYNC": sync_url,
                     "ADSQ_GRPC_TARGET": "127.0.0.1:1",
                     "MODEL_GATEWAY_GRPC_TARGET": f"127.0.0.1:{model_gateway_grpc_port}",
+                    "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
                     **local_m2m_issuer.environment(),
                 },
             )
@@ -2646,7 +2660,9 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         access_token_provider=m2m_client,
     )
     verification_severity_client = VerificationSeverityEvalClient(
-        verification_severity_http_target, verification_severity_db_url
+        verification_severity_http_target,
+        verification_severity_db_url,
+        service_token=_EVAL_INTERNAL_SERVICE_TOKEN,
     )
     audit_client = AuditEvalClient(audit_server_target, access_token_provider=m2m_client)
     memory_drift_client = MemoryDriftEvalClient(
@@ -2790,7 +2806,9 @@ def test_project_golden_set_executes_for_real(
     intelligence_server_target: str,
 ) -> None:
     verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
-    planner_client = PlannerClient(intelligence_server_target)
+    planner_client = PlannerClient(
+        intelligence_server_target, service_token=_EVAL_INTERNAL_SERVICE_TOKEN
+    )
     retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
     intent_client = IntentClient(_UNUSED_INTENT_TARGET)
     security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)

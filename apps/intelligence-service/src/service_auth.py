@@ -99,35 +99,6 @@ def verify_service_token(authorization: str | None) -> ServiceIdentity:
     return ServiceIdentity()
 
 
-def _expected_global_write_digest() -> str | None:
-    """Second, more tightly held credential — global-scope policy writes only.
-
-    Distinct from INTERNAL_SERVICE_TOKEN on purpose: every internal service
-    shares that one, so it cannot gate a privileged operation. This one is
-    handed to whichever caller is actually authorized to transition the
-    platform-wide policy (e.g. an ops/admin tool), not to every service.
-    Unset means "nobody holds it yet" -- fail closed, not fail open.
-    """
-    digest = os.environ.get("POLICY_GLOBAL_WRITE_TOKEN_SHA256", "").strip().lower()
-    if len(digest) != 64 or not all(c in "0123456789abcdef" for c in digest):
-        return None
-    return digest
-
-
-def verify_global_write_token(token: str | None) -> bool:
-    """True only if `token` is the privileged global-policy-write credential.
-
-    Never raises: a missing/wrong value just means "not authorized for this",
-    which the caller may still be fine (its general service token already
-    passed `verify_service_token` for the ordinary, tenant-scoped path).
-    """
-    expected = _expected_global_write_digest()
-    if expected is None or not token or not token.strip():
-        return False
-    actual = hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
-    return hmac.compare_digest(actual, expected)
-
-
 def require_tenant(identity: ServiceIdentity, requested_tenant_id: str) -> str:
     """Validate a message-borne tenant against the authenticated caller.
 

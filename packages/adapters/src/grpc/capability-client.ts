@@ -1,4 +1,4 @@
-import { credentials, loadPackageDefinition, status, type Client } from "@grpc/grpc-js";
+import { credentials, loadPackageDefinition, Metadata, status, type Client } from "@grpc/grpc-js";
 import { loadSync } from "@grpc/proto-loader";
 
 export interface ResolveNodeRequirementsRequest {
@@ -17,6 +17,7 @@ export interface ResolveNodeRequirementsResponse {
 export interface CapabilityServiceClientConfig {
   readonly address: string;
   readonly protoPath: string;
+  readonly authorization: string;
   readonly timeoutMs?: number;
 }
 
@@ -27,6 +28,7 @@ export interface CapabilityServiceHandlerClient {
 interface CapabilityGrpcClient extends Client {
   resolveNodeRequirements(
     request: ResolveNodeRequirementsRequest,
+    metadata: Metadata,
     options: { readonly deadline: Date },
     callback: (error: Error | null, response?: ResolveNodeRequirementsResponse) => void,
   ): void;
@@ -37,9 +39,18 @@ const DEFAULT_TIMEOUT_MS = 3_000;
 export class CapabilityServiceClient implements CapabilityServiceHandlerClient {
   readonly #client: CapabilityGrpcClient;
   readonly #timeoutMs: number;
+  readonly #metadata: Metadata;
 
   constructor(config: CapabilityServiceClientConfig, client?: CapabilityGrpcClient) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#metadata = new Metadata();
+    // The callee's ServiceAuthInterceptor requires a "Bearer " prefix (see
+    // apps/intelligence-service/src/service_auth.py's _BEARER constant).
+    // Every real caller (apps/orchestration-service/src/app.module.ts, 4
+    // sites) passes the raw INTERNAL_SERVICE_TOKEN value -- prefixing here,
+    // once, matches the convention every other internal-service client in
+    // this codebase already follows (raw token in, "Bearer <token>" out).
+    this.#metadata.set("authorization", `Bearer ${config.authorization}`);
     this.#client = client ?? CapabilityServiceClient.#buildClient(config);
   }
 
@@ -53,7 +64,7 @@ export class CapabilityServiceClient implements CapabilityServiceHandlerClient {
 
   resolveNodeRequirements(request: ResolveNodeRequirementsRequest): Promise<ResolveNodeRequirementsResponse> {
     return new Promise((resolve, reject) => {
-      this.#client.resolveNodeRequirements(request, { deadline: new Date(Date.now() + this.#timeoutMs) }, (error, response) => {
+      this.#client.resolveNodeRequirements(request, this.#metadata, { deadline: new Date(Date.now() + this.#timeoutMs) }, (error, response) => {
         if (error !== null) {
           reject(new Error(`Capability Service request failed: ${errorCode(error)}`));
         } else if (response === undefined) {

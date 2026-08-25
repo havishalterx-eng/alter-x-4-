@@ -9,6 +9,7 @@ import {
 import type {
   ActorContext as ActorContextValue,
   RbacRequest,
+  StaffActorContext as StaffActorContextValue,
   TenantRole,
   WorkspaceRole,
   StaffRole,
@@ -29,6 +30,12 @@ export const ActorContext = createParamDecorator(
   (_data: unknown, context: ExecutionContext): ActorContextValue | undefined => {
     const request = context.switchToHttp().getRequest<RbacRequest>();
     return request.actorContext;
+  },
+);
+export const StaffActorContext = createParamDecorator(
+  (_data: unknown, context: ExecutionContext): StaffActorContextValue | undefined => {
+    const request = context.switchToHttp().getRequest<RbacRequest>();
+    return request.staffActorContext;
   },
 );
 export const RequireStaffRole = (...roles: StaffRole[]) => SetMetadata(staffRolesMetadataKey, roles);

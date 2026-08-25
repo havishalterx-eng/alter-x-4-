@@ -29,7 +29,11 @@ def kernel() -> VerificationKernel:
 @pytest.fixture
 def client(kernel: VerificationKernel) -> AsyncClient:
     app.dependency_overrides[get_kernel] = lambda: kernel
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    return AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"authorization": "Bearer integration-token"},
+    )
 
 
 @pytest.fixture(autouse=True)

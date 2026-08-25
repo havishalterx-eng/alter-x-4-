@@ -210,6 +210,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
       useFactory: (config: EvalFacadeEnvironment) => new EvalServiceClient({
         address: config.grpcTarget,
         protoPath: EVAL_PROTO_PATH,
+        authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
       }),
     },
     EvalFacadeService,
@@ -463,6 +464,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         return new GraphCompilerService(store, new CapabilityServiceClient({
           address: recoveryConfig.capabilityResolverAddress,
           protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+          authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
         }));
       },
     },
@@ -533,6 +535,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
           new VerifyServiceClient({
             address: nodeexecConfig.verifyServiceAddress,
             protoPath: VERIFY_CLIENT_PROTO_PATH,
+            authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
           }),
         );
         // No real QueueProvider adapter exists yet -- PubSubHandler uses
@@ -582,6 +585,7 @@ import { EVAL_PROTO_PATH } from "./eval-facade/grpc.constants";
         const capabilityResolverForNodeexec = new CapabilityServiceClient({
           address: bindingConfig.capabilityResolverAddress,
           protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+          authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
         });
         const selectionBindingForNodeexec = new SelectionBindingClient({
           baseUrl: bindingConfig.plannerBaseUrl,
@@ -913,6 +917,7 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
   const compiler = new GraphCompilerService(store, new CapabilityServiceClient({
     address: recoveryConfig.capabilityResolverAddress,
     protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+    authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
   }));
   const planner = new PlannerClient({ baseUrl: recoveryConfig.plannerBaseUrl });
   // swap_agent's real dispatch target -- same Capability Resolver gRPC
@@ -923,6 +928,7 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
   const capabilityResolverForRecovery = new CapabilityServiceClient({
     address: recoveryConfig.capabilityResolverAddress,
     protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+    authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
   });
   const selectionBinding = new SelectionBindingClient({ baseUrl: recoveryConfig.plannerBaseUrl });
   const policyStoreClient = new PolicyStoreClient({

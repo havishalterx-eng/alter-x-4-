@@ -43,6 +43,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+import grpc
 from fastapi import Request
 
 _TENANT_RE = re.compile(
@@ -157,7 +158,7 @@ def fastapi_dependency(
 #     from service_auth import ServiceAuthInterceptor
 #     server = grpc.aio.server(interceptors=[ServiceAuthInterceptor()])
 # ---------------------------------------------------------------------------
-class ServiceAuthInterceptor:
+class ServiceAuthInterceptor(grpc.aio.ServerInterceptor):  # type: ignore[misc]
     """grpc.aio server interceptor enforcing the service credential on every RPC."""
 
     def __init__(self, exempt_methods: frozenset[str] = frozenset()) -> None:
@@ -187,6 +188,41 @@ class ServiceAuthInterceptor:
             return grpc.unary_unary_rpc_method_handler(abort)
 
         return await continuation(handler_call_details)
+
+
+class SyncServiceAuthInterceptor(grpc.ServerInterceptor):  # type: ignore[misc]
+    """Sync `grpc.server` interceptor enforcing the service credential on
+    every RPC -- same contract as ServiceAuthInterceptor, for the sync
+    server this service's production query entrypoint uses (see
+    src/query/grpc_server.py)."""
+
+    def __init__(self, exempt_methods: frozenset[str] = frozenset()) -> None:
+        # Health checks only. Never exempt a data method.
+        self._exempt = exempt_methods
+
+    def intercept_service(
+        self,
+        continuation: Any,
+        handler_call_details: Any,
+    ) -> Any:
+        import grpc
+
+        if handler_call_details.method in self._exempt:
+            return continuation(handler_call_details)
+
+        metadata = dict(handler_call_details.invocation_metadata or ())
+        authorization = metadata.get("authorization")
+        try:
+            verify_service_token(authorization)
+        except (ServiceAuthError, ServiceAuthNotConfigured) as error:
+            error_detail = str(error)
+
+            def abort(_request: Any, context: Any) -> None:
+                context.abort(grpc.StatusCode.UNAUTHENTICATED, error_detail)
+
+            return grpc.unary_unary_rpc_method_handler(abort)
+
+        return continuation(handler_call_details)
 
 
 def assert_configured_at_startup() -> None:

@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UseGuards, UseInterceptors } from "@nestjs/common";
-import { ActorContext, RequireWorkspaceRole, type ActorContextType } from "../rbac";
+import { ActorContext, RequireStaffRole, RequireWorkspaceRole, StaffActorContext, type ActorContextType, type StaffActorContextType } from "../rbac";
 import { Idempotent } from "../idempotency";
 import { IfMatchGuard, EtagResponseInterceptor } from "../concurrency";
 import { MarketplaceHttpError } from "./problem";
@@ -22,6 +22,8 @@ export class MarketplaceController {
   create(@Body() body: unknown, @ActorContext() actor: ActorContextType) { return this.marketplace.create(actor.tenant_id, parseCreateListing(body, "/api/v1/marketplace/listings")); }
   @Patch("listings/:listingId") @RequireWorkspaceRole("admin", "editor") @UseGuards(IfMatchGuard) @UseInterceptors(EtagResponseInterceptor)
   update(@Param("listingId") listingId: string, @Body() body: unknown, @ActorContext() actor: ActorContextType) { return this.marketplace.update(actor.tenant_id, parseListingId(listingId, "/api/v1/marketplace/listings"), parseUpdateListing(body, "/api/v1/marketplace/listings")); }
+  @Post("admin/listings/:listingId/actions/publish") @RequireStaffRole("staff_admin", "staff_security", "staff_support")
+  publish(@Param("listingId") listingId: string, @StaffActorContext() staff: StaffActorContextType) { return this.marketplace.publish(staff, parseListingId(listingId, "/api/v1/marketplace/admin/listings")); }
   @Post("listings/:listingId/versions") @RequireWorkspaceRole("admin", "editor")
   createVersion(@Param("listingId") listingId: string, @Body() body: unknown, @ActorContext() actor: ActorContextType) { return this.marketplace.createVersion(actor.tenant_id, parseListingId(listingId, "/api/v1/marketplace/listings"), parseCreateListingVersion(body, "/api/v1/marketplace/listings")); }
   @Post("listings/:listingId/actions/check-compatibility") @RequireWorkspaceRole(...allWorkspaceRoles)
