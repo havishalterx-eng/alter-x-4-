@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { AuditService } from "./audit.service";
 import { auditId } from "./audit-id";
 
+const VALID_EVENT_ID = "aaaaaaaa-0000-7000-8000-000000000001";
+
 const TENANT_A = "018f47a2-7b11-7b11-8a11-1234567890ab";
 const TENANT_B = "028f47a2-7b11-7b11-8a11-1234567890ab";
 
@@ -142,5 +144,71 @@ describe("AuditService.queryEvents", () => {
     // next_cursor is the returned page's own last-item id (keyset pagination
     // semantics: the next query resumes strictly after this row).
     expect(result.next_cursor).toBe(auditId("aaaaaaaa-0000-7000-8000-000000000001"));
+  });
+
+  it("rejects an unsupported result value", async () => {
+    const { service } = await seededService();
+    await expect(
+      service.queryEvents({
+        tenantId: `ten_${TENANT_A}`,
+        actorTypes: [],
+        action: "",
+        result: "not-a-real-result",
+        occurredAfter: "",
+        occurredBefore: "",
+        cursor: "",
+        limit: 50,
+      }),
+    ).rejects.toThrow(/not supported/);
+  });
+
+  it("rejects a non-positive limit at the service layer", async () => {
+    const { service } = await seededService();
+    await expect(
+      service.queryEvents({
+        tenantId: `ten_${TENANT_A}`,
+        actorTypes: [],
+        action: "",
+        result: "",
+        occurredAfter: "",
+        occurredBefore: "",
+        cursor: "",
+        limit: 0,
+      }),
+    ).rejects.toThrow(/positive integer/);
+  });
+});
+
+describe("AuditService.getEvent", () => {
+  it("returns the event when it belongs to the requesting tenant", async () => {
+    const { service } = await seededService();
+    const result = await service.getEvent({
+      tenant_id: `ten_${TENANT_A}`,
+      event_id: auditId(VALID_EVENT_ID),
+    });
+    expect(result.id).toBe(auditId(VALID_EVENT_ID));
+    expect(result.action).toBe("workflow.create");
+  });
+
+  it("treats a missing event as not found", async () => {
+    const { service } = await seededService();
+    await expect(
+      service.getEvent({
+        tenant_id: `ten_${TENANT_A}`,
+        event_id: "aud_ffffffff-0000-7000-8000-000000000099",
+      }),
+    ).rejects.toThrow(/not found/i);
+  });
+
+  it("treats an event that belongs to a different tenant as not found, not a leak", async () => {
+    const { service } = await seededService();
+    // Same event exists under TENANT_A; requesting it under TENANT_B must be
+    // indistinguishable from a genuinely missing event.
+    await expect(
+      service.getEvent({
+        tenant_id: `ten_${TENANT_B}`,
+        event_id: auditId(VALID_EVENT_ID),
+      }),
+    ).rejects.toThrow(/not found/i);
   });
 });
