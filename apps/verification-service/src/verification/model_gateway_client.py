@@ -60,6 +60,8 @@ class GrpcModelGatewayClient:
     async def close(self) -> None:
         if self._owns_channel:
             await self._channel.close()
+        if self._access_token_provider is not None:
+            await self._access_token_provider.close()
 
     async def classify_hallucination(
         self,
@@ -141,7 +143,7 @@ class GrpcModelGatewayClient:
         try:
             kwargs: dict[str, object] = {"timeout": self._timeout_seconds}
             if self._access_token_provider is not None:
-                kwargs["metadata"] = self._access_token_provider.metadata()
+                kwargs["metadata"] = await self._access_token_provider.metadata()
             response = await self._stub.Invoke(
                 modelgw_pb2.InvokeRequest(
                     tenant_id=tenant_id,
