@@ -7,6 +7,7 @@ from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic, sleep
 from typing import cast
 
 import grpc
@@ -22,6 +23,7 @@ from alembic import command
 from alter.modelgw.v1 import modelgw_pb2, modelgw_pb2_grpc
 from src.db.ids import new_prefixed_id
 from src.ingestion.chunking import (
+    Chunk,
     ChunkSplitter,
     ParagraphAwareChunkSplitter,
     UnsupportedContentTypeError,
@@ -174,6 +176,36 @@ class FakeEmbeddingClient:
         seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest()[:8], 16)
         vector = tuple(((seed + index) % 1000) / 1000 for index in range(dimensions))
         return EmbeddingResult(vector=vector, model_id=FAKE_MODEL_ID)
+
+
+class _FixedChunkSplitter:
+    def __init__(self, chunks: tuple[Chunk, ...]) -> None:
+        self._chunks = chunks
+
+    def split(self, *, content: bytes, content_type: str) -> tuple[Chunk, ...]:
+        del content, content_type
+        return self._chunks
+
+
+class _DelayedEmbeddingClient(FakeEmbeddingClient):
+    def __init__(self, delay_seconds: float) -> None:
+        super().__init__()
+        self._delay_seconds = delay_seconds
+
+    def embed(
+        self, *, tenant_id: str, text: str, dimensions: EmbeddingDimensions
+    ) -> EmbeddingResult:
+        sleep(self._delay_seconds)
+        return super().embed(tenant_id=tenant_id, text=text, dimensions=dimensions)
+
+
+class _FailingOnChunkEmbeddingClient(FakeEmbeddingClient):
+    def embed(
+        self, *, tenant_id: str, text: str, dimensions: EmbeddingDimensions
+    ) -> EmbeddingResult:
+        if text == "chunk 2":
+            raise RuntimeError("embedding unavailable for chunk 2")
+        return super().embed(tenant_id=tenant_id, text=text, dimensions=dimensions)
 
 
 class _EmbeddingServicer(modelgw_pb2_grpc.ModelgwServiceServicer):
@@ -763,6 +795,71 @@ def test_new_document_gets_real_chunks_with_real_embeddings(
     assert chunk["embedding_model"] == FAKE_MODEL_ID
     assert chunk["embedding_version"] == "v1"
     assert embedding_dim == 1024
+
+
+def test_ingestion_embeds_chunks_concurrently_without_losing_sequence(
+    database: DatabaseHarness,
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    chunks = tuple(Chunk(seq=index, text=f"chunk {index}") for index in range(5))
+    delay_seconds = 0.2
+    embedding_client = _DelayedEmbeddingClient(delay_seconds)
+    pipeline = _pipeline(
+        database,
+        chunk_splitter=_FixedChunkSplitter(chunks),
+        embedding_client=embedding_client,
+    )
+
+    started_at = monotonic()
+    result = pipeline.ingest(
+        IngestionPayload(tenant_id, source_id, "text/plain", b"five fixed chunks")
+    )
+    elapsed_seconds = monotonic() - started_at
+
+    assert result.stage == "indexed"
+    assert elapsed_seconds < 0.6, f"expected bounded concurrency, took {elapsed_seconds:.3f}s"
+    assert {text for _, text, _ in embedding_client.calls} == {
+        "chunk 0",
+        "chunk 1",
+        "chunk 2",
+        "chunk 3",
+        "chunk 4",
+    }
+    document_id = str(_dedup_stats(result.stats)["document_id"])
+    with _tenant_scoped(database, tenant_uuid) as connection:
+        stored = connection.execute(
+            sa.text(
+                "SELECT seq, text_content FROM chunks WHERE document_id = :document "
+                "ORDER BY seq"
+            ),
+            {"document": document_id},
+        ).mappings().all()
+    assert [(row["seq"], row["text_content"]) for row in stored] == [
+        (chunk.seq, chunk.text) for chunk in chunks
+    ]
+
+
+def test_ingestion_surfaces_one_chunk_embedding_failure_without_partial_indexing(
+    database: DatabaseHarness,
+) -> None:
+    tenant_id, tenant_uuid = _new_tenant()
+    source_id = _seed_source(database, tenant_uuid)
+    chunks = tuple(Chunk(seq=index, text=f"chunk {index}") for index in range(3))
+    pipeline = _pipeline(
+        database,
+        chunk_splitter=_FixedChunkSplitter(chunks),
+        embedding_client=_FailingOnChunkEmbeddingClient(),
+    )
+
+    with pytest.raises(RuntimeError, match="embedding unavailable for chunk 2"):
+        pipeline.ingest(
+            IngestionPayload(tenant_id, source_id, "text/plain", b"three fixed chunks")
+        )
+
+    with _tenant_scoped(database, tenant_uuid) as connection:
+        chunk_count = connection.scalar(sa.text("SELECT count(*) FROM chunks"))
+    assert chunk_count == 0
 
 
 def test_duplicate_content_reuses_chunks_without_re_embedding(

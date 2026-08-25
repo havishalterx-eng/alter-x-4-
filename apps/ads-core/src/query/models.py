@@ -28,6 +28,7 @@ class RetrievalRequest(_QueryModel):
 class RetrievalHit(_QueryModel):
     document_id: str
     chunk_id: str
+    seq: int
     source_id: str
     scope_id: str
     context: str

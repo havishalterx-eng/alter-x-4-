@@ -62,9 +62,7 @@ def _freshness(value: datetime | None) -> float:
 
 
 def _context(hits: list[RetrievalHit]) -> str:
-    # Chunks are already source text. Ordering by chunk id is stable when a
-    # caller returns multiple chunks from one document without inventing joins.
-    return "\n\n".join(hit.context for hit in sorted(hits, key=lambda hit: hit.chunk_id))
+    return "\n\n".join(hit.context for hit in sorted(hits, key=lambda hit: hit.seq))
 
 
 def _bounded(value: float) -> float:

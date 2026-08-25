@@ -19,7 +19,7 @@ _SET_TENANT = text("SELECT set_config('app.current_tenant_id', :tenant_id, true)
 _QUERY = text(
     """
 WITH candidates AS (
-  SELECT c.id AS chunk_id, c.document_id, c.document_version, d.source_id, c.scope_id,
+  SELECT c.id AS chunk_id, c.seq, c.document_id, c.document_version, d.source_id, c.scope_id,
          c.text_content, COALESCE(c.metadata, '{}'::jsonb) AS metadata,
          dv.provenance, dv.freshness_at, d.title, d.kind AS document_kind,
          s.id AS source_scope_id, src.kind AS source_kind, src.provider AS source_provider,
@@ -237,6 +237,7 @@ class SqlAlchemyRetrievalRepository:
         return RetrievalHit(
             document_id=str(mapped["document_id"]),
             chunk_id=str(mapped["chunk_id"]),
+            seq=int(cast(int, mapped["seq"])),
             source_id=str(mapped["source_id"]),
             scope_id=str(mapped["scope_id"]),
             context=str(mapped["text_content"]),

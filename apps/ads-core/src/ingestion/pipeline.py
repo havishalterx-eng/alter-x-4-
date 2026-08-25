@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from typing import cast
 
 from src.db.ids import new_prefixed_id, validate_prefixed_id
@@ -25,6 +26,7 @@ _EMBEDDING_PROVIDER = "aws-bedrock"
 # Embed RPC response) -- same "our own algorithm version" convention as
 # normalization.py's normalized_by strings.
 _EMBEDDING_PIPELINE_VERSION = "v1"
+_EMBEDDING_MAX_CONCURRENCY = 8
 
 
 class IngestionPipeline:
@@ -238,9 +240,7 @@ class IngestionPipeline:
                             stats={"chunking": {"content_type": content_type}},
                         )
                     )
-                embedded_chunks = tuple(
-                    self._embed_chunk(tenant_uuid=tenant_uuid, chunk=chunk) for chunk in chunks
-                )
+                embedded_chunks = self._embed_chunks(tenant_uuid=tenant_uuid, chunks=chunks)
                 job = self._repository.create_chunks_and_index(
                     tenant_uuid=tenant_uuid,
                     ingestion_job_id=job.ingestion_job_id,
@@ -267,6 +267,21 @@ class IngestionPipeline:
             embedding_model=result.model_id,
             embedding_version=self._embedding_pipeline_version,
         )
+
+    def _embed_chunks(
+        self, *, tenant_uuid: str, chunks: tuple[Chunk, ...]
+    ) -> tuple[EmbeddedChunk, ...]:
+        if not chunks:
+            return ()
+        with ThreadPoolExecutor(
+            max_workers=min(_EMBEDDING_MAX_CONCURRENCY, len(chunks)),
+            thread_name_prefix="ads-embed",
+        ) as executor:
+            futures = tuple(
+                executor.submit(self._embed_chunk, tenant_uuid=tenant_uuid, chunk=chunk)
+                for chunk in chunks
+            )
+            return tuple(future.result() for future in futures)
 
     def reindex(self, *, tenant_id: str, document_id: str) -> ReindexResponse:
         validate_prefixed_id("ten", tenant_id)
@@ -307,9 +322,7 @@ class IngestionPipeline:
             content=content,
             content_type=stored.content_type,
         )
-        embedded_chunks = tuple(
-            self._embed_chunk(tenant_uuid=tenant_uuid, chunk=chunk) for chunk in chunks
-        )
+        embedded_chunks = self._embed_chunks(tenant_uuid=tenant_uuid, chunks=chunks)
         result = self._repository.activate_reindex(
             tenant_uuid=tenant_uuid,
             document_id=document_id,
