@@ -10,6 +10,7 @@ from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 
 import pytest
+from alembic.config import Config as AlembicConfig
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
@@ -21,7 +22,6 @@ from sqlalchemy.ext.asyncio import (
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
-from alembic.config import Config as AlembicConfig
 from src.db.session import get_db_session
 from src.main import app
 

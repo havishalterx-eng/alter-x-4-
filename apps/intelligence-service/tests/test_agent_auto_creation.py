@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator, Generator, Sequence
 from pathlib import Path
 
 import pytest
+from alembic.config import Config as AlembicConfig
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
@@ -17,7 +18,6 @@ from sqlalchemy.ext.asyncio import (
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
-from alembic.config import Config as AlembicConfig
 from src.agent_auto_creation import (
     AgentAutoCreationEngine,
     CreatePersonaRequest,

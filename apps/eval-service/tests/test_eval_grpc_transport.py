@@ -16,13 +16,13 @@ from uuid import UUID, uuid4
 import grpc
 import pytest
 import sqlalchemy as sa
+from alembic.config import Config as AlembicConfig
 from docker.errors import DockerException  # type: ignore[import-untyped]
 from sqlalchemy import event
 from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
-from alembic.config import Config as AlembicConfig
 from alter.eval.v1 import eval_pb2, eval_pb2_grpc
 from src.config import Settings
 from src.db.models import EvalRun, GoldenSet

@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+from alembic.config import Config as AlembicConfig
 from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
-from alembic.config import Config as AlembicConfig
 from src.db.chaos_scenarios import CHAOS_GOLDEN_SET
 from src.db.launch_golden_sets import LAUNCH_GOLDEN_SETS, case_id
 from src.db.redteam_suites import REDTEAM_GOLDEN_SETS

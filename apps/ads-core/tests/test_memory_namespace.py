@@ -9,6 +9,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
@@ -16,7 +17,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
-from alembic.config import Config as AlembicConfig
 from src.memory_namespace.repository import ScopeNotFoundError, SqlAlchemyMemoryNamespaceRepository
 from src.memory_namespace.router import configure_memory_namespace_repository
 from src.memory_namespace.router import router as memory_namespace_router

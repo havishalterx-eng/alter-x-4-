@@ -26,13 +26,13 @@ import grpc
 import psycopg2
 import pytest
 import sqlalchemy as sa
+from alembic.config import Config as AlembicConfig
 from sqlalchemy import event
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
-from alembic.config import Config as AlembicConfig
 from alter.modelgw.v1 import modelgw_pb2, modelgw_pb2_grpc
 from alter.toolgw.v1 import toolgw_pb2, toolgw_pb2_grpc
 from src.execution.agent_binding_client import AgentBindingEvalClient
