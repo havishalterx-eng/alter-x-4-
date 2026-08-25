@@ -39,7 +39,10 @@ def client(kernel: VerificationKernel) -> AsyncClient:
 @pytest.fixture(autouse=True)
 def _clear_overrides() -> Generator[None, None, None]:
     yield
-    app.dependency_overrides.clear()
+    # ENGINE-FIX-P5-SEC-1: .clear() would also wipe conftest's one-time
+    # auth-bypass override (set once at collection, never re-added) --
+    # remove only what this file's own fixtures added.
+    app.dependency_overrides.pop(get_kernel, None)
 
 
 def _payload(node_type: str, output_json: str = '{"result": "ok"}') -> dict[str, str]:

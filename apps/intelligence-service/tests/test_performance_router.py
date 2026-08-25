@@ -157,7 +157,10 @@ def client(postgres_url: str) -> Generator[TestClient, None, None]:
     app.dependency_overrides[get_db_session] = override_session
     with TestClient(app, headers={"authorization": "Bearer integration-token"}) as test_client:
         yield test_client
-    app.dependency_overrides.clear()
+    # ENGINE-FIX-P5-SEC-1: .clear() would also wipe conftest's one-time
+    # auth-bypass override (set once at collection, never re-added) --
+    # remove only what this fixture itself added.
+    del app.dependency_overrides[get_db_session]
 
 
 def request_body(**overrides: object) -> dict[str, object]:
@@ -183,7 +186,6 @@ class TestRecordAgentPerformanceRoute:
         response = client.post(
             f"/internal/performance/agents/{AGENT_A}/records",
             json=request_body(),
-            headers={"Authorization": "Bearer test-token"},
         )
 
         assert response.status_code == 201
@@ -193,7 +195,6 @@ class TestRecordAgentPerformanceRoute:
         read = client.get(
             f"/internal/performance/agents/{AGENT_A}",
             params={"tenant_id": TENANT_A, "task_class": "analysis"},
-            headers={"Authorization": "Bearer test-token"},
         )
         assert read.status_code == 200
         observations = read.json()["observations"]
@@ -210,7 +211,6 @@ class TestRecordAgentPerformanceRoute:
         response = client.post(
             "/internal/performance/agents/agt_018f47a5-7b2c-7d10-8f11-99999999999a/records",
             json=request_body(),
-            headers={"Authorization": "Bearer test-token"},
         )
 
         assert response.status_code == 404
@@ -234,7 +234,6 @@ class TestRecordAgentPerformanceRoute:
         response = client.post(
             f"/internal/performance/agents/{AGENT_A}/records",
             json=request_body(tenant_id="not-a-real-tenant-id"),
-            headers={"Authorization": "Bearer test-token"},
         )
 
         assert response.status_code == 422
@@ -245,7 +244,6 @@ class TestRecordAgentPerformanceRoute:
         response = client.post(
             f"/internal/performance/agents/{AGENT_A}/records",
             json=request_body(verdict="not_a_real_verdict"),
-            headers={"Authorization": "Bearer test-token"},
         )
 
         assert response.status_code == 422
@@ -268,7 +266,6 @@ class TestDraftAgentPromotion:
             response = client.post(
                 f"/internal/performance/agents/{agent_id}/records",
                 json=request_body(),
-                headers={"Authorization": "Bearer test-token"},
             )
             assert response.status_code == 201
 
@@ -284,7 +281,6 @@ class TestDraftAgentPromotion:
             client.post(
                 f"/internal/performance/agents/{agent_id}/records",
                 json=request_body(),
-                headers={"Authorization": "Bearer test-token"},
             )
 
         assert read_agent_status(postgres_url, agent_id) == "draft"
@@ -299,7 +295,6 @@ class TestDraftAgentPromotion:
             client.post(
                 f"/internal/performance/agents/{agent_id}/records",
                 json=request_body(verdict="failure"),
-                headers={"Authorization": "Bearer test-token"},
             )
 
         assert read_agent_status(postgres_url, agent_id) == "draft"

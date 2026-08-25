@@ -149,7 +149,10 @@ def client(postgres_url: str, monkeypatch: pytest.MonkeyPatch) -> Generator[Test
     app.dependency_overrides[get_db_session] = override_session
     with TestClient(app) as test_client:
         yield test_client
-    app.dependency_overrides.clear()
+    # ENGINE-FIX-P5-SEC-1: .clear() would also wipe conftest's one-time
+    # auth-bypass override (set once at collection, never re-added) --
+    # remove only what this fixture itself added.
+    del app.dependency_overrides[get_db_session]
     get_settings.cache_clear()
 
 
