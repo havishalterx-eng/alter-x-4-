@@ -5,7 +5,6 @@ import { Loader2 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Select } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { api } from "@/api/client"
 import { queryKeys } from "@/api/query-keys"
@@ -20,15 +19,15 @@ export function CredentialDialog({ open, onOpenChange }: CredentialDialogProps) 
   const queryClient = useQueryClient()
   
   const [name, setName] = React.useState("")
-  const [type, setType] = React.useState<any>("api_key")
-  const [provider, setProvider] = React.useState("")
+  const [connector, setConnector] = React.useState("")
+  const [scope, setScope] = React.useState("")
   const [secretValue, setSecretValue] = React.useState("")
 
   React.useEffect(() => {
     if (open) {
       setName("")
-      setType("api_key")
-      setProvider("")
+      setConnector("")
+      setScope("")
       setSecretValue("")
     }
   }, [open])
@@ -36,8 +35,9 @@ export function CredentialDialog({ open, onOpenChange }: CredentialDialogProps) 
   const mutation = useMutation({
     mutationFn: () => api.createCredential({
       name,
-      type,
-      provider: provider || undefined,
+      connector,
+      scope,
+      value: secretValue,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.credentials.list })
@@ -47,7 +47,7 @@ export function CredentialDialog({ open, onOpenChange }: CredentialDialogProps) 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name || !secretValue) return
+    if (!name || !connector || !scope || !secretValue) return
     mutation.mutate()
   }
 
@@ -69,20 +69,20 @@ export function CredentialDialog({ open, onOpenChange }: CredentialDialogProps) 
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Type</Label>
-              <Select value={type} onChange={(e) => setType(e.target.value as any)}>
-                <option value="api_key">API Key</option>
-                <option value="token">Token</option>
-                <option value="secret">Generic Secret</option>
-                <option value="username_password">Username/Password</option>
-                <option value="oauth">OAuth App Secret</option>
-              </Select>
+              <Label>Connector</Label>
+              <Input placeholder="e.g., postgres" value={connector} onChange={(e) => setConnector(e.target.value)} required />
             </div>
             <div className="space-y-2">
-              <Label>Provider (Optional)</Label>
-              <Input placeholder="e.g., OpenAI" value={provider} onChange={(e) => setProvider(e.target.value)} />
+              <Label>Scope</Label>
+              <Input placeholder="e.g., production" value={scope} onChange={(e) => setScope(e.target.value)} required />
             </div>
           </div>
+
+          {mutation.isError && (
+            <p className="text-sm text-destructive" role="alert">
+              {mutation.error instanceof Error ? mutation.error.message : "Failed to save credential."}
+            </p>
+          )}
 
           <div className="space-y-2">
             <Label>Secret Value</Label>
@@ -96,7 +96,7 @@ export function CredentialDialog({ open, onOpenChange }: CredentialDialogProps) 
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={mutation.isPending || !name || !secretValue}>
+            <Button type="submit" disabled={mutation.isPending || !name || !connector || !scope || !secretValue}>
               {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save to Vault
             </Button>

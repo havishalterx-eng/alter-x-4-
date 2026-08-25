@@ -32,7 +32,7 @@ src/
 1. Clone the repository
 2. Install dependencies:
    ```bash
-   npm install
+   pnpm install
    ```
 3. Set up environment variables (see `.env.example`):
    ```bash
@@ -40,25 +40,19 @@ src/
    ```
 4. Start the development server:
    ```bash
-   npm run dev
+   pnpm nx run platform-web:serve
    ```
 
-## Mock API Architecture
+## API Modes
 
-The application currently uses a mock API layer located in `src/api/mock/data.ts` and `src/api/client.ts`. This allows us to build the UI independently of the backend. 
+The application uses the API client in `src/api/client.ts`. It supports a mock mode for local UI work and a live mode that calls the platform API, including workflow, run, connection, and credential-vault operations.
 
-### Future Backend Integration
-
-When the real AlterX OpenAPI specification is ready:
-1. Generate the TypeScript API client from the OpenAPI spec.
-2. Replace the mock implementation in `src/api/client.ts` with the generated HTTP client.
-3. Update the `useQuery` calls if the data shape changes, though the UI components themselves should remain largely untouched if the domain models match.
-4. Ensure `VITE_API_MODE=live` is configured in production.
+Set `VITE_API_MODE=live` and `VITE_API_BASE_URL` to use the running platform API. Set `VITE_API_MODE=mock` for local development without backend services.
 
 ## Environment Variables
 
-- `VITE_API_MODE`: Set to `mock` for local development without a backend.
-- `VITE_API_BASE_URL`: The URL of the real backend API (when implemented).
+- `VITE_API_MODE`: `mock` for local development without a backend, or `live` for the platform API.
+- `VITE_API_BASE_URL`: Base URL of the live platform API.
 
 ## Component QA
 

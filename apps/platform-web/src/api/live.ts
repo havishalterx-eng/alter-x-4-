@@ -22,6 +22,7 @@ import type {
   HumanActionType,
   HumanActionStatus,
   HumanActionPriority,
+  Credential,
 } from "./types"
 
 type AnyRecord = Record<string, any>
@@ -158,8 +159,8 @@ export async function getRun(id: string): Promise<Run> {
   return mapRun((body as AnyRecord)?.run ?? body)
 }
 
-export async function retryRun(id: string): Promise<Run> {
-  await apiPost(`/api/v1/runs/${encodeURIComponent(id)}/actions/retry-node`, {}, {
+export async function retryRun(id: string, nodeKey: string): Promise<Run> {
+  await apiPost(`/api/v1/runs/${encodeURIComponent(id)}/actions/retry-node`, { node_key: nodeKey }, {
     idempotencyKey: mutationKey("run-retry"),
   })
   return getRun(id)
@@ -168,6 +169,51 @@ export async function retryRun(id: string): Promise<Run> {
 export async function stopRun(id: string): Promise<void> {
   await apiPost(`/api/v1/runs/${encodeURIComponent(id)}/actions/cancel`, {}, {
     idempotencyKey: mutationKey("run-cancel"),
+  })
+}
+
+interface CredentialResponse {
+  id: string
+  name: string
+  connector: string
+  scope: string
+  last4: string
+  created_at: string
+}
+
+function mapCredential(value: CredentialResponse): Credential {
+  return {
+    id: value.id,
+    name: value.name,
+    type: "secret",
+    provider: value.connector,
+    maskedValue: `••••${value.last4}`,
+    createdAt: value.created_at,
+    updatedAt: value.created_at,
+    usedByConnectionIds: [],
+  }
+}
+
+export async function getCredentials(): Promise<Credential[]> {
+  const body = await apiGet<CredentialResponse[]>("/api/v1/credentials")
+  return body.map(mapCredential)
+}
+
+export async function createCredential(data: {
+  name: string
+  connector: string
+  scope: string
+  value: string
+}): Promise<Credential> {
+  const body = await apiPost<CredentialResponse>("/api/v1/credentials", data, {
+    idempotencyKey: mutationKey("credential-create"),
+  })
+  return mapCredential(body)
+}
+
+export async function deleteCredential(id: string): Promise<void> {
+  await apiDelete(`/api/v1/credentials/${encodeURIComponent(id)}`, {
+    idempotencyKey: mutationKey("credential-delete"),
   })
 }
 

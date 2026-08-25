@@ -27,7 +27,7 @@
     "@xyflow/react": "^12.11.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "dagre": "^0.8.5",
+    "@dagrejs/dagre": "^3.1.1",
     "date-fns": "^4.4.0",
     "i18next": "^26.3.6",
     "lucide-react": "^1.31.0",
@@ -43,16 +43,18 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
-    "@types/dagre": "^0.7.54",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.6",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
     "autoprefixer": "^10.5.4",
+    "jsdom": "^30.0.1",
     "oxlint": "^1.75.0",
     "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",
-    "typescript": "~6.0.2",
+    "typescript": "5.9.3",
     "vite": "^8.2.0"
   }
 }
