@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { DurableExecutionProvider } from "@alterx/shared-clients";
 import { IntervalJobSchedulerRunner } from "./interval-job-scheduler-runner";
@@ -14,6 +15,22 @@ function sleepOnceThenHang(): () => Promise<void> {
     }
     return new Promise(() => undefined);
   };
+}
+
+/** Resolves the first `n` times, then hangs forever. */
+function sleepNTimesThenHang(n: number): () => Promise<void> {
+  let calls = 0;
+  return () => {
+    if (calls < n) {
+      calls += 1;
+      return Promise.resolve();
+    }
+    return new Promise(() => undefined);
+  };
+}
+
+function mockLogger(): Logger {
+  return { error: vi.fn() } as unknown as Logger;
 }
 
 describe("IntervalJobSchedulerRunner", () => {
@@ -34,9 +51,8 @@ describe("IntervalJobSchedulerRunner", () => {
     );
 
     runner.start();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await vi.waitFor(() => expect(startWorkflow).toHaveBeenCalledTimes(1));
 
-    expect(startWorkflow).toHaveBeenCalledTimes(1);
     const call = startWorkflow.mock.calls[0]![0];
     expect(call.workflowType).toBe("platformJobWorkflow");
     expect(call.workflowId).toBe(`retention-sweep-${new Date("2026-08-05T00:00:00.000Z").getTime()}`);
@@ -62,5 +78,39 @@ describe("IntervalJobSchedulerRunner", () => {
     runner.start();
     runner.start();
     expect(startWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("keeps the loop alive and logs when a tick throws", async () => {
+    let calls = 0;
+    const startWorkflow = vi.fn<DurableExecutionProvider["startWorkflow"]>(async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw new Error("temporal blip");
+      }
+      return { workflowId: "wf-1", runId: "run-1" };
+    });
+    const durableExecution = { startWorkflow } as unknown as DurableExecutionProvider;
+    const logger = mockLogger();
+
+    const runner = new IntervalJobSchedulerRunner(
+      durableExecution,
+      "platform.retention-sweep",
+      "retention-sweep",
+      1,
+      () => new Date("2026-08-05T00:00:00.000Z"),
+      sleepNTimesThenHang(2),
+      logger,
+    );
+
+    runner.start();
+    await vi.waitFor(() => expect(startWorkflow).toHaveBeenCalledTimes(2));
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    const logArgs = (logger.error as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      string | undefined,
+    ];
+    expect(logArgs[0]).toMatch(/temporal blip/);
+    expect(logArgs[0]).toMatch(/platform\.retention-sweep/);
   });
 });

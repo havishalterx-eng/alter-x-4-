@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import type { DurableExecutionProvider } from "@alterx/shared-clients";
 
 function defaultSleep(ms: number): Promise<void> {
@@ -23,6 +24,7 @@ export class IntervalJobSchedulerRunner {
     private readonly intervalMs: number,
     private readonly now: () => Date = () => new Date(),
     private readonly sleep: (ms: number) => Promise<void> = defaultSleep,
+    private readonly logger: Logger = new Logger(IntervalJobSchedulerRunner.name),
   ) {}
 
   start(): void {
@@ -41,14 +43,27 @@ export class IntervalJobSchedulerRunner {
       await this.sleep(this.intervalMs);
       if (!this.#running) return;
       const tick = this.now();
-      await this.durableExecution.startWorkflow({
-        workflowType: "platformJobWorkflow",
-        workflowId: `${this.workflowIdPrefix}-${tick.getTime()}`,
-        input: {
-          jobType: this.jobType,
-          payloadJson: "{}",
-        },
-      });
+      try {
+        await this.durableExecution.startWorkflow({
+          workflowType: "platformJobWorkflow",
+          workflowId: `${this.workflowIdPrefix}-${tick.getTime()}`,
+          input: {
+            jobType: this.jobType,
+            payloadJson: "{}",
+          },
+        });
+      } catch (error: unknown) {
+        this.#logError("startWorkflow", tick, error);
+      }
     }
+  }
+
+  #logError(operation: string, tick: Date, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    this.logger.error(
+      `Interval scheduler tick failed for jobType=${this.jobType} operation=${operation} tick=${tick.toISOString()}: ${message}`,
+      stack,
+    );
   }
 }
