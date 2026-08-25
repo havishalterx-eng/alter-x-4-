@@ -35,6 +35,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Finding #22: gives `nx affected` a correct NX_BASE/NX_HEAD for both
+      # pull_request and push triggers (handles the PR merge-base and the
+      # push-to-main previous-commit case), so the "full monorepo sweep"
+      # steps below can be replaced with affected-only runs on PRs without
+      # each one having to work out the right base ref itself.
+      - uses: nrwl/nx-set-shas@v4
+
+      - name: cache nx computation cache
+        uses: actions/cache@v4
+        with:
+          path: .nx/cache
+          key: nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            nx-${{ runner.os }}-
+
       - name: repository skeleton check
         run: |
           test -f README.md
@@ -127,15 +143,32 @@ jobs:
       - name: install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Finding #22: PRs only build/lint/typecheck/test what the diff
+      # actually touches (plus dependents) via `nx affected`. Pushes to
+      # main (and manual workflow_dispatch runs) keep the full sweep as a
+      # safety net -- main pushes are far less frequent than PR pushes, and
+      # affected's graph-diff computation can in principle miss a
+      # cross-project edge case, so the branch that actually lands on main
+      # still gets the exhaustive check.
       - name: full monorepo sweep
+        if: github.event_name != 'pull_request'
         run: pnpm exec nx run-many -t lint,typecheck,build --all --parallel=2
+
+      - name: affected monorepo sweep
+        if: github.event_name == 'pull_request'
+        run: pnpm exec nx affected -t lint,typecheck,build --parallel=2
 
       # platform-api:test needs a migrated DATABASE_URL (real Postgres-backed
       # specs, e.g. entitlement/credential guards) -- excluded here so it
       # only runs once, correctly, after "migrate platform db" below. Every
       # other project's tests don't need that, so they run right away.
       - name: test monorepo (excluding platform-api)
+        if: github.event_name != 'pull_request'
         run: pnpm exec nx run-many -t test --all --exclude=platform-api --parallel=2
+
+      - name: affected test monorepo (excluding platform-api)
+        if: github.event_name == 'pull_request'
+        run: pnpm exec nx affected -t test --exclude=platform-api --parallel=2
 
       - name: migrate platform db
         run: pnpm --filter @alterx/platform-api db:migrate

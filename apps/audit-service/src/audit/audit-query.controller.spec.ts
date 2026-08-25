@@ -95,6 +95,31 @@ describe("AuditQueryController RFC 9457 internal surface", () => {
     expect(recordEvent).toHaveBeenCalledWith(body);
   });
 
+  it("maps a recordEvent AuditValidationError to a 400 problem", async () => {
+    recordEvent.mockRejectedValue(new AuditValidationError("action is required"));
+    const response = await app.getHttpAdapter().getInstance().inject({
+      method: "POST",
+      url: "/internal/audit-events",
+      headers: { authorization: `Bearer ${TOKEN}` },
+      payload: {},
+    });
+    const problem = ProblemDetailsSchema.parse(response.json());
+    expect(problem).toMatchObject({ status: 400, error_code: "AUDIT_QUERY_VALIDATION_FAILED" });
+  });
+
+  it("sanitizes an unexpected recordEvent failure", async () => {
+    recordEvent.mockRejectedValue(new Error("database error containing connection-string-secret"));
+    const response = await app.getHttpAdapter().getInstance().inject({
+      method: "POST",
+      url: "/internal/audit-events",
+      headers: { authorization: `Bearer ${TOKEN}` },
+      payload: {},
+    });
+    const problem = ProblemDetailsSchema.parse(response.json());
+    expect(problem).toMatchObject({ status: 500, error_code: "AUDIT_QUERY_INTERNAL_ERROR" });
+    expect(JSON.stringify(problem)).not.toContain("connection-string-secret");
+  });
+
   it("rejects unauthenticated audit writes", async () => {
     const response = await app.getHttpAdapter().getInstance().inject({
       method: "POST",
@@ -169,6 +194,17 @@ describe("AuditQueryController RFC 9457 internal surface", () => {
       `Bearer ${TOKEN}`,
     );
     expect(verifyChainIncremental).toHaveBeenCalledWith(5_000);
+  });
+
+  it("sanitizes an unexpected verify-chain failure", async () => {
+    verifyChainIncremental.mockRejectedValue(new Error("database error containing connection-string-secret"));
+    const response = await postVerifyChain(
+      "/internal/audit-events/verify-chain",
+      `Bearer ${TOKEN}`,
+    );
+    const problem = ProblemDetailsSchema.parse(response.json());
+    expect(problem).toMatchObject({ status: 500, error_code: "AUDIT_QUERY_INTERNAL_ERROR" });
+    expect(JSON.stringify(problem)).not.toContain("connection-string-secret");
   });
 
   it("rejects a non-integer verify-chain limit", async () => {
