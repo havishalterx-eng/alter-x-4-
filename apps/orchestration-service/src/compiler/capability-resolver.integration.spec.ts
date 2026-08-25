@@ -60,6 +60,7 @@ describe.sequential("Graph Compiler -> Capability Resolver gRPC", () => {
 
   beforeAll(async () => {
     address = `127.0.0.1:${await availablePort()}`;
+    const resolverOutput: string[] = [];
     resolver = spawn(process.platform === "win32" ? "uv.exe" : "uv", ["run", "uvicorn", "src.main:app", "--port", String(await availablePort())], {
       cwd: resolve(process.cwd(), "apps/intelligence-service"),
       env: {
@@ -67,10 +68,15 @@ describe.sequential("Graph Compiler -> Capability Resolver gRPC", () => {
         CAPABILITY_GRPC_BIND_ADDRESS: address,
         INTERNAL_SERVICE_TOKEN_SHA256: SERVICE_TOKEN_SHA256,
       },
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "pipe"],
     });
+    resolver.stdout?.on("data", (chunk: Buffer) => resolverOutput.push(chunk.toString()));
+    resolver.stderr?.on("data", (chunk: Buffer) => resolverOutput.push(chunk.toString()));
     await new Promise<void>((resolveReady, rejectReady) => {
-      const deadline = setTimeout(() => rejectReady(new Error("Capability Resolver did not start")), 20_000);
+      const deadline = setTimeout(
+        () => rejectReady(new Error(`Capability Resolver did not start:\n${resolverOutput.join("")}`)),
+        20_000,
+      );
       const client = new CapabilityServiceClient({
         address,
         protoPath: CAPABILITY_CLIENT_PROTO_PATH,

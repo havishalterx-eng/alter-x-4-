@@ -104,6 +104,12 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
   let storeProvider: PostgresOrchestrationStoreProvider;
   let plannerProcess: ChildProcess;
   let planner: PlannerClient;
+  // Diagnostic only -- printed unconditionally in afterAll so a failure
+  // anywhere in this suite (e.g. a real server-side error swallowed into
+  // CompilerGrpcController's generic "Workflow could not be compiled")
+  // has the spawned intelligence-service's real stdout/stderr next to it
+  // in CI output, not silently discarded.
+  const plannerOutput: string[] = [];
 
   beforeAll(async () => {
     pgContainer = await new PostgreSqlContainer("postgres:16.6-alpine")
@@ -131,9 +137,11 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
       {
         cwd: resolve(process.cwd(), "apps/intelligence-service"),
         env: { ...process.env, INTERNAL_SERVICE_TOKEN_SHA256: SERVICE_TOKEN_SHA256 },
-        stdio: "ignore",
+        stdio: ["ignore", "pipe", "pipe"],
       },
     );
+    plannerProcess.stdout?.on("data", (chunk: Buffer) => plannerOutput.push(chunk.toString()));
+    plannerProcess.stderr?.on("data", (chunk: Buffer) => plannerOutput.push(chunk.toString()));
     await waitForHealth(PLANNER_BASE_URL);
     planner = new PlannerClient(
       { baseUrl: PLANNER_BASE_URL },
@@ -142,6 +150,7 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
   }, 60_000);
 
   afterAll(async () => {
+    console.log(`intelligence-service output:\n${plannerOutput.join("")}`);
     plannerProcess?.kill();
     await storeProvider?.close();
     await pgContainer?.stop();
