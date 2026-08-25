@@ -67,7 +67,9 @@ def test_real_app_requires_token_at_startup() -> None:
     from src.main import lifespan
     from src.service_auth import assert_configured_at_startup
 
-    assert lifespan.__wrapped__.__globals__["assert_configured_at_startup"] is (
+    wrapped_lifespan = getattr(lifespan, "__wrapped__", None)
+    assert wrapped_lifespan is not None
+    assert wrapped_lifespan.__globals__["assert_configured_at_startup"] is (
         assert_configured_at_startup
     )
 
