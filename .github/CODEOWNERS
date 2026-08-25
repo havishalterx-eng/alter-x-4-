@@ -6,7 +6,6 @@
 
 # Shared contracts — changes are law, repo-owner approval required
 /packages/contracts/        @havishaivardhan-svg
-/packages/workflow-schema/  @havishaivardhan-svg
 
 # Engine builder (replace with engine builder's handle)
 /apps/orchestration-service/  @havishaivardhan-svg
@@ -18,6 +17,10 @@
 /apps/memory-service/         @havishaivardhan-svg
 /apps/eval-service/           @havishaivardhan-svg
 /apps/background-workers/     @havishaivardhan-svg
+/apps/ads-core/               @havishaivardhan-svg
+/apps/audit-service/          @havishaivardhan-svg
+/apps/cost-ledger-service/    @havishaivardhan-svg
+/apps/provisioning-service/   @havishaivardhan-svg
 
 # Platform builder (replace with platform builder's handle)
 /apps/platform-api/           @havishaivardhan-svg

@@ -48,7 +48,7 @@
         "commands": [
           "buf lint",
           "buf build",
-          "buf generate --template buf.gen.yaml --path alter/provisioning/v1/provisioning.proto --path alter/artifacts/v1/artifacts.proto --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto --path alter/compiler/v1/compiler.proto --path alter/deployctl/v1/deployctl.proto --path alter/verify/v1/verify.proto --path alter/recovery/v1/recovery.proto --path alter/cost/v1/cost.proto --path alter/runs/v1/runs.proto --path alter/voice/v1/voice.proto --path alter/eval/v1/eval.proto"
+          "buf generate --template buf.gen.yaml --path alter/provisioning/v1/provisioning.proto --path alter/artifacts/v1/artifacts.proto --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto --path alter/compiler/v1/compiler.proto --path alter/deployctl/v1/deployctl.proto --path alter/planner/v1/planner.proto --path alter/verify/v1/verify.proto --path alter/recovery/v1/recovery.proto --path alter/cost/v1/cost.proto --path alter/runs/v1/runs.proto --path alter/voice/v1/voice.proto --path alter/eval/v1/eval.proto"
         ],
         "cwd": "packages/contracts/proto",
         "parallel": false
@@ -65,6 +65,7 @@
         "{projectRoot}/src/generated/alter/conversation/v1/conversation.ts",
         "{projectRoot}/src/generated/alter/compiler/v1/compiler.ts",
         "{projectRoot}/src/generated/alter/deployctl/v1/deployctl.ts",
+        "{projectRoot}/src/generated/alter/planner/v1/planner.ts",
         "{projectRoot}/src/generated/alter/registry/v1/registry.ts",
         "{projectRoot}/src/generated/alter/nodeexec/v1/nodeexec.ts",
         "{projectRoot}/src/generated/alter/blackboard/v1/blackboard.ts",
@@ -77,7 +78,7 @@
         "{projectRoot}/src/generated/alter/eval/v1/eval.ts"
       ],
       "options": {
-        "command": "buf generate --template buf.gen.yaml --path alter/provisioning/v1/provisioning.proto --path alter/artifacts/v1/artifacts.proto --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto --path alter/compiler/v1/compiler.proto --path alter/deployctl/v1/deployctl.proto --path alter/registry/v1/registry.proto --path alter/nodeexec/v1/nodeexec.proto --path alter/blackboard/v1/blackboard.proto --path alter/sandbox/v1/sandbox.proto --path alter/verify/v1/verify.proto --path alter/recovery/v1/recovery.proto --path alter/cost/v1/cost.proto --path alter/runs/v1/runs.proto --path alter/voice/v1/voice.proto --path alter/eval/v1/eval.proto",
+        "command": "buf generate --template buf.gen.yaml --path alter/provisioning/v1/provisioning.proto --path alter/artifacts/v1/artifacts.proto --path alter/audit/v1/audit.proto --path alter/modelgw/v1/modelgw.proto --path alter/toolgw/v1/toolgw.proto --path alter/conversation/v1/conversation.proto --path alter/compiler/v1/compiler.proto --path alter/deployctl/v1/deployctl.proto --path alter/planner/v1/planner.proto --path alter/registry/v1/registry.proto --path alter/nodeexec/v1/nodeexec.proto --path alter/blackboard/v1/blackboard.proto --path alter/sandbox/v1/sandbox.proto --path alter/verify/v1/verify.proto --path alter/recovery/v1/recovery.proto --path alter/cost/v1/cost.proto --path alter/runs/v1/runs.proto --path alter/voice/v1/voice.proto --path alter/eval/v1/eval.proto",
         "cwd": "packages/contracts/proto"
       }
     },

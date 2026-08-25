@@ -340,6 +340,11 @@ export {
   type SelectStrategyResponse,
 } from "./http/planner-client";
 export {
+  createEnvironmentValidators,
+  type ConfigurationErrorFactory,
+  type EnvironmentValidators,
+} from "./config/environment-validation";
+export {
   PolicyStoreClient,
   PolicyStoreResponseValidationError,
   createFetchPolicyStoreHttpClient,

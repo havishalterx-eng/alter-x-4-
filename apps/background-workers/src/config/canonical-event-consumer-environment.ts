@@ -1,3 +1,5 @@
+import { createEnvironmentValidators } from "@alterx/adapters";
+
 const ALTER_ENVIRONMENTS = ["local", "dev", "staging", "prod"] as const;
 
 export interface CanonicalEventConsumerEnvironment {
@@ -16,16 +18,9 @@ export class CanonicalEventConsumerConfigurationError extends Error {
   }
 }
 
-function requireValue(environment: NodeJS.ProcessEnv, field: string): string {
-  const value = environment[field]?.trim();
-  if (value === undefined || value.length === 0) {
-    throw new CanonicalEventConsumerConfigurationError(
-      field,
-      "a non-empty value is required",
-    );
-  }
-  return value;
-}
+const { requireValue } = createEnvironmentValidators(
+  (field, reason) => new CanonicalEventConsumerConfigurationError(field, reason),
+);
 
 export function loadCanonicalEventConsumerEnvironment(
   environment: NodeJS.ProcessEnv,

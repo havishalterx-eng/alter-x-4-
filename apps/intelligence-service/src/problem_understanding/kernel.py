@@ -7,7 +7,12 @@ import json
 from ..ads_client.client import AdsClient
 from ..ads_client.models import RetrievalHit, RetrieveRequest
 from .llm_client import ProblemUnderstandingLlmClient
-from .models import ProblemContextReference, ProblemSpec, ProblemUnderstandingRequest
+from .models import (
+    ProblemContextReference,
+    ProblemSpec,
+    ProblemUnderstandingRequest,
+    apply_authoritative_problem_fields,
+)
 
 _ADS_TOP_K = 5
 
@@ -62,9 +67,7 @@ class ProblemUnderstandingKernel:
 
         # Raw request and ADS provenance are authoritative; an LLM cannot
         # rewrite either while enriching the rest of the typed problem.
-        return generated.model_copy(
-            update={"objective": request.objective, "context_references": references}
-        )
+        return apply_authoritative_problem_fields(generated, request.objective, references)
 
 
 def _reference(hit: RetrievalHit) -> ProblemContextReference:
@@ -95,9 +98,8 @@ def _fallback_spec(
         current_situation = f"Verified ADS context is available from {len(references)} source(s)."
     else:
         missing.insert(0, "No verified ADS context was retrieved for this objective.")
-    return ProblemSpec(
+    spec = ProblemSpec(
         objective=request.objective,
-        current_situation=current_situation,
         actors=actor_values,
         risk="unknown",
         missing_information=missing,
@@ -106,3 +108,6 @@ def _fallback_spec(
         ],
         context_references=references,
     )
+    if current_situation is not None:
+        spec.current_situation = current_situation
+    return spec

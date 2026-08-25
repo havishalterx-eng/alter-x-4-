@@ -1,3 +1,5 @@
+import { createEnvironmentValidators } from "@alterx/adapters";
+
 const ALTER_ENVIRONMENTS = ["local", "dev", "staging", "prod"] as const;
 const CONFIG_SOURCES = ["appconfig", "local-file"] as const;
 
@@ -37,56 +39,8 @@ export class AuditConfigurationError extends Error {
   }
 }
 
-function requireValue(
-  environment: NodeJS.ProcessEnv,
-  field: string,
-): string {
-  const value = environment[field]?.trim();
-  if (value === undefined || value.length === 0) {
-    throw new AuditConfigurationError(field, "a non-empty value is required");
-  }
-  return value;
-}
-
-function parsePort(value: string | undefined): number {
-  if (value === undefined) {
-    return 3000;
-  }
-  const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new AuditConfigurationError("PORT", "must be an integer from 1 to 65535");
-  }
-  return port;
-}
-
-function parseDatabasePort(value: string): number {
-  const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new AuditConfigurationError(
-      "DATABASE_PORT",
-      "must be an integer from 1 to 65535",
-    );
-  }
-  return port;
-}
-
-function parseGrpcAddress(value: string | undefined): string {
-  const address = value?.trim() ?? "0.0.0.0:50051";
-  if (!/^(?:\d{1,3}\.){3}\d{1,3}:\d{1,5}$/.test(address)) {
-    throw new AuditConfigurationError(
-      "GRPC_BIND_ADDRESS",
-      "must be an IPv4 address and port",
-    );
-  }
-  const port = Number(address.slice(address.lastIndexOf(":") + 1));
-  if (port < 1 || port > 65_535) {
-    throw new AuditConfigurationError(
-      "GRPC_BIND_ADDRESS",
-      "port must be from 1 to 65535",
-    );
-  }
-  return address;
-}
+const { requireValue, parsePort, parseRequiredPort, parseGrpcAddress } =
+  createEnvironmentValidators((field, reason) => new AuditConfigurationError(field, reason));
 
 export function loadAuditEnvironment(
   environment: NodeJS.ProcessEnv,
@@ -143,7 +97,7 @@ export function loadAuditEnvironment(
       "AUDIT_ARCHIVE_BUCKET_PARAM",
     ),
     httpPort: parsePort(environment.PORT),
-    grpcBindAddress: parseGrpcAddress(environment.GRPC_BIND_ADDRESS),
+    grpcBindAddress: parseGrpcAddress(environment.GRPC_BIND_ADDRESS, "GRPC_BIND_ADDRESS", "0.0.0.0:50051"),
     adsDeletionBaseUrl: requireValue(environment, "ADS_DELETION_BASE_URL"),
     orchestrationDeletionBaseUrl: requireValue(environment, "ORCHESTRATION_DELETION_BASE_URL"),
     deletionPseudonymKeyReference: requireValue(environment, "DELETION_PSEUDONYM_KEY_REF"),
@@ -162,7 +116,7 @@ export function loadAuditEnvironment(
     ...baseEnvironment,
     databaseAuthentication: "iam",
     databaseHost: requireValue(environment, "DATABASE_HOST"),
-    databasePort: parseDatabasePort(requireValue(environment, "DATABASE_PORT")),
+    databasePort: parseRequiredPort(requireValue(environment, "DATABASE_PORT"), "DATABASE_PORT"),
     databaseName: requireValue(environment, "DATABASE_NAME"),
     databaseUser: requireValue(environment, "DATABASE_USER"),
   };

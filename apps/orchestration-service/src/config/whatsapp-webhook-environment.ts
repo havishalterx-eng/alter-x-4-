@@ -1,3 +1,5 @@
+import { createEnvironmentValidators } from "@alterx/adapters";
+
 // Config for the WhatsApp webhook data plane (INGR-6) only. Kept separate
 // from Session Gateway's config (app.module.ts) and the Conversation
 // Manager's config (./environment.ts) -- same reasoning as those: this
@@ -16,16 +18,9 @@ export class WhatsappWebhookConfigurationError extends Error {
   }
 }
 
-function requireValue(environment: NodeJS.ProcessEnv, field: string): string {
-  const value = environment[field]?.trim();
-  if (value === undefined || value.length === 0) {
-    throw new WhatsappWebhookConfigurationError(
-      field,
-      "a non-empty value is required",
-    );
-  }
-  return value;
-}
+const { requireValue } = createEnvironmentValidators(
+  (field, reason) => new WhatsappWebhookConfigurationError(field, reason),
+);
 
 function parseSkewSeconds(value: string | undefined): number {
   if (value === undefined || value.trim().length === 0) {

@@ -5,10 +5,12 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
+from fastapi.responses import JSONResponse
+from google.protobuf.json_format import MessageToDict
 
 from .kernel import ProblemUnderstandingExecutionError, ProblemUnderstandingKernel
 from .llm_client import ModelGatewayProblemUnderstandingClient
-from .models import ProblemSpec, ProblemUnderstandingRequest
+from .models import ProblemUnderstandingRequest, validate_problem_spec
 
 _default_kernel: ProblemUnderstandingKernel | None = None
 
@@ -57,13 +59,22 @@ KernelDep = Annotated[ProblemUnderstandingKernel, Depends(get_kernel)]
 router = APIRouter(prefix="/internal/problem-understanding", tags=["problem-understanding"])
 
 
-@router.post("/understand", response_model=ProblemSpec, status_code=status.HTTP_200_OK)
+@router.post("/understand", response_model=None, status_code=status.HTTP_200_OK)
 async def understand(
     request: ProblemUnderstandingRequest,
     kernel: KernelDep,
-) -> ProblemSpec:
+) -> JSONResponse:
     try:
-        return await kernel.understand(request)
+        spec = validate_problem_spec(await kernel.understand(request))
+        body = MessageToDict(
+            spec,
+            preserving_proto_field_name=True,
+            always_print_fields_with_no_presence=True,
+        )
+        body["current_situation"] = (
+            spec.current_situation if spec.HasField("current_situation") else None
+        )
+        return JSONResponse(content=body)
     except ProblemUnderstandingExecutionError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

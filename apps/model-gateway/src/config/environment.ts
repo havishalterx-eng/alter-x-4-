@@ -1,3 +1,5 @@
+import { createEnvironmentValidators } from "@alterx/adapters";
+
 const ALTER_ENVIRONMENTS = ["local", "dev", "staging", "prod"] as const;
 
 interface ModelGatewayEnvironmentBase {
@@ -42,62 +44,8 @@ export class ModelGatewayConfigurationError extends Error {
   }
 }
 
-function requireValue(
-  environment: NodeJS.ProcessEnv,
-  field: string,
-): string {
-  const value = environment[field]?.trim();
-  if (value === undefined || value.length === 0) {
-    throw new ModelGatewayConfigurationError(
-      field,
-      "a non-empty value is required",
-    );
-  }
-  return value;
-}
-
-function parsePort(value: string | undefined): number {
-  if (value === undefined) {
-    return 3000;
-  }
-  const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new ModelGatewayConfigurationError(
-      "PORT",
-      "must be an integer from 1 to 65535",
-    );
-  }
-  return port;
-}
-
-function parseRequiredPort(field: string, value: string): number {
-  const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new ModelGatewayConfigurationError(
-      field,
-      "must be an integer from 1 to 65535",
-    );
-  }
-  return port;
-}
-
-function parseGrpcAddress(value: string | undefined): string {
-  const address = value?.trim() ?? "0.0.0.0:50051";
-  if (!/^(?:\d{1,3}\.){3}\d{1,3}:\d{1,5}$/.test(address)) {
-    throw new ModelGatewayConfigurationError(
-      "GRPC_BIND_ADDRESS",
-      "must be an IPv4 address and port",
-    );
-  }
-  const port = Number(address.slice(address.lastIndexOf(":") + 1));
-  if (port < 1 || port > 65_535) {
-    throw new ModelGatewayConfigurationError(
-      "GRPC_BIND_ADDRESS",
-      "port must be from 1 to 65535",
-    );
-  }
-  return address;
-}
+const { requireValue, parsePort, parseRequiredPort, parseGrpcAddress } =
+  createEnvironmentValidators((field, reason) => new ModelGatewayConfigurationError(field, reason));
 
 /**
  * Non-empty-with-default, no address-format validation -- unlike
@@ -171,7 +119,7 @@ export function loadModelGatewayEnvironment(
     serviceName,
     region,
     httpPort: parsePort(environment.PORT),
-    grpcBindAddress: parseGrpcAddress(environment.GRPC_BIND_ADDRESS),
+    grpcBindAddress: parseGrpcAddress(environment.GRPC_BIND_ADDRESS, "GRPC_BIND_ADDRESS", "0.0.0.0:50051"),
     // No fixed port is documented anywhere for cost-ledger-service's real
     // gRPC bind address (it isn't part of the standard local-dev compose
     // stack) -- 50065 picked to sit in the same numeric range as this
@@ -217,8 +165,8 @@ export function loadModelGatewayEnvironment(
     ),
     cacheRedisHost: requireValue(environment, "CACHE_REDIS_HOST"),
     cacheRedisPort: parseRequiredPort(
-      "CACHE_REDIS_PORT",
       requireValue(environment, "CACHE_REDIS_PORT"),
+      "CACHE_REDIS_PORT",
     ),
     platformAdminServiceTokenSecretReference: requireValue(
       environment,

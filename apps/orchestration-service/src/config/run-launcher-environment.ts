@@ -1,3 +1,5 @@
+import { createEnvironmentValidators } from "@alterx/adapters";
+
 // Config for RunLauncherService (EXEC-14) to start/terminate the Executor's
 // Temporal workflow. Deliberately reuses the same TEMPORAL_ADDRESS/
 // TEMPORAL_NAMESPACE/TEMPORAL_API_KEY/EXECUTOR_TASK_QUEUE variable names as
@@ -20,13 +22,9 @@ export class RunLauncherConfigurationError extends Error {
   }
 }
 
-function requireValue(environment: NodeJS.ProcessEnv, field: string): string {
-  const value = environment[field]?.trim();
-  if (value === undefined || value.length === 0) {
-    throw new RunLauncherConfigurationError(field, "a non-empty value is required");
-  }
-  return value;
-}
+const { requireValue } = createEnvironmentValidators(
+  (field, reason) => new RunLauncherConfigurationError(field, reason),
+);
 
 export function loadRunLauncherEnvironment(
   environment: NodeJS.ProcessEnv,

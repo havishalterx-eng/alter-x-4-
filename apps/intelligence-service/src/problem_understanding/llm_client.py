@@ -10,7 +10,7 @@ import grpc
 from alter.modelgw.v1 import modelgw_pb2, modelgw_pb2_grpc
 
 from ..m2m_auth import AccessTokenProvider
-from .models import ProblemSpec
+from .models import ProblemSpec, parse_problem_spec_json
 
 _MODEL_ALIAS = "STANDARD"
 _SYSTEM_PROMPT = """Turn a user request and verified context into a ProblemSpec.
@@ -98,7 +98,7 @@ class ModelGatewayProblemUnderstandingClient:
         )
         try:
             envelope = json.loads(response.output_json)
-            return ProblemSpec.model_validate_json(envelope["message"]["content"])
+            return parse_problem_spec_json(envelope["message"]["content"])
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise ProblemUnderstandingLlmError(
                 "Model Gateway returned an invalid ProblemSpec"

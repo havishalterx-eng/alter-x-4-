@@ -1,3 +1,5 @@
+import { createEnvironmentValidators } from "@alterx/adapters";
+
 // Config for the Platform Jobs handlers + digest scheduler runner
 // (Engagement Phase, doc 12). Own file, same reasoning as every other
 // per-ticket environment loader in this monorepo.
@@ -33,13 +35,9 @@ export class PlatformJobsConfigurationError extends Error {
   }
 }
 
-function requireValue(environment: NodeJS.ProcessEnv, field: string): string {
-  const value = environment[field]?.trim();
-  if (value === undefined || value.length === 0) {
-    throw new PlatformJobsConfigurationError(field, "a non-empty value is required");
-  }
-  return value;
-}
+const { requireValue } = createEnvironmentValidators(
+  (field, reason) => new PlatformJobsConfigurationError(field, reason),
+);
 
 const DEFAULT_DIGEST_INTERVAL_MS = 60 * 60 * 1000; // hourly
 const DEFAULT_CONNECTOR_HEALTH_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // hourly

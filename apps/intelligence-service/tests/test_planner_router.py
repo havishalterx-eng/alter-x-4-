@@ -23,7 +23,7 @@ from src.planner.strategies import (
     STRATEGY_PLAN_THEN_EXECUTE,
 )
 from src.planner.task_skeleton import TaskSkeleton
-from src.problem_understanding.models import ProblemSpec
+from src.problem_understanding.models import ProblemSpec, problem_spec_json
 
 TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab"
 WORKSPACE_ID = "ws_018f4d6e-2b4a-7a3e-8c1a-1234567890ab"
@@ -37,7 +37,7 @@ _STUB_SKELETON_JSON = TaskSkeleton(
 
 
 def _problem_spec_json(objective: str = "summarise feedback") -> str:
-    return ProblemSpec(objective=objective).model_dump_json()
+    return problem_spec_json(ProblemSpec(objective=objective))
 
 
 @pytest.fixture

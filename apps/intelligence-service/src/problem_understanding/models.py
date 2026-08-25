@@ -1,13 +1,19 @@
-"""Typed internal contracts for Problem Understanding.
-
-These are intentionally intelligence-service models, not mirrors of a locked
-protobuf.  A future Planner handoff needs a repo-owner-approved contract
-change; see the ENGINE-05 checklist note before exposing these cross-service.
-"""
+"""Problem-understanding request validation plus generated planner contracts."""
 
 import re
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
+from google.protobuf.json_format import MessageToJson, Parse, ParseError
 from pydantic import BaseModel, Field, field_validator
+
+from alter.planner.v1 import planner_pb2
+
+if TYPE_CHECKING:
+    ProblemContextReference: TypeAlias = Any  # noqa: UP040
+    ProblemSpec: TypeAlias = Any  # noqa: UP040
+else:
+    ProblemContextReference = planner_pb2.ProblemContextReference
+    ProblemSpec = planner_pb2.ProblemSpec
 
 _UUID_V7_BODY = r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 _TENANT_ID_RE = re.compile(rf"^ten_{_UUID_V7_BODY}$", re.IGNORECASE)
@@ -28,55 +34,53 @@ def _validate_id(pattern: re.Pattern[str], value: str, field: str) -> str:
     return value
 
 
-class ProblemContextReference(BaseModel):
-    """Provenance for ADS context considered while understanding a problem."""
-
-    model_config = {"frozen": True}
-
-    document_id: str
-    chunk_reference: str
-    confidence: float = Field(ge=0, le=1)
-    provenance_json: str
-
-
-class ProblemSpec(BaseModel):
-    """Defined problem handed to later intelligence stages.
-
-    Fields match Architecture Part C.3.  Values are explicit even when not
-    known: ``missing_information`` records absence instead of inventing it.
-    """
-
-    model_config = {"frozen": True}
-
-    objective: str
-    current_situation: str | None = None
-    actors: list[str] = Field(default_factory=list)
-    systems_involved: list[str] = Field(default_factory=list)
-    constraints: list[str] = Field(default_factory=list)
-    required_data: list[str] = Field(default_factory=list)
-    risk: str = "unknown"
-    missing_information: list[str] = Field(default_factory=list)
-    success_criteria: list[str] = Field(default_factory=list)
-    context_references: list[ProblemContextReference] = Field(default_factory=list)
-
-    @field_validator("objective", "risk")
-    @classmethod
-    def _validate_required_text(cls, value: str, info: object) -> str:
-        field = getattr(info, "field_name", "field")
-        return _required(value, field)
-
-    @field_validator(
+def validate_problem_spec(spec: ProblemSpec) -> ProblemSpec:
+    """Enforce business invariants around the protobuf-generated contract."""
+    _required(spec.objective, "objective")
+    if not spec.HasField("risk"):
+        spec.risk = "unknown"
+    _required(spec.risk, "risk")
+    for field in (
         "actors",
         "systems_involved",
         "constraints",
         "required_data",
         "missing_information",
         "success_criteria",
-    )
-    @classmethod
-    def _validate_text_lists(cls, value: list[str], info: object) -> list[str]:
-        field = getattr(info, "field_name", "field")
-        return [_required(item, f"{field}[]") for item in value]
+    ):
+        for item in getattr(spec, field):
+            _required(item, f"{field}[]")
+    for reference in spec.context_references:
+        if not 0 <= reference.confidence <= 1:
+            raise ValueError("context_references[].confidence must be from 0 to 1")
+    return spec
+
+
+def parse_problem_spec_json(value: str) -> ProblemSpec:
+    spec = ProblemSpec()
+    try:
+        Parse(value, spec, ignore_unknown_fields=False)
+    except (ParseError, TypeError, ValueError) as exc:
+        raise ValueError("problem_spec_json must contain a valid ProblemSpec") from exc
+    return validate_problem_spec(spec)
+
+
+def problem_spec_json(spec: ProblemSpec) -> str:
+    validate_problem_spec(spec)
+    return cast(str, MessageToJson(spec, preserving_proto_field_name=True))
+
+
+def apply_authoritative_problem_fields(
+    spec: ProblemSpec,
+    objective: str,
+    references: list[ProblemContextReference],
+) -> ProblemSpec:
+    result = ProblemSpec()
+    result.CopyFrom(spec)
+    result.objective = objective
+    del result.context_references[:]
+    result.context_references.extend(references)
+    return validate_problem_spec(result)
 
 
 class ProblemUnderstandingRequest(BaseModel):

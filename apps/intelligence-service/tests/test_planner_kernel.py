@@ -22,7 +22,7 @@ from src.planner.strategies import (
     STRATEGY_PLAN_THEN_EXECUTE,
 )
 from src.planner.task_skeleton import TaskSkeleton
-from src.problem_understanding.models import ProblemSpec
+from src.problem_understanding.models import ProblemSpec, problem_spec_json
 
 TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab"
 WORKSPACE_ID = "ws_018f4d6e-2b4a-7a3e-8c1a-1234567890ab"
@@ -38,9 +38,9 @@ def _decompose_req(**overrides: object) -> DecomposeRequest:
         "tenant_id": TENANT_ID,
         "workspace_id": WORKSPACE_ID,
         "run_id": RUN_ID,
-        "problem_spec_json": ProblemSpec(
+        "problem_spec_json": problem_spec_json(ProblemSpec(
             objective="summarise customer feedback"
-        ).model_dump_json(),
+        )),
         "strategy": STRATEGY_ITERATIVE,
     }
     defaults.update(overrides)
@@ -91,9 +91,9 @@ class TestDecompose:
         kernel = _kernel()
         # > 10 words + StubAdsClient always returns empty hits → ambiguity
         response = await kernel.decompose(_decompose_req(
-            problem_spec_json=ProblemSpec(
+            problem_spec_json=problem_spec_json(ProblemSpec(
                 objective="run report", missing_information=["the report period"]
-            ).model_dump_json()
+            ))
         ))
 
         assert response.ambiguity_detected is True
@@ -117,9 +117,9 @@ class TestDecomposeProjectStrategy:
         kernel = _kernel()
         response = await kernel.decompose(
             _decompose_req(
-                problem_spec_json=ProblemSpec(
+                problem_spec_json=problem_spec_json(ProblemSpec(
                     objective="build a support ticket app"
-                ).model_dump_json(),
+                )),
                 strategy=STRATEGY_PLAN_THEN_EXECUTE,
             )
         )
@@ -136,7 +136,7 @@ class TestDecomposeProjectStrategy:
         kernel = PlannerKernel(ads_client=StubAdsClient(), llm_client=ExplodingLlmClient())
         response = await kernel.decompose(
             _decompose_req(
-                problem_spec_json=ProblemSpec(objective="build an app").model_dump_json(),
+                problem_spec_json=problem_spec_json(ProblemSpec(objective="build an app")),
                 strategy=STRATEGY_PLAN_THEN_EXECUTE,
             )
         )
@@ -149,9 +149,9 @@ class TestDecomposeManagerWorkerStrategy:
         kernel = _kernel()
         response = await kernel.decompose(
             _decompose_req(
-                problem_spec_json=ProblemSpec(
+                problem_spec_json=problem_spec_json(ProblemSpec(
                     objective="coordinate multiple regional teams"
-                ).model_dump_json(),
+                )),
                 strategy=STRATEGY_MANAGER_WORKER,
             )
         )
@@ -188,9 +188,9 @@ class TestDecomposeManagerWorkerStrategy:
         kernel = PlannerKernel(ads_client=StubAdsClient(), llm_client=CapturingLlmClient())
         await kernel.decompose(
             _decompose_req(
-                problem_spec_json=ProblemSpec(
+                problem_spec_json=problem_spec_json(ProblemSpec(
                     objective="coordinate multiple teams"
-                ).model_dump_json(),
+                )),
                 strategy=STRATEGY_MANAGER_WORKER,
             )
         )

@@ -24,25 +24,29 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1e\x61lter/planner/v1/planner.proto\x12\x10\x61lter.planner.v1\"\x92\x01\n\x10\x44\x65\x63omposeRequest\x12\x11\n\ttenant_id\x18\x01 \x01(\t\x12\x14\n\x0cworkspace_id\x18\x02 \x01(\t\x12\x0e\n\x06run_id\x18\x03 \x01(\t\x12\x11\n\tobjective\x18\x04 \x01(\t\x12\x10\n\x08strategy\x18\x05 \x01(\t\x12\x19\n\x11problem_spec_json\x18\x06 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"s\n\x11\x44\x65\x63omposeResponse\x12\x1a\n\x12task_skeleton_json\x18\x01 \x01(\t\x12\x1a\n\x12\x61mbiguity_detected\x18\x02 \x01(\x08\x12\x1f\n\x17\x63larification_questions\x18\x03 \x03(\tJ\x05\x08\x64\x10\xc8\x01\"q\n\rReplanRequest\x12\x11\n\ttenant_id\x18\x01 \x01(\t\x12\x0e\n\x06run_id\x18\x02 \x01(\t\x12\x18\n\x10\x63urrent_dag_json\x18\x03 \x01(\t\x12\x1c\n\x14\x66\x61ilure_context_json\x18\x04 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"F\n\x0eReplanResponse\x12\x1d\n\x15revised_skeleton_json\x18\x01 \x01(\t\x12\x0e\n\x06reason\x18\x02 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"R\n\x15SelectStrategyRequest\x12\x11\n\ttenant_id\x18\x01 \x01(\t\x12\x11\n\tobjective\x18\x02 \x01(\t\x12\x0c\n\x04mode\x18\x03 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"A\n\x16SelectStrategyResponse\x12\x10\n\x08strategy\x18\x01 \x01(\t\x12\x0e\n\x06reason\x18\x02 \x01(\tJ\x05\x08\x64\x10\xc8\x01\x32\x98\x02\n\x0ePlannerService\x12T\n\tDecompose\x12\".alter.planner.v1.DecomposeRequest\x1a#.alter.planner.v1.DecomposeResponse\x12K\n\x06Replan\x12\x1f.alter.planner.v1.ReplanRequest\x1a .alter.planner.v1.ReplanResponse\x12\x63\n\x0eSelectStrategy\x12\'.alter.planner.v1.SelectStrategyRequest\x1a(.alter.planner.v1.SelectStrategyResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1e\x61lter/planner/v1/planner.proto\x12\x10\x61lter.planner.v1\"t\n\x17ProblemContextReference\x12\x13\n\x0b\x64ocument_id\x18\x01 \x01(\t\x12\x17\n\x0f\x63hunk_reference\x18\x02 \x01(\t\x12\x12\n\nconfidence\x18\x03 \x01(\x01\x12\x17\n\x0fprovenance_json\x18\x04 \x01(\t\"\xc6\x02\n\x0bProblemSpec\x12\x11\n\tobjective\x18\x01 \x01(\t\x12\x1e\n\x11\x63urrent_situation\x18\x02 \x01(\tH\x00\x88\x01\x01\x12\x0e\n\x06\x61\x63tors\x18\x03 \x03(\t\x12\x18\n\x10systems_involved\x18\x04 \x03(\t\x12\x13\n\x0b\x63onstraints\x18\x05 \x03(\t\x12\x15\n\rrequired_data\x18\x06 \x03(\t\x12\x11\n\x04risk\x18\x07 \x01(\tH\x01\x88\x01\x01\x12\x1b\n\x13missing_information\x18\x08 \x03(\t\x12\x18\n\x10success_criteria\x18\t \x03(\t\x12\x45\n\x12\x63ontext_references\x18\n \x03(\x0b\x32).alter.planner.v1.ProblemContextReferenceB\x14\n\x12_current_situationB\x07\n\x05_risk\"\x92\x01\n\x10\x44\x65\x63omposeRequest\x12\x11\n\ttenant_id\x18\x01 \x01(\t\x12\x14\n\x0cworkspace_id\x18\x02 \x01(\t\x12\x0e\n\x06run_id\x18\x03 \x01(\t\x12\x11\n\tobjective\x18\x04 \x01(\t\x12\x10\n\x08strategy\x18\x05 \x01(\t\x12\x19\n\x11problem_spec_json\x18\x06 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"s\n\x11\x44\x65\x63omposeResponse\x12\x1a\n\x12task_skeleton_json\x18\x01 \x01(\t\x12\x1a\n\x12\x61mbiguity_detected\x18\x02 \x01(\x08\x12\x1f\n\x17\x63larification_questions\x18\x03 \x03(\tJ\x05\x08\x64\x10\xc8\x01\"q\n\rReplanRequest\x12\x11\n\ttenant_id\x18\x01 \x01(\t\x12\x0e\n\x06run_id\x18\x02 \x01(\t\x12\x18\n\x10\x63urrent_dag_json\x18\x03 \x01(\t\x12\x1c\n\x14\x66\x61ilure_context_json\x18\x04 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"F\n\x0eReplanResponse\x12\x1d\n\x15revised_skeleton_json\x18\x01 \x01(\t\x12\x0e\n\x06reason\x18\x02 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"R\n\x15SelectStrategyRequest\x12\x11\n\ttenant_id\x18\x01 \x01(\t\x12\x11\n\tobjective\x18\x02 \x01(\t\x12\x0c\n\x04mode\x18\x03 \x01(\tJ\x05\x08\x64\x10\xc8\x01\"A\n\x16SelectStrategyResponse\x12\x10\n\x08strategy\x18\x01 \x01(\t\x12\x0e\n\x06reason\x18\x02 \x01(\tJ\x05\x08\x64\x10\xc8\x01\x32\x98\x02\n\x0ePlannerService\x12T\n\tDecompose\x12\".alter.planner.v1.DecomposeRequest\x1a#.alter.planner.v1.DecomposeResponse\x12K\n\x06Replan\x12\x1f.alter.planner.v1.ReplanRequest\x1a .alter.planner.v1.ReplanResponse\x12\x63\n\x0eSelectStrategy\x12\'.alter.planner.v1.SelectStrategyRequest\x1a(.alter.planner.v1.SelectStrategyResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'alter.planner.v1.planner_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_DECOMPOSEREQUEST']._serialized_start=53
-  _globals['_DECOMPOSEREQUEST']._serialized_end=199
-  _globals['_DECOMPOSERESPONSE']._serialized_start=201
-  _globals['_DECOMPOSERESPONSE']._serialized_end=316
-  _globals['_REPLANREQUEST']._serialized_start=318
-  _globals['_REPLANREQUEST']._serialized_end=431
-  _globals['_REPLANRESPONSE']._serialized_start=433
-  _globals['_REPLANRESPONSE']._serialized_end=503
-  _globals['_SELECTSTRATEGYREQUEST']._serialized_start=505
-  _globals['_SELECTSTRATEGYREQUEST']._serialized_end=587
-  _globals['_SELECTSTRATEGYRESPONSE']._serialized_start=589
-  _globals['_SELECTSTRATEGYRESPONSE']._serialized_end=654
-  _globals['_PLANNERSERVICE']._serialized_start=657
-  _globals['_PLANNERSERVICE']._serialized_end=937
+  _globals['_PROBLEMCONTEXTREFERENCE']._serialized_start=52
+  _globals['_PROBLEMCONTEXTREFERENCE']._serialized_end=168
+  _globals['_PROBLEMSPEC']._serialized_start=171
+  _globals['_PROBLEMSPEC']._serialized_end=497
+  _globals['_DECOMPOSEREQUEST']._serialized_start=500
+  _globals['_DECOMPOSEREQUEST']._serialized_end=646
+  _globals['_DECOMPOSERESPONSE']._serialized_start=648
+  _globals['_DECOMPOSERESPONSE']._serialized_end=763
+  _globals['_REPLANREQUEST']._serialized_start=765
+  _globals['_REPLANREQUEST']._serialized_end=878
+  _globals['_REPLANRESPONSE']._serialized_start=880
+  _globals['_REPLANRESPONSE']._serialized_end=950
+  _globals['_SELECTSTRATEGYREQUEST']._serialized_start=952
+  _globals['_SELECTSTRATEGYREQUEST']._serialized_end=1034
+  _globals['_SELECTSTRATEGYRESPONSE']._serialized_start=1036
+  _globals['_SELECTSTRATEGYRESPONSE']._serialized_end=1101
+  _globals['_PLANNERSERVICE']._serialized_start=1104
+  _globals['_PLANNERSERVICE']._serialized_end=1384
 # @@protoc_insertion_point(module_scope)

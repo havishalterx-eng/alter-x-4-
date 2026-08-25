@@ -1,3 +1,5 @@
+import { createEnvironmentValidators } from "@alterx/adapters";
+
 // Config for the Conversation Manager (INGR-4) only. Session Gateway's own
 // config stays inline in app.module.ts (INGR-2, untouched) -- this file
 // intentionally doesn't merge with it, so this ticket can't accidentally
@@ -18,34 +20,9 @@ export class ConversationManagerConfigurationError extends Error {
   }
 }
 
-function requireValue(environment: NodeJS.ProcessEnv, field: string): string {
-  const value = environment[field]?.trim();
-  if (value === undefined || value.length === 0) {
-    throw new ConversationManagerConfigurationError(
-      field,
-      "a non-empty value is required",
-    );
-  }
-  return value;
-}
-
-function parseGrpcAddress(value: string | undefined): string {
-  const address = value?.trim() ?? "0.0.0.0:50052";
-  if (!/^(?:\d{1,3}\.){3}\d{1,3}:\d{1,5}$/.test(address)) {
-    throw new ConversationManagerConfigurationError(
-      "CONVERSATION_GRPC_BIND_ADDRESS",
-      "must be an IPv4 address and port",
-    );
-  }
-  const port = Number(address.slice(address.lastIndexOf(":") + 1));
-  if (port < 1 || port > 65_535) {
-    throw new ConversationManagerConfigurationError(
-      "CONVERSATION_GRPC_BIND_ADDRESS",
-      "port must be from 1 to 65535",
-    );
-  }
-  return address;
-}
+const { requireValue, parseGrpcAddress } = createEnvironmentValidators(
+  (field, reason) => new ConversationManagerConfigurationError(field, reason),
+);
 
 export function loadConversationManagerEnvironment(
   environment: NodeJS.ProcessEnv,
@@ -68,6 +45,8 @@ export function loadConversationManagerEnvironment(
     modelGatewayAddress: requireValue(environment, "MODEL_GATEWAY_ADDRESS"),
     grpcBindAddress: parseGrpcAddress(
       environment.CONVERSATION_GRPC_BIND_ADDRESS,
+      "CONVERSATION_GRPC_BIND_ADDRESS",
+      "0.0.0.0:50052",
     ),
   };
 }
