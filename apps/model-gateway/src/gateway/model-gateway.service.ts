@@ -72,6 +72,28 @@ function parseCachedInvokeValue(
   }
 }
 
+// ENGINE-FIX-B5-19: stream() has no equivalent of invoke()'s own output_json
+// (a structured object) -- it only ever emits plain delta text fragments
+// that concatenate into the assistant's reply. A cached ModelgwInvokeResponse
+// still stores output_json in invoke()'s `{message: {role, content}, ...}`
+// shape (see anthropic-model-provider.ts / bedrock-model-provider.ts /
+// openai-model-provider.ts, all of which build that exact shape), so this
+// extracts the plain text back out of it for replay as a single stream
+// chunk. Returns undefined for anything not in the expected shape rather
+// than guessing -- falls through to a real (uncached) stream in that case.
+function extractCachedStreamText(outputJson: string): string | undefined {
+  try {
+    const parsed = JSON.parse(outputJson) as {
+      readonly message?: { readonly content?: unknown };
+    };
+    return typeof parsed.message?.content === "string"
+      ? parsed.message.content
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class ModelGatewayService implements ModelgwHandler {
   readonly #unitPriceCache = new Map<string, { unitCostMinor: number; expireAt: number }>();
   constructor(
@@ -207,6 +229,31 @@ export class ModelGatewayService implements ModelgwHandler {
       tenantId: request.tenant_id,
       text: request.input_json,
     });
+
+    // ENGINE-FIX-B5-19: mirrors invoke()'s own embed-once-then-check-cache
+    // sequence above -- same reasons apply here (one embedding call, cache
+    // check before any cost-limit resolution or real upstream call). On a
+    // hit, invoke() never resolves a cost limit or touches the real model
+    // provider at all; stream() does the same below, returning before
+    // `resolveCostLimit` is even called.
+    const embedding = await this.#embedBestEffort(
+      request.tenant_id,
+      redacted.redactedText,
+    );
+    const cacheHit = await this.#lookupCacheBestEffort(
+      request.tenant_id,
+      embedding,
+    );
+    if (cacheHit !== undefined) {
+      const cachedText = extractCachedStreamText(cacheHit.output_json);
+      if (cachedText !== undefined) {
+        yield { sequence: 1, delta: cachedText, final: true };
+        return;
+      }
+      // Cached value isn't in the expected shape -- fall through to a real
+      // stream rather than guessing at a delta to emit.
+    }
+
     const limit = await this.configProvider.resolveCostLimit({
       tenantId: request.tenant_id,
       runId: request.run_id,
@@ -215,6 +262,8 @@ export class ModelGatewayService implements ModelgwHandler {
     let expectedSequence = 1;
     let finalSeen = false;
     let servedBy: string | undefined;
+    let accumulatedContent = "";
+    let finalUsageJson: string | undefined;
     try {
       for await (const chunk of this.modelProvider.stream({
         tenantId: request.tenant_id,
@@ -244,9 +293,11 @@ export class ModelGatewayService implements ModelgwHandler {
           );
         }
         servedBy = chunk.servedBy;
+        accumulatedContent += chunk.delta;
 
         if (chunk.final) {
           finalSeen = true;
+          finalUsageJson = chunk.usageJson;
           const usage = this.#parseUsage(chunk.usageJson);
           const totalTokens = usage.input_tokens + usage.output_tokens;
           const unitPriceMinor = await this.#resolveUnitPriceBestEffort(chunk.servedBy, "tokens");
@@ -281,6 +332,24 @@ export class ModelGatewayService implements ModelgwHandler {
           "model stream ended without a final usage chunk",
         );
       }
+
+      // ENGINE-FIX-B5-19: populate the cache only here -- past every throw
+      // above (invalid-response errors, cost-limit rejections) and past the
+      // final yield, so a partial/errored/cancelled stream never writes a
+      // truncated response into the cache. Mirrors invoke()'s own
+      // response-shape and #storeCacheBestEffort call at the end of its
+      // cache-miss path.
+      await this.#storeCacheBestEffort(request.tenant_id, embedding, {
+        output_json: JSON.stringify({
+          message: { role: "assistant", content: accumulatedContent },
+          stop_reason: "end_turn",
+        }),
+        usage_json:
+          finalUsageJson ??
+          JSON.stringify({ input_tokens: 0, output_tokens: 0 }),
+        resolved_capability: `${alias}:${servedBy ?? binding.model_id}`,
+        cache_hit: false,
+      });
     } catch (error) {
       // A success outcome was already recorded above the moment the final
       // chunk arrived -- a later throw (e.g. a cost-limit rejection, or a
@@ -386,9 +455,22 @@ export class ModelGatewayService implements ModelgwHandler {
       });
       return unitCostMinor;
     } catch (error) {
-      // Fail open: log loudly and fallback to the constant
+      // Fail open: log loudly and fallback to the constant. ENGINE-FIX-B5-9:
+      // do NOT round this -- unit_cost_minor is a per-token price, already a
+      // small fraction (this expression evaluates to 0.083), and the real
+      // Cost Ledger path already carries it at full fractional precision
+      // (ResolveUnitPriceResponse.unit_cost_minor is a proto `string`
+      // specifically so a decimal value survives the wire; see
+      // estimation.service.ts's identical "decimal string, not integer"
+      // convention). Math.round()-ing a sub-1 fraction to the nearest
+      // integer here collapsed every fallback unit price to exactly 0,
+      // which zeroed both the cost-limit comparison below (a $0 estimate
+      // can never exceed a limit) and the amount recorded to Cost Ledger
+      // for the whole outage window -- an enforcement gap and a billing
+      // gap from the same rounding, in exactly the scenario (an outage)
+      // where the fallback should be conservative, not silently zero.
       console.error(`Failed to resolve unit price for ${provider}/${resource}, falling back to constant`, error);
-      return Math.round(ESTIMATED_USD_PER_TOKEN * 100 * FALLBACK_USD_TO_INR_RATE);
+      return ESTIMATED_USD_PER_TOKEN * 100 * FALLBACK_USD_TO_INR_RATE;
     }
   }
 

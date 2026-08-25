@@ -785,6 +785,145 @@ describe("ModelGatewayService", () => {
     );
   });
 
+  // ENGINE-FIX-B5-9: a Cost Ledger outage used to fall back to a unit price
+  // that Math.round()-ed to exactly 0 -- a $0 estimate can never exceed any
+  // limit, so the cost-limit guard silently stopped enforcing for the
+  // entire outage window. These three tests prove that's fixed, using the
+  // exact repro shape from the audit (2,000 tokens at the fallback
+  // ESTIMATED_USD_PER_TOKEN of $0.00001/token = $0.02 -- real money, not
+  // the $0 the old rounding produced).
+  it("still trips the cost-limit guard during a Cost Ledger outage (fallback unit-price path)", async () => {
+    const configProvider = createMockConfigProvider({
+      costLimit: { maxTokensPerCall: 1_000_000, maxCostUsdPerCall: 0.0001 },
+    });
+    const modelProvider = createMockModelProvider({
+      invoke: async () => ({
+        outputJson: JSON.stringify({
+          message: { role: "assistant", content: "hi" },
+          stop_reason: "end_turn",
+        }),
+        usageJson: JSON.stringify({ input_tokens: 1_000, output_tokens: 1_000 }),
+        servedBy: "aws-bedrock",
+      }),
+    });
+    const service = buildService({
+      configProvider,
+      modelProvider,
+      costClient: {
+        ingestCostEvent: async () => ({ accepted: true }),
+        resolveUnitPrice: async () => {
+          throw new Error("Cost Ledger unreachable");
+        },
+        recordModelOutcome: async () => ({ accepted: true }),
+      },
+    });
+
+    await expect(service.invoke(request())).rejects.toThrow(
+      /exceeds the resolved limit/,
+    );
+  });
+
+  it("records nonzero spend during a Cost Ledger outage instead of silently $0", async () => {
+    const publish: Mock<(queueName: string, message: unknown) => Promise<void>> =
+      vi.fn(async () => undefined);
+    const queueProvider = createMockQueueProvider({ publish });
+    // High enough that the fallback-priced call does NOT trip the guard --
+    // this test is about what gets recorded, not about tripping.
+    const configProvider = createMockConfigProvider({
+      costLimit: { maxTokensPerCall: 1_000_000, maxCostUsdPerCall: 5 },
+    });
+    const modelProvider = createMockModelProvider({
+      invoke: async () => ({
+        outputJson: JSON.stringify({
+          message: { role: "assistant", content: "hi" },
+          stop_reason: "end_turn",
+        }),
+        usageJson: JSON.stringify({ input_tokens: 1_000, output_tokens: 1_000 }),
+        servedBy: "aws-bedrock",
+      }),
+    });
+    const service = buildService({
+      configProvider,
+      modelProvider,
+      queueProvider,
+      costClient: {
+        ingestCostEvent: async () => ({ accepted: true }),
+        resolveUnitPrice: async () => {
+          throw new Error("Cost Ledger unreachable");
+        },
+        recordModelOutcome: async () => ({ accepted: true }),
+      },
+    });
+
+    await service.invoke(request());
+
+    expect(publish).toHaveBeenCalledTimes(1);
+    const call = publish.mock.calls[0];
+    if (call === undefined) {
+      throw new Error("publish was not called");
+    }
+    const [, message] = call;
+    const amount = JSON.parse((message as Record<string, string>).amount_json ?? "") as {
+      usd: number;
+      estimated: boolean;
+    };
+    // 2,000 tokens * $0.00001/token fallback price = $0.02 -- the old
+    // Math.round() collapsed this to exactly 0.
+    expect(amount.usd).toBeCloseTo(0.02, 5);
+    expect(amount.usd).toBeGreaterThan(0);
+  });
+
+  it("uses the real resolved unit price, not the fallback constant, when Cost Ledger is reachable", async () => {
+    const publish: Mock<(queueName: string, message: unknown) => Promise<void>> =
+      vi.fn(async () => undefined);
+    const queueProvider = createMockQueueProvider({ publish });
+    const modelProvider = createMockModelProvider({
+      invoke: async () => ({
+        outputJson: JSON.stringify({
+          message: { role: "assistant", content: "hi" },
+          stop_reason: "end_turn",
+        }),
+        usageJson: JSON.stringify({ input_tokens: 1_000, output_tokens: 1_000 }),
+        servedBy: "aws-bedrock",
+      }),
+    });
+    const configProvider = createMockConfigProvider({
+      costLimit: { maxTokensPerCall: 1_000_000, maxCostUsdPerCall: 1_000 },
+    });
+    const service = buildService({
+      configProvider,
+      modelProvider,
+      queueProvider,
+      costClient: {
+        ingestCostEvent: async () => ({ accepted: true }),
+        // A real per-token price far from the $0.00001 fallback constant --
+        // if the fallback path leaked into the success path, this
+        // assertion below would fail.
+        resolveUnitPrice: async () => ({
+          unit_cost_minor: "830",
+          currency: "INR",
+          confidence: "fixed_table",
+        }),
+        recordModelOutcome: async () => ({ accepted: true }),
+      },
+    });
+
+    await service.invoke(request());
+
+    const call = publish.mock.calls[0];
+    if (call === undefined) {
+      throw new Error("publish was not called");
+    }
+    const [, message] = call;
+    const amount = JSON.parse((message as Record<string, string>).amount_json ?? "") as {
+      usd: number;
+    };
+    // 2,000 tokens * 830 minor units, converted back through the same
+    // (100 * 83) INR-paise divisor the fallback path shares -- $200, not
+    // whatever the $0.00001/token fallback constant would have produced.
+    expect(amount.usd).toBeCloseTo(200, 5);
+  });
+
   it("rejects a response whose output_json is not a JSON object", async () => {
     const modelProvider = createMockModelProvider({
       invoke: async () => ({
@@ -930,5 +1069,80 @@ describe("ModelGatewayService", () => {
 
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(response.resolved_capability).toBe("STANDARD:mock.model");
+  });
+
+  // ENGINE-FIX-B5-19: stream() previously never checked or populated the
+  // semantic cache at all -- every streaming call was a guaranteed miss.
+  it("misses the semantic cache on the first streaming call, then hits it on an identical second call without calling the model again", async () => {
+    const stream = vi.fn(async function* () {
+      yield { sequence: 1, delta: "hello ", final: false as const, servedBy: "mock.model" };
+      yield { sequence: 2, delta: "world", final: false as const, servedBy: "mock.model" };
+      yield {
+        sequence: 3,
+        delta: "",
+        final: true as const,
+        usageJson: JSON.stringify({ input_tokens: 4, output_tokens: 4 }),
+        servedBy: "mock.model",
+      };
+    });
+    const modelProvider = createMockModelProvider({ stream });
+    // Deterministic embedding: identical redacted text -> identical vector,
+    // so the second call is guaranteed to be an exact cache hit -- same
+    // pattern as invoke()'s own cache-hit test above.
+    const embeddingProvider = createMockEmbeddingProvider();
+    const cacheProvider = createMockCacheProvider();
+    const service = buildService({ modelProvider, embeddingProvider, cacheProvider });
+
+    const firstChunks = [];
+    for await (const chunk of service.stream(request())) {
+      firstChunks.push(chunk);
+    }
+    const secondChunks = [];
+    for await (const chunk of service.stream(request())) {
+      secondChunks.push(chunk);
+    }
+
+    expect(stream).toHaveBeenCalledTimes(1);
+    expect(firstChunks.map((chunk) => chunk.delta).join("")).toBe(
+      "hello world",
+    );
+    // A cache hit is delivered as a single chunk carrying the full cached
+    // content -- ModelgwStreamResponse's wire contract ({sequence, delta,
+    // final}) has no field to reconstruct a cached value's original
+    // multi-chunk shape from, so there is nothing to synthesize beyond one
+    // final chunk.
+    expect(secondChunks).toEqual([
+      { sequence: 1, delta: "hello world", final: true },
+    ]);
+  });
+
+  it("does not populate the semantic cache when the stream errors partway through", async () => {
+    const stream = vi.fn(async function* () {
+      yield { sequence: 1, delta: "partial", final: false as const, servedBy: "mock.model" };
+      throw new Error("upstream connection dropped");
+    });
+    const modelProvider = createMockModelProvider({ stream });
+    const embeddingProvider = createMockEmbeddingProvider();
+    const cacheProvider = createMockCacheProvider();
+    const service = buildService({ modelProvider, embeddingProvider, cacheProvider });
+
+    const drain = async () => {
+      const iterator = service.stream(request())[Symbol.asyncIterator]();
+      while (!(await iterator.next()).done) {
+        // Drain until the mid-stream error.
+      }
+    };
+    await expect(drain()).rejects.toThrow(/upstream connection dropped/);
+
+    expect(
+      (cacheProvider as ReturnType<typeof createMockCacheProvider>).getStoredEntries(),
+    ).toHaveLength(0);
+
+    // Behavioral confirmation, not just an empty store list: an identical
+    // follow-up request must still miss and go upstream again -- if the
+    // errored stream had cached the partial content, the mock's second call
+    // (which also throws) would never have been reached.
+    await expect(drain()).rejects.toThrow(/upstream connection dropped/);
+    expect(stream).toHaveBeenCalledTimes(2);
   });
 });
