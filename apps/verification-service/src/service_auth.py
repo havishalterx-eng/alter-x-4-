@@ -158,7 +158,7 @@ def fastapi_dependency(
 #     from service_auth import ServiceAuthInterceptor
 #     server = grpc.aio.server(interceptors=[ServiceAuthInterceptor()])
 # ---------------------------------------------------------------------------
-class ServiceAuthInterceptor(grpc.aio.ServerInterceptor):
+class ServiceAuthInterceptor(grpc.aio.ServerInterceptor):  # type: ignore[misc]
     """grpc.aio server interceptor enforcing the service credential on every RPC."""
 
     def __init__(self, exempt_methods: frozenset[str] = frozenset()) -> None:
