@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 
 import { createPlatformJobHandlers } from "./handlers";
@@ -334,6 +335,49 @@ describe("createPlatformJobHandlers", () => {
       }),
     );
     expect(result).toEqual({ candidates: 2, scored: 1, failed: 1 });
+  });
+
+  it("real isolates a single drift candidate score failure from the rest of the sweep", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [
+            { tenant_id: "ten_1", agent_id: "agent_1", task_class: "support" },
+            { tenant_id: "ten_2", agent_id: "agent_2", task_class: "sales" },
+            { tenant_id: "ten_3", agent_id: "agent_3", task_class: "billing" },
+          ],
+        }),
+        text: async () => "",
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => "" })
+      .mockRejectedValueOnce(new Error("network blip"))
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => "" }) as unknown as typeof fetch;
+    const logger = { error: vi.fn() } as unknown as Logger;
+    const handlers = createPlatformJobHandlers({
+      intelligenceServiceInternalBaseUrl: "http://intelligence-service.internal",
+      memoryServiceInternalBaseUrl: "http://memory-service.internal",
+      driftSweepServiceToken: "real-token",
+      driftSweepMinimumObservations: 40,
+      fetchImpl,
+      driftSweepLogger: logger,
+    });
+
+    const result = await handlers.get("platform.drift-sweep")!({});
+
+    // All three candidates' scores were at least attempted despite the
+    // middle one throwing -- the sweep continued to the remaining ones.
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(result).toEqual({ candidates: 3, scored: 2, failed: 1 });
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    const logArgs = (logger.error as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      string | undefined,
+    ];
+    expect(logArgs[0]).toMatch(/network blip/);
+    expect(logArgs[0]).toMatch(/tenant_id=ten_2/);
   });
 
   it("real relays a clean audit chain verification", async () => {

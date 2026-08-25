@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import type { CanonicalEventConsumerService } from "./canonical-event-consumer.service";
 
 function defaultSleep(ms: number): Promise<void> {
@@ -17,6 +18,7 @@ export class CanonicalEventConsumerRunner {
     private readonly consumer: CanonicalEventConsumerService,
     private readonly pollIntervalMs: number,
     private readonly sleep: (ms: number) => Promise<void> = defaultSleep,
+    private readonly logger: Logger = new Logger(CanonicalEventConsumerRunner.name),
   ) {}
 
   start(): void {
@@ -32,10 +34,20 @@ export class CanonicalEventConsumerRunner {
 
   async #loop(): Promise<void> {
     while (this.#running) {
-      const result = await this.consumer.pollOnce();
-      if (result === "empty") {
-        await this.sleep(this.pollIntervalMs);
+      try {
+        const result = await this.consumer.pollOnce();
+        if (result === "empty") {
+          await this.sleep(this.pollIntervalMs);
+        }
+      } catch (error: unknown) {
+        this.#logError(error);
       }
     }
+  }
+
+  #logError(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    this.logger.error(`Canonical event consumer poll failed: ${message}`, stack);
   }
 }

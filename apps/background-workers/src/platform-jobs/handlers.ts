@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import type { JsonValue } from "@alterx/shared-clients";
 import type { PlatformJobHandler } from "@alterx/adapters";
 
@@ -216,6 +217,7 @@ function createDriftSweepHandler(
   serviceToken: string,
   minimumObservations: number,
   fetchImpl: typeof fetch,
+  logger: Logger = new Logger("DriftSweepHandler"),
 ): PlatformJobHandler {
   return async (): Promise<JsonValue> => {
     const candidatesResponse = await fetchImpl(
@@ -231,18 +233,28 @@ function createDriftSweepHandler(
     let scored = 0;
     let failed = 0;
     for (const candidate of payload.candidates ?? []) {
-      const response = await fetchImpl(`${memoryBaseUrl}/drift/agents/score`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${serviceToken}`,
-        },
-        body: JSON.stringify(candidate),
-      });
-      if (response.ok) {
-        scored += 1;
-      } else {
+      try {
+        const response = await fetchImpl(`${memoryBaseUrl}/drift/agents/score`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${serviceToken}`,
+          },
+          body: JSON.stringify(candidate),
+        });
+        if (response.ok) {
+          scored += 1;
+        } else {
+          failed += 1;
+        }
+      } catch (error: unknown) {
         failed += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        const stack = error instanceof Error ? error.stack : undefined;
+        logger.error(
+          `drift candidate score failed tenant_id=${candidate.tenant_id} agent_id=${candidate.agent_id} task_class=${candidate.task_class}: ${message}`,
+          stack,
+        );
       }
     }
     return { candidates: payload.candidates?.length ?? 0, scored, failed };
@@ -303,6 +315,7 @@ export interface PlatformJobHandlerDependencies {
   readonly auditServiceInternalBaseUrl?: string;
   readonly auditChainVerifyServiceToken?: string;
   readonly fetchImpl?: typeof fetch;
+  readonly driftSweepLogger?: Logger;
 }
 
 export function createPlatformJobHandlers(
@@ -379,6 +392,7 @@ export function createPlatformJobHandlers(
         dependencies.driftSweepServiceToken,
         dependencies.driftSweepMinimumObservations,
         fetchImpl,
+        dependencies.driftSweepLogger ?? new Logger("DriftSweepHandler"),
       ),
     );
   }

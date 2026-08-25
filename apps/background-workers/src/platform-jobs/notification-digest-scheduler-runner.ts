@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import type { DurableExecutionProvider } from "@alterx/shared-clients";
 
 function defaultSleep(ms: number): Promise<void> {
@@ -22,6 +23,7 @@ export class NotificationDigestSchedulerRunner {
     private readonly intervalMs: number,
     private readonly now: () => Date = () => new Date(),
     private readonly sleep: (ms: number) => Promise<void> = defaultSleep,
+    private readonly logger: Logger = new Logger(NotificationDigestSchedulerRunner.name),
   ) {
     this.#windowStart = this.now();
   }
@@ -44,17 +46,35 @@ export class NotificationDigestSchedulerRunner {
       const periodEnd = this.now();
       const periodStart = this.#windowStart;
       this.#windowStart = periodEnd;
-      await this.durableExecution.startWorkflow({
-        workflowType: "platformJobWorkflow",
-        workflowId: `notification-digest-${periodEnd.getTime()}`,
-        input: {
-          jobType: "platform.notification-digest",
-          payloadJson: JSON.stringify({
-            period_start: periodStart.toISOString(),
-            period_end: periodEnd.toISOString(),
-          }),
-        },
-      });
+      try {
+        await this.durableExecution.startWorkflow({
+          workflowType: "platformJobWorkflow",
+          workflowId: `notification-digest-${periodEnd.getTime()}`,
+          input: {
+            jobType: "platform.notification-digest",
+            payloadJson: JSON.stringify({
+              period_start: periodStart.toISOString(),
+              period_end: periodEnd.toISOString(),
+            }),
+          },
+        });
+      } catch (error: unknown) {
+        this.#logError("startWorkflow", periodStart, periodEnd, error);
+      }
     }
+  }
+
+  #logError(
+    operation: string,
+    periodStart: Date,
+    periodEnd: Date,
+    error: unknown,
+  ): void {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    this.logger.error(
+      `Notification digest scheduler tick failed jobType=platform.notification-digest operation=${operation} periodStart=${periodStart.toISOString()} periodEnd=${periodEnd.toISOString()}: ${message}`,
+      stack,
+    );
   }
 }
