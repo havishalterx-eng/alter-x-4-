@@ -43,6 +43,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+import grpc
 from fastapi import Request
 
 _TENANT_RE = re.compile(
@@ -157,7 +158,7 @@ def fastapi_dependency(
 #     from service_auth import ServiceAuthInterceptor
 #     server = grpc.aio.server(interceptors=[ServiceAuthInterceptor()])
 # ---------------------------------------------------------------------------
-class ServiceAuthInterceptor:
+class ServiceAuthInterceptor(grpc.aio.ServerInterceptor):
     """grpc.aio server interceptor enforcing the service credential on every RPC."""
 
     def __init__(self, exempt_methods: frozenset[str] = frozenset()) -> None:
