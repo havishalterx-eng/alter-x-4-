@@ -17,18 +17,22 @@ apps/
   memory-service/          Engine: memory, policy store, drift
   eval-service/            Engine: golden sets, red-team, release gates
   background-workers/      Temporal workers (engine + platform namespaces)
+  ads-core/                ADS: pgvector cluster, ingestion, retrieval, embeddings (Python/FastAPI)
+  audit-service/           Engine: audit trail, event log (NestJS)
+  cost-ledger-service/     Engine: cost tracking, billing rollups (NestJS)
+  provisioning-service/    Engine: resource provisioning (NestJS)
 packages/
   contracts/               SHARED — schemas, OpenAPI, protos. Changes need repo-owner approval.
-  workflow-schema/         WorkflowDAG type definitions
-  auth/ tenancy/ observability/ policy/ shared-clients/
+  adapters/                Postgres store providers, gRPC clients/transports, queue handling, SSRF-safe fetcher, observability wiring
+  auth/ tenancy/ observability/ shared-clients/
 infrastructure/            Terraform (8-account AWS layout, ap-south-1)
 tests/                     Cross-service integration + e2e
-docs/                      Pointers to spec documents
+docs/                      Decision notes, local-dev guide, runbooks, full spec documents (PRD, architecture, API, data model, test plan, deploy)
 ```
 
 ## Working rules
 
-1. Nobody pushes to `main`. Branch per task → PR → CI green → Codex Audit → human review → squash-merge → delete branch.
+1. Nobody pushes to `main`. Branch per task → PR → CI green → Codex Audit → human review → squash-merge.
 2. Branches separate **tasks**; folders separate **people**. Branches live hours, not weeks.
 3. `packages/contracts` is law — any change requires repo-owner approval (CODEOWNERS enforces).
 4. Phase completion = tag on `main`: `engine-foundation-v1`, `platform-identity-v1`, `ui-product-core-v1` …
