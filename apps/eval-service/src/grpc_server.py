@@ -117,7 +117,9 @@ def _build_service(settings: Settings) -> tuple[EvalGrpcService, Engine, tuple[C
         settings.model_gateway_grpc_target, access_token_provider=m2m
     )
     verification_severity_client = VerificationSeverityEvalClient(
-        settings.verification_severity_grpc_target, settings.orchestration_db_url
+        settings.verification_severity_grpc_target,
+        settings.orchestration_db_url,
+        service_token=settings.internal_service_token,
     )
     audit_client = AuditEvalClient(settings.audit_grpc_target, access_token_provider=m2m)
     memory_drift_client = MemoryDriftEvalClient(

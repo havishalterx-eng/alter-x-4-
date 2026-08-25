@@ -2660,7 +2660,9 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         access_token_provider=m2m_client,
     )
     verification_severity_client = VerificationSeverityEvalClient(
-        verification_severity_http_target, verification_severity_db_url
+        verification_severity_http_target,
+        verification_severity_db_url,
+        service_token=_EVAL_INTERNAL_SERVICE_TOKEN,
     )
     audit_client = AuditEvalClient(audit_server_target, access_token_provider=m2m_client)
     memory_drift_client = MemoryDriftEvalClient(
