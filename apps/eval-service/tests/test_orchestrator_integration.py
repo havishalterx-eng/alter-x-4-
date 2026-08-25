@@ -402,6 +402,7 @@ def verification_severity_server_target() -> Generator[tuple[str, str], None, No
                 "ORCHESTRATION_DATABASE_URL": asyncpg_db_url,
                 "MODEL_GATEWAY_GRPC_TARGET": "127.0.0.1:1",
                 "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+                "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             },
         )
         try:
@@ -552,6 +553,7 @@ def ads_core_server_target() -> Generator[str, None, None]:
                 "EVAL_ADS_WORKSPACE_ID": _EVAL_ADS_WORKSPACE_UUID,
                 "EVAL_ADS_SCOPE_ID": _EVAL_ADS_SCOPE_ID,
                 "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+                "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             },
         )
         try:
@@ -1789,6 +1791,7 @@ def ads_isolation_server_target() -> Generator[str, None, None]:
                 "EVAL_ADS_TENANT_B_WORKSPACE_ID": "018f4d6e-cccc-7ccc-8ccc-cccccccccccc",
                 "EVAL_ADS_TENANT_B_SCOPE_ID": "scp_018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
                 "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+                "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             },
         )
         try:
@@ -2514,6 +2517,7 @@ def agent_binding_server_target(
                     "INTELLIGENCE_DB_URL_SYNC": sync_url,
                     "ADSQ_GRPC_TARGET": "127.0.0.1:1",
                     "MODEL_GATEWAY_GRPC_TARGET": f"127.0.0.1:{model_gateway_grpc_port}",
+                    "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
                     **local_m2m_issuer.environment(),
                 },
             )
