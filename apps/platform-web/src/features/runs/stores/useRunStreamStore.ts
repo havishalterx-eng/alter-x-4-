@@ -78,7 +78,7 @@ export const useRunStreamStore = create<RunStreamState>((set, get) => ({
         case "node.waiting":
         case "node.retrying": {
           const e = event as any
-          const ex = state.nodeExecutions[e.nodeId] || {
+          const ex: RunNodeExecution = state.nodeExecutions[e.nodeId] || {
             id: `exec_${e.nodeId}`,
             runId: e.runId,
             nodeId: e.nodeId,

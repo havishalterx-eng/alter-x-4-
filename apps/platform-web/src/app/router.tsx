@@ -1,4 +1,5 @@
 import { createBrowserRouter, Navigate } from "react-router-dom"
+import { lazy, Suspense } from "react"
 import { AppShell } from "@/layout/app-shell"
 import { AuthLayout } from "@/layout/auth-layout"
 import { SignIn } from "@/features/auth/pages/sign-in"
@@ -10,7 +11,6 @@ import { Home, ConversationsList, ConversationDetail } from "@/features/conversa
 import { EventList, EventDetail } from "@/features/events/pages"
 import { WorkflowsList } from "@/features/workflows/pages"
 import { WorkflowCreate } from "@/features/workflows/pages/workflow-create"
-import { WorkflowBuilder } from "@/features/workflows/pages/workflow-builder"
 import { WorkflowDetail } from "@/features/workflows/pages/workflow-detail"
 import { WorkflowReview } from "@/features/workflows/pages/workflow-review"
 import { WorkflowVersions } from "@/features/workflows/pages/workflow-versions"
@@ -95,6 +95,12 @@ import { SettingsAudit } from "@/features/settings/pages/audit"
 import { SettingsSupport } from "@/features/settings/pages/support"
 import { NotFound } from "@/components/feedback/not-found"
 
+const WorkflowBuilder = lazy(() =>
+  import("@/features/workflows/pages/workflow-builder").then(({ WorkflowBuilder }) => ({
+    default: WorkflowBuilder,
+  })),
+)
+
 export const router = createBrowserRouter([
   {
     path: "/",
@@ -129,7 +135,7 @@ export const router = createBrowserRouter([
       { path: "workflows/:workflowId", element: <WorkflowDetail /> },
       { 
         path: "workflows/:workflowId/build", 
-        element: <RequirePermission permission="workflow.update"><WorkflowBuilder /></RequirePermission> 
+        element: <RequirePermission permission="workflow.update"><Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading workflow builder…</div>}><WorkflowBuilder /></Suspense></RequirePermission>
       },
       { 
         path: "workflows/:workflowId/review", 

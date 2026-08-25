@@ -4,7 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query"
 import { Save, Play, LayoutTemplate, PanelRight, ChevronLeft } from "lucide-react"
 import { api } from "@/api/client"
 import { isLiveApi } from "@/api/http"
-import { dagToCanvas } from "@/api/compile-dag"
+import { dagToCanvas, WorkflowGraphCycleError } from "@/api/compile-dag"
 import { queryKeys } from "@/api/query-keys"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
@@ -59,7 +59,14 @@ export function WorkflowBuilder() {
     onSuccess: () => {
       setDirty(false)
       toast.success("Workflow saved")
-    }
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof WorkflowGraphCycleError
+          ? error.message
+          : "Workflow could not be saved",
+      )
+    },
   })
 
   const handleAutoLayout = () => {

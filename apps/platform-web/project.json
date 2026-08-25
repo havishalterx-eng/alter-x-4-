@@ -31,6 +31,13 @@
         "command": "oxlint",
         "cwd": "apps/platform-web"
       }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run --config vitest.config.ts --pool=forks",
+        "cwd": "apps/platform-web"
+      }
     }
   }
 }

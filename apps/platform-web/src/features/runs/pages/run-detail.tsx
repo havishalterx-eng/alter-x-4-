@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useParams, useNavigate } from "react-router-dom"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
 import { ArrowLeft, Square, RefreshCcw, Clock, Activity } from "lucide-react"
 import { api } from "@/api/client"
@@ -13,17 +13,42 @@ import { RunTimeline } from "../components/run-timeline"
 import { RunInspector } from "../components/run-inspector"
 import { TerminalView } from "../components/terminal-view"
 import { RunVector } from "@/components/vectors/RunVector"
+import { toast } from "sonner"
 
 export function RunDetail() {
   const { runId } = useParams()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   
-  const { connect, disconnect, runStatus, connectionStatus, terminalLines, clear } = useRunStreamStore()
+  const { connect, disconnect, runStatus, connectionStatus, terminalLines, selectedNodeId, clear } = useRunStreamStore()
 
   const { data: run, isLoading } = useQuery({
     queryKey: queryKeys.runs.detail(runId!),
     queryFn: () => api.getRun(runId!),
     enabled: !!runId,
+  })
+
+  const stopRun = useMutation({
+    mutationFn: () => api.stopRun(runId!),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.runs.detail(runId!) })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.runs.all })
+      toast.success("Run cancellation requested")
+    },
+    onError: () => toast.error("Unable to stop this run"),
+  })
+
+  const retryNode = useMutation({
+    mutationFn: () => {
+      if (!selectedNodeId) throw new Error("Select a failed node before retrying")
+      return api.retryRun(runId!, selectedNodeId)
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.runs.detail(runId!) })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.runs.all })
+      toast.success("Node retry requested")
+    },
+    onError: (error) => toast.error(error.message),
   })
 
   // Start live stream when component mounts
@@ -87,15 +112,20 @@ export function RunDetail() {
         </div>
         <div className="flex items-center gap-3 relative z-10">
           {(displayStatus === "running" || displayStatus === "waiting") && (
-            <Button variant="outline" className="text-danger hover:text-danger hover:bg-danger/10 border-danger/20">
+            <Button
+              variant="outline"
+              className="text-danger hover:text-danger hover:bg-danger/10 border-danger/20"
+              onClick={() => stopRun.mutate()}
+              disabled={stopRun.isPending}
+            >
               <Square className="mr-2 h-4 w-4" />
-              Stop Run
+              {stopRun.isPending ? "Stopping…" : "Stop Run"}
             </Button>
           )}
           {displayStatus === "failed" && (
-            <Button variant="primary">
+            <Button variant="primary" onClick={() => retryNode.mutate()} disabled={retryNode.isPending}>
               <RefreshCcw className="mr-2 h-4 w-4" />
-              Retry Run
+              {retryNode.isPending ? "Retrying…" : "Retry Selected Node"}
             </Button>
           )}
         </div>

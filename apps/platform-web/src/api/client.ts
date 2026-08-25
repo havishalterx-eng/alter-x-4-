@@ -79,8 +79,8 @@ class ApiClient {
     await delay(MOCK_DELAY)
   }
 
-  async retryRun(_id: string): Promise<Run> {
-    if (isLiveApi) return live.retryRun(_id)
+  async retryRun(_id: string, _nodeKey: string): Promise<Run> {
+    if (isLiveApi) return live.retryRun(_id, _nodeKey)
     await delay(MOCK_DELAY)
     return {
       ...mockRuns[0],
@@ -1031,6 +1031,7 @@ class ApiClient {
 
   // Phase 7: Credentials API
   async getCredentials(): Promise<Credential[]> {
+    if (isLiveApi) return live.getCredentials()
     await delay(MOCK_DELAY)
     return mockCredentials.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
   }
@@ -1042,14 +1043,20 @@ class ApiClient {
     return c
   }
 
-  async createCredential(data: Partial<Credential>): Promise<Credential> {
+  async createCredential(data: {
+    name: string
+    connector: string
+    scope: string
+    value: string
+  }): Promise<Credential> {
+    if (isLiveApi) return live.createCredential(data)
     await delay(MOCK_DELAY * 2)
     const c: Credential = {
       id: `cred_${Date.now()}`,
-      name: data.name || "New Credential",
-      type: data.type || "secret",
-      provider: data.provider,
-      maskedValue: data.type !== "oauth" ? "sk_••••••••" : undefined,
+      name: data.name,
+      type: "secret",
+      provider: data.connector,
+      maskedValue: "sk_••••••••",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       usedByConnectionIds: []
@@ -1075,6 +1082,7 @@ class ApiClient {
   }
 
   async deleteCredential(id: string): Promise<void> {
+    if (isLiveApi) return live.deleteCredential(id)
     await delay(MOCK_DELAY)
     const c = mockCredentials.find(c => c.id === id)
     if (!c) throw new Error("Credential not found")

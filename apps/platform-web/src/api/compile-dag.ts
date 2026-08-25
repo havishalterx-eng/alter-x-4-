@@ -18,7 +18,58 @@ const NODE_TYPE_CATEGORY: Record<string, string> = {
   YAMLImport: "import",
 }
 
+export class WorkflowGraphCycleError extends Error {
+  readonly nodeIds: readonly string[]
+  readonly nodeNames: readonly string[]
+
+  constructor(nodeIds: readonly string[], nodeNames: readonly string[]) {
+    super(`Workflow contains a cycle among: ${nodeNames.join(", ")}`)
+    this.name = "WorkflowGraphCycleError"
+    this.nodeIds = nodeIds
+    this.nodeNames = nodeNames
+  }
+}
+
+function findCycleNodeIds(nodes: any[], edges: any[]): string[] {
+  const outgoing = new Map<string, string[]>()
+  for (const node of nodes) outgoing.set(node.id, [])
+  for (const edge of edges) {
+    if (outgoing.has(edge.source) && outgoing.has(edge.target)) {
+      outgoing.get(edge.source)!.push(edge.target)
+    }
+  }
+
+  const visiting = new Set<string>()
+  const visited = new Set<string>()
+  const stack: string[] = []
+  const cycleNodeIds = new Set<string>()
+  const visit = (nodeId: string): void => {
+    if (visiting.has(nodeId)) {
+      const start = stack.indexOf(nodeId)
+      for (const cycleNodeId of stack.slice(start)) cycleNodeIds.add(cycleNodeId)
+      return
+    }
+    if (visited.has(nodeId)) return
+    visiting.add(nodeId)
+    stack.push(nodeId)
+    for (const target of outgoing.get(nodeId) ?? []) visit(target)
+    stack.pop()
+    visiting.delete(nodeId)
+    visited.add(nodeId)
+  }
+  for (const node of nodes) visit(node.id)
+  return [...cycleNodeIds].sort()
+}
+
 export function compileDag(nodes: any[], edges: any[]): CompiledDag {
+  const cycleNodeIds = findCycleNodeIds(nodes, edges)
+  if (cycleNodeIds.length > 0) {
+    const labels = new Map(nodes.map((node) => [node.id, node.data?.label ?? node.id]))
+    throw new WorkflowGraphCycleError(
+      cycleNodeIds,
+      cycleNodeIds.map((nodeId) => labels.get(nodeId) ?? nodeId),
+    )
+  }
   const compiledNodes = nodes.map((node) => {
     // Basic mapping from UI node to backend node format
     const type = node.type === "humanApproval" ? "HumanApproval" : node.type

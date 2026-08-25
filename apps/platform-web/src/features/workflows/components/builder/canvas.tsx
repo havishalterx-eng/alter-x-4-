@@ -10,7 +10,7 @@ import {
 import "@xyflow/react/dist/style.css"
 import { BaseNode } from "./base-node"
 import { useBuilderStore } from "../../stores/useBuilderStore"
-import dagre from "dagre"
+import dagre from "@dagrejs/dagre"
 
 // Keys are the engine's 11 canonical node types (node-type-catalog.ts) --
 // every one renders the same generic BaseNode, differentiated only by
