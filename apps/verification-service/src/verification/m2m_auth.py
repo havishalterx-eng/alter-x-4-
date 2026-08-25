@@ -12,12 +12,20 @@ import httpx
 
 
 class AccessTokenProvider(Protocol):
-    def metadata(self) -> tuple[tuple[str, str], ...]: ...
+    async def metadata(self) -> tuple[tuple[str, str], ...]: ...
+
+    async def close(self) -> None: ...
 
 
 class Auth0M2mTokenProvider:
     def __init__(
-        self, *, token_url: str, audience: str, client_id: str, client_secret: str
+        self,
+        *,
+        token_url: str,
+        audience: str,
+        client_id: str,
+        client_secret: str,
+        client: httpx.AsyncClient | None = None,
     ) -> None:
         if not all(value.strip() for value in (token_url, audience, client_id, client_secret)):
             raise ValueError("Auth0 M2M configuration is incomplete")
@@ -27,6 +35,8 @@ class Auth0M2mTokenProvider:
         self._client_id = client_id
         self._client_secret = client_secret
         self._cached: tuple[str, float] | None = None
+        self._client = client or httpx.AsyncClient(timeout=10)
+        self._owns_client = client is None
 
     @classmethod
     def from_environment(cls) -> Auth0M2mTokenProvider:
@@ -37,9 +47,9 @@ class Auth0M2mTokenProvider:
             client_secret=os.environ.get("AUTH0_M2M_CLIENT_SECRET", ""),
         )
 
-    def metadata(self) -> tuple[tuple[str, str], ...]:
+    async def metadata(self) -> tuple[tuple[str, str], ...]:
         if self._cached is None or self._cached[1] <= time.time() + 60:
-            response = httpx.post(
+            response = await self._client.post(
                 self._token_url,
                 json={
                     "grant_type": "client_credentials",
@@ -62,6 +72,10 @@ class Auth0M2mTokenProvider:
             self._cached = (token, time.time() + expires_in)
         return (("authorization", f"Bearer {self._cached[0]}"),)
 
+    async def close(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
 
 def _assert_secure_token_url(token_url: str) -> None:
     parsed = urlparse(token_url)
@@ -79,10 +93,14 @@ class LazyAuth0M2mTokenProvider:
         self._factory = factory
         self._provider: Auth0M2mTokenProvider | None = None
 
-    def metadata(self) -> tuple[tuple[str, str], ...]:
+    async def metadata(self) -> tuple[tuple[str, str], ...]:
         if self._provider is None:
             self._provider = self._factory()
-        return self._provider.metadata()
+        return await self._provider.metadata()
+
+    async def close(self) -> None:
+        if self._provider is not None:
+            await self._provider.close()
 
 
 def lazy_auth0_m2m_token_provider_from_environment() -> LazyAuth0M2mTokenProvider:
