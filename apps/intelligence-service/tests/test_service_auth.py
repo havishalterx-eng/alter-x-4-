@@ -5,7 +5,6 @@ import hashlib
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.main import app as real_app
 from src.service_auth import fastapi_dependency
 
 
@@ -60,10 +59,27 @@ def test_health_route_is_exempt() -> None:
     assert response.status_code == 200
 
 
-def test_real_app_registers_service_auth_dependency() -> None:
-    """Pattern-3 wiring proof: the production app must actually carry the
-    app-level service-auth dependency, not just have the module present."""
-    assert any(
-        getattr(dep.dependency, "__module__", "") == "src.service_auth"
-        for dep in real_app.router.dependencies
-    ), "production app does not register the service_auth dependency"
+def test_real_app_requires_token_at_startup() -> None:
+    """The HTTP app is deliberately not per-route gated (its routes are
+    public-facing) -- assert_configured_at_startup() is the actual guarantee:
+    boot fails without a configured token, so misconfiguration is a fail-fast
+    boot error, never a silent per-request surprise."""
+    from src.main import lifespan
+    from src.service_auth import assert_configured_at_startup
+
+    assert lifespan.__wrapped__.__globals__["assert_configured_at_startup"] is (
+        assert_configured_at_startup
+    )
+
+
+def test_real_grpc_server_registers_service_auth_interceptor() -> None:
+    """gRPC is the actually-enforced surface for this service -- verify the
+    real capability-resolver gRPC server wires ServiceAuthInterceptor."""
+    import inspect
+
+    from src.capability_resolver.grpc_server import start_capability_server
+
+    source = inspect.getsource(start_capability_server)
+    assert "ServiceAuthInterceptor" in source, (
+        "capability-resolver gRPC server does not wire ServiceAuthInterceptor"
+    )

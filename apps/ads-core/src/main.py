@@ -27,12 +27,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 # which keeps its own stricter token check underneath.
 # Deletion routes retain their existing, purpose-specific authenticated router;
 # exempting only this prefix preserves its RFC 9457 response contract.
+# /ads/ingestion/uploads/complete is likewise exempt: it is deliberately
+# client-reachable (interim trigger until a real S3-event/SQS consumer
+# exists -- see its docstring) and already carries its own tenant-scoped
+# validation (X-Alter-Tenant-Id header, upload_key ownership prefix check,
+# real object existence via head_object) -- the internal-service token was
+# never part of its contract.
 app = FastAPI(
     lifespan=lifespan,
     dependencies=[
         fastapi_dependency(
             frozenset({"/health"}),
-            exempt_path_prefixes=("/internal/deletion/",),
+            exempt_path_prefixes=(
+                "/internal/deletion/",
+                "/ads/ingestion/uploads/complete",
+            ),
         )
     ],
 )
