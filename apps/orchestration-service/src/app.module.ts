@@ -62,7 +62,6 @@ import { NodeExecutionLedgerService } from "./runs/node-execution-ledger.service
 import { RunStreamEventService } from "./runs/run-stream-event.service";
 import { RunStreamController } from "./runs/run-stream.controller";
 import { RunLauncherService } from "./runs/run-launcher.service";
-import { DurableRunQueue } from "./runs/durable-run-queue.service";
 import { RunsController } from "./runs/runs.controller";
 import { RunOutcomeService } from "./runs/run-outcome.service";
 import { ProjectRunProvisioningService } from "./runs/project-run-provisioning.service";
@@ -89,10 +88,12 @@ import { loadNodeexecEnvironment } from "./config/nodeexec-environment";
 import { SANDBOX_CLIENT_PROTO_PATH } from "./registry/sandbox-client.constants";
 import {
   OrchestrationInfrastructureModule,
+  buildRunOutcomeService,
   internalM2mTokenProvider,
   orchestrationStore,
   sessionGatewayEnvironment,
 } from "./orchestration-infrastructure.module";
+import { RunLauncherModule } from "./run-launcher.module";
 import { HealthController } from "./health/health.controller";
 import { RecoveryPolicyService } from "./recovery/recovery-policy.service";
 import { RecoveryDispatchService } from "./recovery/recovery-dispatch.service";
@@ -135,7 +136,7 @@ import { OperationsModule } from "./operations.module";
 import { ArtifactModule } from "./artifact.module";
 
 @Module({
-  imports: [OrchestrationInfrastructureModule, OperationsModule, ArtifactModule],
+  imports: [OrchestrationInfrastructureModule, OperationsModule, ArtifactModule, RunLauncherModule],
   controllers: [
     HealthController,
     ConversationGrpcController,
@@ -590,39 +591,6 @@ import { ArtifactModule } from "./artifact.module";
       },
     },
     {
-      provide: RunLauncherService,
-      useFactory: () => {
-        // Same reasoning as CONVERSATION_HANDLER/TriggerRegistryService
-        // above: constructs its own PostgresOrchestrationStoreProvider
-        // rather than reaching into the guard's private instance.
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = orchestrationStore(dbConfig);
-        const runLauncherConfig = loadRunLauncherEnvironment(process.env);
-        const durable = new TemporalDurableExecutionProvider({
-          address: runLauncherConfig.temporalAddress,
-          namespace: runLauncherConfig.temporalNamespace,
-          taskQueue: runLauncherConfig.taskQueue,
-          ...(runLauncherConfig.temporalApiKey === undefined
-            ? {}
-            : { apiKey: runLauncherConfig.temporalApiKey }),
-        });
-        return new RunLauncherService(
-          store,
-          durable,
-          buildRunOutcomeService(),
-          new ProjectRunProvisioningService(
-            store,
-            new ProvisioningClient({
-              address: runLauncherConfig.provisioningServiceAddress,
-              protoPath: PROVISIONING_CLIENT_PROTO_PATH,
-              accessTokenProvider: internalM2mTokenProvider(),
-            }),
-          ),
-          new DurableRunQueue(store),
-        );
-      },
-    },
-    {
       provide: RunOutcomeService,
       useFactory: () => buildRunOutcomeService(),
     },
@@ -716,18 +684,6 @@ import { ArtifactModule } from "./artifact.module";
 })
 export class AppModule {}
 
-/**
- * HEAL-8: NodeexecService, RunLauncherService, and RunsController (via its
- * own RunOutcomeService provider below) all need a RunOutcomeService --
- * the real writer for the VACR/VADR metric ledger, and the reader behind
- * GET /runs/{id}/outcome. Same reasoning as buildRecoveryPolicyService
- * just below: each caller gets its own store instance.
- */
-function buildRunOutcomeService(): RunOutcomeService {
-  const dbConfig = sessionGatewayEnvironment(process.env);
-  const store = orchestrationStore(dbConfig);
-  return new RunOutcomeService(store);
-}
 
 /**
  * HEAL-6: both the RECOVERY_HANDLER gRPC factory and NodeexecService's

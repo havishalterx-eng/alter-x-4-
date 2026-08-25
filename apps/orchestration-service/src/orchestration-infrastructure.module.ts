@@ -5,6 +5,7 @@ import {
 } from "@alterx/adapters";
 import { lazyAuth0M2mTokenProviderFromEnvironment } from "@alterx/auth";
 import { ORCHESTRATION_MIGRATIONS_PATH } from "./database/migrations-path";
+import { RunOutcomeService } from "./runs/run-outcome.service";
 
 export interface SessionGatewayEnvironment {
   readonly auth0Domain: string;
@@ -89,6 +90,19 @@ export function sessionGatewayEnvironment(
 
 export function internalM2mTokenProvider() {
   return lazyAuth0M2mTokenProviderFromEnvironment(process.env);
+}
+
+/**
+ * HEAL-8: NodeexecService, RunLauncherService, and RunsController (via its
+ * own RunOutcomeService provider) all need a RunOutcomeService -- the real
+ * writer for the VACR/VADR metric ledger, and the reader behind
+ * GET /runs/{id}/outcome. Each caller gets its own store instance, same
+ * fresh-instance rule as orchestrationStore itself.
+ */
+export function buildRunOutcomeService(): RunOutcomeService {
+  const dbConfig = sessionGatewayEnvironment(process.env);
+  const store = orchestrationStore(dbConfig);
+  return new RunOutcomeService(store);
 }
 
 function orchestrationStoreConfig(
