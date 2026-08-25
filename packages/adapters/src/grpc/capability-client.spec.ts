@@ -46,16 +46,26 @@ describe("CapabilityServiceClient", () => {
     expect(options.metadata.get("authorization")).toEqual(["Bearer service-token"]);
   });
 
-  it("fails closed when no authorization is configured and INTERNAL_SERVICE_TOKEN is unset", () => {
+  it("constructing without authorization does not throw -- NestJS eagerly instantiates every provider in a module, so a construction-time throw would break any test importing the real AppModule that never calls the resolver", () => {
+    expect(
+      () =>
+        new CapabilityServiceClient(
+          { address: "localhost:50061", protoPath: "unused" },
+          { resolveNodeRequirements: vi.fn() } as never,
+        ),
+    ).not.toThrow();
+  });
+
+  it("fails closed on the actual RPC call when no authorization is configured and INTERNAL_SERVICE_TOKEN is unset", async () => {
     vi.stubEnv("INTERNAL_SERVICE_TOKEN", "");
     try {
-      expect(
-        () =>
-          new CapabilityServiceClient(
-            { address: "localhost:50061", protoPath: "unused" },
-            { resolveNodeRequirements: vi.fn() } as never,
-          ),
-      ).toThrow("INTERNAL_SERVICE_TOKEN is required");
+      const client = new CapabilityServiceClient(
+        { address: "localhost:50061", protoPath: "unused" },
+        { resolveNodeRequirements: vi.fn() } as never,
+      );
+      await expect(client.resolveNodeRequirements(request)).rejects.toThrow(
+        "INTERNAL_SERVICE_TOKEN is required",
+      );
     } finally {
       vi.unstubAllEnvs();
     }

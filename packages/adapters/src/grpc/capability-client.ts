@@ -25,7 +25,11 @@ export interface CapabilityServiceClientConfig {
    * convention as PolicyStoreClient/SelectionBindingClient's
    * defaultServiceToken, so every real caller (app.module.ts's 4
    * construction sites) gets it for free without threading it through by
-   * hand. Pass an explicit value only to override (e.g. tests). */
+   * hand. Pass an explicit value only to override (e.g. tests). Resolved
+   * lazily, per RPC, not at construction time -- NestJS eagerly
+   * instantiates every provider in a module, so throwing here at
+   * construction would break any test that merely imports the real
+   * AppModule, even one that never calls the capability resolver. */
   readonly authorization?: string;
 }
 
@@ -46,12 +50,11 @@ const DEFAULT_TIMEOUT_MS = 3_000;
 export class CapabilityServiceClient implements CapabilityServiceHandlerClient {
   readonly #client: CapabilityGrpcClient;
   readonly #timeoutMs: number;
-  readonly #metadata: Metadata;
+  readonly #authorization: string | undefined;
 
   constructor(config: CapabilityServiceClientConfig, client?: CapabilityGrpcClient) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.#metadata = new Metadata();
-    this.#metadata.set("authorization", config.authorization ?? defaultAuthorizationHeader());
+    this.#authorization = config.authorization;
     this.#client = client ?? CapabilityServiceClient.#buildClient(config);
   }
 
@@ -63,9 +66,11 @@ export class CapabilityServiceClient implements CapabilityServiceHandlerClient {
     return new proto.alter.capability.v1.CapabilityService(config.address, credentials.createInsecure());
   }
 
-  resolveNodeRequirements(request: ResolveNodeRequirementsRequest): Promise<ResolveNodeRequirementsResponse> {
+  async resolveNodeRequirements(request: ResolveNodeRequirementsRequest): Promise<ResolveNodeRequirementsResponse> {
+    const metadata = new Metadata();
+    metadata.set("authorization", this.#authorization ?? defaultAuthorizationHeader());
     return new Promise((resolve, reject) => {
-      this.#client.resolveNodeRequirements(request, { deadline: new Date(Date.now() + this.#timeoutMs), metadata: this.#metadata }, (error, response) => {
+      this.#client.resolveNodeRequirements(request, { deadline: new Date(Date.now() + this.#timeoutMs), metadata }, (error, response) => {
         if (error !== null) {
           reject(new Error(`Capability Service request failed: ${errorCode(error)}`));
         } else if (response === undefined) {
