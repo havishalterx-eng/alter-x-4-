@@ -72,14 +72,14 @@ interface ParentFilter {
  * for a proto method with no registered handler, same as every other
  * stub-until-a-later-phase RPC in this codebase).
  *
- * Computes on-demand from real cost_events (the request's arbitrary
- * start_at/end_at/dimensions -- not tied to a fixed billing period), and
- * separately upserts a durable snapshot into billing_rollups (real writer
- * for a table OUT-1 shipped schema-only). The two aren't the same
- * granularity by design: billing_rollups is one row per (tenant, period,
- * mode) with the full dimension breakdown in `detail` jsonb; the RPC
- * response returns that same breakdown directly, not reduced to the
- * rollup row's shape.
+ * Computes on-demand from real cost_events (the request's caller-chosen
+ * day-aligned start_at/end_at window and dimensions -- not tied to a fixed
+ * billing period), and separately upserts a durable snapshot into
+ * billing_rollups (real writer for a table OUT-1 shipped schema-only).
+ * The two aren't the same granularity by design: billing_rollups is one
+ * row per (tenant, period, mode) with the full dimension breakdown in
+ * `detail` jsonb; the RPC response returns that same breakdown directly,
+ * not reduced to the rollup row's shape.
  */
 export class CostRollupService {
   constructor(
@@ -103,6 +103,7 @@ export class CostRollupService {
     if (new Date(endAt).getTime() <= new Date(startAt).getTime()) {
       throw new RollupValidationError("end_at must be after start_at");
     }
+    requireDayAlignedWindow(startAt, endAt);
     const dimensions = validateDimensions(request.dimensions);
     const parent = parseParentFilter(request.parent_id);
     const currency = parseCurrency(request.currency);
@@ -273,6 +274,33 @@ function requireIsoTimestamp(value: string, field: string): string {
     throw new RollupValidationError(`${field} must be a valid ISO 8601 timestamp`);
   }
   return value;
+}
+
+/**
+ * billing_rollups stores a durable snapshot keyed by
+ * (tenant, period_start::date, period_end::date, mode, currency). Any
+ * sub-day or non-midnight window truncates to the same date key as a real
+ * day boundary and its upsert would silently overwrite the full-day
+ * snapshot with partial data, indistinguishable from a correct row -- so
+ * only whole-day, UTC-midnight-aligned windows may be rolled up, and
+ * anything else fails loudly instead.
+ */
+function requireDayAlignedWindow(startAt: string, endAt: string): void {
+  if (!isUtcMidnight(startAt) || !isUtcMidnight(endAt)) {
+    throw new RollupValidationError(
+      "start_at and end_at must fall on UTC midnight boundaries so the durable billing_rollups snapshot is never overwritten by a partial-day window",
+    );
+  }
+}
+
+function isUtcMidnight(value: string): boolean {
+  const timestamp = new Date(value);
+  return (
+    timestamp.getUTCHours() === 0 &&
+    timestamp.getUTCMinutes() === 0 &&
+    timestamp.getUTCSeconds() === 0 &&
+    timestamp.getUTCMilliseconds() === 0
+  );
 }
 
 function validateDimensions(dimensions: readonly string[]): readonly string[] {

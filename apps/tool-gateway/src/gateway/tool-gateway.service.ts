@@ -222,6 +222,10 @@ export class ToolGatewayService implements ToolgwHandler {
         return response;
       }
 
+      // Audited like every other rejection path -- by this point the real
+      // tenant credential has already been resolved above, so this rejection
+      // is a credential-access event that must leave an audit trail.
+      await this.#auditToolInvocation(request, "denied");
       throw new ToolGatewayNotImplementedError(
         `Tool ${request.tool_name} has no real dispatch yet; only ${SEARCH_WEB_TOOL_NAME}, database.* and browser.* are wired`,
       );

@@ -48,6 +48,15 @@ export class ProvisioningService {
 
   async closeCycle(tenantId: string, runId: string, projectId: string, cycleId: string): Promise<void> {
     const key = `${tenantId}:${runId}:${projectId}:${cycleId}`;
+    const inFlight = this.#active.get(key);
+    if (inFlight !== undefined) {
+      try {
+        await inFlight;
+      } catch {
+        // Creation failed: its own cleanup already closed any partially-created
+        // session, so there is nothing left to close here.
+      }
+    }
     const sessionId = this.#sessions.get(key);
     if (sessionId !== undefined) await this.sandbox.closeSession(sessionId);
     this.#sessions.delete(key); this.#active.delete(key);

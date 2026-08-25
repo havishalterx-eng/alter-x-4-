@@ -180,6 +180,29 @@ describe("ToolGatewayService", () => {
     ).toContainEqual(expect.objectContaining({ result: "denied" }));
   });
 
+  it("audits the unimplemented-tool rejection after the credential was already resolved", async () => {
+    const auditClient = createMockAuditEventHandler();
+    const getSecret = vi.fn(async () => RAW_SECRET_VALUE);
+    const service = buildService({
+      secretsProvider: { ...secretProvider(), getSecret },
+      auditClient,
+    });
+
+    await expect(service.invokeTool(invokeRequest())).rejects.toBeInstanceOf(
+      ToolGatewayNotImplementedError,
+    );
+    expect(getSecret).toHaveBeenCalledWith(SECRET_REF);
+    expect(
+      (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
+    ).toContainEqual(
+      expect.objectContaining({
+        action: "tool.invoke",
+        target_ref: "other.tool",
+        result: "denied",
+      }),
+    );
+  });
+
   it("enforces per-tenant per-tool rate limits", async () => {
     const service = buildService({
       configProvider: createMockConfigProvider({
