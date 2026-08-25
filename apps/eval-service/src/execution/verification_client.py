@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import grpc
 
 from alter.verify.v1 import verify_pb2, verify_pb2_grpc
+from src.execution.internal_auth import internal_service_auth_metadata
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
@@ -30,6 +31,9 @@ class VerificationClient:
         self._channel = grpc.insecure_channel(target)
         self._stub = verify_pb2_grpc.VerifyServiceStub(self._channel)  # type: ignore[no-untyped-call]
         self._timeout_seconds = timeout_seconds
+        # ENGINE-FIX-P5-SEC-1: VerifyService's interceptor rejects every RPC
+        # without the internal service credential.
+        self._metadata = internal_service_auth_metadata()
 
     def score_node_inline(
         self,
@@ -53,6 +57,7 @@ class VerificationClient:
                 output_json=output_json,
             ),
             timeout=self._timeout_seconds,
+            metadata=self._metadata,
         )
         return ScoreNodeInlineResult(
             verdict=response.verdict,

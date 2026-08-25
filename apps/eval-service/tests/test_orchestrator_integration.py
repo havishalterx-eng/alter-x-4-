@@ -174,6 +174,20 @@ def sessions() -> Generator[sessionmaker[Session], None, None]:
         yield sessionmaker(bind=engine, expire_on_commit=False)
 
 
+@pytest.fixture(autouse=True)
+def _internal_service_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Caller half of ENGINE-FIX-P5-SEC-1 for this file's real subprocess services.
+
+    Every execution client built below reads INTERNAL_SERVICE_TOKEN
+    (src/execution/internal_auth.py) to build its Authorization header or
+    gRPC metadata, and every gated service spawned below is given the
+    matching INTERNAL_SERVICE_TOKEN_SHA256 digest. Without this the token is
+    empty, the clients attach nothing, and every RPC is rejected with
+    401/UNAUTHENTICATED.
+    """
+    monkeypatch.setenv("INTERNAL_SERVICE_TOKEN", _EVAL_INTERNAL_SERVICE_TOKEN)
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -326,6 +340,7 @@ def verification_server_target(
             "ORCHESTRATION_DATABASE_URL": "postgresql+asyncpg://unused:unused@127.0.0.1:1/unused",
             "MODEL_GATEWAY_GRPC_TARGET": model_gateway_target,
             "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+            "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             **local_m2m_issuer.environment(),
         },
     )
@@ -401,6 +416,7 @@ def verification_severity_server_target() -> Generator[tuple[str, str], None, No
                 "ORCHESTRATION_DATABASE_URL": asyncpg_db_url,
                 "MODEL_GATEWAY_GRPC_TARGET": "127.0.0.1:1",
                 "GRPC_BIND_ADDRESS": f"127.0.0.1:{port}",
+                "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             },
         )
         try:
@@ -500,6 +516,7 @@ def intelligence_server_target(
             "PATH": os.environ.get("PATH", ""),
             "ADSQ_GRPC_TARGET": "127.0.0.1:1",
             "MODEL_GATEWAY_GRPC_TARGET": f"127.0.0.1:{model_gateway_port}",
+            "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             **local_m2m_issuer.environment(),
         },
     )
@@ -2504,6 +2521,7 @@ def agent_binding_server_target(
                     "INTELLIGENCE_DB_URL_SYNC": sync_url,
                     "ADSQ_GRPC_TARGET": "127.0.0.1:1",
                     "MODEL_GATEWAY_GRPC_TARGET": f"127.0.0.1:{model_gateway_grpc_port}",
+                    "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
                     **local_m2m_issuer.environment(),
                 },
             )
