@@ -1,3 +1,5 @@
+import { createEnvironmentValidators } from "@alterx/adapters";
+
 const ALTER_ENVIRONMENTS = ["local", "dev", "staging", "prod"] as const;
 
 interface CostLedgerEnvironmentBase {
@@ -49,46 +51,9 @@ export class CostLedgerConfigurationError extends Error {
   }
 }
 
-function requireValue(environment: NodeJS.ProcessEnv, field: string): string {
-  const value = environment[field]?.trim();
-  if (value === undefined || value.length === 0) {
-    throw new CostLedgerConfigurationError(field, "a non-empty value is required");
-  }
-  return value;
-}
-
-function parsePort(value: string | undefined): number {
-  if (value === undefined) {
-    return 3000;
-  }
-  const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new CostLedgerConfigurationError("PORT", "must be an integer from 1 to 65535");
-  }
-  return port;
-}
-
-function parseDatabasePort(value: string): number {
-  const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new CostLedgerConfigurationError(
-      "DATABASE_PORT",
-      "must be an integer from 1 to 65535",
-    );
-  }
-  return port;
-}
-
-function parseGrpcAddress(value: string | undefined): string {
-  const address = value?.trim() ?? "0.0.0.0:50060";
-  if (!/^(?:\d{1,3}\.){3}\d{1,3}:\d{1,5}$/.test(address)) {
-    throw new CostLedgerConfigurationError(
-      "COST_GRPC_BIND_ADDRESS",
-      "must be an IPv4 address and port",
-    );
-  }
-  return address;
-}
+const { requireValue, parsePort, parseRequiredPort, parseGrpcAddress } = createEnvironmentValidators(
+  (field, reason) => new CostLedgerConfigurationError(field, reason),
+);
 
 function parseMarginRate(value: string | undefined): number {
   if (value === undefined) {
@@ -142,7 +107,12 @@ export function loadCostLedgerEnvironment(
     alterEnvironment: alterEnvironment as CostLedgerEnvironment["alterEnvironment"],
     serviceName,
     httpPort: parsePort(environment.PORT),
-    grpcBindAddress: parseGrpcAddress(environment.COST_GRPC_BIND_ADDRESS),
+    grpcBindAddress: parseGrpcAddress(
+      environment.COST_GRPC_BIND_ADDRESS,
+      "COST_GRPC_BIND_ADDRESS",
+      "0.0.0.0:50060",
+      false,
+    ),
     runsServiceAddress: environment.RUNS_SERVICE_ADDRESS?.trim() ?? "localhost:50059",
     costMarginRate: parseMarginRate(environment.COST_MARGIN_RATE),
     costUsdToInrRate: parseUsdToInrRate(environment.COST_USD_TO_INR_RATE),
@@ -161,7 +131,7 @@ export function loadCostLedgerEnvironment(
     ...baseEnvironment,
     databaseAuthentication: "iam",
     databaseHost: requireValue(environment, "DATABASE_HOST"),
-    databasePort: parseDatabasePort(requireValue(environment, "DATABASE_PORT")),
+    databasePort: parseRequiredPort(requireValue(environment, "DATABASE_PORT"), "DATABASE_PORT"),
     databaseName: requireValue(environment, "DATABASE_NAME"),
     databaseUser: requireValue(environment, "DATABASE_USER"),
     region: requireValue(environment, "ALTER_REGION"),

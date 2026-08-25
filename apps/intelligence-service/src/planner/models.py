@@ -8,9 +8,9 @@ module only provides typed Python homes for the Planner requests/responses.
 
 import re
 
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, field_validator
 
-from ..problem_understanding.models import ProblemSpec
+from ..problem_understanding.models import ProblemSpec, parse_problem_spec_json, problem_spec_json
 
 _UUID_V7_BODY = r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 
@@ -67,13 +67,13 @@ class DecomposeRequest(BaseModel):
         if not v.strip():
             raise ValueError("problem_spec_json must not be blank")
         try:
-            return ProblemSpec.model_validate_json(v).model_dump_json()
-        except ValidationError as exc:
+            return problem_spec_json(parse_problem_spec_json(v))
+        except ValueError as exc:
             raise ValueError("problem_spec_json must contain a valid ProblemSpec") from exc
 
     @property
     def problem_spec(self) -> ProblemSpec:
-        return ProblemSpec.model_validate_json(self.problem_spec_json)
+        return parse_problem_spec_json(self.problem_spec_json)
 
 
 class DecomposeResponse(BaseModel):

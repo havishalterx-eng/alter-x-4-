@@ -177,6 +177,16 @@ export type {
   ValidateWorkflowDagResponse as CompilerValidateWorkflowDagResponse,
 } from "./generated/alter/compiler/v1/compiler";
 export type {
+  ProblemContextReference as PlannerProblemContextReference,
+  ProblemSpec as PlannerProblemSpec,
+  DecomposeRequest as PlannerDecomposeRequest,
+  DecomposeResponse as PlannerDecomposeResponse,
+  ReplanRequest as PlannerReplanRequest,
+  ReplanResponse as PlannerReplanResponse,
+  SelectStrategyRequest as PlannerSelectStrategyRequest,
+  SelectStrategyResponse as PlannerSelectStrategyResponse,
+} from "./generated/alter/planner/v1/planner";
+export type {
   PromoteVersionRequest as DeployctlPromoteVersionRequest,
   PromoteVersionResponse as DeployctlPromoteVersionResponse,
   RollbackVersionRequest as DeployctlRollbackVersionRequest,

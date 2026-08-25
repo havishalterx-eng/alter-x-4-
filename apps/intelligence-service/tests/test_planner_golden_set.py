@@ -22,7 +22,7 @@ from src.planner.strategies import (
     STRATEGY_MANAGER_WORKER,
     STRATEGY_PLAN_THEN_EXECUTE,
 )
-from src.problem_understanding.models import ProblemSpec
+from src.problem_understanding.models import ProblemSpec, problem_spec_json
 
 TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab"
 WORKSPACE_ID = "ws_018f4d6e-2b4a-7a3e-8c1a-1234567890ab"
@@ -104,10 +104,10 @@ class TestPlannerGoldenSetAmbiguityDetection:
                 workspace_id=WORKSPACE_ID,
                 run_id=RUN_ID,
                 strategy=STRATEGY_ITERATIVE,
-                problem_spec_json=ProblemSpec(
+                problem_spec_json=problem_spec_json(ProblemSpec(
                     objective=objective,
                     missing_information=["scope"] if expected_ambiguity else [],
-                ).model_dump_json(),
+                )),
             )
         )
         assert response.ambiguity_detected is expected_ambiguity

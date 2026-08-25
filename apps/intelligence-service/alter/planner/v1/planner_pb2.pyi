@@ -1,10 +1,46 @@
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from collections.abc import Iterable as _Iterable
-from typing import ClassVar as _ClassVar, Optional as _Optional
+from collections.abc import Iterable as _Iterable, Mapping as _Mapping
+from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class ProblemContextReference(_message.Message):
+    __slots__ = ("document_id", "chunk_reference", "confidence", "provenance_json")
+    DOCUMENT_ID_FIELD_NUMBER: _ClassVar[int]
+    CHUNK_REFERENCE_FIELD_NUMBER: _ClassVar[int]
+    CONFIDENCE_FIELD_NUMBER: _ClassVar[int]
+    PROVENANCE_JSON_FIELD_NUMBER: _ClassVar[int]
+    document_id: str
+    chunk_reference: str
+    confidence: float
+    provenance_json: str
+    def __init__(self, document_id: _Optional[str] = ..., chunk_reference: _Optional[str] = ..., confidence: _Optional[float] = ..., provenance_json: _Optional[str] = ...) -> None: ...
+
+class ProblemSpec(_message.Message):
+    __slots__ = ("objective", "current_situation", "actors", "systems_involved", "constraints", "required_data", "risk", "missing_information", "success_criteria", "context_references")
+    OBJECTIVE_FIELD_NUMBER: _ClassVar[int]
+    CURRENT_SITUATION_FIELD_NUMBER: _ClassVar[int]
+    ACTORS_FIELD_NUMBER: _ClassVar[int]
+    SYSTEMS_INVOLVED_FIELD_NUMBER: _ClassVar[int]
+    CONSTRAINTS_FIELD_NUMBER: _ClassVar[int]
+    REQUIRED_DATA_FIELD_NUMBER: _ClassVar[int]
+    RISK_FIELD_NUMBER: _ClassVar[int]
+    MISSING_INFORMATION_FIELD_NUMBER: _ClassVar[int]
+    SUCCESS_CRITERIA_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_REFERENCES_FIELD_NUMBER: _ClassVar[int]
+    objective: str
+    current_situation: str
+    actors: _containers.RepeatedScalarFieldContainer[str]
+    systems_involved: _containers.RepeatedScalarFieldContainer[str]
+    constraints: _containers.RepeatedScalarFieldContainer[str]
+    required_data: _containers.RepeatedScalarFieldContainer[str]
+    risk: str
+    missing_information: _containers.RepeatedScalarFieldContainer[str]
+    success_criteria: _containers.RepeatedScalarFieldContainer[str]
+    context_references: _containers.RepeatedCompositeFieldContainer[ProblemContextReference]
+    def __init__(self, objective: _Optional[str] = ..., current_situation: _Optional[str] = ..., actors: _Optional[_Iterable[str]] = ..., systems_involved: _Optional[_Iterable[str]] = ..., constraints: _Optional[_Iterable[str]] = ..., required_data: _Optional[_Iterable[str]] = ..., risk: _Optional[str] = ..., missing_information: _Optional[_Iterable[str]] = ..., success_criteria: _Optional[_Iterable[str]] = ..., context_references: _Optional[_Iterable[_Union[ProblemContextReference, _Mapping]]] = ...) -> None: ...
 
 class DecomposeRequest(_message.Message):
     __slots__ = ("tenant_id", "workspace_id", "run_id", "objective", "strategy", "problem_spec_json")

@@ -1,3 +1,5 @@
+import { createEnvironmentValidators } from "@alterx/adapters";
+
 // Config for dispatching verified webhook events into the conversation
 // lifecycle Temporal workflow (INGR-7). Kept separate from every other
 // config loader in this file's directory -- same reasoning as those: this
@@ -18,16 +20,9 @@ export class ConversationDispatchConfigurationError extends Error {
   }
 }
 
-function requireValue(environment: NodeJS.ProcessEnv, field: string): string {
-  const value = environment[field]?.trim();
-  if (value === undefined || value.length === 0) {
-    throw new ConversationDispatchConfigurationError(
-      field,
-      "a non-empty value is required",
-    );
-  }
-  return value;
-}
+const { requireValue } = createEnvironmentValidators(
+  (field, reason) => new ConversationDispatchConfigurationError(field, reason),
+);
 
 function parseIdleTimeoutSeconds(value: string | undefined): number {
   if (value === undefined || value.trim().length === 0) {

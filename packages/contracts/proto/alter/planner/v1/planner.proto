@@ -8,6 +8,26 @@ service PlannerService {
   rpc SelectStrategy(SelectStrategyRequest) returns (SelectStrategyResponse);
 }
 
+message ProblemContextReference {
+  string document_id = 1;
+  string chunk_reference = 2;
+  double confidence = 3;
+  string provenance_json = 4;
+}
+
+message ProblemSpec {
+  string objective = 1;
+  optional string current_situation = 2;
+  repeated string actors = 3;
+  repeated string systems_involved = 4;
+  repeated string constraints = 5;
+  repeated string required_data = 6;
+  optional string risk = 7;
+  repeated string missing_information = 8;
+  repeated string success_criteria = 9;
+  repeated ProblemContextReference context_references = 10;
+}
+
 message DecomposeRequest {
   reserved 100 to 199;
 

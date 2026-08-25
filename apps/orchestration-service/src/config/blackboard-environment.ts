@@ -1,3 +1,5 @@
+import { createEnvironmentValidators } from "@alterx/adapters";
+
 // Config for the Blackboard's gRPC transport (EXEC-7) only. Reuses
 // REDIS_ENDPOINT/ORCHESTRATION_DATABASE_* from Session Gateway's config
 // for the store/cache themselves -- only the gRPC bind address is
@@ -15,29 +17,15 @@ export class BlackboardConfigurationError extends Error {
   }
 }
 
-function parseGrpcAddress(value: string | undefined): string {
-  const address = value?.trim() ?? "0.0.0.0:50057";
-  if (!/^(?:\d{1,3}\.){3}\d{1,3}:\d{1,5}$/.test(address)) {
-    throw new BlackboardConfigurationError(
-      "BLACKBOARD_GRPC_BIND_ADDRESS",
-      "must be an IPv4 address and port",
-    );
-  }
-  const port = Number(address.slice(address.lastIndexOf(":") + 1));
-  if (port < 1 || port > 65_535) {
-    throw new BlackboardConfigurationError(
-      "BLACKBOARD_GRPC_BIND_ADDRESS",
-      "port must be from 1 to 65535",
-    );
-  }
-  return address;
-}
+const { parseGrpcAddress } = createEnvironmentValidators(
+  (field, reason) => new BlackboardConfigurationError(field, reason),
+);
 
 export function loadBlackboardEnvironment(
   environment: NodeJS.ProcessEnv,
 ): BlackboardEnvironment {
   return {
-    grpcBindAddress: parseGrpcAddress(environment.BLACKBOARD_GRPC_BIND_ADDRESS),
+    grpcBindAddress: parseGrpcAddress(environment.BLACKBOARD_GRPC_BIND_ADDRESS, "BLACKBOARD_GRPC_BIND_ADDRESS", "0.0.0.0:50057"),
   };
 }
 

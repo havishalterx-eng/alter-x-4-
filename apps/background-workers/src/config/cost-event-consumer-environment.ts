@@ -1,3 +1,5 @@
+import { createEnvironmentValidators } from "@alterx/adapters";
+
 const ALTER_ENVIRONMENTS = ["local", "dev", "staging", "prod"] as const;
 
 export interface CostEventConsumerEnvironment {
@@ -14,13 +16,9 @@ export class CostEventConsumerConfigurationError extends Error {
   }
 }
 
-function requireValue(environment: NodeJS.ProcessEnv, field: string): string {
-  const value = environment[field]?.trim();
-  if (value === undefined || value.length === 0) {
-    throw new CostEventConsumerConfigurationError(field, "a non-empty value is required");
-  }
-  return value;
-}
+const { requireValue } = createEnvironmentValidators(
+  (field, reason) => new CostEventConsumerConfigurationError(field, reason),
+);
 
 export function loadCostEventConsumerEnvironment(
   environment: NodeJS.ProcessEnv,

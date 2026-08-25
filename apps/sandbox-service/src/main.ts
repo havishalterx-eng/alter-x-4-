@@ -16,6 +16,7 @@ import {
   MockBrowserAutomationProvider,
   SqsQueueProvider,
   SsrfGuardedFetcher,
+  createEnvironmentValidators,
   startSandboxGrpcTransport,
   type BrowserAutomationProvider,
 } from "@alterx/adapters";
@@ -100,14 +101,9 @@ function createQueueProvider(environment: SandboxEnvironment): QueueProvider {
 import { SANDBOX_PROTO_PATH } from "./sandbox/grpc.constants";
 import { ARTIFACT_CONTENT_PROTO_PATH } from "./artifacts/grpc.constants";
 
-function parsePort(value: string | undefined): number {
-  if (value === undefined) return 3000;
-  const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new Error("PORT must be an integer from 1 to 65535");
-  }
-  return port;
-}
+const { parsePort } = createEnvironmentValidators(
+  (field, reason) => new Error(`${field} ${reason}`),
+);
 
 async function bootstrap(): Promise<void> {
   const environment = loadSandboxEnvironment(process.env);

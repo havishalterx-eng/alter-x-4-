@@ -1,3 +1,5 @@
+import { createEnvironmentValidators } from "@alterx/adapters";
+
 // Config for the Executor worker (EXEC-6). Kept in its own file, same
 // reasoning as every other per-ticket environment loader in this monorepo:
 // this ticket must not perturb any other ticket's wiring.
@@ -18,16 +20,9 @@ export class ExecutorWorkerConfigurationError extends Error {
   }
 }
 
-function requireValue(environment: NodeJS.ProcessEnv, field: string): string {
-  const value = environment[field]?.trim();
-  if (value === undefined || value.length === 0) {
-    throw new ExecutorWorkerConfigurationError(
-      field,
-      "a non-empty value is required",
-    );
-  }
-  return value;
-}
+const { requireValue } = createEnvironmentValidators(
+  (field, reason) => new ExecutorWorkerConfigurationError(field, reason),
+);
 
 export function loadExecutorWorkerEnvironment(
   environment: NodeJS.ProcessEnv,

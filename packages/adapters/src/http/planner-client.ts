@@ -5,6 +5,17 @@
 // Presidio/Tavily adapters' injectable-fetch pattern rather than
 // inventing a new HTTP-calling convention.
 
+import type {
+  PlannerProblemContextReference as ProblemContextReference,
+  PlannerProblemSpec,
+} from "@alterx/contracts";
+
+/** HTTP preserves the explicit JSON null used by the existing FastAPI route. */
+export type ProblemSpec = Omit<PlannerProblemSpec, "current_situation"> & {
+  readonly current_situation: string | null;
+};
+export type { ProblemContextReference };
+
 export interface PlannerHttpClient {
   postJson(url: string, body: unknown): Promise<unknown>;
 }
@@ -42,26 +53,6 @@ export interface DecomposeRequest {
   readonly run_id: string;
   readonly strategy: string;
   readonly problem_spec_json: string;
-}
-
-export interface ProblemContextReference {
-  readonly document_id: string;
-  readonly chunk_reference: string;
-  readonly confidence: number;
-  readonly provenance_json: string;
-}
-
-export interface ProblemSpec {
-  readonly objective: string;
-  readonly current_situation: string | null;
-  readonly actors: readonly string[];
-  readonly systems_involved: readonly string[];
-  readonly constraints: readonly string[];
-  readonly required_data: readonly string[];
-  readonly risk: string;
-  readonly missing_information: readonly string[];
-  readonly success_criteria: readonly string[];
-  readonly context_references: readonly ProblemContextReference[];
 }
 
 export interface ProblemUnderstandingRequest {

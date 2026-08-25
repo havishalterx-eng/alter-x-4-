@@ -1,3 +1,5 @@
+import { createEnvironmentValidators } from "@alterx/adapters";
+
 // Config for the Platform Jobs worker (Engagement Phase, doc 12). Own file,
 // same reasoning as every other per-ticket environment loader in this
 // monorepo: this ticket must not perturb any other ticket's wiring.
@@ -18,16 +20,9 @@ export class PlatformJobWorkerConfigurationError extends Error {
   }
 }
 
-function requireValue(environment: NodeJS.ProcessEnv, field: string): string {
-  const value = environment[field]?.trim();
-  if (value === undefined || value.length === 0) {
-    throw new PlatformJobWorkerConfigurationError(
-      field,
-      "a non-empty value is required",
-    );
-  }
-  return value;
-}
+const { requireValue } = createEnvironmentValidators(
+  (field, reason) => new PlatformJobWorkerConfigurationError(field, reason),
+);
 
 export function loadPlatformJobWorkerEnvironment(
   environment: NodeJS.ProcessEnv,
