@@ -84,7 +84,12 @@ export class CapabilityServiceClient implements CapabilityServiceHandlerClient {
 }
 
 function errorCode(error: Error): string {
-  return (error as Error & { code?: unknown }).code === status.INVALID_ARGUMENT ? "invalid_argument" : "upstream";
+  const code = (error as Error & { code?: unknown }).code;
+  if (code === status.INVALID_ARGUMENT) return "invalid_argument";
+  if (code === status.UNAUTHENTICATED) return "unauthenticated";
+  if (code === status.UNAVAILABLE) return "unavailable";
+  const details = (error as Error & { details?: unknown }).details;
+  return `upstream (grpc code ${String(code)}${details ? `, details: ${String(details)}` : ""})`;
 }
 
 /** Same fail-closed real-credential convention as PolicyStoreClient's/
