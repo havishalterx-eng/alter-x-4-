@@ -1,0 +1,165 @@
+import { Module } from "@nestjs/common";
+import {
+  CapabilityServiceClient,
+  COMPILER_HANDLER,
+  CompilerGrpcController,
+  CONVERSATION_HANDLER,
+  ConversationGrpcController,
+  DEPLOYCTL_HANDLER,
+  DeployctlGrpcController,
+  AwsSsmParameterProvider,
+  ModelGatewayClient,
+  PlannerClient,
+  S3ObjectStorageProvider,
+} from "@alterx/adapters";
+
+import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
+import { ConversationManagerService } from "./conversation/conversation-manager.service";
+import { GraphCompilerService } from "./compiler/graph-compiler.service";
+import { CAPABILITY_CLIENT_PROTO_PATH } from "./compiler/capability-client.constants";
+import { WorkflowLifecycleService } from "./workflow-lifecycle/workflow-lifecycle.service";
+import { WorkflowDeploymentController } from "./workflow-lifecycle/workflow-deployment.controller";
+import { WorkflowReadController } from "./workflow-read/workflow-read.controller";
+import { WorkflowReadService } from "./workflow-read/workflow-read.service";
+import { TemplateVariablesController } from "./template-variables/template-variables.controller";
+import { TemplateVariablesService } from "./template-variables/template-variables.service";
+import { ClarificationsController } from "./clarifications/clarifications.controller";
+import { ClarificationsService } from "./clarifications/clarifications.service";
+import { ProjectReadController } from "./project-read/project-read.controller";
+import { ProjectReadService } from "./project-read/project-read.service";
+import { ProjectDomainService } from "./project-read/project-domain.service";
+import { loadConversationManagerEnvironment } from "./config/environment";
+import { loadRecoveryEnvironment } from "./config/recovery-environment";
+import { ArtifactsService } from "./artifacts/artifacts.service";
+import { EvalFacadeService } from "./eval-facade/eval-facade.service";
+import { RunLauncherService } from "./runs/run-launcher.service";
+import {
+  OrchestrationInfrastructureModule,
+  internalM2mTokenProvider,
+  orchestrationStore,
+  sessionGatewayEnvironment,
+} from "./orchestration-infrastructure.module";
+import { RunLauncherModule } from "./run-launcher.module";
+import { ArtifactModule } from "./artifact.module";
+import { OperationsModule } from "./operations.module";
+
+@Module({
+  imports: [
+    OrchestrationInfrastructureModule,
+    RunLauncherModule,
+    ArtifactModule,
+    OperationsModule,
+  ],
+  controllers: [
+    ConversationGrpcController,
+    CompilerGrpcController,
+    DeployctlGrpcController,
+    WorkflowReadController,
+    WorkflowDeploymentController,
+    TemplateVariablesController,
+    ClarificationsController,
+    ProjectReadController,
+  ],
+  providers: [
+    {
+      provide: CONVERSATION_HANDLER,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const conversationConfig = loadConversationManagerEnvironment(process.env);
+        const store = orchestrationStore(dbConfig);
+        const modelGateway = new ModelGatewayClient({
+          address: conversationConfig.modelGatewayAddress,
+          protoPath: MODELGW_CLIENT_PROTO_PATH,
+          accessTokenProvider: internalM2mTokenProvider(),
+        });
+        return new ConversationManagerService(store, modelGateway);
+      },
+    },
+    {
+      provide: WorkflowReadService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = orchestrationStore(dbConfig);
+        return new WorkflowReadService(store);
+      },
+    },
+    {
+      provide: TemplateVariablesService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        return new TemplateVariablesService(orchestrationStore(dbConfig));
+      },
+    },
+    {
+      provide: ClarificationsService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        return new ClarificationsService(orchestrationStore(dbConfig));
+      },
+    },
+    {
+      provide: ProjectReadService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = orchestrationStore(dbConfig);
+        return new ProjectReadService(store);
+      },
+    },
+    {
+      provide: ProjectDomainService,
+      inject: [RunLauncherService, CONVERSATION_HANDLER],
+      useFactory: (launcher: RunLauncherService, conversations: import("@alterx/adapters").ConversationHandler) => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = orchestrationStore(dbConfig);
+        const recoveryConfig = loadRecoveryEnvironment(process.env);
+        return new ProjectDomainService(
+          store,
+          new PlannerClient({ baseUrl: recoveryConfig.plannerBaseUrl }),
+          conversations,
+          launcher,
+        );
+      },
+    },
+    {
+      provide: COMPILER_HANDLER,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = orchestrationStore(dbConfig);
+        const recoveryConfig = loadRecoveryEnvironment(process.env);
+        return new GraphCompilerService(store, new CapabilityServiceClient({
+          address: recoveryConfig.capabilityResolverAddress,
+          protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+          authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
+        }));
+      },
+    },
+    {
+      provide: WorkflowLifecycleService,
+      useFactory: async (artifacts: ArtifactsService, evalFacade: EvalFacadeService) => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        const store = orchestrationStore(dbConfig);
+        const parameterStore = new AwsSsmParameterProvider({
+          region: dbConfig.awsRegion,
+        });
+        try {
+          const staticDeploymentBucket = await parameterStore.getParameter(
+            dbConfig.artifactsBucketParameter,
+          );
+          return new WorkflowLifecycleService(store, evalFacade, {
+            artifacts,
+            objects: new S3ObjectStorageProvider({ region: dbConfig.awsRegion }),
+            staticDeploymentBucket,
+          });
+        } finally {
+          parameterStore.close();
+        }
+      },
+      inject: [ArtifactsService, EvalFacadeService],
+    },
+    {
+      provide: DEPLOYCTL_HANDLER,
+      useExisting: WorkflowLifecycleService,
+    },
+  ],
+})
+export class WorkflowAuthoringModule {}

@@ -2,18 +2,12 @@ import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import {
   BLACKBOARD_HANDLER,
-  COMPILER_HANDLER,
-  CONVERSATION_HANDLER,
-  DEPLOYCTL_HANDLER,
   NODEEXEC_HANDLER,
   RECOVERY_HANDLER,
   REGISTRY_HANDLER,
   RUNS_HANDLER,
   BlackboardGrpcController,
   CapabilityServiceClient,
-  CompilerGrpcController,
-  ConversationGrpcController,
-  DeployctlGrpcController,
   MemoryServiceClient,
   ModelGatewayClient,
   PerformanceRecorderClient,
@@ -23,7 +17,6 @@ import {
   SandboxServiceClient,
   SelectionBindingClient,
   AwsSsmParameterProvider,
-  S3ObjectStorageProvider,
   NodeexecGrpcController,
   RedisCacheProvider,
   RecoveryGrpcController,
@@ -44,11 +37,8 @@ import {
   SessionGatewayUploadAllowlistGuard,
 } from "@alterx/auth";
 import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
-import { ConversationManagerService } from "./conversation/conversation-manager.service";
 import { GraphCompilerService } from "./compiler/graph-compiler.service";
 import { CAPABILITY_CLIENT_PROTO_PATH } from "./compiler/capability-client.constants";
-import { WorkflowLifecycleService } from "./workflow-lifecycle/workflow-lifecycle.service";
-import { WorkflowDeploymentController } from "./workflow-lifecycle/workflow-deployment.controller";
 import { RegistryService } from "./registry/registry.service";
 import { NodeexecService } from "./registry/nodeexec.service";
 import { SsmSelectionBindingFailClosedConfig } from "./registry/selection-binding-fail-closed-config";
@@ -93,32 +83,20 @@ import { RecoveryDispatchService } from "./recovery/recovery-dispatch.service";
 import { PostgresRecoveryRunReader } from "./recovery/recovery-run-reader";
 import { RecoveryTriggerService } from "./recovery/recovery-trigger.service";
 import { loadRecoveryEnvironment } from "./config/recovery-environment";
-import { WorkflowReadController } from "./workflow-read/workflow-read.controller";
 import { NodeTypeController } from "./registry/node-type.controller";
-import { WorkflowReadService } from "./workflow-read/workflow-read.service";
-import { TemplateVariablesController } from "./template-variables/template-variables.controller";
-import { TemplateVariablesService } from "./template-variables/template-variables.service";
-import { ClarificationsController } from "./clarifications/clarifications.controller";
-import { ClarificationsService } from "./clarifications/clarifications.service";
-import { ProjectReadController } from "./project-read/project-read.controller";
-import { ProjectReadService } from "./project-read/project-read.service";
-import { ProjectDomainService } from "./project-read/project-domain.service";
 import { MEMORY_CLIENT_PROTO_PATH, TOOLGW_CLIENT_PROTO_PATH, VERIFY_CLIENT_PROTO_PATH } from "./registry/nodeexec-grpc.constants";
 import { VerifyGateService } from "./registry/verify-gate.service";
 import { ArtifactsService } from "./artifacts/artifacts.service";
 import { GeneratedFileMaterializer } from "./registry/generated-file-materializer";
-import { EvalFacadeService } from "./eval-facade/eval-facade.service";
 import { OperationsModule } from "./operations.module";
 import { ArtifactModule } from "./artifact.module";
+import { WorkflowAuthoringModule } from "./workflow-authoring.module";
 import { IngressModule } from "./ingress.module";
 
 @Module({
-  imports: [OrchestrationInfrastructureModule, OperationsModule, ArtifactModule, RunLauncherModule, IngressModule],
+  imports: [OrchestrationInfrastructureModule, OperationsModule, ArtifactModule, RunLauncherModule, IngressModule, WorkflowAuthoringModule],
   controllers: [
     HealthController,
-    ConversationGrpcController,
-    CompilerGrpcController,
-    DeployctlGrpcController,
     RegistryGrpcController,
     NodeexecGrpcController,
     BlackboardGrpcController,
@@ -131,12 +109,7 @@ import { IngressModule } from "./ingress.module";
     RunLearningController,
     ApprovalsController,
     EscalationsController,
-    WorkflowReadController,
     NodeTypeController,
-    WorkflowDeploymentController,
-    TemplateVariablesController,
-    ClarificationsController,
-    ProjectReadController,
   ],
   providers: [
     {
@@ -171,122 +144,6 @@ import { IngressModule } from "./ingress.module";
     {
       provide: APP_GUARD,
       useFactory: () => new SessionGatewayUploadAllowlistGuard(),
-    },
-    {
-      provide: CONVERSATION_HANDLER,
-      useFactory: () => {
-        // Session Gateway's own PostgresOrchestrationStoreProvider (above)
-        // isn't reachable from this factory -- its instance lives entirely
-        // inside the APP_GUARD factory's closure, and INGR-2's guard
-        // wiring is out of scope to refactor here. This constructs a
-        // second provider (its own Pool) against the same database. Not
-        // maximally efficient, but correct and isolated; sharing a single
-        // pool across both is a reasonable follow-up once the guard
-        // wiring itself is revisited.
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const conversationConfig = loadConversationManagerEnvironment(
-          process.env,
-        );
-        const store = orchestrationStore(dbConfig);
-        const modelGateway = new ModelGatewayClient({
-          address: conversationConfig.modelGatewayAddress,
-          protoPath: MODELGW_CLIENT_PROTO_PATH,
-          accessTokenProvider: internalM2mTokenProvider(),
-        });
-        return new ConversationManagerService(store, modelGateway);
-      },
-    },
-    {
-      provide: WorkflowReadService,
-      useFactory: () => {
-        // Same reasoning as TriggerRegistryService above: constructs its
-        // own PostgresOrchestrationStoreProvider rather than reaching into
-        // the guard's private instance.
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = orchestrationStore(dbConfig);
-        return new WorkflowReadService(store);
-      },
-    },
-    {
-      provide: TemplateVariablesService,
-      useFactory: () => {
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        return new TemplateVariablesService(orchestrationStore(dbConfig));
-      },
-    },
-    {
-      provide: ClarificationsService,
-      useFactory: () => {
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        return new ClarificationsService(orchestrationStore(dbConfig));
-      },
-    },
-    {
-      provide: ProjectReadService,
-      useFactory: () => {
-        // Same reasoning as WorkflowReadService above.
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = orchestrationStore(dbConfig);
-        return new ProjectReadService(store);
-      },
-    },
-    {
-      provide: ProjectDomainService,
-      inject: [RunLauncherService, CONVERSATION_HANDLER],
-      useFactory: (launcher: RunLauncherService, conversations: import("@alterx/adapters").ConversationHandler) => {
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = orchestrationStore(dbConfig);
-        const recoveryConfig = loadRecoveryEnvironment(process.env);
-        return new ProjectDomainService(
-          store,
-          new PlannerClient({ baseUrl: recoveryConfig.plannerBaseUrl }),
-          conversations,
-          launcher,
-        );
-      },
-    },
-    {
-      provide: COMPILER_HANDLER,
-      useFactory: () => {
-        // Same reasoning as CONVERSATION_HANDLER/TriggerRegistryService
-        // above: constructs its own PostgresOrchestrationStoreProvider
-        // rather than reaching into the guard's private instance.
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = orchestrationStore(dbConfig);
-        const recoveryConfig = loadRecoveryEnvironment(process.env);
-        return new GraphCompilerService(store, new CapabilityServiceClient({
-          address: recoveryConfig.capabilityResolverAddress,
-          protoPath: CAPABILITY_CLIENT_PROTO_PATH,
-          authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
-        }));
-      },
-    },
-    {
-      provide: WorkflowLifecycleService,
-      useFactory: async (artifacts: ArtifactsService, evalFacade: EvalFacadeService) => {
-        const dbConfig = sessionGatewayEnvironment(process.env);
-        const store = orchestrationStore(dbConfig);
-        const parameterStore = new AwsSsmParameterProvider({
-          region: dbConfig.awsRegion,
-        });
-        try {
-          const staticDeploymentBucket = await parameterStore.getParameter(
-            dbConfig.artifactsBucketParameter,
-          );
-          return new WorkflowLifecycleService(store, evalFacade, {
-            artifacts,
-            objects: new S3ObjectStorageProvider({ region: dbConfig.awsRegion }),
-            staticDeploymentBucket,
-          });
-        } finally {
-          parameterStore.close();
-        }
-      },
-      inject: [ArtifactsService, EvalFacadeService],
-    },
-    {
-      provide: DEPLOYCTL_HANDLER,
-      useExisting: WorkflowLifecycleService,
     },
     {
       // No PostgresOrchestrationStoreProvider here -- the Node Type
