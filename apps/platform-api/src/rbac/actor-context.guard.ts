@@ -51,7 +51,8 @@ export class ActorContextGuard implements CanActivate {
         session.tenantId,
         `SELECT role, workspace_id AS "workspaceId"
            FROM workspace_members
-          WHERE tenant_id = $1 AND user_id = $2`,
+          WHERE tenant_id = $1 AND user_id = $2
+          ORDER BY created_at ASC, workspace_id ASC`,
         [session.tenantId, session.userId],
       );
       request.actorContext = {

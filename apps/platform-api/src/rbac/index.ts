@@ -5,6 +5,7 @@ export {
   RequireTenantRole,
   RequireStaffRole,
   RequireWorkspaceRole,
+  StaffActorContext,
 } from "./decorators";
 export * from "./rbac-exception.filter";
 export * from "./rbac.guard";
@@ -13,6 +14,7 @@ export * from "./param-workspace.resolver";
 export * from "./resource-tenant.resolver";
 export type {
   ActorContext as ActorContextType,
+  StaffActorContext as StaffActorContextType,
   RbacRequest,
   RbacRole,
   TenantRole,

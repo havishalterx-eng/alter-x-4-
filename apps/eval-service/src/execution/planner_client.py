@@ -31,8 +31,18 @@ class DecomposeResult:
 
 
 class PlannerClient:
-    def __init__(self, base_url: str, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> None:
-        self._client = httpx.Client(base_url=base_url, timeout=timeout_seconds)
+    def __init__(
+        self,
+        base_url: str,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        *,
+        service_token: str = "",
+    ) -> None:
+        # Same optional-credential convention as IngestionEvalClient: attach
+        # the internal service credential when one is configured so the
+        # callee's app-level service auth accepts the call.
+        headers = {"Authorization": f"Bearer {service_token}"} if service_token else None
+        self._client = httpx.Client(base_url=base_url, timeout=timeout_seconds, headers=headers)
 
     def select_strategy(self, *, tenant_id: str, objective: str, mode: str) -> SelectStrategyResult:
         response = self._client.post(

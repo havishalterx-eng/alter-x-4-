@@ -147,7 +147,7 @@ def client(postgres_url: str, monkeypatch: pytest.MonkeyPatch) -> Generator[Test
         await engine.dispose()
 
     app.dependency_overrides[get_db_session] = override_session
-    with TestClient(app) as test_client:
+    with TestClient(app, headers={"authorization": "Bearer integration-token"}) as test_client:
         yield test_client
     app.dependency_overrides.clear()
     get_settings.cache_clear()

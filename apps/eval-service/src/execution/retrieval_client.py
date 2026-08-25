@@ -22,10 +22,20 @@ class RetrieveResult:
 
 
 class RetrievalClient:
-    def __init__(self, target: str, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self,
+        target: str,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        *,
+        service_token: str = "",
+    ) -> None:
         self._channel = grpc.insecure_channel(target)
         self._stub = adsq_pb2_grpc.AdsqServiceStub(self._channel)  # type: ignore[no-untyped-call]
         self._timeout_seconds = timeout_seconds
+        # Same optional-credential convention as IngestionEvalClient: attach
+        # the internal service credential when one is configured so the
+        # callee's gRPC interceptor accepts the call.
+        self._metadata = (("authorization", f"Bearer {service_token}"),) if service_token else None
 
     def retrieve(
         self,
@@ -47,6 +57,7 @@ class RetrievalClient:
                 requester=requester,
             ),
             timeout=self._timeout_seconds,
+            metadata=self._metadata,
         )
         return RetrieveResult(document_ids=tuple(hit.document_id for hit in response.hits))
 

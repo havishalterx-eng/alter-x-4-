@@ -109,4 +109,33 @@ describe("ActorContextGuard", () => {
     expect(errorSpy).toHaveBeenCalledWith("ActorContextGuard failed:", expect.any(Error));
     errorSpy.mockRestore();
   });
+
+  it("orders the workspace_members query deterministically so the chosen workspace_id is stable", async () => {
+    const identityService = {
+      authenticateAccessToken: vi.fn().mockResolvedValue(session),
+    };
+    const queryTenant = vi
+      .fn()
+      .mockResolvedValueOnce([{ role: "member", workspaceId: null }])
+      .mockResolvedValueOnce([
+        { role: "editor", workspaceId: "ws_00000000-0000-7000-8000-000000000101" },
+        { role: "viewer", workspaceId: "ws_00000000-0000-7000-8000-000000000102" },
+      ]);
+    const db = { queryTenant };
+    const guard = new ActorContextGuard(
+      identityService as unknown as IdentityService,
+      db as unknown as PlatformDb,
+    );
+    const { context, request } = contextWithCookie("alter_access=token-value");
+
+    await guard.canActivate(context);
+    // workspace_members is the second queryTenant call; the flat workspace_id
+    // is taken from its first row, so the ordering must be deterministic.
+    const workspaceQuery = queryTenant.mock.calls[1]?.[1] as string;
+    expect(workspaceQuery).toContain("ORDER BY created_at ASC, workspace_id ASC");
+    // Earliest-created workspace wins regardless of physical row order.
+    expect(request.actorContext?.workspace_id).toBe(
+      "ws_00000000-0000-7000-8000-000000000101",
+    );
+  });
 });

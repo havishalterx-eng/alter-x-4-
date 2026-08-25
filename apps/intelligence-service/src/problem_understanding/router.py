@@ -27,6 +27,7 @@ async def problem_understanding_lifespan(app: FastAPI) -> AsyncIterator[None]:
     ads_client = GrpcAdsClient(
         settings.adsq_grpc_target,
         timeout_seconds=settings.adsq_grpc_timeout_seconds,
+        service_token=settings.internal_service_token,
     )
     llm_client = ModelGatewayProblemUnderstandingClient(
         settings.model_gateway_grpc_target,

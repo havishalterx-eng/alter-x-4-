@@ -35,6 +35,7 @@ from src.execution.verification_severity_client import VerificationSeverityEvalC
 from src.execution.workflow_client import WorkflowEvalClient
 from src.promotion_gate import PromotionGateRecorder
 from src.release_gates import ReleaseGateRecorder
+from src.service_auth import ServiceAuthInterceptor, assert_configured_at_startup
 
 
 class Closable(Protocol):
@@ -62,9 +63,15 @@ def _build_service(settings: Settings) -> tuple[EvalGrpcService, Engine, tuple[C
 
     sessions = sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
 
-    verification_client = VerificationClient(settings.verification_grpc_target)
-    planner_client = PlannerClient(settings.planner_base_url)
-    retrieval_client = RetrievalClient(settings.retrieval_grpc_target)
+    verification_client = VerificationClient(
+        settings.verification_grpc_target, service_token=settings.internal_service_token
+    )
+    planner_client = PlannerClient(
+        settings.planner_base_url, service_token=settings.internal_service_token
+    )
+    retrieval_client = RetrievalClient(
+        settings.retrieval_grpc_target, service_token=settings.internal_service_token
+    )
     intent_client = IntentClient(settings.intent_grpc_target)
     security_client = SecurityEvalClient(settings.security_eval_base_url)
     upload_client = UploadEvalClient(
@@ -72,7 +79,8 @@ def _build_service(settings: Settings) -> tuple[EvalGrpcService, Engine, tuple[C
         service_token=settings.internal_service_token,
     )
     tenant_isolation_retrieval_client = RetrievalClient(
-        settings.tenant_isolation_retrieval_grpc_target
+        settings.tenant_isolation_retrieval_grpc_target,
+        service_token=settings.internal_service_token,
     )
     m2m = Auth0M2mTokenProvider(
         token_url=settings.auth0_m2m_token_url,
@@ -186,8 +194,12 @@ def _build_service(settings: Settings) -> tuple[EvalGrpcService, Engine, tuple[C
 
 async def serve() -> None:
     settings = get_settings()
+    # A missing credential is a boot failure, never a per-RPC surprise.
+    assert_configured_at_startup()
     service, engine, clients = _build_service(settings)
-    server = grpc.aio.server()
+    # Every RPC requires the internal service credential -- interceptor, not
+    # per-RPC checks, so a new RPC cannot forget it.
+    server = grpc.aio.server(interceptors=[ServiceAuthInterceptor()])
     eval_pb2_grpc.add_EvalServiceServicer_to_server(service, server)  # type: ignore[no-untyped-call]
     server.add_insecure_port(settings.grpc_bind_address)
     await server.start()

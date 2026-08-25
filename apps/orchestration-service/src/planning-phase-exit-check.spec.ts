@@ -8,6 +8,7 @@
 // integration suites rather than duplicating them; see
 // scripts/run-planning-phase-exit-check.sh in this same PR.
 import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { resolve } from "node:path";
 
@@ -44,6 +45,13 @@ const WORKSPACE_ID = "ws_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const BARE_WORKSPACE_ID = "018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const PLANNER_PORT = 18_411;
 const PLANNER_BASE_URL = `http://127.0.0.1:${PLANNER_PORT}`;
+
+// Shared internal-service credential for the spawned intelligence-service.
+// Must match the SHA-256 the callee enforces (apps/intelligence-service/tests/conftest.py).
+const INTERNAL_SERVICE_TOKEN = "integration-token";
+const INTERNAL_SERVICE_TOKEN_SHA256 = createHash("sha256")
+  .update(INTERNAL_SERVICE_TOKEN)
+  .digest("hex");
 
 // randomUUID() alone produces a v4 UUID (third group starts with "4"), but
 // the Planner's Pydantic models validate run_id as UUIDv7-shaped
@@ -97,6 +105,7 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
   let planner: PlannerClient;
 
   beforeAll(async () => {
+    process.env["INTERNAL_SERVICE_TOKEN"] = INTERNAL_SERVICE_TOKEN;
     pgContainer = await new PostgreSqlContainer("postgres:16.6-alpine")
       .withDatabase("orchestration_db")
       .withUsername("orchestration_exit_check")
@@ -121,6 +130,10 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
       ["run", "uvicorn", "src.main:app", "--port", String(PLANNER_PORT)],
       {
         cwd: resolve(process.cwd(), "apps/intelligence-service"),
+        env: {
+          ...process.env,
+          INTERNAL_SERVICE_TOKEN_SHA256,
+        },
         stdio: "ignore",
       },
     );
@@ -166,6 +179,7 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
     const compiler = new GraphCompilerService(storeProvider, new CapabilityServiceClient({
       address: CAPABILITY_RESOLVER_ADDRESS,
       protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+      authorization: INTERNAL_SERVICE_TOKEN,
     }));
     const compiled = await compiler.compileWorkflow({
       tenant_id: TENANT_ID,
@@ -288,6 +302,7 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
     const compiler = new GraphCompilerService(storeProvider, new CapabilityServiceClient({
       address: CAPABILITY_RESOLVER_ADDRESS,
       protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+      authorization: INTERNAL_SERVICE_TOKEN,
     }));
     const controller = new CompilerGrpcController(compiler);
 

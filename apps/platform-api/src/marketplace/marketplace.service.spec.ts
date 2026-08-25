@@ -7,6 +7,7 @@ import type {
 import type { EntitlementProvider } from "../entitlements/entitlement-provider.interface";
 import { MarketplaceRepository } from "./marketplace.repository";
 import { MarketplaceService } from "./marketplace.service";
+import type { StaffActorContext } from "../rbac/types";
 import { createInMemoryPayloadStore } from "./payload-store";
 import type {
   InstallRecord,
@@ -111,6 +112,7 @@ interface Harness {
   service: MarketplaceService;
   repository: {
     findListing: ReturnType<typeof vi.fn>;
+    findListingById: ReturnType<typeof vi.fn>;
     updateListing: ReturnType<typeof vi.fn>;
     findVersion: ReturnType<typeof vi.fn>;
     findInstallByIdempotencyKey: ReturnType<typeof vi.fn>;
@@ -129,6 +131,7 @@ function harness(): Harness {
 
   const repository = {
     findListing: vi.fn(async () => listing()),
+    findListingById: vi.fn(async () => listing()),
     updateListing: vi.fn(
       async (_tenant: string, id: string, input: { status?: ListingStatus }) =>
         listing({ id, status: input.status ?? "draft" }),
@@ -222,7 +225,6 @@ describe("MarketplaceService", () => {
     it.each([
       ["draft", "submitted"],
       ["published", "removed"],
-      ["automated_review", "published"],
     ] as const)("allows %s to %s", async (from, to) => {
       h.repository.findListing.mockResolvedValueOnce(listing({ status: from }));
       await expect(
@@ -245,6 +247,57 @@ describe("MarketplaceService", () => {
         },
       });
       expect(h.repository.updateListing).not.toHaveBeenCalled();
+    });
+  });
+
+  // ENGINE-FIX-B1-SECURITY #5 — tenants cannot self-publish; publishing
+  // requires a staff actor (bypassing staff review is the vulnerability).
+  describe("publishing requires staff review", () => {
+    it("rejects a tenant self-publishing from automated_review", async () => {
+      h.repository.findListing.mockResolvedValueOnce(listing({ status: "automated_review" }));
+      await expect(
+        h.service.update(tenantId, listingId, { status: "published" }),
+      ).rejects.toMatchObject({
+        response: {
+          error_code: "MARKETPLACE_PUBLISH_REQUIRES_STAFF",
+          detail: "Publishing a marketplace listing requires staff review.",
+        },
+      });
+      expect(h.repository.updateListing).not.toHaveBeenCalled();
+    });
+
+    it("rejects a tenant self-publishing from human_review", async () => {
+      h.repository.findListing.mockResolvedValueOnce(listing({ status: "human_review" }));
+      await expect(
+        h.service.update(tenantId, listingId, { status: "published" }),
+      ).rejects.toMatchObject({
+        response: { error_code: "MARKETPLACE_PUBLISH_REQUIRES_STAFF" },
+      });
+      expect(h.repository.updateListing).not.toHaveBeenCalled();
+    });
+
+    it("allows a staff actor to publish from human_review", async () => {
+      h.repository.findListing.mockResolvedValueOnce(listing({ status: "human_review" }));
+      const staff: StaffActorContext = { staff_user_id: "stf_1", identity_ref: "x", email: "s@x", roles: ["staff_admin"] };
+      await expect(
+        h.service.update(tenantId, listingId, { status: "published" }, staff),
+      ).resolves.toMatchObject({ status: "published" });
+    });
+
+    it("publish() resolves the owning tenant and publishes as staff", async () => {
+      h.repository.findListingById.mockResolvedValueOnce(listing({ tenantId, status: "automated_review" }));
+      h.repository.findListing.mockResolvedValueOnce(listing({ tenantId, status: "automated_review" }));
+      const staff: StaffActorContext = { staff_user_id: "stf_1", identity_ref: "x", email: "s@x", roles: ["staff_security"] };
+      await expect(h.service.publish(staff, listingId)).resolves.toMatchObject({ status: "published" });
+      expect(h.repository.findListingById).toHaveBeenCalledWith(listingId);
+    });
+
+    it("publish() rejects unknown listing with not found", async () => {
+      h.repository.findListingById.mockResolvedValueOnce(undefined);
+      const staff: StaffActorContext = { staff_user_id: "stf_1", identity_ref: "x", email: "s@x", roles: ["staff_admin"] };
+      await expect(h.service.publish(staff, listingId)).rejects.toMatchObject({
+        response: { error_code: "MARKETPLACE_NOT_FOUND" },
+      });
     });
   });
 

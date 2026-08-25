@@ -12,9 +12,12 @@ from src.verification.kernel import VerificationKernel
 from src.verification.m2m_auth import lazy_auth0_m2m_token_provider_from_environment
 from src.verification.model_gateway_client import GrpcModelGatewayClient
 from src.verification.policy_client import HttpQualityThresholdPolicyClient
+from src.service_auth import ServiceAuthInterceptor, assert_configured_at_startup
 
 
 async def serve() -> None:
+    # A missing credential is a boot failure, never a per-RPC surprise.
+    assert_configured_at_startup()
     database_url_raw = _required_environment("ORCHESTRATION_DATABASE_URL")
     database_url = database_url_raw.replace("postgres://", "postgresql+asyncpg://").replace(
         "postgresql://", "postgresql+asyncpg://"
@@ -54,7 +57,9 @@ async def serve() -> None:
     # ADVANCED Model Gateway reviewer client is built (separate, real,
     # disclosed follow-up).
     kernel = VerificationKernel(model_gateway, policy_client)
-    server = grpc.aio.server()
+    # Every RPC requires the internal service credential -- interceptor, not
+    # per-RPC checks, so a new RPC cannot forget it.
+    server = grpc.aio.server(interceptors=[ServiceAuthInterceptor()])
     verify_pb2_grpc.add_VerifyServiceServicer_to_server(  # type: ignore[no-untyped-call]
         VerifyGrpcService(sessions, model_gateway, kernel), server
     )

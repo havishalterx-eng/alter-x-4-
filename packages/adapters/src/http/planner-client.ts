@@ -9,12 +9,17 @@ export interface PlannerHttpClient {
   postJson(url: string, body: unknown): Promise<unknown>;
 }
 
-export function createFetchPlannerHttpClient(): PlannerHttpClient {
+export function createFetchPlannerHttpClient(
+  readServiceToken: () => string = defaultServiceToken,
+): PlannerHttpClient {
   return {
     async postJson(url: string, body: unknown): Promise<unknown> {
       const response = await fetch(url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${readServiceToken()}`,
+        },
         body: JSON.stringify(body),
       });
       if (!response.ok) {
@@ -229,4 +234,19 @@ export class PlannerClient implements PlannerHandler {
     if (raw.status === "ready" && (raw.architecture === undefined || raw.binding_decision === undefined)) throw new PlannerResponseValidationError("prepare_compiler_input", "missing architecture binding");
     return raw as unknown as PreparedCompilerInput;
   }
+}
+
+/**
+ * Same fail-closed real-credential convention as SelectionBindingClient's
+ * defaultServiceToken -- a missing INTERNAL_SERVICE_TOKEN must not degrade
+ * into an anonymous request the callee then has to decide about.
+ */
+function defaultServiceToken(): string {
+  const token = process.env["INTERNAL_SERVICE_TOKEN"]?.trim();
+  if (!token) {
+    throw new Error(
+      "INTERNAL_SERVICE_TOKEN is required to call Planner",
+    );
+  }
+  return token;
 }
