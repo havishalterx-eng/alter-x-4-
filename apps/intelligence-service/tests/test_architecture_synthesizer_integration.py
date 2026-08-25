@@ -5,7 +5,6 @@ from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 
 import pytest
-from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.engine import make_url
@@ -13,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from alembic.config import Config as AlembicConfig
 from src.architecture_synthesizer.router import router
 from src.capability_registry.models import RegisterCapability
 from src.capability_registry.repository import CapabilityRegistryRepository

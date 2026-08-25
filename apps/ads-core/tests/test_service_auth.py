@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from concurrent import futures
+
 import grpc
 import pytest
-from concurrent import futures
 
 from src.main import app as real_app
 from src.service_auth import (
@@ -75,8 +76,6 @@ def test_sync_grpc_interceptor_rejects_without_token() -> None:
 
 
 def test_sync_grpc_interceptor_accepts_with_token() -> None:
-    captured: dict[str, bytes] = {}
-
     def handler(request: bytes, context: grpc.ServicerContext) -> bytes:
         return b"ok"
 

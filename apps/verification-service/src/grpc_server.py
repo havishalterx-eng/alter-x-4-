@@ -7,12 +7,12 @@ import grpc
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alter.verify.v1 import verify_pb2_grpc
+from src.service_auth import ServiceAuthInterceptor, assert_configured_at_startup
 from src.verification.grpc_service import VerifyGrpcService
 from src.verification.kernel import VerificationKernel
 from src.verification.m2m_auth import lazy_auth0_m2m_token_provider_from_environment
 from src.verification.model_gateway_client import GrpcModelGatewayClient
 from src.verification.policy_client import HttpQualityThresholdPolicyClient
-from src.service_auth import ServiceAuthInterceptor, assert_configured_at_startup
 
 
 async def serve() -> None:

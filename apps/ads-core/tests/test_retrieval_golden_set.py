@@ -25,11 +25,11 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from alembic.config import Config as AlembicConfig
 from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from alembic.config import Config as AlembicConfig
 from src.db.ids import new_prefixed_id
 from src.ingestion.embedding_client import EmbeddingDimensions, EmbeddingResult
 from src.query.evaluation import GoldenSetCase, evaluate_golden_set

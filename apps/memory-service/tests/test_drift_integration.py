@@ -14,12 +14,12 @@ from pathlib import Path
 import httpx
 import pytest
 import sqlalchemy as sa
-from alembic.config import Config as AlembicConfig
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from alembic.config import Config as AlembicConfig
 from src.drift.cost_ledger_client import CostLedgerOutcomeClient
 from src.drift.detector import DriftDetector, InsufficientPerformanceDataError
 from src.drift.intelligence_client import HttpxIntelligencePerformanceClient

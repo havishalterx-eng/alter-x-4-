@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from alembic.config import Config as AlembicConfig
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from alembic.config import Config as AlembicConfig
 
 SERVICE_ROOT = Path(__file__).parent.parent
 MIGRATION = SERVICE_ROOT / "alembic" / "versions" / "0001_create_policy_tables.py"

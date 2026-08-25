@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from alembic.config import Config as AlembicConfig
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from alembic.config import Config as AlembicConfig
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 SERVICE_ROOT = Path(__file__).parent.parent

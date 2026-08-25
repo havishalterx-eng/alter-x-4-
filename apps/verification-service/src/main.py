@@ -3,9 +3,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from .service_auth import assert_configured_at_startup, fastapi_dependency
 from .verification.router import router as verification_router
 from .verification.router import verification_lifespan
-from .service_auth import assert_configured_at_startup, fastapi_dependency
 
 
 @asynccontextmanager

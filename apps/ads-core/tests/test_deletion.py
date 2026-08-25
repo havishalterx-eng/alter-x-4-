@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from alembic.config import Config as AlembicConfig
 from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from alembic.config import Config as AlembicConfig
 from src.deletion.provider import AdsDeletionProvider
 
 SERVICE_ROOT = Path(__file__).parent.parent

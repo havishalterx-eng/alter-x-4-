@@ -41,10 +41,10 @@ from concurrent import futures
 
 import grpc
 import sqlalchemy as sa
-from alembic.config import Config as AlembicConfig
 from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command
+from alembic.config import Config as AlembicConfig
 from alter.adsq.v1 import adsq_pb2_grpc
 from src.db.ids import new_prefixed_id
 from src.ingestion.embedding_client import EmbeddingDimensions, EmbeddingResult

@@ -5,11 +5,11 @@ import json
 from pathlib import Path
 
 import sqlalchemy as sa
-from alembic.config import Config as AlembicConfig
 from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from alembic.config import Config as AlembicConfig
 from src.memory_learning.extraction import MemoryLearningKernel
 from src.memory_learning.models import ProposeWritebackRequest, RunLearningSummary
 from src.memory_learning.repository import SqlAlchemyMemoryCandidateRepository
