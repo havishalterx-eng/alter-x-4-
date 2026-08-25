@@ -1,4 +1,5 @@
-﻿import { describe, expect, it, vi } from "vitest";
+﻿import { Metadata } from "@grpc/grpc-js";
+import { describe, expect, it, vi } from "vitest";
 
 import { CapabilityServiceClient } from "./capability-client";
 
@@ -13,7 +14,7 @@ const request = {
 describe("CapabilityServiceClient", () => {
   it("calls ResolveNodeRequirements and returns the response", async () => {
     const grpc = {
-      resolveNodeRequirements: vi.fn((_request, _options, callback) =>
+      resolveNodeRequirements: vi.fn((_request, _metadata, _options, callback) =>
         callback(null, { node_requirements_json: "{}", schema_version: "v1" }),
       ),
     };
@@ -32,7 +33,7 @@ describe("CapabilityServiceClient", () => {
   // requires the internal service credential on every RPC.
   it("sends the configured internal service credential as authorization metadata", async () => {
     const grpc = {
-      resolveNodeRequirements: vi.fn((_request, _options, callback) =>
+      resolveNodeRequirements: vi.fn((_request, _metadata, _options, callback) =>
         callback(null, { node_requirements_json: "{}", schema_version: "v1" }),
       ),
     };
@@ -42,8 +43,9 @@ describe("CapabilityServiceClient", () => {
     );
 
     await client.resolveNodeRequirements(request);
-    const options = (grpc.resolveNodeRequirements as ReturnType<typeof vi.fn>).mock.calls[0]![1];
-    expect(options.metadata.get("authorization")).toEqual(["Bearer service-token"]);
+    const metadata = (grpc.resolveNodeRequirements as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Metadata;
+    expect(metadata).toBeInstanceOf(Metadata);
+    expect(metadata.get("authorization")).toEqual(["Bearer service-token"]);
   });
 
   it("constructing without authorization does not throw -- NestJS eagerly instantiates every provider in a module, so a construction-time throw would break any test importing the real AppModule that never calls the resolver", () => {

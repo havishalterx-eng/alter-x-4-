@@ -44,12 +44,14 @@ export class EvalServiceClientError extends Error {
 interface EvalGrpcClient extends Client {
   runEvaluation(
     request: Pick<EvalRunEvaluationRequest, "golden_set_name" | "trigger">,
-    options: { readonly deadline: Date; readonly metadata?: Metadata },
+    metadata: Metadata,
+    options: { readonly deadline: Date },
     callback: (error: Error | null, response?: EvalRunEvaluationResponse) => void,
   ): void;
   checkReleaseGate(
     request: Pick<EvalCheckReleaseGateRequest, "release_gate_key" | "evaluation_run_id">,
-    options: { readonly deadline: Date; readonly metadata?: Metadata },
+    metadata: Metadata,
+    options: { readonly deadline: Date },
     callback: (error: Error | null, response?: EvalCheckReleaseGateResponse) => void,
   ): void;
 }
@@ -100,7 +102,8 @@ export class EvalServiceClient implements EvalServiceHandlerClient {
     return this.#request((deadline, callback) =>
       this.#client.runEvaluation(
         { golden_set_name: request.golden_set_name, trigger: request.trigger ?? "" },
-        { deadline, metadata: this.#metadata },
+        this.#metadata,
+        { deadline },
         callback,
       ),
     );
@@ -110,7 +113,7 @@ export class EvalServiceClient implements EvalServiceHandlerClient {
     request: Pick<EvalCheckReleaseGateRequest, "release_gate_key" | "evaluation_run_id">,
   ): Promise<EvalCheckReleaseGateResponse> {
     return this.#request((deadline, callback) =>
-      this.#client.checkReleaseGate(request, { deadline, metadata: this.#metadata }, callback),
+      this.#client.checkReleaseGate(request, this.#metadata, { deadline }, callback),
     );
   }
 

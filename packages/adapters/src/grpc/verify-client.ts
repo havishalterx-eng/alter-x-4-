@@ -36,7 +36,8 @@ export class VerifyServiceClientError extends Error {
 interface VerifyGrpcClient extends Client {
   scoreNodeInline(
     request: ScoreNodeInlineRequest,
-    options: { readonly deadline: Date; readonly metadata?: Metadata },
+    metadata: Metadata,
+    options: { readonly deadline: Date },
     callback: (error: Error | null, response?: ScoreNodeInlineResponse) => void,
   ): void;
 }
@@ -84,7 +85,8 @@ export class VerifyServiceClient implements VerifyServiceHandlerClient {
     return new Promise<ScoreNodeInlineResponse>((resolve, reject) => {
       this.#client.scoreNodeInline(
         request,
-        { deadline: new Date(Date.now() + this.#timeoutMs), metadata: this.#metadata },
+        this.#metadata,
+        { deadline: new Date(Date.now() + this.#timeoutMs) },
         (error, response) => {
           if (error !== null) {
             reject(new VerifyServiceClientError(errorCode(error)));

@@ -1,4 +1,4 @@
-﻿import { status } from "@grpc/grpc-js";
+﻿import { Metadata, status } from "@grpc/grpc-js";
 import { describe, expect, it, vi } from "vitest";
 
 import { VerifyServiceClient } from "./verify-client";
@@ -16,7 +16,7 @@ const request = {
 describe("VerifyServiceClient", () => {
   it("calls the real ScoreNodeInline RPC with the executor's final payload", async () => {
     const grpc = {
-      scoreNodeInline: vi.fn((_request, _options, callback) => callback(null, {
+      scoreNodeInline: vi.fn((_request, _metadata, _options, callback) => callback(null, {
         verdict: "pass", score: 1, threshold: 0.8, reviewer_model: "deterministic", details_json: "{}",
       })),
     };
@@ -25,6 +25,7 @@ describe("VerifyServiceClient", () => {
     await expect(client.scoreNodeInline(request)).resolves.toMatchObject({ verdict: "pass", score: 1 });
     expect(grpc.scoreNodeInline).toHaveBeenCalledWith(
       request,
+      expect.any(Metadata),
       expect.objectContaining({ deadline: expect.any(Date) }),
       expect.any(Function),
     );
@@ -32,7 +33,7 @@ describe("VerifyServiceClient", () => {
 
   it("sanitizes gRPC failures", async () => {
     const grpc = {
-      scoreNodeInline: vi.fn((_request, _options, callback) => callback({ code: status.DEADLINE_EXCEEDED })),
+      scoreNodeInline: vi.fn((_request, _metadata, _options, callback) => callback({ code: status.DEADLINE_EXCEEDED })),
     };
     const client = new VerifyServiceClient({ address: "localhost:50054", protoPath: "unused" }, grpc as never);
 
@@ -43,7 +44,7 @@ describe("VerifyServiceClient", () => {
   // internal service credential on every RPC.
   it("sends the configured internal service credential as authorization metadata", async () => {
     const grpc = {
-      scoreNodeInline: vi.fn((_request, _options, callback) => callback(null, {
+      scoreNodeInline: vi.fn((_request, _metadata, _options, callback) => callback(null, {
         verdict: "pass", score: 1, threshold: 0.8, reviewer_model: "deterministic", details_json: "{}",
       })),
     };
@@ -53,7 +54,8 @@ describe("VerifyServiceClient", () => {
     );
 
     await client.scoreNodeInline(request);
-    const options = (grpc.scoreNodeInline as ReturnType<typeof vi.fn>).mock.calls[0]![1];
-    expect(options.metadata.get("authorization")).toEqual(["Bearer service-token"]);
+    const metadata = (grpc.scoreNodeInline as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Metadata;
+    expect(metadata).toBeInstanceOf(Metadata);
+    expect(metadata.get("authorization")).toEqual(["Bearer service-token"]);
   });
 });

@@ -40,7 +40,8 @@ export interface CapabilityServiceHandlerClient {
 interface CapabilityGrpcClient extends Client {
   resolveNodeRequirements(
     request: ResolveNodeRequirementsRequest,
-    options: { readonly deadline: Date; readonly metadata?: Metadata },
+    metadata: Metadata,
+    options: { readonly deadline: Date },
     callback: (error: Error | null, response?: ResolveNodeRequirementsResponse) => void,
   ): void;
 }
@@ -70,7 +71,11 @@ export class CapabilityServiceClient implements CapabilityServiceHandlerClient {
     const metadata = new Metadata();
     metadata.set("authorization", this.#authorization ?? defaultAuthorizationHeader());
     return new Promise((resolve, reject) => {
-      this.#client.resolveNodeRequirements(request, { deadline: new Date(Date.now() + this.#timeoutMs), metadata }, (error, response) => {
+      // Metadata is its own positional argument. @grpc/grpc-js silently
+      // discards a `metadata` key placed inside the call options object -- it
+      // only treats an argument as metadata when that argument is a Metadata
+      // instance -- which would send every RPC unauthenticated.
+      this.#client.resolveNodeRequirements(request, metadata, { deadline: new Date(Date.now() + this.#timeoutMs) }, (error, response) => {
         if (error !== null) {
           reject(new Error(`Capability Service request failed: ${errorCode(error)}`));
         } else if (response === undefined) {
