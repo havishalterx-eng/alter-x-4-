@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
@@ -15,6 +16,12 @@ import { CAPABILITY_CLIENT_PROTO_PATH } from "./capability-client.constants";
 
 const TENANT_ID = "ten_018f47a5-7b2c-7d10-8f11-123456789abc";
 const WORKFLOW_ID = "wf_018f47a5-7b2c-7d10-8f11-123456789abc";
+// ENGINE-FIX-P5-SEC-1: intelligence-service now fails closed at startup
+// without a configured digest, and its capability gRPC interceptor rejects
+// every RPC without the matching raw token.
+const SERVICE_TOKEN = "capability-resolver-spec-token";
+const SERVICE_TOKEN_SHA256 = createHash("sha256").update(SERVICE_TOKEN).digest("hex");
+const AUTHORIZATION = `Bearer ${SERVICE_TOKEN}`;
 
 async function availablePort(): Promise<number> {
   const server = createServer();
@@ -55,12 +62,21 @@ describe.sequential("Graph Compiler -> Capability Resolver gRPC", () => {
     address = `127.0.0.1:${await availablePort()}`;
     resolver = spawn(process.platform === "win32" ? "uv.exe" : "uv", ["run", "uvicorn", "src.main:app", "--port", String(await availablePort())], {
       cwd: resolve(process.cwd(), "apps/intelligence-service"),
-      env: { ...process.env, CAPABILITY_GRPC_BIND_ADDRESS: address },
+      env: {
+        ...process.env,
+        CAPABILITY_GRPC_BIND_ADDRESS: address,
+        INTERNAL_SERVICE_TOKEN_SHA256: SERVICE_TOKEN_SHA256,
+      },
       stdio: "ignore",
     });
     await new Promise<void>((resolveReady, rejectReady) => {
       const deadline = setTimeout(() => rejectReady(new Error("Capability Resolver did not start")), 20_000);
-      const client = new CapabilityServiceClient({ address, protoPath: CAPABILITY_CLIENT_PROTO_PATH, timeoutMs: 250 });
+      const client = new CapabilityServiceClient({
+        address,
+        protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+        timeoutMs: 250,
+        authorization: AUTHORIZATION,
+      });
       const check = async (): Promise<void> => {
         try {
           await client.resolveNodeRequirements({
@@ -85,7 +101,11 @@ describe.sequential("Graph Compiler -> Capability Resolver gRPC", () => {
   it("compiles representative nodes through the live typed resolver", async () => {
     const compiler = new GraphCompilerService(
       fakeStore(),
-      new CapabilityServiceClient({ address, protoPath: CAPABILITY_CLIENT_PROTO_PATH }),
+      new CapabilityServiceClient({
+        address,
+        protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+        authorization: AUTHORIZATION,
+      }),
     );
     const result = await compiler.compileWorkflow({
       tenant_id: TENANT_ID,

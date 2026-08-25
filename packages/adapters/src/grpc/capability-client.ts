@@ -20,7 +20,12 @@ export interface CapabilityServiceClientConfig {
   readonly timeoutMs?: number;
   /** ENGINE-FIX-P5-SEC-1: internal service credential, sent as
    * `Authorization: Bearer <token>` metadata on every RPC. Required by the
-   * intelligence-service capability gRPC interceptor in production. */
+   * intelligence-service capability gRPC interceptor in production. Defaults
+   * to reading INTERNAL_SERVICE_TOKEN -- same fail-closed real-credential
+   * convention as PolicyStoreClient/SelectionBindingClient's
+   * defaultServiceToken, so every real caller (app.module.ts's 4
+   * construction sites) gets it for free without threading it through by
+   * hand. Pass an explicit value only to override (e.g. tests). */
   readonly authorization?: string;
 }
 
@@ -46,9 +51,7 @@ export class CapabilityServiceClient implements CapabilityServiceHandlerClient {
   constructor(config: CapabilityServiceClientConfig, client?: CapabilityGrpcClient) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#metadata = new Metadata();
-    if (config.authorization) {
-      this.#metadata.set("authorization", config.authorization);
-    }
+    this.#metadata.set("authorization", config.authorization ?? defaultAuthorizationHeader());
     this.#client = client ?? CapabilityServiceClient.#buildClient(config);
   }
 
@@ -77,4 +80,16 @@ export class CapabilityServiceClient implements CapabilityServiceHandlerClient {
 
 function errorCode(error: Error): string {
   return (error as Error & { code?: unknown }).code === status.INVALID_ARGUMENT ? "invalid_argument" : "upstream";
+}
+
+/** Same fail-closed real-credential convention as PolicyStoreClient's/
+ * SelectionBindingClient's defaultServiceToken -- a missing
+ * INTERNAL_SERVICE_TOKEN must not degrade into an unauthenticated RPC the
+ * callee then has to decide about. */
+function defaultAuthorizationHeader(): string {
+  const token = process.env["INTERNAL_SERVICE_TOKEN"]?.trim();
+  if (!token) {
+    throw new Error("INTERNAL_SERVICE_TOKEN is required to call the Capability Resolver");
+  }
+  return `Bearer ${token}`;
 }

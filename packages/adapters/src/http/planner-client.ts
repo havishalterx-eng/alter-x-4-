@@ -9,12 +9,25 @@ export interface PlannerHttpClient {
   postJson(url: string, body: unknown): Promise<unknown>;
 }
 
-export function createFetchPlannerHttpClient(): PlannerHttpClient {
+/**
+ * Same fail-closed real-credential convention as PolicyStoreClient's/
+ * SelectionBindingClient's defaultServiceToken -- a missing
+ * INTERNAL_SERVICE_TOKEN must not degrade into an anonymous request the
+ * callee then has to decide about. ENGINE-FIX-P5-SEC-1: every route this
+ * client calls now sits behind intelligence-service's app-level auth
+ * dependency.
+ */
+export function createFetchPlannerHttpClient(
+  readServiceToken: () => string = defaultServiceToken,
+): PlannerHttpClient {
   return {
     async postJson(url: string, body: unknown): Promise<unknown> {
       const response = await fetch(url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${readServiceToken()}`,
+        },
         body: JSON.stringify(body),
       });
       if (!response.ok) {
@@ -25,6 +38,14 @@ export function createFetchPlannerHttpClient(): PlannerHttpClient {
       return response.json();
     },
   };
+}
+
+function defaultServiceToken(): string {
+  const token = process.env["INTERNAL_SERVICE_TOKEN"]?.trim();
+  if (!token) {
+    throw new Error("INTERNAL_SERVICE_TOKEN is required to call the Planner");
+  }
+  return token;
 }
 
 export interface PlannerClientConfig {

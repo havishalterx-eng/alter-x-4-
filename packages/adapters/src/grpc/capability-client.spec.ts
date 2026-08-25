@@ -18,7 +18,7 @@ describe("CapabilityServiceClient", () => {
       ),
     };
     const client = new CapabilityServiceClient(
-      { address: "localhost:50061", protoPath: "unused" },
+      { address: "localhost:50061", protoPath: "unused", authorization: "Bearer service-token" },
       grpc as never,
     );
 
@@ -44,5 +44,20 @@ describe("CapabilityServiceClient", () => {
     await client.resolveNodeRequirements(request);
     const options = (grpc.resolveNodeRequirements as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(options.metadata.get("authorization")).toEqual(["Bearer service-token"]);
+  });
+
+  it("fails closed when no authorization is configured and INTERNAL_SERVICE_TOKEN is unset", () => {
+    vi.stubEnv("INTERNAL_SERVICE_TOKEN", "");
+    try {
+      expect(
+        () =>
+          new CapabilityServiceClient(
+            { address: "localhost:50061", protoPath: "unused" },
+            { resolveNodeRequirements: vi.fn() } as never,
+          ),
+      ).toThrow("INTERNAL_SERVICE_TOKEN is required");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

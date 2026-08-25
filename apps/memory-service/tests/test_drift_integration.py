@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import socket
@@ -256,6 +257,13 @@ def drift_stack() -> Generator[dict[str, str], None, None]:
                 DRIFT_READER_PASSWORD,
             )
         )
+        # ENGINE-FIX-P5-SEC-1: intelligence-service now fails closed at
+        # startup without this -- every call this test makes already sends
+        # "Bearer integration-token" (see the httpx/detector calls below),
+        # so the spawned process needs the matching digest to accept them.
+        environment["INTERNAL_SERVICE_TOKEN_SHA256"] = hashlib.sha256(
+            b"integration-token"
+        ).hexdigest()
         process = subprocess.Popen(
             [
                 "uv",

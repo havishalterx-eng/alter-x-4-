@@ -7,7 +7,7 @@
 // re-running PLAN-8's and PLAN-11's own existing real-Postgres
 // integration suites rather than duplicating them; see
 // scripts/run-planning-phase-exit-check.sh in this same PR.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { resolve } from "node:path";
 
@@ -17,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   CapabilityServiceClient,
   CompilerGrpcController,
+  createFetchPlannerHttpClient,
   PlannerClient,
   PostgresOrchestrationStoreProvider,
 } from "@alterx/adapters";
@@ -37,6 +38,14 @@ const TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const BARE_TENANT_ID = "018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const WORKFLOW_ID = "wf_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const CAPABILITY_RESOLVER_ADDRESS = "127.0.0.1:50061";
+// ENGINE-FIX-P5-SEC-1: intelligence-service now fails closed at startup
+// without a configured digest, and both its HTTP app-level dependency
+// (PlannerClient's routes) and its capability gRPC interceptor
+// (CapabilityServiceClient) reject every request without the matching
+// raw token.
+const SERVICE_TOKEN = "planning-exit-check-spec-token";
+const SERVICE_TOKEN_SHA256 = createHash("sha256").update(SERVICE_TOKEN).digest("hex");
+const AUTHORIZATION = `Bearer ${SERVICE_TOKEN}`;
 // Same split as TENANT_ID/BARE_TENANT_ID: the Planner's Pydantic models
 // require workspace_id ws_-prefixed; the workflows table's workspace_id
 // column is a bare uuid.
@@ -121,11 +130,15 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
       ["run", "uvicorn", "src.main:app", "--port", String(PLANNER_PORT)],
       {
         cwd: resolve(process.cwd(), "apps/intelligence-service"),
+        env: { ...process.env, INTERNAL_SERVICE_TOKEN_SHA256: SERVICE_TOKEN_SHA256 },
         stdio: "ignore",
       },
     );
     await waitForHealth(PLANNER_BASE_URL);
-    planner = new PlannerClient({ baseUrl: PLANNER_BASE_URL });
+    planner = new PlannerClient(
+      { baseUrl: PLANNER_BASE_URL },
+      createFetchPlannerHttpClient(() => SERVICE_TOKEN),
+    );
   }, 60_000);
 
   afterAll(async () => {
@@ -166,6 +179,7 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
     const compiler = new GraphCompilerService(storeProvider, new CapabilityServiceClient({
       address: CAPABILITY_RESOLVER_ADDRESS,
       protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+      authorization: AUTHORIZATION,
     }));
     const compiled = await compiler.compileWorkflow({
       tenant_id: TENANT_ID,
@@ -288,6 +302,7 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
     const compiler = new GraphCompilerService(storeProvider, new CapabilityServiceClient({
       address: CAPABILITY_RESOLVER_ADDRESS,
       protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+      authorization: AUTHORIZATION,
     }));
     const controller = new CompilerGrpcController(compiler);
 
