@@ -44,7 +44,13 @@ export class CapabilityServiceClient implements CapabilityServiceHandlerClient {
   constructor(config: CapabilityServiceClientConfig, client?: CapabilityGrpcClient) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#metadata = new Metadata();
-    this.#metadata.set("authorization", config.authorization);
+    // The callee's ServiceAuthInterceptor requires a "Bearer " prefix (see
+    // apps/intelligence-service/src/service_auth.py's _BEARER constant).
+    // Every real caller (apps/orchestration-service/src/app.module.ts, 4
+    // sites) passes the raw INTERNAL_SERVICE_TOKEN value -- prefixing here,
+    // once, matches the convention every other internal-service client in
+    // this codebase already follows (raw token in, "Bearer <token>" out).
+    this.#metadata.set("authorization", `Bearer ${config.authorization}`);
     this.#client = client ?? CapabilityServiceClient.#buildClient(config);
   }
 
