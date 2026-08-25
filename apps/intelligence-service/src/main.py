@@ -15,7 +15,7 @@ from .problem_understanding.router import problem_understanding_lifespan
 from .problem_understanding.router import router as problem_understanding_router
 from .selection_binding.router import router as selection_binding_router
 from .selection_binding.router import selection_binding_lifespan
-from .service_auth import assert_configured_at_startup, fastapi_dependency
+from .service_auth import assert_configured_at_startup
 
 
 @asynccontextmanager
@@ -35,12 +35,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await capability_server.stop(0)
 
 
-# Application-level dependency: every current AND future router inherits it
-# (same pattern as memory-service/ads-core -- per-router dependencies are how
-# a new router silently ships unauthenticated).
+# NOTE: intelligence-service's HTTP app is its public API (planner,
+# problem-understanding, selection-binding, performance, capability-registry,
+# architecture-synthesizer) and is reached by the platform/frontend without a
+# service credential, so it is intentionally NOT behind the internal
+# service-to-service token. The service-to-service boundary for intelligence is
+# its gRPC surface (capability_resolver), which is protected by
+# ServiceAuthInterceptor in capability_resolver/grpc_server.py.
 app = FastAPI(
     lifespan=lifespan,
-    dependencies=[fastapi_dependency(frozenset({"/health"}))],
 )
 
 app.include_router(planner_router)
