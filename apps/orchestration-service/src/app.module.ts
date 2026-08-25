@@ -1,5 +1,4 @@
 import { Module } from "@nestjs/common";
-import { APP_GUARD } from "@nestjs/core";
 import {
   BLACKBOARD_HANDLER,
   NODEEXEC_HANDLER,
@@ -27,15 +26,6 @@ import {
   VerifyServiceClient,
 } from "@alterx/adapters";
 import { createMockQueueProvider } from "@alterx/shared-clients";
-import {
-  ActorTokenValidator,
-  M2mValidator,
-  RedisReplayStore,
-  RedisRespSetClient,
-  SessionGatewayGuard,
-  SessionGatewayRateLimitGuard,
-  SessionGatewayUploadAllowlistGuard,
-} from "@alterx/auth";
 import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import { GraphCompilerService } from "./compiler/graph-compiler.service";
 import { CAPABILITY_CLIENT_PROTO_PATH } from "./compiler/capability-client.constants";
@@ -91,10 +81,11 @@ import { GeneratedFileMaterializer } from "./registry/generated-file-materialize
 import { OperationsModule } from "./operations.module";
 import { ArtifactModule } from "./artifact.module";
 import { WorkflowAuthoringModule } from "./workflow-authoring.module";
+import { SecurityModule } from "./security.module";
 import { IngressModule } from "./ingress.module";
 
 @Module({
-  imports: [OrchestrationInfrastructureModule, OperationsModule, ArtifactModule, RunLauncherModule, IngressModule, WorkflowAuthoringModule],
+  imports: [OrchestrationInfrastructureModule, OperationsModule, ArtifactModule, RunLauncherModule, IngressModule, WorkflowAuthoringModule, SecurityModule],
   controllers: [
     HealthController,
     RegistryGrpcController,
@@ -112,39 +103,6 @@ import { IngressModule } from "./ingress.module";
     NodeTypeController,
   ],
   providers: [
-    {
-      provide: APP_GUARD,
-      useFactory: () => {
-        const config = sessionGatewayEnvironment(process.env);
-        const replayStore = new RedisReplayStore(
-          new RedisRespSetClient(config.redisUrl),
-        );
-        return new SessionGatewayGuard(
-          new M2mValidator({
-            auth0Domain: config.auth0Domain,
-            apiAudience: config.apiAudience,
-            ...(config.auth0JwksUrl ? { jwksUrl: config.auth0JwksUrl } : {})
-          }),
-          new ActorTokenValidator(
-            {
-              issuer: config.actorTokenIssuer,
-              audience: config.actorTokenAudience,
-              jwksUrl: config.actorTokenJwksUrl,
-            },
-            replayStore,
-          ),
-          orchestrationStore(config),
-        );
-      },
-    },
-    {
-      provide: APP_GUARD,
-      useFactory: () => new SessionGatewayRateLimitGuard(),
-    },
-    {
-      provide: APP_GUARD,
-      useFactory: () => new SessionGatewayUploadAllowlistGuard(),
-    },
     {
       // No PostgresOrchestrationStoreProvider here -- the Node Type
       // Registry is a global, tenant-free static catalog (see

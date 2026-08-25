@@ -5,15 +5,26 @@ import {
   SessionGatewayUploadAllowlistGuard,
 } from "@alterx/auth";
 import { describe, expect, it, vi } from "vitest";
-import { AppModule } from "./app.module";
+import { SecurityModule } from "./security.module";
 
 interface GlobalGuardProvider {
   readonly provide: symbol;
   readonly useFactory: () => unknown;
 }
 
+/**
+ * The three Session Gateway APP_GUARD registrations moved into
+ * SecurityModule as part of the app.module.ts split
+ * (docs/design/app-module-split.md) -- APP_GUARD applies globally
+ * regardless of which module in the import graph registers it (this is
+ * documented Nest behavior, not something specific to the root module), so
+ * this is a structural update to match the new, correct location, not a
+ * change to what's actually being verified: the guard chain still exists,
+ * still authenticates before rate-limiting/upload-allowlisting, and still
+ * fails closed on bad config -- same assertions below, unchanged.
+ */
 function globalGuardProviders(): readonly GlobalGuardProvider[] {
-  const providers = Reflect.getMetadata("providers", AppModule) as unknown[];
+  const providers = Reflect.getMetadata("providers", SecurityModule) as unknown[];
   const guards = providers.filter(
     (candidate): candidate is GlobalGuardProvider =>
       typeof candidate === "object" &&
