@@ -35,11 +35,17 @@ type ArtifactRow = {
   readonly content_type: string;
   readonly size_bytes: string | number;
   readonly created_at: string;
+  // ENGINE-FIX-B5-1: additive, joined from runs.workspace_id -- consumed
+  // by platform-api's workspace-bound RBAC resolver so artifact reads can
+  // be checked against the workspace that owns them (see runs_controller's
+  // identical workspace_id passthrough for the run resource itself).
+  readonly workspace_id: string;
 };
 
 export interface Artifact {
   readonly id: string;
   readonly runId: string;
+  readonly workspaceId: string;
   readonly contentType: string;
   readonly sizeBytes: number;
   readonly createdAt: string;
@@ -71,6 +77,7 @@ function fromRow(row: ArtifactRow): Artifact {
   return {
     id: row.id,
     runId: row.run_id,
+    workspaceId: row.workspace_id,
     contentType: row.content_type,
     sizeBytes: Number(row.size_bytes),
     createdAt: row.created_at,
@@ -104,7 +111,8 @@ export class ArtifactsService {
         const result = await tx.query<ArtifactRow>(
           `INSERT INTO artifacts (id, tenant_id, run_id, storage_reference, content_type, size_bytes)
            VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id, tenant_id, run_id, storage_reference, content_type, size_bytes, created_at::text`,
+           RETURNING id, tenant_id, run_id, storage_reference, content_type, size_bytes, created_at::text,
+             (SELECT workspace_id::text FROM runs WHERE runs.tenant_id = artifacts.tenant_id AND runs.id = artifacts.run_id) AS workspace_id`,
           [artifactId, tenant, input.runId, storageReference, input.contentType, input.bytes.byteLength],
         );
         const row = result.rows[0];
@@ -122,8 +130,11 @@ export class ArtifactsService {
     const run = requireValue("runId", runId);
     return this.store.withTenant(tenant, async (tx) => {
       const result = await tx.query<ArtifactRow>(
-        `SELECT id, tenant_id, run_id, storage_reference, content_type, size_bytes, created_at
-         FROM artifacts WHERE tenant_id = $1 AND run_id = $2 ORDER BY created_at DESC, id DESC`,
+        `SELECT a.id, a.tenant_id, a.run_id, a.storage_reference, a.content_type, a.size_bytes, a.created_at,
+           r.workspace_id::text AS workspace_id
+         FROM artifacts a
+         JOIN runs r ON r.tenant_id = a.tenant_id AND r.id = a.run_id
+         WHERE a.tenant_id = $1 AND a.run_id = $2 ORDER BY a.created_at DESC, a.id DESC`,
         [tenant, run],
       );
       return result.rows.map(fromRow);
@@ -155,8 +166,11 @@ export class ArtifactsService {
     const id = requireValue("artifactId", artifactId);
     return this.store.withTenant(tenant, async (tx) => {
       const result = await tx.query<ArtifactRow>(
-        `SELECT id, tenant_id, run_id, storage_reference, content_type, size_bytes, created_at
-         FROM artifacts WHERE tenant_id = $1 AND id = $2`,
+        `SELECT a.id, a.tenant_id, a.run_id, a.storage_reference, a.content_type, a.size_bytes, a.created_at,
+           r.workspace_id::text AS workspace_id
+         FROM artifacts a
+         JOIN runs r ON r.tenant_id = a.tenant_id AND r.id = a.run_id
+         WHERE a.tenant_id = $1 AND a.id = $2`,
         [tenant, id],
       );
       const row = result.rows[0];

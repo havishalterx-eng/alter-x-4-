@@ -44,6 +44,7 @@ from .models import (
     PresignUploadRequest,
     PresignUploadResponse,
     ReindexResponse,
+    ResourceWorkspaceResponse,
     SourceResponse,
 )
 from .normalization import TextAwareNormalizer
@@ -251,6 +252,31 @@ async def create_source(
 
 
 @router.get(
+    "/sources/{source_id}",
+    response_model=ResourceWorkspaceResponse,
+)
+async def get_source_workspace(
+    source_id: str,
+    repository: RepositoryDep,
+    tenant_id: Annotated[str, Header(alias="X-Alter-Tenant-Id")],
+) -> ResourceWorkspaceResponse:
+    """ENGINE-FIX-B5-2: minimal, RBAC-resolution-only read -- see
+    ResourceWorkspaceResponse's docstring."""
+    try:
+        workspace_id = await run_in_threadpool(
+            repository.get_source_workspace_id,
+            tenant_uuid=_tenant_uuid(tenant_id),
+            source_id=_source_id(source_id),
+        )
+    except SourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    return ResourceWorkspaceResponse(id=source_id, workspace_id=workspace_id)
+
+
+@router.get(
     "/sources/{source_id}/permissions",
     response_model=SourcePermissions | None,
 )
@@ -294,6 +320,31 @@ async def put_source_permissions(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
+
+
+@router.get(
+    "/documents/{document_id}",
+    response_model=ResourceWorkspaceResponse,
+)
+async def get_document_workspace(
+    document_id: str,
+    repository: RepositoryDep,
+    tenant_id: Annotated[str, Header(alias="X-Alter-Tenant-Id")],
+) -> ResourceWorkspaceResponse:
+    """ENGINE-FIX-B5-2: minimal, RBAC-resolution-only read -- see
+    ResourceWorkspaceResponse's docstring."""
+    try:
+        workspace_id = await run_in_threadpool(
+            repository.get_document_workspace_id,
+            tenant_uuid=_tenant_uuid(tenant_id),
+            document_id=_document_id(document_id),
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    return ResourceWorkspaceResponse(id=document_id, workspace_id=workspace_id)
 
 
 @router.get(
@@ -582,6 +633,11 @@ async def get_ingestion_job(
             tenant_uuid=bare_tenant,
             ingestion_job_id=ingestion_job_id,
         )
+        workspace_id = await run_in_threadpool(
+            repository.get_ingestion_job_workspace_id,
+            tenant_uuid=bare_tenant,
+            ingestion_job_id=ingestion_job_id,
+        )
     except IngestionJobNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -593,6 +649,7 @@ async def get_ingestion_job(
     return IngestionJobResponse(
         ingestion_job_id=job.ingestion_job_id,
         source_id=job.source_id,
+        workspace_id=workspace_id,
         stage=job.stage,
         stats=job.stats,
         error=error,

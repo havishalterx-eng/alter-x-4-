@@ -241,11 +241,26 @@ export function defaultWorkspaceResolutionRules(deps: {
     { paramNames: ["projectId", "project_id"], lookup: engine((id) => `/api/v1/projects/${id}`, "workspace_id") },
     { paramNames: ["workflowId", "workflow_id"], lookup: engine((id) => `/api/v1/workflows/${id}`, "workspace_id") },
     { paramNames: ["runId", "run_id"], lookup: approvalLike("runs") },
+    // ENGINE-FIX-B5-1: artifacts.workspaceId is joined from runs.workspace_id
+    // (see artifacts.service.ts) -- camelCase field name because the
+    // artifacts response, unlike runs'/workflows', was never snake_cased.
+    { paramNames: ["artifactId", "artifact_id"], lookup: engine((id) => `/api/v1/artifacts/${id}`, "workspaceId") },
     { paramNames: ["triggerId", "trigger_id"], lookup: engine((id) => `/api/v1/triggers/${id}`, "workspaceId") },
     { paramNames: ["approvalId", "approval_id"], lookup: approvalLike("approvals") },
     { paramNames: ["escalationId", "escalation_id"], lookup: approvalLike("escalations") },
     { paramNames: ["clarificationId", "clarification_id"], lookup: approvalLike("clarifications") },
     { paramNames: ["connectionId", "connection_id", "integrationId", "integration_id"], lookup: new ConnectionWorkspaceLookup(db) },
+    // ENGINE-FIX-B5-2: ads-core's Source/Document/IngestionJob rows don't
+    // store workspace_id directly (only scope_id / source_id -- see
+    // ads-core's db/models.py) -- these hit dedicated ads-core routes that
+    // resolve the join server-side. sourceId/documentId use a minimal,
+    // RBAC-resolution-only read (their /permissions routes return `null`
+    // for a real-but-unset resource, which would fail-closed the lookup);
+    // jobId reuses the existing GET /ingestion/jobs/{id} route's now-additive
+    // workspace_id field.
+    { paramNames: ["sourceId", "source_id"], lookup: engine((id) => `/api/v1/ads/sources/${id}`, "workspace_id") },
+    { paramNames: ["documentId", "document_id"], lookup: engine((id) => `/api/v1/ads/documents/${id}`, "workspace_id") },
+    { paramNames: ["jobId", "job_id"], lookup: engine((id) => `/api/v1/ads/ingestion/jobs/${id}`, "workspace_id") },
     {
       // Annotation items: /api/v1/action-items/:type/:id/annotations --
       // the id belongs to whichever family the sibling type param names.

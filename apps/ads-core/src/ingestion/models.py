@@ -45,11 +45,34 @@ class SourceResponse(_StrictFrozenModel):
 class IngestionJobResponse(_StrictFrozenModel):
     ingestion_job_id: str
     source_id: str
+    # ENGINE-FIX-B5-2: additive -- owning workspace (source_id -> sources
+    # .scope_id -> scopes.workspace_id), consumed by platform-api's
+    # workspace-bound RBAC resolver so ingestion-job reads can be checked
+    # against the workspace that owns them instead of any workspace in the
+    # tenant. Optional (unlike the read route's own field) so the several
+    # other call sites building this response from a bare StoredIngestionJob
+    # (uploads/presign, uploads/complete, sync) aren't forced to plumb a
+    # tenant-scoped workspace lookup through paths that don't otherwise need
+    # one -- only GET /ingestion/jobs/{id} populates it.
+    workspace_id: str | None = None
     stage: IngestionStage
     stats: dict[str, object]
     error: IngestionError | None
     created_at: datetime
     completed_at: datetime | None
+
+
+class ResourceWorkspaceResponse(_StrictFrozenModel):
+    """Minimal shape for RBAC workspace-ownership resolution only (ENGINE-
+    FIX-B5-2) -- not a general source/document read API. Sources and
+    documents have no other route that always returns 200 with a non-null
+    body when the resource exists (their /permissions routes return `null`
+    for an unset-but-real resource), so this is a dedicated, narrow
+    endpoint rather than overloading that nullable shape. See platform-api's
+    param-workspace.resolver.ts."""
+
+    id: str
+    workspace_id: str
 
 
 class ReindexResponse(_StrictFrozenModel):

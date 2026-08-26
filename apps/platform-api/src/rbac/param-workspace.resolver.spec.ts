@@ -20,6 +20,10 @@ const workspaceB = "ws_018f47a5-7b2c-7d10-8f11-123456789abb";
 const projectId = "prj_018f47a5-7b2c-7d10-8f11-123456789abc";
 const workflowId = "wf_018f47a5-7b2c-7d10-8f11-123456789abc";
 const runId = "run_018f47a5-7b2c-7d10-8f11-123456789abc";
+const artifactId = "art_018f47a5-7b2c-7d10-8f11-123456789abc";
+const sourceId = "src_018f47a5-7b2c-7d10-8f11-123456789abc";
+const documentId = "doc_018f47a5-7b2c-7d10-8f11-123456789abc";
+const jobId = "job_018f47a5-7b2c-7d10-8f11-123456789abc";
 const triggerId = "trg_018f47a5-7b2c-7d10-8f11-123456789abc";
 const approvalId = "apr_018f47a5-7b2c-7d10-8f11-123456789abc";
 const escalationId = "esc_018f47a5-7b2c-7d10-8f11-123456789abc";
@@ -53,6 +57,10 @@ describe("defaultWorkspaceResolutionRules dispatch", () => {
       if (path.includes("/workflows/")) return { status: 200, body: { workspace_id: workspaceA } };
       if (path.includes("/projects/")) return { status: 200, body: { workspace_id: workspaceA } };
       if (path.includes("/runs/")) return { status: 200, body: { workspace_id: workspaceB } };
+      if (path.includes("/artifacts/")) return { status: 200, body: { workspaceId: workspaceB } };
+      if (path.includes("/ads/sources/")) return { status: 200, body: { workspace_id: workspaceA } };
+      if (path.includes("/ads/documents/")) return { status: 200, body: { workspace_id: workspaceB } };
+      if (path.includes("/ads/ingestion/jobs/")) return { status: 200, body: { workspace_id: workspaceA } };
       if (path.includes("/triggers/")) return { status: 200, body: { workspaceId: workspaceB } };
       if (path.includes("/approvals/")) return { status: 200, body: { workspace_id: workspaceA } };
       if (path.includes("/escalations/")) return { status: 200, body: { workspace_id: workspaceB } };
@@ -79,6 +87,10 @@ describe("defaultWorkspaceResolutionRules dispatch", () => {
     ["projects", "/api/v1/projects/p/env-vars", { projectId }, workspaceA],
     ["workflows", "/api/v1/workflows/w/actions/compile", { workflowId: workflowId }, workspaceA],
     ["runs", "/api/v1/runs/r", { runId }, workspaceB],
+    ["artifacts", "/api/v1/artifacts/f/download", { artifactId }, workspaceB],
+    ["ads sources", "/api/v1/ads/sources/s/permissions", { sourceId }, workspaceA],
+    ["ads documents", "/api/v1/ads/documents/d/permissions", { documentId }, workspaceB],
+    ["ads ingestion jobs", "/api/v1/ads/ingestion/jobs/j", { jobId }, workspaceA],
     ["triggers (bare id)", "/api/v1/triggers/t/status", { id: triggerId }, workspaceB],
     ["approvals", "/api/v1/approvals/a/actions/approve", { approvalId: approvalId }, workspaceA],
     ["escalations", "/api/v1/escalations/e/actions/claim", { escalationId: escalationId }, workspaceB],

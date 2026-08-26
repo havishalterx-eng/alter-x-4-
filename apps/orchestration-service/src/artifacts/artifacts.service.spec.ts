@@ -7,6 +7,7 @@ const TENANT_B = "ten_018f4d6e-bbbb-7bbb-8bbb-bbbbbbbbbbbb";
 const TENANT_A_BARE = TENANT_A.slice("ten_".length);
 const RUN_A = "run_018f4d6e-aaaa-7aaa-8aaa-aaaaaaaaaaab";
 const ARTIFACT_A = "art_018f4d6e-aaaa-7aaa-8aaa-aaaaaaaaaaac";
+const WORKSPACE_A = "018f4d6e-aaaa-7aaa-8aaa-aaaaaaaaaaad";
 
 type FakeArtifactRow = {
   id: string;
@@ -16,6 +17,7 @@ type FakeArtifactRow = {
   content_type: string;
   size_bytes: string;
   created_at: string;
+  workspace_id: string;
 };
 
 function store(): ArtifactTenantStore {
@@ -38,6 +40,7 @@ function store(): ArtifactTenantStore {
             content_type: "text/plain",
             size_bytes: "12",
             created_at: "2026-08-04T00:00:00Z",
+            workspace_id: WORKSPACE_A,
           };
           return {
             rowCount: 1,
@@ -61,7 +64,7 @@ describe("ArtifactsService", () => {
           ) {
             if (statement.includes("INSERT INTO artifacts")) {
               const [id, tenant, runId, storageReference, contentType, sizeBytes] = values as [string, string, string, string, string, number];
-              inserted = { id, tenant_id: tenant, run_id: runId, storage_reference: storageReference, content_type: contentType, size_bytes: String(sizeBytes), created_at: "2026-08-04T00:00:00Z" };
+              inserted = { id, tenant_id: tenant, run_id: runId, storage_reference: storageReference, content_type: contentType, size_bytes: String(sizeBytes), created_at: "2026-08-04T00:00:00Z", workspace_id: WORKSPACE_A };
               return { rowCount: 1, rows: [inserted] as unknown as readonly TRow[] };
             }
             const row = inserted?.tenant_id === tenantId ? inserted : undefined;
@@ -104,7 +107,7 @@ describe("ArtifactsService", () => {
   it("lists only the tenant's real artifact metadata", async () => {
     const service = new ArtifactsService(store(), createMockObjectStorageProvider(), "artifact-bucket");
     await expect(service.list(TENANT_A, RUN_A)).resolves.toEqual([
-      { id: ARTIFACT_A, runId: RUN_A, contentType: "text/plain", sizeBytes: 12, createdAt: "2026-08-04T00:00:00Z" },
+      { id: ARTIFACT_A, runId: RUN_A, workspaceId: WORKSPACE_A, contentType: "text/plain", sizeBytes: 12, createdAt: "2026-08-04T00:00:00Z" },
     ]);
     await expect(service.list(TENANT_B, RUN_A)).resolves.toEqual([]);
   });

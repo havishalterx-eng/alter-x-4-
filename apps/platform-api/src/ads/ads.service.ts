@@ -116,6 +116,7 @@ export class AdsService {
     actor: ActorContext,
     traceparent: string | undefined,
     idempotencyKey: string,
+    ifMatch: string,
   ): Promise<EngineResponse<AdsSourcePermissions>> {
     const instance = `/api/v1/ads/sources/${sourceId}/permissions`;
     const id = parseAdsId(sourceId, "sourceId", instance);
@@ -123,7 +124,7 @@ export class AdsService {
       `/api/v1/ads/sources/${encodeURIComponent(id)}/permissions`,
       input as EngineRequestBody,
       callerContext(actor, traceparent, instance),
-      { idempotencyKey, ifMatch: "*" },
+      { idempotencyKey, ifMatch },
     );
   }
 
@@ -236,6 +237,7 @@ export class AdsService {
     actor: ActorContext,
     traceparent: string | undefined,
     idempotencyKey: string,
+    ifMatch: string,
   ): Promise<EngineResponse<DocumentPermissions>> {
     const instance = `/api/v1/ads/documents/${documentId}/permissions`;
     const id = parseAdsId(documentId, "documentId", instance);
@@ -243,7 +245,7 @@ export class AdsService {
       `/api/v1/ads/documents/${encodeURIComponent(id)}/permissions`,
       input as EngineRequestBody,
       callerContext(actor, traceparent, instance),
-      { idempotencyKey, ifMatch: "*" },
+      { idempotencyKey, ifMatch },
     );
   }
 
