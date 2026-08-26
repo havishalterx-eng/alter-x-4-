@@ -119,6 +119,60 @@ describe("StaffRepository PostgreSQL integration", () => {
     await expect(repository.listForTenant(tenantId, { cursor: "not-a-cursor", limit: 1 }))
       .rejects.toThrow("Invalid support access cursor");
   });
+
+  // ENGINE-FIX-B8-2: list()'s includeAll (staff_admin) branch used to run
+  // with no WHERE and no LIMIT at all -- every grant, every tenant, every
+  // staff member. Proves it's now cursor-paginated and that the
+  // per-staff-user branch stays scoped to its own caller.
+  it("paginates list()'s includeAll branch across tenants and keeps the per-staff-user branch scoped", async () => {
+    const otherTenantId = "00000000-0000-7000-8000-000000000006";
+    const otherStaffId = "stf_00000000-0000-7000-8000-000000000007";
+    await pool.query(
+      "INSERT INTO tenants (id, name, status) VALUES ($1, 'List() test tenant', 'active')",
+      [otherTenantId],
+    );
+    await pool.query(
+      "INSERT INTO staff_users (id, identity_ref, email, roles) VALUES ($1, 'auth0|list-test', 'list-test@example.com', ARRAY['staff_admin'])",
+      [otherStaffId],
+    );
+    await repository.grant(
+      "jit_list_mine",
+      staffId,
+      tenantId,
+      "support_case",
+      "My own grant",
+      new Date(Date.now() + 120_000),
+    );
+    await repository.grant(
+      "jit_list_other",
+      otherStaffId,
+      otherTenantId,
+      "support_case",
+      "Someone else's grant",
+      new Date(Date.now() + 120_000),
+    );
+
+    const mine = await repository.list(staffId, false, { limit: 100 });
+    expect(mine.data.map((grant) => grant.id)).toContain("jit_list_mine");
+    expect(mine.data.map((grant) => grant.id)).not.toContain("jit_list_other");
+
+    const everything = await repository.list(staffId, true, { limit: 100 });
+    expect(everything.data.map((grant) => grant.id)).toEqual(
+      expect.arrayContaining(["jit_list_mine", "jit_list_other"]),
+    );
+
+    const firstPage = await repository.list(staffId, true, { limit: 1 });
+    expect(firstPage.page).toMatchObject({ has_more: true, limit: 1 });
+    expect(firstPage.page.next_cursor).toEqual(expect.any(String));
+    const secondPage = await repository.list(staffId, true, {
+      cursor: firstPage.page.next_cursor!,
+      limit: 1,
+    });
+    expect(secondPage.data[0]?.id).not.toBe(firstPage.data[0]?.id);
+
+    await expect(repository.list(staffId, true, { cursor: "not-a-cursor", limit: 1 }))
+      .rejects.toThrow("Invalid support access cursor");
+  });
 });
 
 async function migrate(pool: pg.Pool): Promise<void> {

@@ -138,3 +138,84 @@ describe("WhatsApp cross-tenant isolation (CONN-ISO)", () => {
     await expect(controller.health(tenantAAccount.id, actorA, undefined)).resolves.toEqual({ status: "healthy" });
   });
 });
+
+// ENGINE-FIX-B7-1: WhatsappService.account() previously trusted list()'s
+// result with no local workspace re-check -- if Engine's accounts list
+// endpoint ever only scoped by tenant (not workspace), or was queried in a
+// context where that scoping didn't hold, any workspace in the tenant could
+// resolve another workspace's account by id. This worst-case Engine
+// deliberately does NOT scope by workspace (only by tenant, unlike
+// FakeEngineClient above) to prove the local re-check in account() is what
+// actually enforces the boundary, mirroring Voice's own "worst-case Engine"
+// test in voice.isolation.spec.ts.
+const workspaceAAccount = {
+  id: "wac_workspace_a",
+  workspaceId: "ws_workspace_a",
+  phoneNumberId: "phone_ws_a",
+  wabaId: "waba_ws_a",
+  accessTokenRef: "secret://workspace-a-token",
+  status: "connected" as const,
+  escalationRules: [],
+};
+const sameTenantActorA: ActorContextType = {
+  user_id: "usr_ws_a",
+  tenant_id: "ten_shared",
+  workspace_id: "ws_workspace_a",
+  session_id: "session_ws_a",
+  auth_time: 1,
+  roles: ["admin"],
+  permissions: ["integrations:read", "integrations:write"],
+};
+const sameTenantActorB: ActorContextType = {
+  user_id: "usr_ws_b",
+  tenant_id: "ten_shared",
+  workspace_id: "ws_workspace_b",
+  session_id: "session_ws_b",
+  auth_time: 1,
+  roles: ["admin"],
+  permissions: ["integrations:read", "integrations:write"],
+};
+
+class WorstCaseTenantOnlyScopedEngineClient {
+  readonly get = vi.fn(async (_path: string, context: EngineCallerContext) => ({
+    status: 200,
+    // Scopes by tenantId only -- every workspace in "ten_shared" gets the
+    // same account list back, regardless of context.workspaceId.
+    body: { accounts: context.tenantId === "ten_shared" ? [workspaceAAccount] : [] },
+  }));
+  readonly post = vi.fn(async () => ({ status: 200, body: workspaceAAccount }));
+}
+
+describe("WhatsApp cross-workspace isolation (ENGINE-FIX-B7-1)", () => {
+  function buildController(engine: WorstCaseTenantOnlyScopedEngineClient) {
+    const secrets = { getSecret: vi.fn() } as unknown as SecretsProvider;
+    const service = new WhatsappService(engine as unknown as EngineClient, secrets);
+    const fakeProvider = {
+      getTemplates: vi.fn().mockResolvedValue([]),
+      sendTemplateMessage: vi.fn().mockResolvedValue({ messageId: "wamid.1" }),
+      getAccountHealth: vi.fn().mockResolvedValue({ status: "healthy" }),
+    };
+    (service as unknown as { provider: typeof fakeProvider }).provider = fakeProvider;
+    return { controller: new WhatsappController(service), engine };
+  }
+
+  it("still denies workspace B for workspace A's account against a worst-case Engine that only scopes by tenant", async () => {
+    const { controller, engine } = buildController(new WorstCaseTenantOnlyScopedEngineClient());
+
+    await expect(
+      controller.templates(workspaceAAccount.id, sameTenantActorB, undefined),
+    ).rejects.toThrow("WhatsApp account not found");
+    await expect(
+      controller.health(workspaceAAccount.id, sameTenantActorB, undefined),
+    ).rejects.toThrow("WhatsApp account not found");
+    expect(engine.post).not.toHaveBeenCalled();
+  });
+
+  it("still allows workspace A to operate on its own account", async () => {
+    const { controller } = buildController(new WorstCaseTenantOnlyScopedEngineClient());
+
+    await expect(
+      controller.templates(workspaceAAccount.id, sameTenantActorA, undefined),
+    ).resolves.toEqual([]);
+  });
+});

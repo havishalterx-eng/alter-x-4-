@@ -13,11 +13,21 @@ export interface JitGrant {
   id: string;
   staff_user_id: string;
   tenant_id: string;
+  granted_at: Date;
   expires_at: Date;
   revoked_at: Date | null;
   reason_code: string;
   reason_text: string;
   scopes: StaffAccessScope[];
+}
+
+export interface JitGrantPage {
+  data: JitGrant[];
+  page: {
+    next_cursor: string | null;
+    has_more: boolean;
+    limit: number;
+  };
 }
 
 export interface TenantJitGrant {
@@ -146,14 +156,44 @@ export class StaffRepository {
     });
   }
 
-  async list(staffUserId: string, includeAll: boolean): Promise<JitGrant[]> {
+  // ENGINE-FIX-B8-2: the includeAll (staff_admin) branch used to run with
+  // no WHERE and no LIMIT -- every JIT grant ever issued, across every
+  // tenant and staff member. Cursor+limit here mirrors listForTenant's own
+  // pattern below (same tiebreak shape, same cursor encode/decode helpers)
+  // rather than inventing a second pagination story. Both branches now
+  // share the same paginated shape so a caller can't get a bare array from
+  // one role and an envelope from another.
+  async list(
+    staffUserId: string,
+    includeAll: boolean,
+    input: { readonly cursor?: string | undefined; readonly limit: number },
+  ): Promise<JitGrantPage> {
+    const cursor = input.cursor ? decodeTenantGrantCursor(input.cursor) : undefined;
     const result = includeAll
-      ? await this.pool.query<JitGrant>("SELECT * FROM jit_grants ORDER BY granted_at DESC")
+      ? await this.pool.query<JitGrant>(
+          `SELECT * FROM jit_grants
+            WHERE ($1::timestamptz IS NULL OR (granted_at, id) < ($1, $2))
+            ORDER BY granted_at DESC, id DESC
+            LIMIT $3`,
+          [cursor?.grantedAt ?? null, cursor?.id ?? null, input.limit + 1],
+        )
       : await this.pool.query<JitGrant>(
-          "SELECT * FROM jit_grants WHERE staff_user_id = $1 ORDER BY granted_at DESC",
-          [staffUserId],
+          `SELECT * FROM jit_grants
+            WHERE staff_user_id = $1
+              AND ($2::timestamptz IS NULL OR (granted_at, id) < ($2, $3))
+            ORDER BY granted_at DESC, id DESC
+            LIMIT $4`,
+          [staffUserId, cursor?.grantedAt ?? null, cursor?.id ?? null, input.limit + 1],
         );
-    return result.rows;
+    const data = result.rows.slice(0, input.limit);
+    const tail = data.at(-1);
+    const nextCursor = result.rows.length > input.limit && tail
+      ? encodeTenantGrantCursor(tail.granted_at, tail.id)
+      : null;
+    return {
+      data,
+      page: { next_cursor: nextCursor, has_more: nextCursor !== null, limit: input.limit },
+    };
   }
 
   async listForTenant(

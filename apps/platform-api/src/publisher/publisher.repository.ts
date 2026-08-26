@@ -71,8 +71,14 @@ export class PublisherRepository implements OnModuleDestroy {
     });
   }
 
+  // ENGINE-FIX-B8-2: was unbounded (no LIMIT) -- grows without bound over a
+  // tenant's lifetime. platform-web's payouts page reads this as a bare
+  // array with no pagination UI, so a cursor-paginated envelope would break
+  // that caller for no benefit a real seller payout history needs; a
+  // generous cap is a real safety net (no seller realistically has more
+  // payouts than this), not a functional pagination story.
   listPayouts(tenantId: string): Promise<PayoutRecord[]> {
-    return this.withTenant(tenantId, async (client) => (await client.query<PayoutRow>("SELECT * FROM payouts WHERE tenant_id = $1 ORDER BY created_at DESC, id DESC", [tenantId])).rows.map(payout));
+    return this.withTenant(tenantId, async (client) => (await client.query<PayoutRow>("SELECT * FROM payouts WHERE tenant_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1000", [tenantId])).rows.map(payout));
   }
 
   earnings(tenantId: string): Promise<EarningsSummary> {

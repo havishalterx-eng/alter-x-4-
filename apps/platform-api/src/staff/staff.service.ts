@@ -147,8 +147,12 @@ export class StaffService {
     return result.grant;
   }
 
-  list(staffUserId: string, includeAll: boolean) {
-    return this.repository.list(staffUserId, includeAll);
+  list(
+    staffUserId: string,
+    includeAll: boolean,
+    input: { readonly cursor?: string | undefined; readonly limit: number },
+  ) {
+    return this.repository.list(staffUserId, includeAll, input);
   }
 
   listForTenant(tenantId: string, input: { readonly cursor?: string | undefined; readonly limit: number }) {
