@@ -136,6 +136,56 @@ describe("RunService", () => {
     });
   });
 
+  it("aggregates verification-results and recovery-actions across pages for their own dedicated routes", async () => {
+    const first = { verification_id: "ver_1", score: 0.98 };
+    const second = { verification_id: "ver_2", score: 0.5 };
+    const recovery = { recovery_action_id: "rec_1", strategy: "retry" };
+    const engine = engineStub(async (path) => {
+      if (path.includes("/verification-results?limit=200")) {
+        return { status: 200, body: page([first], true, "ver next") };
+      }
+      if (path.includes("/verification-results?cursor=ver+next")) {
+        return { status: 200, body: page([second]) };
+      }
+      if (path.includes("/recovery-actions")) {
+        return { status: 200, body: page([recovery]) };
+      }
+      throw new Error(`Unexpected path ${path}`);
+    });
+    const service = new RunService(engine.value, costLedgerStub().value);
+
+    const verification = await service.verificationResults(runId, actor, traceparent);
+    expect(verification).toEqual([first, second]);
+    expect(engine.get).toHaveBeenCalledWith(
+      `/api/v1/runs/${runId}/verification-results?limit=200`,
+      expectedContext(),
+    );
+    expect(engine.get).toHaveBeenCalledWith(
+      `/api/v1/runs/${runId}/verification-results?cursor=ver+next&limit=200`,
+      expectedContext(),
+    );
+
+    const recoveryActions = await service.recoveryActions(runId, actor, traceparent);
+    expect(recoveryActions).toEqual([recovery]);
+    expect(engine.get).toHaveBeenCalledWith(
+      `/api/v1/runs/${runId}/recovery-actions?limit=200`,
+      expectedContext(),
+    );
+  });
+
+  it("rejects malformed run ids for the dedicated verification/recovery routes without calling Engine", async () => {
+    const engine = engineStub(async () => ({ status: 200, body: page([]) }));
+    const service = new RunService(engine.value, costLedgerStub().value);
+
+    expect(() => service.verificationResults("bad", actor, traceparent)).toThrow(
+      expect.objectContaining({ status: 400 }),
+    );
+    expect(() => service.recoveryActions("bad", actor, traceparent)).toThrow(
+      expect.objectContaining({ status: 400 }),
+    );
+    expect(engine.get).not.toHaveBeenCalled();
+  });
+
   it("passes artifact metadata through unchanged", async () => {
     const metadata = {
       artifact_id: artifactId,

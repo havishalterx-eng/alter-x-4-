@@ -160,6 +160,33 @@ describe("RunController routes", () => {
     expect(response.json()).not.toHaveProperty("artifacts");
   });
 
+  it("relays verification-results and recovery-actions through their own dedicated routes", async () => {
+    const verification = await request(`/api/v1/runs/${runId}/verification-results`, actor);
+    expect(verification.statusCode).toBe(200);
+    expect(verification.json()).toEqual(engine.verificationResults.data);
+
+    const recovery = await request(`/api/v1/runs/${runId}/recovery-actions`, actor);
+    expect(recovery.statusCode).toBe(200);
+    expect(recovery.json()).toEqual(engine.recoveryActions.data);
+  });
+
+  it.each([
+    [`/api/v1/runs/${runId}/verification-results`],
+    [`/api/v1/runs/${runId}/recovery-actions`],
+  ])("scope-gates %s", async (url) => {
+    const response = await request(url, noScope);
+    expectProblem(response, 403, "RBAC_PERMISSION_DENIED");
+    expect(engine.get).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [`/api/v1/runs/bad/verification-results`],
+    [`/api/v1/runs/bad/recovery-actions`],
+  ])("rejects invalid run id for %s", async (url) => {
+    const response = await request(url, actor);
+    expectProblem(response, 400, "INVALID_RUN_REQUEST");
+  });
+
   it("passes artifact metadata through unchanged", async () => {
     const response = await request(`/api/v1/artifacts/${artifactId}`, actor);
     expect(response.statusCode).toBe(200);

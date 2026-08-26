@@ -22,7 +22,12 @@ import type {
   HumanActionType,
   HumanActionStatus,
   HumanActionPriority,
+  HumanAnnotation,
   Credential,
+  RecoveryEvent,
+  NodeVerification,
+  VerificationCheck,
+  VerificationStatus,
 } from "./types"
 
 type AnyRecord = Record<string, any>
@@ -190,6 +195,99 @@ export async function stopRun(id: string): Promise<void> {
   await apiPost(`/api/v1/runs/${encodeURIComponent(id)}/actions/cancel`, {}, {
     idempotencyKey: mutationKey("run-cancel"),
   })
+}
+
+// recovery_actions.strategy (repair/retry/backoff/swap_agent/escalate_model/
+// recompile/replan/degrade/ask_user/terminate -- 0014_create_recovery_actions.sql)
+// is a wider vocabulary than RecoveryEvent.type's 6 values, so this is a
+// best-effort grouping, not a lossless mapping: automated retry-shaped
+// strategies collapse onto "retry", plan/DAG-rebuilding strategies onto
+// "rollback", "degrade" onto "skip" (still doing the work, just less of
+// it), ask_user onto "human_decision", terminate onto "abort".
+const recoveryStrategyToType: Record<string, RecoveryEvent["type"]> = {
+  retry: "retry",
+  backoff: "retry",
+  repair: "retry",
+  swap_agent: "retry",
+  escalate_model: "retry",
+  recompile: "rollback",
+  replan: "rollback",
+  degrade: "skip",
+  ask_user: "human_decision",
+  terminate: "abort",
+}
+
+function mapRecoveryEvent(value: unknown): RecoveryEvent {
+  const item = value as AnyRecord
+  const strategy = String(item.strategy ?? "retry")
+  const failureClass = typeof item.failure_class === "string" ? item.failure_class : "Failure"
+  const outcome = typeof item.outcome === "string" ? item.outcome : undefined
+  return {
+    id: asString(item.id),
+    runId: asString(item.run_id),
+    nodeId: typeof item.node_execution_id === "string" ? item.node_execution_id : undefined,
+    type: recoveryStrategyToType[strategy] ?? "retry",
+    // recovery_actions has no actor/created_by column -- these are always
+    // automated recovery-policy decisions, never a human action.
+    actor: { type: "system", name: "AlterX" },
+    summary: `${failureClass} recovery via ${strategy}${outcome ? ` (${outcome})` : ""}`,
+    createdAt: asDate(item.created_at ?? item.createdAt),
+    metadata: {
+      failure_class: item.failure_class,
+      strategy: item.strategy,
+      policy_version: item.policy_version,
+      root_cause_estimate: item.root_cause_estimate,
+    },
+  }
+}
+
+export async function getRecoveryHistory(runId: string): Promise<RecoveryEvent[]> {
+  const body = await apiGet<unknown>(`/api/v1/runs/${encodeURIComponent(runId)}/recovery-actions`)
+  return asArray(body, "data").map(mapRecoveryEvent)
+}
+
+function mapVerificationVerdict(value: unknown): VerificationCheck["status"] {
+  if (value === "pass") return "passed"
+  if (value === "warn") return "warning"
+  return "failed"
+}
+
+function aggregateVerificationStatus(checks: readonly VerificationCheck[]): VerificationStatus {
+  if (checks.length === 0) return "not_run"
+  if (checks.some((check) => check.status === "failed")) return "failed"
+  if (checks.some((check) => check.status === "warning")) return "warning"
+  return "passed"
+}
+
+// GET .../verification-results returns every gate-check for the WHOLE run
+// (one row per node per gate_type -- 0013_create_verification_results.sql),
+// not a single node's result, so this fetches the run's full list and
+// filters to the requested node_execution_id client-side rather than
+// guessing at a per-node backend route that doesn't exist.
+export async function getNodeVerification(runId: string, nodeId: string): Promise<NodeVerification> {
+  const body = await apiGet<unknown>(`/api/v1/runs/${encodeURIComponent(runId)}/verification-results`)
+  const rows = asArray(body, "data").filter((row) => row.node_execution_id === nodeId)
+  const checks: VerificationCheck[] = rows.map((row) => {
+    const details = row.details as AnyRecord | undefined
+    const message = details && typeof details === "object"
+      ? (details.message ?? details.reason ?? details.summary)
+      : undefined
+    return {
+      id: asString(row.id),
+      name: String(row.gate_type ?? "check"),
+      status: mapVerificationVerdict(row.verdict),
+      message: typeof message === "string" ? message : undefined,
+    }
+  })
+  const status = aggregateVerificationStatus(checks)
+  const passedCount = checks.filter((check) => check.status === "passed").length
+  return {
+    status,
+    summary: checks.length === 0
+      ? "No verification results for this node yet."
+      : `${passedCount}/${checks.length} checks passed`,
+    checks,
+  }
 }
 
 interface CredentialResponse {
@@ -681,6 +779,36 @@ export async function getHumanAction(id: string): Promise<HumanAction> {
   const action = actions.find((a) => a.id === id)
   if (!action) throw new Error("Human action not found")
   return action
+}
+
+function mapAnnotation(value: unknown): HumanAnnotation {
+  const item = value as AnyRecord
+  return {
+    id: asString(item.id),
+    actionId: asString(item.item_id ?? item.actionId),
+    // Backend only returns the raw created_by user id, no display name --
+    // same fallback-label shape mapHumanAction already uses for
+    // claimedBy/resolvedBy above.
+    author: { id: asString(item.created_by), name: "Team Member" },
+    text: String(item.note ?? item.text ?? ""),
+    createdAt: asDate(item.created_at ?? item.createdAt),
+  }
+}
+
+export async function getHumanActionHistory(type: HumanActionType, id: string): Promise<HumanAnnotation[]> {
+  const body = await apiGet<unknown>(
+    `/api/v1/action-items/${encodeURIComponent(type)}/${encodeURIComponent(id)}/annotations`,
+  )
+  return asArray(body, "data").map(mapAnnotation)
+}
+
+export async function addHumanAnnotation(type: HumanActionType, id: string, note: string): Promise<HumanAnnotation> {
+  const body = await apiPost<unknown>(
+    `/api/v1/action-items/${encodeURIComponent(type)}/${encodeURIComponent(id)}/annotations`,
+    { note },
+    { idempotencyKey: mutationKey("annotation-create") },
+  )
+  return mapAnnotation(body)
 }
 
 export async function approveHumanAction(id: string, payload?: any): Promise<HumanAction> {

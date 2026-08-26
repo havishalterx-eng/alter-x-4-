@@ -96,6 +96,36 @@ export class RunController {
     );
   }
 
+  @Get(":runId/verification-results")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("runs:read")
+  async verificationResults(
+    @Param("runId") runId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+  ): Promise<readonly EngineResource[]> {
+    return this.runs.verificationResults(
+      runId,
+      requireActor(actor, `/api/v1/runs/${runId}/verification-results`),
+      traceparent,
+    );
+  }
+
+  @Get(":runId/recovery-actions")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("runs:read")
+  async recoveryActions(
+    @Param("runId") runId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+  ): Promise<readonly EngineResource[]> {
+    return this.runs.recoveryActions(
+      runId,
+      requireActor(actor, `/api/v1/runs/${runId}/recovery-actions`),
+      traceparent,
+    );
+  }
+
 }
 
 @Controller("/api/v1/artifacts")
