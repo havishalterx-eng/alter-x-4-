@@ -316,6 +316,15 @@ class RecordingRepository:
         self._record(str(kwargs["tenant_uuid"]), job.ingestion_job_id)
         return job
 
+    def get_source_workspace_id(self, **kwargs: object) -> str:
+        return self._delegate.get_source_workspace_id(**kwargs)  # type: ignore[arg-type]
+
+    def get_document_workspace_id(self, **kwargs: object) -> str:
+        return self._delegate.get_document_workspace_id(**kwargs)  # type: ignore[arg-type]
+
+    def get_ingestion_job_workspace_id(self, **kwargs: object) -> str:
+        return self._delegate.get_ingestion_job_workspace_id(**kwargs)  # type: ignore[arg-type]
+
     def get_current_document_content(self, **kwargs: object) -> StoredDocumentContent:
         return self._delegate.get_current_document_content(**kwargs)  # type: ignore[arg-type]
 

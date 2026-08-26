@@ -19,7 +19,7 @@ function harness() {
     create: vi.fn(async (_tenantId, input) => {
       const id = `art_${++next}`;
       contents.set(id, input.bytes);
-      return { id, runId: input.runId, contentType: input.contentType, sizeBytes: input.bytes.byteLength, createdAt: "2026-08-05T00:00:00.000Z" };
+      return { id, runId: input.runId, workspaceId: "018f4d6e-2b4a-7a3e-8c1a-1234567890ac", contentType: input.contentType, sizeBytes: input.bytes.byteLength, createdAt: "2026-08-05T00:00:00.000Z" };
     }),
   };
   const sandbox: Pick<SandboxServiceClient, "writeFile" | "readFile"> = {

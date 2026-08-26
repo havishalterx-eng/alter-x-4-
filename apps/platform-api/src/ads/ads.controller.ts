@@ -47,6 +47,7 @@ import {
   parseAdsUploadStart,
   parseDocumentPermissionsPatch,
   parseSourcePermissions,
+  requireIfMatch,
 } from "./validation";
 
 const readRoles = ["admin", "editor", "operator", "approver", "viewer"] as const;
@@ -223,6 +224,7 @@ export class AdsController {
     @ActorContext() actor: ActorContextType | undefined,
     @Headers("traceparent") traceparent: string | undefined,
     @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Headers("if-match") ifMatch: string | undefined,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<AdsSourcePermissions> {
     const instance = `/api/v1/ads/sources/${sourceId}/permissions`;
@@ -233,6 +235,7 @@ export class AdsController {
         requireActor(actor, instance),
         traceparent,
         idempotencyKey!,
+        requireIfMatch(ifMatch, instance),
       ),
       reply,
     );
@@ -353,6 +356,7 @@ export class AdsController {
     @ActorContext() actor: ActorContextType | undefined,
     @Headers("traceparent") traceparent: string | undefined,
     @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Headers("if-match") ifMatch: string | undefined,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<DocumentPermissions> {
     const instance = `/api/v1/ads/documents/${documentId}/permissions`;
@@ -363,6 +367,7 @@ export class AdsController {
         requireActor(actor, instance),
         traceparent,
         idempotencyKey!,
+        requireIfMatch(ifMatch, instance),
       ),
       reply,
     );

@@ -157,6 +157,14 @@ class IngestionRepository(Protocol):
         ingestion_job_id: str,
     ) -> StoredIngestionJob: ...
 
+    def get_source_workspace_id(self, *, tenant_uuid: str, source_id: str) -> str: ...
+
+    def get_document_workspace_id(self, *, tenant_uuid: str, document_id: str) -> str: ...
+
+    def get_ingestion_job_workspace_id(
+        self, *, tenant_uuid: str, ingestion_job_id: str
+    ) -> str: ...
+
     def mark_indexed_as_duplicate(
         self, *, tenant_uuid: str, ingestion_job_id: str
     ) -> StoredIngestionJob: ...
@@ -494,6 +502,60 @@ class SqlAlchemyIngestionRepository:
             self._set_tenant(session, tenant_uuid)
             job = self._get(session, tenant_uuid, ingestion_job_id, for_update=False)
             return self._stored(job)
+
+    def get_source_workspace_id(self, *, tenant_uuid: str, source_id: str) -> str:
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            workspace_id = session.execute(
+                select(Scope.workspace_id)
+                .join(Source, (Source.scope_id == Scope.id) & (Source.tenant_id == Scope.tenant_id))
+                .where(Source.tenant_id == tenant_uuid, Source.id == source_id)
+            ).scalar_one_or_none()
+            if workspace_id is None:
+                raise SourceNotFoundError("Source does not exist for requesting tenant")
+            return workspace_id
+
+    def get_document_workspace_id(self, *, tenant_uuid: str, document_id: str) -> str:
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            document_scope_match = (Document.scope_id == Scope.id) & (
+                Document.tenant_id == Scope.tenant_id
+            )
+            workspace_id = session.execute(
+                select(Scope.workspace_id)
+                .join(Document, document_scope_match)
+                .where(Document.tenant_id == tenant_uuid, Document.id == document_id)
+            ).scalar_one_or_none()
+            if workspace_id is None:
+                raise DocumentNotFoundError("Document does not exist for requesting tenant")
+            return workspace_id
+
+    def get_ingestion_job_workspace_id(self, *, tenant_uuid: str, ingestion_job_id: str) -> str:
+        # Two hops: IngestionJob has no scope_id of its own, only source_id
+        # (see IngestionJob's model docstring / ENGINE-FIX-B5-2 finding) --
+        # so this joins through Source to reach Scope.workspace_id.
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            source_scope_match = (Source.scope_id == Scope.id) & (
+                Source.tenant_id == Scope.tenant_id
+            )
+            job_source_match = (IngestionJob.source_id == Source.id) & (
+                IngestionJob.tenant_id == Source.tenant_id
+            )
+            workspace_id = session.execute(
+                select(Scope.workspace_id)
+                .join(Source, source_scope_match)
+                .join(IngestionJob, job_source_match)
+                .where(
+                    IngestionJob.tenant_id == tenant_uuid,
+                    IngestionJob.id == ingestion_job_id,
+                )
+            ).scalar_one_or_none()
+            if workspace_id is None:
+                raise IngestionJobNotFoundError(
+                    "Ingestion job does not exist for requesting tenant"
+                )
+            return workspace_id
 
     def get_document_permissions(
         self,

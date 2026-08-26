@@ -121,7 +121,7 @@ describe("ADS administration routes", () => {
         url,
         body,
         actor,
-        headers: { "idempotency-key": `key-${url}` },
+        headers: mutationHeaders(method, url, `key-${url}`),
       };
       const first = await request(options);
       const second = await request(options);
@@ -353,7 +353,7 @@ describe("ADS administration routes", () => {
       url: `/api/v1/ads/documents/${documentId}/permissions`,
       body: update,
       actor,
-      headers: { "idempotency-key": "permissions-update" },
+      headers: { "idempotency-key": "permissions-update", "if-match": '"etag-1"' },
     });
     expect(changed.statusCode).toBe(200);
     expect(changed.json()).toEqual(engine.permissionsResource);
@@ -364,8 +364,30 @@ describe("ADS administration routes", () => {
         tenantId: actor.tenant_id,
         workspaceId: actor.workspace_id,
       }),
-      { idempotencyKey: "permissions-update", ifMatch: "*" },
+      { idempotencyKey: "permissions-update", ifMatch: '"etag-1"' },
     );
+  });
+
+  it("rejects document/source permission mutations missing If-Match instead of relaying a wildcard (ENGINE-FIX-B5-2)", async () => {
+    const documentUpdate = await request({
+      method: "PATCH",
+      url: `/api/v1/ads/documents/${documentId}/permissions`,
+      body: { shared_with: ["team_legal"] },
+      actor,
+      headers: { "idempotency-key": "no-if-match-document" },
+    });
+    expectProblem(documentUpdate, 428, "IF_MATCH_REQUIRED");
+    expect(engine.patch).not.toHaveBeenCalled();
+
+    const sourceUpdate = await request({
+      method: "PUT",
+      url: `/api/v1/ads/sources/${sourceId}/permissions`,
+      body: { visibility: "tenant", shared_with: [] },
+      actor,
+      headers: { "idempotency-key": "no-if-match-source" },
+    });
+    expectProblem(sourceUpdate, 428, "IF_MATCH_REQUIRED");
+    expect(engine.put).not.toHaveBeenCalled();
   });
 
   it("relays source permission reads and full replacements", async () => {
@@ -394,7 +416,10 @@ describe("ADS administration routes", () => {
       url: `/api/v1/ads/sources/${sourceId}/permissions`,
       body: replacement,
       actor,
-      headers: { "idempotency-key": "source-permissions-replace" },
+      headers: {
+        "idempotency-key": "source-permissions-replace",
+        "if-match": '"etag-2"',
+      },
     });
     expect(changed.statusCode).toBe(200);
     expect(changed.json()).toEqual(engine.sourcePermissionsResource);
@@ -405,7 +430,7 @@ describe("ADS administration routes", () => {
         tenantId: actor.tenant_id,
         workspaceId: actor.workspace_id,
       }),
-      { idempotencyKey: "source-permissions-replace", ifMatch: "*" },
+      { idempotencyKey: "source-permissions-replace", ifMatch: '"etag-2"' },
     );
   });
 
@@ -571,7 +596,7 @@ describe("ADS administration routes", () => {
         body,
         actor: { ...actor, permissions: [] },
         headers: isMutation(method)
-          ? { "idempotency-key": "denied" }
+          ? mutationHeaders(method, url, "denied")
           : undefined,
       });
       expectProblem(response, 403, "RBAC_PERMISSION_DENIED");
@@ -640,7 +665,7 @@ describe("ADS administration routes", () => {
       body,
       actor,
       headers: isMutation(method)
-        ? { "idempotency-key": `invalid-${url}` }
+        ? mutationHeaders(method, url, `invalid-${url}`)
         : undefined,
     });
     expectProblem(response, 400, "ADS_VALIDATION_FAILED");
@@ -656,7 +681,7 @@ describe("ADS administration routes", () => {
         body,
         actor,
         headers: isMutation(method)
-          ? { "idempotency-key": `failure-${url}` }
+          ? mutationHeaders(method, url, `failure-${url}`)
           : undefined,
       });
       expectProblem(response, 503, "ENGINE_ADS_UNAVAILABLE");
@@ -1337,6 +1362,23 @@ function engineErrorCases() {
 
 function isMutation(method: string): boolean {
   return method !== "GET";
+}
+
+// ENGINE-FIX-B5-2: replaceSourcePermissions/updateDocumentPermissions now
+// require a real If-Match header (see requireIfMatch in ./validation) --
+// every other mutation case doesn't touch it and stays idempotency-key-only.
+function mutationHeaders(
+  method: string,
+  url: string,
+  idempotencyKey: string,
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    "idempotency-key": idempotencyKey,
+  };
+  if ((method === "PUT" || method === "PATCH") && url.endsWith("/permissions")) {
+    headers["if-match"] = '"etag-mutation"';
+  }
+  return headers;
 }
 
 function expectProblem(
