@@ -11,6 +11,8 @@ import {
 import { TriggerRegistryController } from "./trigger-registry/trigger-registry.controller";
 import { TriggerRegistryService } from "./trigger-registry/trigger-registry.service";
 import { TriggerEventDispatchService } from "./trigger-registry/trigger-event-dispatch.service";
+import { EventController } from "./trigger-registry/event.controller";
+import { EventQueryService } from "./trigger-registry/event-query.service";
 import { loadTriggerDispatchEnvironment } from "./config/trigger-dispatch-environment";
 import {
   IntegrationWebhookController,
@@ -46,8 +48,16 @@ import { RunLauncherModule } from "./run-launcher.module";
     RunDispatchGrpcController,
     WhatsappWebhookController,
     WhatsappAccountsController,
+    EventController,
   ],
   providers: [
+    {
+      provide: EventQueryService,
+      useFactory: () => {
+        const dbConfig = sessionGatewayEnvironment(process.env);
+        return new EventQueryService(orchestrationStore(dbConfig));
+      },
+    },
     {
       provide: WhatsappAccountRegistryService,
       useFactory: () => {

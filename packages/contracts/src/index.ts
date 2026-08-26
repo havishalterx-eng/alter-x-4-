@@ -75,6 +75,7 @@ export {
   CostIdSchema,
   DeploymentIdSchema,
   EscalationIdSchema,
+  EventIdSchema,
   IntegrationConnectionIdSchema,
   IsoTimestampSchema,
   NodeExecutionIdSchema,

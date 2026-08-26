@@ -18,6 +18,7 @@ import { StreamingModule } from "./streaming/streaming.module";
 import { WorkflowModule } from "./workflows/workflow.module";
 import { ProjectModule } from "./projects/project.module";
 import { RunModule } from "./runs/run.module";
+import { EventModule } from "./events/event.module";
 import { ActionCentreModule } from "./action-centre/action-centre.module";
 import { CredentialModule } from "./credentials";
 import { AdsModule } from "./ads";
@@ -67,6 +68,7 @@ import { AdminDeploymentModule } from "./admin-deployments";
     WorkflowModule,
     ProjectModule,
     RunModule,
+    EventModule,
     ActionCentreModule,
     CredentialModule,
     AdsModule,
