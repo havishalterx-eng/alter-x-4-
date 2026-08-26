@@ -102,8 +102,17 @@ export async function removeMember(memberId: string): Promise<void> {
 }
 
 export async function getProfile(fallback: Profile): Promise<Profile> {
-  const body = await apiPost<{ userId?: string }>("/api/v1/auth/refresh")
-  return { ...fallback, id: body.userId ?? fallback.id }
+  // GET /api/v1/auth/me is the real profile read (identity.controller.ts's
+  // `me` handler); it returns {userId, tenantId, email, name} -- no
+  // jobTitle/avatarUrl on the backend, so those keep coming from fallback,
+  // same as this function already did for fields it can't fill in.
+  const body = await apiGet<{ userId?: string; email?: string; name?: string }>("/api/v1/auth/me")
+  return {
+    ...fallback,
+    id: body.userId ?? fallback.id,
+    email: body.email ?? fallback.email,
+    name: body.name ?? fallback.name,
+  }
 }
 
 export async function getSessions(): Promise<Session[]> {
@@ -113,6 +122,17 @@ export async function getSessions(): Promise<Session[]> {
 
 export async function revokeSession(sessionId: string): Promise<void> {
   await apiDelete(`/api/v1/auth/sessions/${encodeURIComponent(sessionId)}`)
+}
+
+// This is a personal preference (language-settings.tsx's own copy: "the
+// language you prefer for the AlterX interface"), not a workspace setting,
+// so this hits the per-user endpoint (i18n.controller.ts's
+// updateUserLanguage), not i18n/workspaces/:id/language. The UI passes
+// BCP-47-ish codes ("en-US"/"hi-IN"); the backend only accepts the bare
+// subtag ("en"/"hi" -- i18n/types.ts's supportedLocales), hence the split.
+export async function updateLanguage(lang: string): Promise<void> {
+  const language = lang.split("-")[0]
+  await apiPatch("/api/v1/i18n/users/me/language", { language })
 }
 
 export async function getWorkflows(): Promise<Workflow[]> {

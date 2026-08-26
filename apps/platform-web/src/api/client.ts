@@ -214,13 +214,19 @@ class ApiClient {
   }
 
   // Settings: Language
+  // getLanguage has no live branch on purpose -- the backend only exposes
+  // two PATCH endpoints (i18n/users/me/language, i18n/workspaces/:id/language)
+  // that return the language they just set, there is no GET to read the
+  // current preference back. localStorage is the only source of truth for
+  // "what language is currently selected" in both mock and live mode.
   async getLanguage(): Promise<string> {
     await delay(MOCK_DELAY)
     return localStorage.getItem("alterx_lang") || "en-US"
   }
 
   async updateLanguage(lang: string): Promise<void> {
-    await delay(MOCK_DELAY)
+    if (isLiveApi) await live.updateLanguage(lang)
+    else await delay(MOCK_DELAY)
     localStorage.setItem("alterx_lang", lang)
   }
   // Node Types
