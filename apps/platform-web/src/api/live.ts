@@ -179,6 +179,7 @@ interface CredentialResponse {
   scope: string
   last4: string
   created_at: string
+  version: string
 }
 
 function mapCredential(value: CredentialResponse): Credential {
@@ -194,9 +195,28 @@ function mapCredential(value: CredentialResponse): Credential {
   }
 }
 
+// Mirrors computeEtag in apps/platform-api/src/concurrency/etag.ts exactly:
+// sha256("version:<version>") as base64url, quoted. PATCH /credentials/:id
+// is @EtagConstrained() -- IfMatchGuard re-derives this same hash
+// server-side from the current DB record's version and 412s anything else
+// (apps/platform-api/src/concurrency/if-match.guard.ts). apiRequest's
+// wrapper doesn't expose response headers (see api/http.ts), so this
+// recomputes the value from the `version` field already in the GET body
+// rather than reading a real ETag header off the wire.
+async function computeCredentialEtag(version: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`version:${version}`))
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(digest)))
+  return `"${base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}"`
+}
+
 export async function getCredentials(): Promise<Credential[]> {
   const body = await apiGet<CredentialResponse[]>("/api/v1/credentials")
   return body.map(mapCredential)
+}
+
+export async function getCredential(id: string): Promise<Credential> {
+  const body = await apiGet<CredentialResponse>(`/api/v1/credentials/${encodeURIComponent(id)}`)
+  return mapCredential(body)
 }
 
 export async function createCredential(data: {
@@ -209,6 +229,36 @@ export async function createCredential(data: {
     idempotencyKey: mutationKey("credential-create"),
   })
   return mapCredential(body)
+}
+
+// updateCredential (metadata) and replaceCredentialSecret (secret rotation)
+// share this: there is no separate rotate-secret backend route, both go
+// through the same PATCH with different fields populated (see
+// credential.controller.ts / validation.ts's updateSchema, .strict() --
+// only name/connector/scope/value are ever accepted, so callers must not
+// pass any other key).
+async function patchCredential(
+  id: string,
+  data: { name?: string; connector?: string; scope?: string; value?: string },
+): Promise<Credential> {
+  const encodedId = encodeURIComponent(id)
+  const current = await apiGet<CredentialResponse>(`/api/v1/credentials/${encodedId}`)
+  const body = await apiPatch<CredentialResponse>(`/api/v1/credentials/${encodedId}`, data, {
+    idempotencyKey: mutationKey("credential-update"),
+    ifMatch: await computeCredentialEtag(current.version),
+  })
+  return mapCredential(body)
+}
+
+export async function updateCredential(
+  id: string,
+  data: { name?: string; connector?: string; scope?: string },
+): Promise<Credential> {
+  return patchCredential(id, data)
+}
+
+export async function replaceCredentialSecret(id: string, secretValue: string): Promise<Credential> {
+  return patchCredential(id, { value: secretValue })
 }
 
 export async function deleteCredential(id: string): Promise<void> {

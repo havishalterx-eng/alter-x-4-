@@ -1037,6 +1037,7 @@ class ApiClient {
   }
   
   async getCredential(id: string): Promise<Credential> {
+    if (isLiveApi) return live.getCredential(id)
     await delay(MOCK_DELAY)
     const c = mockCredentials.find(c => c.id === id)
     if (!c) throw new Error("Credential not found")
@@ -1065,7 +1066,8 @@ class ApiClient {
     return c
   }
 
-  async updateCredential(id: string, data: Partial<Credential>): Promise<Credential> {
+  async updateCredential(id: string, data: { name?: string; connector?: string; scope?: string }): Promise<Credential> {
+    if (isLiveApi) return live.updateCredential(id, data)
     await delay(MOCK_DELAY)
     const c = mockCredentials.find(c => c.id === id)
     if (!c) throw new Error("Credential not found")
@@ -1073,7 +1075,8 @@ class ApiClient {
     return c
   }
 
-  async replaceCredentialSecret(id: string, _secretValue: string): Promise<Credential> {
+  async replaceCredentialSecret(id: string, secretValue: string): Promise<Credential> {
+    if (isLiveApi) return live.replaceCredentialSecret(id, secretValue)
     await delay(MOCK_DELAY)
     const c = mockCredentials.find(c => c.id === id)
     if (!c) throw new Error("Credential not found")
