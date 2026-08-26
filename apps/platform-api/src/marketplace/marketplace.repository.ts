@@ -316,10 +316,15 @@ export class MarketplaceRepository implements OnModuleDestroy {
     });
   }
 
+  // ENGINE-FIX-B8-2: was unbounded (no LIMIT) -- grows without bound over a
+  // tenant's lifetime. The "my-assets" route this backs returns a bare
+  // array with no pagination UI on the caller side, so (as with
+  // publisher.repository.ts's listPayouts, same finding) a generous cap is
+  // a real safety net, not a functional pagination story.
   listAssets(tenantId: string): Promise<InstallRecord[]> {
     return this.withTenant(tenantId, async (client) => {
       const result = await client.query<InstallRow>(
-        "SELECT * FROM installs WHERE tenant_id = $1 ORDER BY installed_at DESC, id DESC",
+        "SELECT * FROM installs WHERE tenant_id = $1 ORDER BY installed_at DESC, id DESC LIMIT 1000",
         [tenantId],
       );
       return result.rows.map(mapInstall);

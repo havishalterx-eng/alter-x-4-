@@ -7,6 +7,7 @@ const grant: JitGrant = {
   id: "jit_grant",
   staff_user_id: "stf_support",
   tenant_id: "f0204070-2fd2-4bb7-a117-3222301822fe",
+  granted_at: new Date("2026-08-06T10:00:00.000Z"),
   expires_at: new Date("2026-08-06T11:00:00.000Z"),
   revoked_at: null,
   reason_code: "support_case",
