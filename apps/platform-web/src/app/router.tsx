@@ -73,24 +73,6 @@ import { DiscoveryPage } from "@/features/discovery/pages/discovery-page"
 import { BenchmarkListPage } from "@/features/benchmarks/pages/benchmark-list"
 import { CreateBenchmarkPage } from "@/features/benchmarks/pages/create-benchmark"
 import { BenchmarkDetailPage } from "@/features/benchmarks/pages/benchmark-detail"
-import { AdminLayout } from "@/features/admin/layout/admin-layout"
-import { AdminHome } from "@/features/admin/pages/admin-home"
-import { TenantList } from "@/features/admin/pages/tenants/tenant-list"
-import { TenantDetail } from "@/features/admin/pages/tenants/tenant-detail"
-import { UserList } from "@/features/admin/pages/users/user-list"
-import { UserDetail } from "@/features/admin/pages/users/user-detail"
-import { SupportQueue } from "@/features/admin/pages/support-queue"
-import { ProvidersList } from "@/features/admin/pages/operations/providers-list"
-import { DeploymentsList } from "@/features/admin/pages/operations/deployments-list"
-import { IncidentsList } from "@/features/admin/pages/operations/incidents-list"
-import { IncidentDetail } from "@/features/admin/pages/operations/incident-detail"
-import { SystemStatusPage } from "@/features/admin/pages/operations/system-status"
-import { AuditExplorer } from "@/features/admin/pages/governance/audit-explorer"
-import { PoliciesList } from "@/features/admin/pages/governance/policies-list"
-import { SecurityQueue } from "@/features/admin/pages/governance/security-queue"
-import { BillingOpsQueue } from "@/features/admin/pages/platform/billing-ops"
-import { MarketplaceAdmin } from "@/features/admin/pages/platform/marketplace-admin"
-import { FeatureFlagsPage } from "@/features/admin/pages/platform/feature-flags"
 import { SettingsAudit } from "@/features/settings/pages/audit"
 import { SettingsSupport } from "@/features/settings/pages/support"
 import { NotFound } from "@/components/feedback/not-found"
@@ -98,6 +80,101 @@ import { NotFound } from "@/components/feedback/not-found"
 const WorkflowBuilder = lazy(() =>
   import("@/features/workflows/pages/workflow-builder").then(({ WorkflowBuilder }) => ({
     default: WorkflowBuilder,
+  })),
+)
+
+// The whole /app/admin subtree is staff-only and an ordinary tenant user
+// never navigates here, so it's lazy-loaded as one unit rather than shipped
+// in the main bundle. One Suspense boundary wraps the parent route's
+// AdminLayout element below -- Suspense catches suspension from any
+// descendant, so these children need no Suspense of their own even though
+// each is its own lazy() (same mechanism as WorkflowBuilder above, just not
+// individually wrapped -- that's the "one boundary for the whole shell"
+// part of this).
+const AdminLayout = lazy(() =>
+  import("@/features/admin/layout/admin-layout").then(({ AdminLayout }) => ({
+    default: AdminLayout,
+  })),
+)
+const AdminHome = lazy(() =>
+  import("@/features/admin/pages/admin-home").then(({ AdminHome }) => ({ default: AdminHome })),
+)
+const TenantList = lazy(() =>
+  import("@/features/admin/pages/tenants/tenant-list").then(({ TenantList }) => ({
+    default: TenantList,
+  })),
+)
+const TenantDetail = lazy(() =>
+  import("@/features/admin/pages/tenants/tenant-detail").then(({ TenantDetail }) => ({
+    default: TenantDetail,
+  })),
+)
+const UserList = lazy(() =>
+  import("@/features/admin/pages/users/user-list").then(({ UserList }) => ({ default: UserList })),
+)
+const UserDetail = lazy(() =>
+  import("@/features/admin/pages/users/user-detail").then(({ UserDetail }) => ({
+    default: UserDetail,
+  })),
+)
+const SupportQueue = lazy(() =>
+  import("@/features/admin/pages/support-queue").then(({ SupportQueue }) => ({
+    default: SupportQueue,
+  })),
+)
+const ProvidersList = lazy(() =>
+  import("@/features/admin/pages/operations/providers-list").then(({ ProvidersList }) => ({
+    default: ProvidersList,
+  })),
+)
+const DeploymentsList = lazy(() =>
+  import("@/features/admin/pages/operations/deployments-list").then(({ DeploymentsList }) => ({
+    default: DeploymentsList,
+  })),
+)
+const IncidentsList = lazy(() =>
+  import("@/features/admin/pages/operations/incidents-list").then(({ IncidentsList }) => ({
+    default: IncidentsList,
+  })),
+)
+const IncidentDetail = lazy(() =>
+  import("@/features/admin/pages/operations/incident-detail").then(({ IncidentDetail }) => ({
+    default: IncidentDetail,
+  })),
+)
+const SystemStatusPage = lazy(() =>
+  import("@/features/admin/pages/operations/system-status").then(({ SystemStatusPage }) => ({
+    default: SystemStatusPage,
+  })),
+)
+const AuditExplorer = lazy(() =>
+  import("@/features/admin/pages/governance/audit-explorer").then(({ AuditExplorer }) => ({
+    default: AuditExplorer,
+  })),
+)
+const PoliciesList = lazy(() =>
+  import("@/features/admin/pages/governance/policies-list").then(({ PoliciesList }) => ({
+    default: PoliciesList,
+  })),
+)
+const SecurityQueue = lazy(() =>
+  import("@/features/admin/pages/governance/security-queue").then(({ SecurityQueue }) => ({
+    default: SecurityQueue,
+  })),
+)
+const BillingOpsQueue = lazy(() =>
+  import("@/features/admin/pages/platform/billing-ops").then(({ BillingOpsQueue }) => ({
+    default: BillingOpsQueue,
+  })),
+)
+const MarketplaceAdmin = lazy(() =>
+  import("@/features/admin/pages/platform/marketplace-admin").then(({ MarketplaceAdmin }) => ({
+    default: MarketplaceAdmin,
+  })),
+)
+const FeatureFlagsPage = lazy(() =>
+  import("@/features/admin/pages/platform/feature-flags").then(({ FeatureFlagsPage }) => ({
+    default: FeatureFlagsPage,
   })),
 )
 
@@ -295,9 +372,9 @@ export const router = createBrowserRouter([
       { path: "*", element: <NotFound /> },
     ],
   },
-  { 
-    path: "/app/admin", 
-    element: <AdminLayout />,
+  {
+    path: "/app/admin",
+    element: <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading admin console…</div>}><AdminLayout /></Suspense>,
     children: [
       { path: "", element: <AdminHome /> },
       { path: "tenants", element: <TenantList /> },
