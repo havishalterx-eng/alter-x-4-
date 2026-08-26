@@ -36,7 +36,7 @@ import {
   type Profile, type Session,
   type Project, type ProjectBrief, type NodeTypeDefinition,
   type Artifact, type ProjectFile, type TestResult,
-  type HumanAction, type HumanAnnotation, type RecoveryEvent, type WorkflowHealth, type NodeVerification,
+  type HumanAction, type HumanActionType, type HumanAnnotation, type RecoveryEvent, type WorkflowHealth, type NodeVerification,
   type Conversation, type ConversationMessage, type Trigger, type WebhookEndpoint, type IncomingEvent, type DashboardOverview,
   type KnowledgeSource, type KnowledgeDocument, type KnowledgeChunk, type IntegrationDefinition, type Connection,
   type Credential, type WhatsAppChannel, type VoiceChannel, type MemoryConfiguration, type RetrievalResult
@@ -499,12 +499,14 @@ class ApiClient {
     return action
   }
 
-  async getHumanActionHistory(id: string): Promise<HumanAnnotation[]> {
+  async getHumanActionHistory(type: HumanActionType, id: string): Promise<HumanAnnotation[]> {
+    if (isLiveApi) return live.getHumanActionHistory(type, id)
     await delay(MOCK_DELAY)
     return mockHumanAnnotations.filter(a => a.actionId === id)
   }
 
-  async addHumanAnnotation(id: string, text: string): Promise<HumanAnnotation> {
+  async addHumanAnnotation(type: HumanActionType, id: string, text: string): Promise<HumanAnnotation> {
+    if (isLiveApi) return live.addHumanAnnotation(type, id, text)
     await delay(MOCK_DELAY)
     const annotation: HumanAnnotation = {
       id: `ann_${Date.now()}`,
@@ -519,24 +521,9 @@ class ApiClient {
 
   // Recovery
   async getRecoveryHistory(runId: string): Promise<RecoveryEvent[]> {
+    if (isLiveApi) return live.getRecoveryHistory(runId)
     await delay(MOCK_DELAY)
     return mockRecoveryEvents.filter(e => e.runId === runId)
-  }
-
-  async retryNode(_runId: string, _nodeId: string): Promise<void> {
-    await delay(MOCK_DELAY)
-  }
-
-  async skipNode(_runId: string, _nodeId: string): Promise<void> {
-    await delay(MOCK_DELAY)
-  }
-
-  async resumeRun(_runId: string): Promise<void> {
-    await delay(MOCK_DELAY)
-  }
-
-  async abortRun(_runId: string): Promise<void> {
-    await delay(MOCK_DELAY)
   }
 
   // Workflow Health
@@ -553,7 +540,8 @@ class ApiClient {
   }
 
   // Node Verification
-  async getNodeVerification(_runId: string, nodeId: string): Promise<NodeVerification> {
+  async getNodeVerification(runId: string, nodeId: string): Promise<NodeVerification> {
+    if (isLiveApi) return live.getNodeVerification(runId, nodeId)
     await delay(MOCK_DELAY)
     if (nodeId === "node_refund") {
       return {

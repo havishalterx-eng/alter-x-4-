@@ -124,6 +124,45 @@ export class RunService {
     };
   }
 
+  // Dedicated single-resource reads of the same two sub-resources detail()
+  // already aggregates above -- separate routes so a caller (e.g. a
+  // recovery-history panel or a per-node verification popover) doesn't have
+  // to fetch the whole run detail (executions, outcome, node costs) just to
+  // read these. Reuses allPages() rather than exposing cursor/limit to the
+  // frontend: these collections are small (a handful of gate checks/
+  // recovery attempts per run, not thousands), so aggregating server-side
+  // mirrors what detail() already does for the exact same two resources
+  // instead of adding a third pagination shape to this file.
+  verificationResults(
+    runId: string,
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<readonly EngineResource[]> {
+    const instance = `/api/v1/runs/${runId}/verification-results`;
+    const id = parseRunId(runId, instance);
+    const context = callerContext(actor, traceparent, instance);
+    return this.allPages(
+      `/api/v1/runs/${encodeURIComponent(id)}/verification-results`,
+      context,
+      instance,
+    );
+  }
+
+  recoveryActions(
+    runId: string,
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<readonly EngineResource[]> {
+    const instance = `/api/v1/runs/${runId}/recovery-actions`;
+    const id = parseRunId(runId, instance);
+    const context = callerContext(actor, traceparent, instance);
+    return this.allPages(
+      `/api/v1/runs/${encodeURIComponent(id)}/recovery-actions`,
+      context,
+      instance,
+    );
+  }
+
   artifact(
     artifactId: string,
     actor: ActorContext,

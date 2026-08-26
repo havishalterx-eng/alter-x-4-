@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { type HumanAction } from "@/api/types"
+import { type HumanAction, type HumanAnnotation } from "@/api/types"
 import { api } from "@/api/client"
 import { queryKeys } from "@/api/query-keys"
 import { Button } from "@/components/ui/button"
@@ -13,11 +13,11 @@ export function ActivityTimeline({ action }: { action: HumanAction }) {
 
   const { data: history = [], isLoading } = useQuery({
     queryKey: queryKeys.humanActions.history(action.id),
-    queryFn: () => (api as any).getHumanActionHistory(action.id)
+    queryFn: () => api.getHumanActionHistory(action.type, action.id)
   })
 
   const annotateMutation = useMutation({
-    mutationFn: () => (api as any).addHumanAnnotation(action.id, annotation),
+    mutationFn: () => api.addHumanAnnotation(action.type, action.id, annotation),
     onSuccess: () => {
       setAnnotation("")
       queryClient.invalidateQueries({ queryKey: queryKeys.humanActions.history(action.id) })
@@ -32,7 +32,7 @@ export function ActivityTimeline({ action }: { action: HumanAction }) {
         ) : history.length === 0 ? (
           <p className="text-sm text-text-muted">No activity or comments yet.</p>
         ) : (
-          history.map((item: any) => (
+          history.map((item: HumanAnnotation) => (
             <div key={item.id} className="flex gap-4">
               <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
                 <span className="text-xs font-medium text-primary">
