@@ -462,6 +462,17 @@ export interface EmailProvider extends BaseProvider<"EmailProvider"> {
     variables: Record<string, string>,
     locale?: string,
   ): Promise<EmailSendResult>;
+  /** Free-text send: no AWS SES template registration required (SES's
+   * Content.Simple shape instead of Content.Template) -- for callers like
+   * a workflow tool action that need arbitrary subject/body content, not
+   * one of the platform's own fixed, pre-registered notification
+   * templates. */
+  sendEmail(
+    to: string,
+    subject: string,
+    body: string,
+    options?: { readonly html?: boolean },
+  ): Promise<EmailSendResult>;
 }
 
 export interface StatusPageIncidentRequest {

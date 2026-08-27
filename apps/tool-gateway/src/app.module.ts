@@ -13,6 +13,7 @@ import type {
   AuditEventHandler,
   CacheProvider,
   ConfigProvider,
+  EmailProvider,
   QueueProvider,
   SearchProvider,
   SecretsProvider,
@@ -34,6 +35,7 @@ export class AppModule {
     costEventsQueueName: string,
     cacheProvider: CacheProvider,
     browserProvider: BrowserAutomationProvider,
+    emailProvider: EmailProvider,
   ): DynamicModule {
     return {
       module: AppModule,
@@ -53,6 +55,7 @@ export class AppModule {
             costEventsQueueName,
             cacheProvider,
             browserProvider,
+            emailProvider,
           ),
         },
       ],

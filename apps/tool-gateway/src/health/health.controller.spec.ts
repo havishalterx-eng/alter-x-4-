@@ -8,7 +8,7 @@ import {
   createMockSearchProvider,
   createMockSecretsProvider,
 } from "@alterx/shared-clients";
-import { SsrfGuardedFetcher, MockBrowserAutomationProvider, type DatabaseOperationProvider } from "@alterx/adapters";
+import { SsrfGuardedFetcher, MockBrowserAutomationProvider, MockEmailProvider, type DatabaseOperationProvider } from "@alterx/adapters";
 
 const unexercisedDatabaseProvider: DatabaseOperationProvider = {
   providerId: "health-spec-unexercised",
@@ -60,6 +60,7 @@ describe("GET /health", () => {
               }),
             ),
           ),
+          new MockEmailProvider(),
         ),
       ],
     }).compile();

@@ -14,6 +14,7 @@ import {
   SqsQueueProvider,
   SsrfGuardedFetcher,
   TavilySearchProvider,
+  resolveEmailProvider,
   startToolgwGrpcTransport,
   type BrowserAutomationProvider,
 } from "@alterx/adapters";
@@ -27,6 +28,7 @@ import {
   type AuditEventHandler,
   type CacheProvider,
   type ConfigProvider,
+  type EmailProvider,
   type QueueProvider,
   type SearchProvider,
   type SecretsProvider,
@@ -138,6 +140,20 @@ async function createBrowserProvider(
   );
 }
 
+// email.send: the real SES identity is one platform-wide secret, resolved
+// once at startup, never per call -- same treatment as
+// createBrowserProvider above. resolveEmailProvider() is the same shared
+// function apps/platform-api/src/notifications/notification.module.ts
+// uses, driven by the same EMAIL_PROVIDER/SES_FROM_ADDRESS/
+// SES_CREDENTIALS_SECRET_REF/NODE_ENV environment variables in both
+// services -- not gated behind this service's own
+// ALTER_CONFIG_SOURCE=mock switch, so both services make the identical
+// mock-vs-real decision from the identical configuration rather than
+// tool-gateway inventing a second, parallel one.
+function createEmailProvider(secretsProvider: SecretsProvider): EmailProvider {
+  return resolveEmailProvider((reference) => secretsProvider.getSecret(reference));
+}
+
 async function bootstrap(): Promise<void> {
   const environment = loadToolGatewayEnvironment(process.env);
   const configProvider = createConfigProvider(environment);
@@ -153,6 +169,7 @@ async function bootstrap(): Promise<void> {
     secretsProvider,
     urlFetcher,
   );
+  const emailProvider = createEmailProvider(secretsProvider);
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule.register(
@@ -166,6 +183,7 @@ async function bootstrap(): Promise<void> {
       `alter-${environment.alterEnvironment}-cost-events`,
       cacheProvider,
       browserProvider,
+      emailProvider,
     ),
     new FastifyAdapter(),
   );

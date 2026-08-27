@@ -24,6 +24,12 @@ export class MockEmailProvider implements EmailProvider {
     readonly variables: Record<string, string>;
     readonly locale: string | undefined;
   }> = [];
+  readonly sentRaw: Array<{
+    readonly to: string;
+    readonly subject: string;
+    readonly body: string;
+    readonly html: boolean | undefined;
+  }> = [];
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
@@ -36,6 +42,19 @@ export class MockEmailProvider implements EmailProvider {
     this.sent.push({ to, templateId, variables: { ...variables }, locale });
     return {
       messageId: `mock-email-${this.sent.length}`,
+      acceptedAt: this.now().toISOString(),
+    };
+  }
+
+  async sendEmail(
+    to: string,
+    subject: string,
+    body: string,
+    options?: { readonly html?: boolean },
+  ): Promise<EmailSendResult> {
+    this.sentRaw.push({ to, subject, body, html: options?.html });
+    return {
+      messageId: `mock-email-${this.sentRaw.length}`,
       acceptedAt: this.now().toISOString(),
     };
   }
