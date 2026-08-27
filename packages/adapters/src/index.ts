@@ -176,6 +176,13 @@ export {
   type TitanEmbeddingProviderConfig,
 } from "./aws/titan-embedding-provider";
 export {
+  TITAN_IMAGE_CAPABILITIES,
+  TITAN_IMAGE_GENERATOR_V2_MODEL_ID,
+  TitanImageProvider,
+  type BedrockRuntimeCommandClient as TitanImageBedrockRuntimeCommandClient,
+  type TitanImageProviderConfig,
+} from "./aws/titan-image-provider";
+export {
   MODELGW_HANDLER,
   ModelgwGrpcController,
   startModelgwGrpcTransport,
