@@ -925,7 +925,7 @@ export const textToSpeechProviderContract: ProviderContractSuite<TextToSpeechPro
           runId: "run_018f47a2-7b11-7b11-8a11-1234567890ab",
           nodeExecutionId: "node_018f47a2-7b11-7b11-8a11-1234567890ab",
           text: "contract fixture speech",
-          voiceConfig: {},
+          voiceConfig: { voiceId: "Joanna" },
         });
         ensure(result.reference.length > 0, "Speech result must carry a non-empty reference");
         ensure(
@@ -945,7 +945,7 @@ export const textToSpeechProviderContract: ProviderContractSuite<TextToSpeechPro
         const result = await provider.synthesizeSpeech({
           tenantId: "ten_018f47a2-7b11-7b11-8a11-1234567890ab",
           text: "contract fixture speech, standalone",
-          voiceConfig: {},
+          voiceConfig: { voiceId: "Joanna" },
         });
         ensure(result.reference.length > 0, "Speech result must carry a non-empty reference");
         ensure(
