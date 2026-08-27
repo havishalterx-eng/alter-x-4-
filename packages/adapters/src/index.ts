@@ -190,6 +190,12 @@ export {
   type PollyTtsProviderConfig,
 } from "./aws/polly-tts-provider";
 export {
+  TRANSCRIBE_STT_CAPABILITIES,
+  TranscribeSttProvider,
+  type TranscribeCommandClient,
+  type TranscribeSttProviderConfig,
+} from "./aws/transcribe-stt-provider";
+export {
   MODELGW_HANDLER,
   ModelgwGrpcController,
   startModelgwGrpcTransport,
