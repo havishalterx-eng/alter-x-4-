@@ -53,6 +53,7 @@ export {
   configProviderContract,
   durableExecutionProviderContract,
   embeddingProviderContract,
+  imageGenProviderContract,
   modelProviderContract,
   cacheProviderContract,
   observabilityProviderContract,
@@ -61,6 +62,8 @@ export {
   piiRedactionProviderContract,
   searchProviderContract,
   secretsProviderContract,
+  speechToTextProviderContract,
+  textToSpeechProviderContract,
 } from "./provider-contracts";
 export {
   CANONICAL_PROVIDER_INTERFACES,
@@ -331,3 +334,21 @@ export {
   createMockMutableParameterStoreProvider,
   type MockParameterStoreProviderOptions,
 } from "./mocks/parameter-store-provider";
+export {
+  MOCK_IMAGE_GEN_CAPABILITIES,
+  createMockImageGenProvider,
+  type MockImageGenProvider,
+  type MockImageGenProviderOptions,
+} from "./mocks/image-gen-provider";
+export {
+  MOCK_TEXT_TO_SPEECH_CAPABILITIES,
+  createMockTextToSpeechProvider,
+  type MockTextToSpeechProvider,
+  type MockTextToSpeechProviderOptions,
+} from "./mocks/text-to-speech-provider";
+export {
+  MOCK_SPEECH_TO_TEXT_CAPABILITIES,
+  createMockSpeechToTextProvider,
+  type MockSpeechToTextProvider,
+  type MockSpeechToTextProviderOptions,
+} from "./mocks/speech-to-text-provider";

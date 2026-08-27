@@ -553,10 +553,16 @@ export interface EmbeddingProvider extends BaseProvider<"EmbeddingProvider"> {
   embed(request: EmbeddingRequest): Promise<EmbeddingResult>;
 }
 
+/**
+ * Covers two call shapes through one adapter implementation: a workflow
+ * node generating an image mid-run (runId/nodeExecutionId present), and a
+ * standalone BFF "test this media config" call with no run to attach to
+ * (runId/nodeExecutionId omitted). tenantId is required in both cases.
+ */
 export interface ImageGenerationRequest {
   readonly tenantId: string;
-  readonly runId: string;
-  readonly nodeExecutionId: string;
+  readonly runId?: string;
+  readonly nodeExecutionId?: string;
   readonly prompt: string;
   readonly options: Readonly<Record<string, JsonValue>>;
 }
@@ -577,10 +583,16 @@ export interface ImageGenProvider extends BaseProvider<"ImageGenProvider"> {
   ): Promise<ImageGenerationResult>;
 }
 
+/**
+ * Covers two call shapes through one adapter implementation: a workflow
+ * node synthesizing speech mid-run (runId/nodeExecutionId present), and a
+ * standalone BFF "test this media config" call with no run to attach to
+ * (runId/nodeExecutionId omitted). tenantId is required in both cases.
+ */
 export interface SpeechSynthesisRequest {
   readonly tenantId: string;
-  readonly runId: string;
-  readonly nodeExecutionId: string;
+  readonly runId?: string;
+  readonly nodeExecutionId?: string;
   readonly text: string;
   readonly voiceConfig: Readonly<Record<string, JsonValue>>;
 }
@@ -599,10 +611,16 @@ export interface TextToSpeechProvider
   ): Promise<SpeechSynthesisResult>;
 }
 
+/**
+ * Covers two call shapes through one adapter implementation: a workflow
+ * node transcribing audio mid-run (runId/nodeExecutionId present), and a
+ * standalone BFF "test this media config" call with no run to attach to
+ * (runId/nodeExecutionId omitted). tenantId is required in both cases.
+ */
 export interface SpeechTranscriptionRequest {
   readonly tenantId: string;
-  readonly runId: string;
-  readonly nodeExecutionId: string;
+  readonly runId?: string;
+  readonly nodeExecutionId?: string;
   /** Opaque ObjectStorageProvider reference; audio bytes never cross the RPC. */
   readonly audioRef: string;
 }
