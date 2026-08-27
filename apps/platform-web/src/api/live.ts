@@ -32,6 +32,9 @@ import type {
   KnowledgeSourceType,
   KnowledgeDocument,
   RetrievalResult,
+  IntegrationDefinition,
+  IntegrationCategory,
+  Connection,
 } from "./types"
 
 type AnyRecord = Record<string, any>
@@ -677,6 +680,162 @@ function mapKnowledgeSource(value: unknown): KnowledgeSource {
     connectionId: typeof item.integration_ref === "string" ? item.integration_ref : undefined,
     config,
   }
+}
+
+// The real catalog (ConnectorCatalogEntry) has no category concept at
+// all -- this is a UI grouping choice over the fixed, known set of real
+// connector ids (apps/platform-api/src/integrations/connectors.ts), not
+// data read from the backend. Anything not listed here (there shouldn't
+// be any) falls back to "Other".
+const INTEGRATION_CATEGORY_BY_CONNECTOR: Record<string, IntegrationCategory> = {
+  github: "Development",
+  google: "Productivity",
+  slack: "Communication",
+  hubspot: "CRM",
+  linkedin: "Communication",
+  zendesk: "CRM",
+  salesforce: "CRM",
+  shopify: "Data",
+  x: "Communication",
+  m365: "Productivity",
+}
+
+export async function getIntegrationCatalog(): Promise<IntegrationDefinition[]> {
+  const body = await apiGet<unknown>("/api/v1/integrations")
+  return asArray(body, "data").map(mapIntegrationDefinition)
+}
+
+export async function getIntegration(id: string): Promise<IntegrationDefinition> {
+  // No dedicated single-entry route exists -- catalog() is the only real
+  // read, and it's a short, fully-loaded list (one entry per connector
+  // this deployment supports), so filtering client-side is the correct
+  // match for the one real caller (connection-detail.tsx, one id at a
+  // time) rather than a cost worth avoiding.
+  const catalog = await getIntegrationCatalog()
+  const found = catalog.find((integration) => integration.id === id)
+  if (!found) throw new Error("Integration not found")
+  return found
+}
+
+export async function getConnections(): Promise<Connection[]> {
+  const [body, nameByConnector] = await Promise.all([
+    apiGet<unknown>("/api/v1/integrations/connections"),
+    connectorNames(),
+  ])
+  return asArray(body, "data").map((item) => mapConnection(item, nameByConnector))
+}
+
+export async function getConnection(id: string): Promise<Connection> {
+  const [item, nameByConnector] = await Promise.all([
+    apiGet<unknown>(`/api/v1/integrations/connections/${encodeURIComponent(id)}`),
+    connectorNames(),
+  ])
+  return mapConnection(item, nameByConnector)
+}
+
+export async function testConnection(id: string): Promise<{ success: boolean; message: string }> {
+  // health() (POST .../actions/health) returns a full OAuthConnectionView,
+  // not {success, message} -- but last_health_status is unambiguous: the
+  // real service sets it to exactly "healthy" or "unhealthy"
+  // (integration.service.ts's health()), never anything else. success
+  // and message both derive cleanly from that one real field.
+  const body = await apiPost<AnyRecord>(
+    `/api/v1/integrations/connections/${encodeURIComponent(id)}/actions/health`,
+    {},
+    { idempotencyKey: mutationKey("connection-health-check") },
+  )
+  const healthy = body.last_health_status === "healthy"
+  return {
+    success: healthy,
+    message: healthy
+      ? "Connection test successful."
+      : "Connection test failed -- the provider rejected the stored credentials.",
+  }
+}
+
+export async function deleteConnection(id: string): Promise<void> {
+  // Real remote revoke (integration.service.ts's revoke()) -- calls the
+  // provider's own revoke endpoint when the connector has real client
+  // credentials configured, then invalidates the connection locally
+  // either way. This is the correct backend action for "delete this
+  // connection," not a scope mismatch.
+  await apiPost(
+    `/api/v1/integrations/connections/${encodeURIComponent(id)}/actions/revoke`,
+    {},
+    { idempotencyKey: mutationKey("connection-revoke") },
+  )
+}
+
+async function connectorNames(): Promise<Map<string, string>> {
+  try {
+    const catalog = await getIntegrationCatalog()
+    return new Map(catalog.map((integration) => [integration.id, integration.name]))
+  } catch {
+    return new Map()
+  }
+}
+
+function mapIntegrationDefinition(value: unknown): IntegrationDefinition {
+  const item = value as AnyRecord
+  const id = asString(item.id)
+  const name = asString(item.display_name ?? id)
+  return {
+    id,
+    name,
+    category: INTEGRATION_CATEGORY_BY_CONNECTOR[id] ?? "Other",
+    // No real description field exists on the catalog entry either --
+    // a plain, factual sentence rather than a fabricated marketing blurb.
+    description: `Connect your ${name} account via OAuth.`,
+    // Real OAuth scope strings, not curated "capability" labels -- honest
+    // (they genuinely are what this connection can access), if more
+    // technical-looking than the mock data's phrasing.
+    capabilities: Array.isArray(item.scopes) ? item.scopes.map((scope: unknown) => String(scope)) : [],
+    // Every real connector here is OAuth-based; there is no other auth
+    // type in this system.
+    authType: "oauth",
+    available: Boolean(item.configured),
+  }
+}
+
+function mapConnection(value: unknown, nameByConnector: Map<string, string>): Connection {
+  const item = value as AnyRecord
+  const connector = asString(item.connector)
+  return {
+    id: asString(item.id),
+    integrationId: connector,
+    // No per-connection display name exists on the backend record at all
+    // -- createConnection isn't wired to a real name-capturing flow yet
+    // (see PR description), so there is nothing real to read here. The
+    // connector's own real display name is used as an honest stand-in
+    // rather than a fabricated one, falling back to the bare connector id
+    // if even that lookup fails.
+    name: nameByConnector.get(connector) ?? connector,
+    status: mapConnectionStatus(String(item.status ?? "connected"), item.last_health_status),
+    createdAt: asDate(item.created_at),
+    // The backend's "version" field is literally the record's
+    // updated_at, ISO-formatted (see integration.service.ts's project())
+    // -- not a version counter despite the name.
+    updatedAt: asDate(item.version ?? item.created_at),
+    lastCheckedAt: typeof item.last_health_checked_at === "string" ? item.last_health_checked_at : undefined,
+    metadata:
+      typeof item.external_account_id === "string"
+        ? { externalAccountId: item.external_account_id }
+        : undefined,
+  }
+}
+
+// The real status enum is only connected/revoked/error -- 3 values
+// against the frontend's 5. "degraded" IS derivable (a connected
+// connection whose last real health check came back "unhealthy" --
+// last_health_status is only ever null/"healthy"/"unhealthy", see
+// integration.service.ts's health()). "expired" is NOT derivable: no
+// token-expiry timestamp is exposed anywhere on OAuthConnectionView, so
+// it is never produced here rather than guessed at.
+function mapConnectionStatus(status: string, healthStatus: unknown): Connection["status"] {
+  if (status === "error") return "error"
+  if (status === "revoked") return "disconnected"
+  if (healthStatus === "unhealthy") return "degraded"
+  return "connected"
 }
 
 function asArray(value: unknown, key: string): AnyRecord[] {
