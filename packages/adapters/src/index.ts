@@ -196,6 +196,12 @@ export {
   type TranscribeSttProviderConfig,
 } from "./aws/transcribe-stt-provider";
 export {
+  resolveImageGenProvider,
+  resolveMediaObjectStorageProvider,
+  resolveSpeechToTextProvider,
+  resolveTextToSpeechProvider,
+} from "./aws/resolve-media-providers";
+export {
   MODELGW_HANDLER,
   ModelgwGrpcController,
   startModelgwGrpcTransport,

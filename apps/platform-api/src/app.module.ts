@@ -34,6 +34,7 @@ import { PublisherModule } from "./publisher";
 import { I18nModule } from "./i18n/i18n.module";
 import { RegistryModule } from "./registry";
 import { NotificationModule } from "./notifications";
+import { MediaModule } from "./media";
 import { DiscoveryModule } from "./discovery/discovery.module";
 import { SearchModule } from "./search";
 import { StaffModule } from "./staff";
@@ -84,6 +85,7 @@ import { AdminDeploymentModule } from "./admin-deployments";
     I18nModule,
     RegistryModule,
     NotificationModule,
+    MediaModule,
     DiscoveryModule,
     SearchModule,
     StaffModule,
