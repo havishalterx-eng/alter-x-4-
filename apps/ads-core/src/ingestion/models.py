@@ -62,6 +62,37 @@ class IngestionJobResponse(_StrictFrozenModel):
     completed_at: datetime | None
 
 
+class SourceDetailResponse(_StrictFrozenModel):
+    """Real source read -- unlike ResourceWorkspaceResponse below, this is
+    the actual resource, not just an RBAC-resolution stub. Served from a
+    different path (`/detail`) so it never collides with or changes
+    GET /sources/{source_id}'s existing contract (see that route's
+    docstring and ENGINE-FIX-B5-2)."""
+
+    id: str
+    scope_id: str
+    workspace_id: str
+    kind: str
+    provider: str | None
+    sync_config: dict[str, object] | None
+    status: str | None
+    last_sync_at: datetime | None
+    document_count: int
+    chunk_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class SourcePageInfo(_StrictFrozenModel):
+    next_cursor: str | None
+    has_more: bool
+
+
+class SourcePageResponse(_StrictFrozenModel):
+    data: tuple[SourceDetailResponse, ...]
+    page: SourcePageInfo
+
+
 class ResourceWorkspaceResponse(_StrictFrozenModel):
     """Minimal shape for RBAC workspace-ownership resolution only (ENGINE-
     FIX-B5-2) -- not a general source/document read API. Sources and

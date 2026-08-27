@@ -44,6 +44,7 @@ from src.ingestion.repository import (
     StoredIngestionJob,
     StoredReindex,
     StoredSource,
+    StoredSourceDetail,
 )
 from src.ingestion.router import get_ingestion_pipeline, router
 from src.ingestion.scanner import ContentScanner, DisclosedStubScanner
@@ -318,6 +319,12 @@ class RecordingRepository:
 
     def get_source_workspace_id(self, **kwargs: object) -> str:
         return self._delegate.get_source_workspace_id(**kwargs)  # type: ignore[arg-type]
+
+    def list_sources(self, **kwargs: object) -> tuple[list[StoredSourceDetail], bool]:
+        return self._delegate.list_sources(**kwargs)  # type: ignore[arg-type]
+
+    def get_source_detail(self, **kwargs: object) -> StoredSourceDetail:
+        return self._delegate.get_source_detail(**kwargs)  # type: ignore[arg-type]
 
     def get_document_workspace_id(self, **kwargs: object) -> str:
         return self._delegate.get_document_workspace_id(**kwargs)  # type: ignore[arg-type]

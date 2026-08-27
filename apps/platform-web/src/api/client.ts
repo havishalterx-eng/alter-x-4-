@@ -27,7 +27,7 @@ import {
   mockNodeTypes, mockProjects, mockArtifacts,
   mockHumanActions, mockHumanAnnotations, mockRecoveryEvents, mockWorkflowHealth,
   mockConversations, mockConversationMessages, mockTriggers, mockWebhooks, mockEvents, mockDashboardOverview,
-  mockKnowledgeSources, mockKnowledgeDocuments, mockKnowledgeChunks, mockIntegrationDefinitions, mockConnections,
+  mockKnowledgeSources, mockKnowledgeDocuments, mockIntegrationDefinitions, mockConnections,
   mockCredentials, mockWhatsAppChannels, mockVoiceChannels, mockMemoryConfig
 } from "./mock/data"
 import { 
@@ -38,7 +38,7 @@ import {
   type Artifact, type ProjectFile, type TestResult,
   type HumanAction, type HumanActionType, type HumanAnnotation, type RecoveryEvent, type WorkflowHealth, type NodeVerification,
   type Conversation, type ConversationMessage, type Trigger, type WebhookEndpoint, type IncomingEvent, type DashboardOverview,
-  type KnowledgeSource, type KnowledgeDocument, type KnowledgeChunk, type IntegrationDefinition, type Connection,
+  type KnowledgeSource, type KnowledgeDocument, type IntegrationDefinition, type Connection,
   type Credential, type WhatsAppChannel, type VoiceChannel, type MemoryConfiguration, type RetrievalResult
 } from "./types"
 
@@ -809,11 +809,13 @@ class ApiClient {
 
   // Phase 7: Knowledge API
   async getKnowledgeSources(): Promise<KnowledgeSource[]> {
+    if (isLiveApi) return live.getKnowledgeSources()
     await delay(MOCK_DELAY)
     return mockKnowledgeSources.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }
 
   async getKnowledgeSource(id: string): Promise<KnowledgeSource> {
+    if (isLiveApi) return live.getKnowledgeSource(id)
     await delay(MOCK_DELAY)
     const s = mockKnowledgeSources.find(s => s.id === id)
     if (!s) throw new Error("Knowledge source not found")
@@ -821,6 +823,7 @@ class ApiClient {
   }
 
   async createKnowledgeSource(data: Partial<KnowledgeSource>): Promise<KnowledgeSource> {
+    if (isLiveApi) return live.createKnowledgeSource(data)
     await delay(MOCK_DELAY * 2)
     const s: KnowledgeSource = {
       id: `ks_${Date.now()}`,
@@ -839,6 +842,7 @@ class ApiClient {
   }
 
   async syncKnowledgeSource(id: string): Promise<KnowledgeSource> {
+    if (isLiveApi) return live.syncKnowledgeSource(id)
     await delay(MOCK_DELAY * 2)
     const s = mockKnowledgeSources.find(s => s.id === id)
     if (!s) throw new Error("Source not found")
@@ -847,27 +851,28 @@ class ApiClient {
     return s
   }
 
-  async reindexKnowledgeSource(id: string): Promise<KnowledgeSource> {
-    await delay(MOCK_DELAY * 2)
-    const s = mockKnowledgeSources.find(s => s.id === id)
-    if (!s) throw new Error("Source not found")
-    s.status = "processing"
-    s.updatedAt = new Date().toISOString()
-    return s
-  }
-
   async deleteKnowledgeSource(id: string): Promise<void> {
+    // Not wired to the live API -- deliberately investigate-and-report
+    // only for now, same treatment as deleteWorkspace: a destructive,
+    // cascading operation (source -> documents -> chunks) that needs its
+    // own design pass. See PR description.
     await delay(MOCK_DELAY)
     const idx = mockKnowledgeSources.findIndex(s => s.id === id)
     if (idx > -1) mockKnowledgeSources.splice(idx, 1)
   }
 
   async getKnowledgeDocuments(sourceId: string): Promise<KnowledgeDocument[]> {
+    // Not wired to the live API -- no documents-list route or repository
+    // query exists anywhere in ads-core (confirmed by reading
+    // apps/ads-core/src/ingestion/router.py and repository.py); this
+    // needs a real new build, not the query-param addition this was
+    // scoped as. See PR description.
     await delay(MOCK_DELAY)
     return mockKnowledgeDocuments.filter(d => d.sourceId === sourceId)
   }
 
   async retryKnowledgeDocument(id: string): Promise<KnowledgeDocument> {
+    if (isLiveApi) return live.retryKnowledgeDocument(id)
     await delay(MOCK_DELAY)
     const d = mockKnowledgeDocuments.find(d => d.id === id)
     if (!d) throw new Error("Document not found")
@@ -876,12 +881,8 @@ class ApiClient {
     return d
   }
 
-  async getKnowledgeChunks(sourceId: string, documentId: string): Promise<KnowledgeChunk[]> {
-    await delay(MOCK_DELAY)
-    return mockKnowledgeChunks.filter(c => c.sourceId === sourceId && c.documentId === documentId)
-  }
-
   async testRetrieval(query: string, filters?: any): Promise<RetrievalResult[]> {
+    if (isLiveApi) return live.testRetrieval(query, filters)
     await delay(MOCK_DELAY * 2)
     
     if (filters?.sources?.includes("ks_03")) { // Mock syncing source
