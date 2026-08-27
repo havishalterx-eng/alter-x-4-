@@ -183,6 +183,13 @@ export {
   type TitanImageProviderConfig,
 } from "./aws/titan-image-provider";
 export {
+  POLLY_TTS_CAPABILITIES,
+  POLLY_VOICE_IDS,
+  PollyTtsProvider,
+  type PollyCommandClient,
+  type PollyTtsProviderConfig,
+} from "./aws/polly-tts-provider";
+export {
   MODELGW_HANDLER,
   ModelgwGrpcController,
   startModelgwGrpcTransport,
