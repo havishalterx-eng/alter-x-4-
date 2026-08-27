@@ -9,6 +9,7 @@ import type {
   ToolgwResolveCredentialResponse,
 } from "@alterx/contracts";
 import {
+  SES_EMAIL_CAPABILITIES,
   SsrfBlockedError,
   SsrfGuardedFetcher,
   ToolGatewayNotImplementedError,
@@ -25,6 +26,7 @@ import type {
   AuditEventHandler,
   CacheProvider,
   ConfigProvider,
+  EmailProvider,
   JsonValue,
   QueueProvider,
   SearchProvider,
@@ -115,6 +117,24 @@ const BROWSER_TOOL_NAMES = new Set([
 // mandatory SecretsProvider.getSecret() call. Nothing else may use this
 // integration segment name.
 const BROWSER_AUTOMATION_INTEGRATION = "browser-automation";
+// email.send: a real, new tool action, not a wiring fix. Free-text send
+// (EmailProvider.sendEmail, SES's Content.Simple) rather than a new SES
+// template -- see resolve-email-provider.ts and ses-email-provider.ts for
+// why. Credential model follows the browser-automation precedent above
+// exactly: the real SES identity is one platform-wide secret resolved
+// once at startup into the provider below, never per call -- there is no
+// per-tenant email-sending credential concept, same as browser
+// automation's Browserbase key. This reserved integration segment name
+// is how #resolveCredentialReference recognizes the deterministic
+// email-send credential_ref template and skips the otherwise-mandatory
+// SecretsProvider.getSecret() call, exactly like
+// BROWSER_AUTOMATION_INTEGRATION above.
+const EMAIL_SEND_TOOL_NAME = "email.send";
+const EMAIL_SEND_INTEGRATION = "email-send";
+const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// RFC 5322's own line-length convention for a header field -- a sane cap
+// for a subject line, not an SES-imposed limit.
+const MAX_EMAIL_SUBJECT_LENGTH = 998;
 // ENGINE-RESTRUCTURE-P4-3: real Cache/Reuse cross-cutting layer wiring
 // (architecture doc §12 RESTRUCTURE 3). 5 minutes balances real cost/
 // latency savings on repeated identical queries against staleness risk
@@ -151,6 +171,12 @@ export class ToolGatewayService implements ToolgwHandler {
     // ALTER_CONFIG_SOURCE=mock). Its API key is resolved once here at
     // startup from platform-wide config -- never per call.
     private readonly browserProvider: BrowserAutomationProvider,
+    // email.send: the real EmailProvider (SesEmailProvider in production,
+    // constructed in main.ts via the shared resolveEmailProvider(); mock
+    // under ALTER_CONFIG_SOURCE=mock). Its SES identity is resolved once
+    // here at startup from platform-wide config -- never per call, same
+    // treatment as browserProvider above.
+    private readonly emailProvider: EmailProvider,
     options: ToolGatewayServiceOptions = {},
   ) {
     this.#credentialTokenTtlMs =
@@ -222,12 +248,21 @@ export class ToolGatewayService implements ToolgwHandler {
         return response;
       }
 
+      // No per-resource scope check beyond ensureAllowed() above -- same
+      // reasoning as browser.* above: there is no per-resource id concept
+      // to scope email.send against.
+      if (request.tool_name === EMAIL_SEND_TOOL_NAME) {
+        const response = await this.#dispatchEmail(request);
+        await this.#auditToolInvocation(request, "success");
+        return response;
+      }
+
       // Audited like every other rejection path -- by this point the real
       // tenant credential has already been resolved above, so this rejection
       // is a credential-access event that must leave an audit trail.
       await this.#auditToolInvocation(request, "denied");
       throw new ToolGatewayNotImplementedError(
-        `Tool ${request.tool_name} has no real dispatch yet; only ${SEARCH_WEB_TOOL_NAME}, database.* and browser.* are wired`,
+        `Tool ${request.tool_name} has no real dispatch yet; only ${SEARCH_WEB_TOOL_NAME}, database.*, browser.* and ${EMAIL_SEND_TOOL_NAME} are wired`,
       );
     } catch (error: unknown) {
       if (error instanceof ToolGatewayNotImplementedError) {
@@ -339,6 +374,43 @@ export class ToolGatewayService implements ToolgwHandler {
         if (Buffer.byteLength(json, "utf8") > MAX_TOOL_OUTPUT_BYTES) {
           throw new ToolGatewayValidationError(
             "Browser tool output exceeds the tool-gateway output limit",
+          );
+        }
+        return json;
+      },
+    );
+    return {
+      output_json: outputJson,
+      audit_id: `aud_${this.#mintId()}`,
+    };
+  }
+
+  // Real, new tool action, not a wiring fix: EmailProvider.sendEmail
+  // (SES's Content.Simple, see ses-email-provider.ts) rather than a new
+  // SES template. Same #costed wrapper and MAX_TOOL_OUTPUT_BYTES bound
+  // database.*/browser.* already use.
+  async #dispatchEmail(
+    request: ToolgwInvokeToolRequest,
+  ): Promise<ToolgwInvokeToolResponse> {
+    const input = parseEmailSendInput(request.input_json);
+    const outputJson = await this.#costed(
+      request,
+      {
+        provider: this.emailProvider.metadata.providerId,
+        resourceType: `tool_gateway.${EMAIL_SEND_TOOL_NAME}`,
+        units: 1,
+      },
+      async (): Promise<string> => {
+        const result = await this.emailProvider.sendEmail(
+          input.to,
+          input.subject,
+          input.body,
+          input.html === undefined ? undefined : { html: input.html },
+        );
+        const json = JSON.stringify(result);
+        if (Buffer.byteLength(json, "utf8") > MAX_TOOL_OUTPUT_BYTES) {
+          throw new ToolGatewayValidationError(
+            "Email send output exceeds the tool-gateway output limit",
           );
         }
         return json;
@@ -664,7 +736,10 @@ export class ToolGatewayService implements ToolgwHandler {
       // tenant-ownership have already been validated above; what is
       // skipped is only the SecretsProvider.getSecret() call, because no
       // per-tenant browser-automation secret exists or needs to.
-      if (isBrowserAutomationCredentialReference(reference)) {
+      if (
+        isBrowserAutomationCredentialReference(reference) ||
+        isEmailSendCredentialReference(reference)
+      ) {
         return;
       }
       await this.#resolveRawSecretReference(reference, tenantId);
@@ -1023,6 +1098,80 @@ function isBrowserAutomationCredentialReference(reference: string): boolean {
     ownership !== undefined &&
     ownership.integrationId === BROWSER_AUTOMATION_INTEGRATION
   );
+}
+
+// Same reserved-template exception as isBrowserAutomationCredentialReference
+// above, for the same reason: there is no per-tenant email-sending
+// credential, only one platform-wide SES identity resolved at startup.
+function isEmailSendCredentialReference(reference: string): boolean {
+  const ownership = parseTenantIntegrationSecretReference(reference);
+  return (
+    ownership !== undefined && ownership.integrationId === EMAIL_SEND_INTEGRATION
+  );
+}
+
+interface EmailSendInput {
+  readonly to: string;
+  readonly subject: string;
+  readonly body: string;
+  readonly html?: boolean;
+}
+
+function parseEmailSendInput(inputJson: string): EmailSendInput {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(inputJson);
+  } catch {
+    throw new ToolGatewayValidationError("input_json must be valid JSON");
+  }
+  const record = parsed as {
+    readonly to?: unknown;
+    readonly subject?: unknown;
+    readonly body?: unknown;
+    readonly html?: unknown;
+  };
+  if (typeof record.to !== "string" || !EMAIL_ADDRESS_PATTERN.test(record.to)) {
+    throw new ToolGatewayValidationError(
+      "email.send input_json must include a valid to email address",
+    );
+  }
+  if (typeof record.subject !== "string" || record.subject.trim().length === 0) {
+    throw new ToolGatewayValidationError(
+      "email.send input_json must include a non-empty subject string",
+    );
+  }
+  if (record.subject.length > MAX_EMAIL_SUBJECT_LENGTH) {
+    throw new ToolGatewayValidationError(
+      `email.send input_json subject must be at most ${MAX_EMAIL_SUBJECT_LENGTH} characters`,
+    );
+  }
+  if (typeof record.body !== "string" || record.body.trim().length === 0) {
+    throw new ToolGatewayValidationError(
+      "email.send input_json must include a non-empty body string",
+    );
+  }
+  if (record.html !== undefined && typeof record.html !== "boolean") {
+    throw new ToolGatewayValidationError(
+      "email.send input_json html, if present, must be a boolean",
+    );
+  }
+  // Checkable client-side before ever calling the provider, rather than
+  // relying solely on SesEmailProvider's own runtime error for something
+  // this cheap to validate up front -- same declared limit
+  // (SES_EMAIL_CAPABILITIES.maximum_payload), checked at both layers.
+  const combinedBytes =
+    Buffer.byteLength(record.subject, "utf8") + Buffer.byteLength(record.body, "utf8");
+  if (combinedBytes > SES_EMAIL_CAPABILITIES.maximum_payload) {
+    throw new ToolGatewayValidationError(
+      `email.send input_json subject+body (${combinedBytes} bytes) exceeds the maximum payload of ${SES_EMAIL_CAPABILITIES.maximum_payload} bytes`,
+    );
+  }
+  return {
+    to: record.to,
+    subject: record.subject,
+    body: record.body,
+    ...(record.html === undefined ? {} : { html: record.html }),
+  };
 }
 
 function databaseOperationFromToolName(

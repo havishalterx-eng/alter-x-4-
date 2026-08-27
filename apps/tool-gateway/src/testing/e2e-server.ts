@@ -8,6 +8,7 @@ import {
 
 import {
   MockBrowserAutomationProvider,
+  MockEmailProvider,
   SsrfGuardedFetcher,
   TavilySearchProvider,
   startToolgwGrpcTransport,
@@ -71,9 +72,10 @@ async function bootstrap(): Promise<void> {
       createMockQueueProvider(),
       "toolgw-e2e-cost-events",
       createMockCacheProvider(),
-      // e2e fixture exercises search.web only; disclosed mock browser
-      // provider, same reasoning as unexercisedDatabaseProvider.
+      // e2e fixture exercises search.web only; disclosed mock browser/
+      // email providers, same reasoning as unexercisedDatabaseProvider.
       new MockBrowserAutomationProvider(new SsrfGuardedFetcher()),
+      new MockEmailProvider(),
     ),
     new FastifyAdapter(),
     { logger: false },

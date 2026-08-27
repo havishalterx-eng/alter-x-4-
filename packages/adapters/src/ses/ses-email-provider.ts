@@ -95,6 +95,43 @@ export class SesEmailProvider implements EmailProvider {
     return { messageId: response.MessageId, acceptedAt: this.#now().toISOString() };
   }
 
+  // Free-text send via SES's Content.Simple shape -- deliberately not
+  // Content.Template. None of the existing SES templates
+  // (notification-digest, notification-<eventClass>) are appropriate for
+  // arbitrary caller-supplied content, and there is no SES-template
+  // infrastructure in this repo to register a new one from. Simple is a
+  // real, documented SendEmailCommand alternative to Template, not a
+  // workaround.
+  async sendEmail(
+    to: string,
+    subject: string,
+    body: string,
+    options?: { readonly html?: boolean },
+  ): Promise<EmailSendResult> {
+    const combinedBytes = Buffer.byteLength(subject, "utf8") + Buffer.byteLength(body, "utf8");
+    if (combinedBytes > SES_EMAIL_CAPABILITIES.maximum_payload) {
+      throw new Error(
+        `Email subject+body (${combinedBytes} bytes) exceeds SES's maximum payload of ${SES_EMAIL_CAPABILITIES.maximum_payload} bytes`,
+      );
+    }
+    const response = await (await this.#getClient()).send(
+      new SendEmailCommand({
+        FromEmailAddress: this.#config.fromAddress,
+        Destination: { ToAddresses: [to] },
+        Content: {
+          Simple: {
+            Subject: { Data: subject },
+            Body: options?.html ? { Html: { Data: body } } : { Text: { Data: body } },
+          },
+        },
+      }),
+    );
+    if (!response.MessageId) {
+      throw new Error("SES did not return a message ID");
+    }
+    return { messageId: response.MessageId, acceptedAt: this.#now().toISOString() };
+  }
+
   async healthCheck(): Promise<ProviderHealth> {
     return {
       status: "healthy",

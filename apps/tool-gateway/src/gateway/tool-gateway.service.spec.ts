@@ -8,6 +8,7 @@ import {
   type AuditEventHandler,
   type CacheProvider,
   type ConfigProvider,
+  type EmailProvider,
   type QueueProvider,
   type SearchProvider,
   type SecretsProvider,
@@ -17,6 +18,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   MockBrowserAutomationProvider,
+  MockEmailProvider,
   SsrfGuardedFetcher,
   ToolGatewayNotImplementedError,
   ToolGatewayPermissionError,
@@ -105,6 +107,7 @@ interface ServiceOverrides {
   readonly costEventsQueueName?: string;
   readonly cacheProvider?: CacheProvider;
   readonly browserProvider?: BrowserAutomationProvider;
+  readonly emailProvider?: EmailProvider;
   readonly options?: ToolGatewayServiceOptions;
 }
 
@@ -121,6 +124,7 @@ function buildService(overrides: ServiceOverrides = {}): ToolGatewayService {
     overrides.costEventsQueueName ?? "test-cost-events",
     overrides.cacheProvider ?? createMockCacheProvider(),
     overrides.browserProvider ?? mockBrowserProvider(),
+    overrides.emailProvider ?? mockEmailProvider(),
     overrides.options ?? {},
   );
 }
@@ -133,6 +137,13 @@ function mockBrowserProvider(): BrowserAutomationProvider {
   return new MockBrowserAutomationProvider(
     new SsrfGuardedFetcher({}, noopDnsResolver(), noopFetchFn()),
   );
+}
+
+// Real MockEmailProvider (not a hand-rolled fake), same reasoning as
+// mockBrowserProvider above -- exercises the real EmailProvider contract
+// (metadata.providerId, real sentRaw recording), not a stand-in.
+function mockEmailProvider(): EmailProvider {
+  return new MockEmailProvider();
 }
 
 describe("ToolGatewayService", () => {
@@ -815,6 +826,165 @@ describe("ToolGatewayService", () => {
           }),
         ),
       ).rejects.toThrow(/non-empty url/);
+    });
+  });
+
+  describe("email.send dispatch (real, new tool action -- free-text send, SES Content.Simple)", () => {
+    const EMAIL_CREDENTIAL_REF = `/alter/prod/tenant/${TENANT_A}/integration/email-send/outbound`;
+    const WRONG_TENANT_EMAIL_REF = `/alter/prod/tenant/${TENANT_B}/integration/email-send/outbound`;
+
+    function emailInvokeRequest(
+      overrides: Partial<Parameters<ToolGatewayService["invokeTool"]>[0]> = {},
+      inputOverrides: Record<string, unknown> = {},
+    ) {
+      return invokeRequest({
+        tool_name: "email.send",
+        input_json: JSON.stringify({
+          to: "recipient@example.com",
+          subject: "Run failed",
+          body: "See the run detail page for the failure reason.",
+          ...inputOverrides,
+        }),
+        credential_ref: EMAIL_CREDENTIAL_REF,
+        ...overrides,
+      });
+    }
+
+    it("sends a real email through the mock provider and returns its result", async () => {
+      const emailProvider = mockEmailProvider();
+      const service = buildService({ emailProvider });
+
+      const response = await service.invokeTool(emailInvokeRequest());
+
+      expect(JSON.parse(response.output_json)).toMatchObject({ messageId: "mock-email-1" });
+      expect((emailProvider as MockEmailProvider).sentRaw).toEqual([
+        {
+          to: "recipient@example.com",
+          subject: "Run failed",
+          body: "See the run detail page for the failure reason.",
+          html: undefined,
+        },
+      ]);
+    });
+
+    it("passes options.html through when the input sets html:true", async () => {
+      const emailProvider = mockEmailProvider();
+      const service = buildService({ emailProvider });
+
+      await service.invokeTool(
+        emailInvokeRequest({}, { body: "<p>See the run detail page.</p>", html: true }),
+      );
+
+      expect((emailProvider as MockEmailProvider).sentRaw[0]).toMatchObject({ html: true });
+    });
+
+    it("denies email.send when the tenant grant is absent and audits the denial", async () => {
+      const auditClient = createMockAuditEventHandler();
+      const service = buildService({
+        configProvider: createMockConfigProvider({
+          toolPermission: { allowed: false, rateLimitPerMinute: 60, requiredScopes: [] },
+        }),
+        auditClient,
+      });
+
+      await expect(service.invokeTool(emailInvokeRequest())).rejects.toBeInstanceOf(
+        ToolGatewayPermissionError,
+      );
+      expect(
+        (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
+      ).toContainEqual(
+        expect.objectContaining({ target_ref: "email.send", result: "denied" }),
+      );
+    });
+
+    it("emits a real cost event scoped to tool_gateway.email.send on success", async () => {
+      const publish = vi.fn<(queueName: string, message: unknown) => Promise<void>>(
+        async () => undefined,
+      );
+      const service = buildService({
+        costQueue: createMockQueueProvider({ publish }),
+        costEventsQueueName: "test-cost-events",
+        emailProvider: mockEmailProvider(),
+      });
+
+      await service.invokeTool(emailInvokeRequest());
+
+      expect(publish).toHaveBeenCalledTimes(1);
+      const [queueName, event] = publish.mock.calls[0] as [string, Record<string, unknown>];
+      expect(queueName).toBe("test-cost-events");
+      expect(event).toMatchObject({ source: "tool_gateway" });
+      expect(JSON.parse(event.usage_json as string)).toMatchObject({
+        resource_type: "tool_gateway.email.send",
+        outcome: "success",
+      });
+    });
+
+    it("rejects an email credential_ref owned by a different tenant without touching SecretsProvider", async () => {
+      const getSecret = vi.fn(secretProvider().getSecret);
+      const service = buildService({
+        secretsProvider: { ...secretProvider(), getSecret },
+      });
+
+      await expect(
+        service.invokeTool(
+          emailInvokeRequest({ credential_ref: WRONG_TENANT_EMAIL_REF }),
+        ),
+      ).rejects.toThrow(/not owned by this tenant\/integration/);
+      expect(getSecret).not.toHaveBeenCalled();
+    });
+
+    it("skips secret resolution for the reserved email-send credential template, like browser automation", async () => {
+      const getSecret = vi.fn(secretProvider().getSecret);
+      const auditClient = createMockAuditEventHandler();
+      const service = buildService({
+        secretsProvider: { ...secretProvider(), getSecret },
+        auditClient,
+        emailProvider: mockEmailProvider(),
+      });
+
+      await expect(service.invokeTool(emailInvokeRequest())).resolves.toBeDefined();
+
+      expect(getSecret).not.toHaveBeenCalled();
+      expect(
+        (auditClient as ReturnType<typeof createMockAuditEventHandler>).getRecordedEvents(),
+      ).toContainEqual(
+        expect.objectContaining({ target_ref: "email.send", result: "success" }),
+      );
+    });
+
+    it.each([
+      [{ to: "not-an-email" }, /valid to email address/],
+      [{ to: "" }, /valid to email address/],
+      [{ subject: "" }, /non-empty subject/],
+      [{ subject: "x".repeat(999) }, /at most 998 characters/],
+      [{ body: "" }, /non-empty body/],
+      [{ html: "yes" }, /html, if present, must be a boolean/],
+    ])("rejects an invalid email.send input %o", async (inputOverrides, expectedMessage) => {
+      const service = buildService({ emailProvider: mockEmailProvider() });
+
+      await expect(
+        service.invokeTool(emailInvokeRequest({}, inputOverrides)),
+      ).rejects.toThrow(expectedMessage);
+    });
+
+    it("rejects a subject+body combination larger than SES's declared maximum payload before dispatching", async () => {
+      const emailProvider = mockEmailProvider();
+      const service = buildService({ emailProvider });
+
+      await expect(
+        service.invokeTool(
+          emailInvokeRequest({}, { body: "x".repeat(11_000_000) }),
+        ),
+      ).rejects.toThrow(/exceeds the maximum payload/);
+      expect((emailProvider as MockEmailProvider).sentRaw).toEqual([]);
+    });
+
+    it("lists email.send in the not-implemented error message for an unrecognized tool", async () => {
+      const service = buildService();
+
+      await expect(service.invokeTool(invokeRequest({ tool_name: "other.tool" }))).rejects.toThrow(
+        /email\.send/,
+      );
     });
   });
 

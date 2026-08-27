@@ -520,8 +520,10 @@ export {
   SES_EMAIL_CAPABILITIES,
   type SesCommandClient,
   type SesEmailProviderConfig,
+  type SecretResolver,
 } from "./ses/ses-email-provider";
 export { MockEmailProvider } from "./ses/mock-email-provider";
+export { resolveEmailProvider } from "./ses/resolve-email-provider";
 export {
   AwsSsmParameterProvider,
   type AwsSsmParameterProviderConfig,
