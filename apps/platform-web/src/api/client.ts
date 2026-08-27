@@ -1110,11 +1110,13 @@ class ApiClient {
 
   // Phase 7: Channels API
   async getWhatsAppChannels(): Promise<WhatsAppChannel[]> {
+    if (isLiveApi) return live.getWhatsAppChannels()
     await delay(MOCK_DELAY)
     return mockWhatsAppChannels
   }
 
   async createWhatsAppChannel(data: Partial<WhatsAppChannel>): Promise<WhatsAppChannel> {
+    if (isLiveApi) return live.createWhatsAppChannel(data)
     await delay(MOCK_DELAY * 2)
     const ch: WhatsAppChannel = {
       id: `wa_${Date.now()}`,
@@ -1130,22 +1132,34 @@ class ApiClient {
   }
 
   async testWhatsAppChannel(_id: string): Promise<{ success: boolean; message: string }> {
+    // Not wired -- the real action (POST .../accounts/:id/test-send)
+    // sends an actual WhatsApp template message to a real phone number
+    // and needs {to, templateName, languageCode?} that nothing on
+    // WhatsAppChannel captures. Needs a real "send test message" form
+    // first (recipient + template picker), not a client.ts swap. See PR
+    // description.
     await delay(MOCK_DELAY)
     return { success: true, message: "Test message sent successfully." }
   }
 
   async deleteWhatsAppChannel(id: string): Promise<void> {
+    // Not wired -- no delete/deactivate/disable route exists for a
+    // WhatsApp account at all (only DELETE .../escalations/:ruleId,
+    // which removes an escalation rule, a different sub-resource). See
+    // PR description for what real deletion would need.
     await delay(MOCK_DELAY)
     const idx = mockWhatsAppChannels.findIndex(c => c.id === id)
     if (idx > -1) mockWhatsAppChannels.splice(idx, 1)
   }
 
   async getVoiceChannels(): Promise<VoiceChannel[]> {
+    if (isLiveApi) return live.getVoiceChannels()
     await delay(MOCK_DELAY)
     return mockVoiceChannels
   }
 
   async createVoiceChannel(data: Partial<VoiceChannel>): Promise<VoiceChannel> {
+    if (isLiveApi) return live.createVoiceChannel(data)
     await delay(MOCK_DELAY * 2)
     const ch: VoiceChannel = {
       id: `vc_${Date.now()}`,
@@ -1163,11 +1177,19 @@ class ApiClient {
   }
 
   async testVoiceChannel(_id: string): Promise<{ success: boolean; message: string }> {
+    // Not wired -- "Test call initiated successfully." is the language
+    // of a real outbound call (POST /api/v1/channels/voice/calls,
+    // 202 Accepted, needs a real to_phone_number), not the separate
+    // lightweight GET .../numbers/:id/health config check. Needs a real
+    // "place a test call to" form first. See PR description.
     await delay(MOCK_DELAY)
     return { success: true, message: "Test call initiated successfully." }
   }
 
   async deleteVoiceChannel(id: string): Promise<void> {
+    // Not wired -- no delete/release/deactivate route exists for a bound
+    // voice number at all. See PR description for what real release
+    // would need.
     await delay(MOCK_DELAY)
     const idx = mockVoiceChannels.findIndex(c => c.id === id)
     if (idx > -1) mockVoiceChannels.splice(idx, 1)
