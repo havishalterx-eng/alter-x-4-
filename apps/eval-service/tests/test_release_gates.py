@@ -78,6 +78,12 @@ def _insert_eval_run(
 ) -> UUID:
     golden_set_id = uuid4()
     eval_run_id = uuid4()
+    # Two separate commits, not one: EvalRun.golden_set_id has a real FK to
+    # golden_sets.id but no declared ORM relationship() between the two
+    # models, so the unit of work has nothing to order the inserts by
+    # within a single flush -- a real ForeignKeyViolation, not a
+    # theoretical one (caught by CI's Postgres). Committing the GoldenSet
+    # first removes the ordering question entirely.
     with sessions.begin() as session:
         session.add(
             GoldenSet(
@@ -88,6 +94,7 @@ def _insert_eval_run(
                 status="active",
             )
         )
+    with sessions.begin() as session:
         session.add(
             EvalRun(
                 id=eval_run_id,
