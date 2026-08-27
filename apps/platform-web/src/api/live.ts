@@ -35,6 +35,8 @@ import type {
   IntegrationDefinition,
   IntegrationCategory,
   Connection,
+  WhatsAppChannel,
+  VoiceChannel,
 } from "./types"
 
 type AnyRecord = Record<string, any>
@@ -836,6 +838,149 @@ function mapConnectionStatus(status: string, healthStatus: unknown): Connection[
   if (status === "revoked") return "disconnected"
   if (healthStatus === "unhealthy") return "degraded"
   return "connected"
+}
+
+export async function getWhatsAppChannels(): Promise<WhatsAppChannel[]> {
+  const body = await apiGet<unknown>("/api/v1/channels/whatsapp/accounts")
+  return asArray(body, "accounts").map(mapWhatsAppChannel)
+}
+
+// The real create body (CreateWhatsappAccountInput: workspaceId,
+// phoneNumberId, wabaId, accessTokenRef) shares no field with
+// Partial<WhatsAppChannel> at all -- phoneNumberId is Meta's opaque
+// numeric phone ID, not the E.164 phoneNumber the frontend type has; the
+// WABA id and the access-token secret reference have no frontend
+// equivalent whatsoever (there is no phone-number/business-account
+// onboarding UI yet to collect them -- see PR description). Rather than
+// invent values for fields the frontend has never modeled, callers must
+// supply them as extra properties on `data`; the real endpoint's own
+// strict validation rejects a request that's missing them with a clear
+// field-level error instead of this function guessing.
+export async function createWhatsAppChannel(data: Partial<WhatsAppChannel>): Promise<WhatsAppChannel> {
+  const input = data as AnyRecord
+  const body = {
+    workspaceId: input.workspaceId,
+    phoneNumberId: input.phoneNumberId,
+    wabaId: input.wabaId,
+    accessTokenRef: input.accessTokenRef,
+  }
+  const created = await apiPost<unknown>("/api/v1/channels/whatsapp/accounts", body, {
+    idempotencyKey: mutationKey("whatsapp-channel-create"),
+  })
+  return mapWhatsAppChannel(created)
+}
+
+function mapWhatsAppChannel(value: unknown): WhatsAppChannel {
+  const item = value as AnyRecord
+  const phoneNumberId = asString(item.phoneNumberId)
+  return {
+    id: asString(item.id),
+    // No display name exists on the real account record -- the Meta
+    // phone number id is the closest real identifier, used honestly
+    // rather than a fabricated label.
+    name: phoneNumberId,
+    // Not the same thing as a real E.164 phone number -- Meta's
+    // phoneNumberId is an opaque numeric id, and the real account record
+    // has no separate E.164 field at all. Surfaced as-is (not formatted
+    // to look like a phone number) so it isn't mistaken for one.
+    phoneNumber: phoneNumberId,
+    // The real status column is only ever "connected"/"disconnected" --
+    // see WhatsappAccount in whatsapp.service.ts. "pending"/"degraded"
+    // are never produced (no real signal backs them here).
+    status: item.status === "disconnected" ? "disconnected" : "connected",
+    // This whole integration is built on MetaCloudApiWhatsappProvider --
+    // there is no other real provider behind it.
+    provider: "meta",
+    connectionId: typeof item.connectionId === "string" ? item.connectionId : undefined,
+    // WhatsappAccount has no createdAt column at all -- not fabricated;
+    // left as the current time is wrong (implies just-created), so this
+    // uses an empty string rather than a plausible-looking wrong date.
+    createdAt: typeof item.createdAt === "string" ? item.createdAt : "",
+  }
+}
+
+export async function getVoiceChannels(): Promise<VoiceChannel[]> {
+  // getVoiceChannels()'s own return type is a flat array (no pagination
+  // UI anywhere that calls it), and 200 is the endpoint's own max page
+  // size -- a workspace with more bound numbers than that would silently
+  // see only the first page here, same disclosed limit as
+  // getKnowledgeSources().
+  const body = await apiGet<unknown>("/api/v1/channels/voice/numbers?limit=200")
+  return asArray(body, "data").map(mapVoiceChannel)
+}
+
+// The real create body (CreateVoiceNumberBindingRequest: workspace_id,
+// provider, phone_number, credential_reference, call_handling) needs a
+// credential_reference (an opaque pointer to a stored provider secret)
+// and an inbound_calls_enabled flag that Partial<VoiceChannel> has no
+// representation for at all -- there is no number-provisioning UI yet to
+// collect either. Same posture as createWhatsAppChannel: real fields are
+// mapped through, the rest must arrive as extra properties on `data`,
+// and the real endpoint's own strict validation is what rejects a
+// request that's missing them.
+export async function createVoiceChannel(data: Partial<VoiceChannel>): Promise<VoiceChannel> {
+  const input = data as AnyRecord
+  const body = {
+    workspace_id: input.workspaceId,
+    provider: data.provider === "twilio" ? "twilio" : input.provider,
+    phone_number: data.phoneNumber,
+    credential_reference: input.credentialReference,
+    call_handling: {
+      inbound_calls_enabled: Boolean(input.inboundCallsEnabled),
+      voice_style: {
+        language_tag: data.language ?? "en-US",
+        ...(data.voice ? { voice_style: data.voice } : {}),
+      },
+    },
+  }
+  const created = await apiPost<unknown>("/api/v1/channels/voice/numbers", body, {
+    idempotencyKey: mutationKey("voice-channel-create"),
+  })
+  return mapVoiceChannel(created)
+}
+
+function mapVoiceChannel(value: unknown): VoiceChannel {
+  const item = value as AnyRecord
+  const phoneNumber = typeof item.phone_number === "string" ? item.phone_number : undefined
+  const callHandling = (item.call_handling ?? {}) as AnyRecord
+  const voiceStyle = (callHandling.voice_style ?? {}) as AnyRecord
+  return {
+    id: asString(item.id),
+    // No display name exists on the real binding either -- the bound
+    // phone number is a real, meaningful stand-in (how a person would
+    // actually refer to this line), not a fabricated label.
+    name: phoneNumber ?? asString(item.id),
+    provider: mapVoiceProvider(item.provider),
+    phoneNumber,
+    status: mapVoiceStatus(item.status),
+    voice: typeof voiceStyle.voice_style === "string" ? voiceStyle.voice_style : undefined,
+    language: typeof voiceStyle.language_tag === "string" ? voiceStyle.language_tag : undefined,
+    createdAt: asDate(item.created_at),
+  }
+}
+
+// Real providers are "exotel" | "twilio" (VoiceProviderKindSchema in
+// @alterx/contracts). The frontend enum has no "exotel" option at all --
+// falls back to "vonage" as the closest existing "some other real
+// provider" bucket. Approximate and disclosed, not a claim that Exotel
+// bindings are literally Vonage.
+function mapVoiceProvider(value: unknown): VoiceChannel["provider"] {
+  return value === "twilio" ? "twilio" : "vonage"
+}
+
+// Real status is pending|active|suspended|failed (VoiceAccountStatusSchema)
+// against the frontend's connected|pending|degraded|disconnected -- this
+// one maps cleanly and completely, no value left undecided:
+// pending -> pending (exact), active -> connected, suspended -> degraded
+// (a recoverable, non-terminal hold), failed -> disconnected (not usable
+// at all, the more terminal reading).
+function mapVoiceStatus(value: unknown): VoiceChannel["status"] {
+  switch (value) {
+    case "pending": return "pending"
+    case "active": return "connected"
+    case "suspended": return "degraded"
+    default: return "disconnected"
+  }
 }
 
 function asArray(value: unknown, key: string): AnyRecord[] {
