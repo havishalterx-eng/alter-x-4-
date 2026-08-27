@@ -45,6 +45,9 @@ from .models import (
     PresignUploadResponse,
     ReindexResponse,
     ResourceWorkspaceResponse,
+    SourceDetailResponse,
+    SourcePageInfo,
+    SourcePageResponse,
     SourceResponse,
 )
 from .normalization import TextAwareNormalizer
@@ -56,6 +59,7 @@ from .repository import (
     ReindexConflictError,
     SourceNotFoundError,
     SqlAlchemyIngestionRepository,
+    StoredSourceDetail,
 )
 from .scanner import DisclosedStubScanner
 from .validation import PayloadValidator
@@ -248,6 +252,92 @@ async def create_source(
         scope_id=source.scope_id,
         connector=source.connector,
         status=source.status,
+    )
+
+
+@router.get(
+    "/sources",
+    response_model=SourcePageResponse,
+)
+async def list_sources(
+    repository: RepositoryDep,
+    tenant_id: Annotated[str, Header(alias="X-Alter-Tenant-Id")],
+    workspace_id: Annotated[str, Header(alias="X-Alter-Workspace-Id")],
+    cursor: str | None = None,
+    limit: int = 50,
+) -> SourcePageResponse:
+    """Real, workspace-scoped list -- the `sources` table has existed and
+    been written to since source creation shipped, but nothing ever read
+    it back as a list until now. document_count/chunk_count are real
+    COUNT(*) aggregates (see StoredSourceDetail's docstring), not
+    placeholders."""
+    if limit < 1 or limit > 200:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="limit must be between 1 and 200",
+        )
+    try:
+        sources, has_more = await run_in_threadpool(
+            repository.list_sources,
+            tenant_uuid=_tenant_uuid(tenant_id),
+            workspace_id=workspace_id,
+            cursor=cursor,
+            limit=limit,
+        )
+    except SourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return SourcePageResponse(
+        data=tuple(_to_source_detail_response(source) for source in sources),
+        page=SourcePageInfo(
+            next_cursor=sources[-1].source_id if has_more and sources else None,
+            has_more=has_more,
+        ),
+    )
+
+
+@router.get(
+    "/sources/{source_id}/detail",
+    response_model=SourceDetailResponse,
+)
+async def get_source_detail(
+    source_id: str,
+    repository: RepositoryDep,
+    tenant_id: Annotated[str, Header(alias="X-Alter-Tenant-Id")],
+) -> SourceDetailResponse:
+    """Real single-source read. Deliberately a sibling path (`/detail`),
+    not an extension of GET /sources/{source_id} below -- that route is a
+    narrow RBAC-resolution stub PR #67's workspace resolver depends on
+    staying exactly ResourceWorkspaceResponse-shaped (see its docstring
+    and ENGINE-FIX-B5-2)."""
+    try:
+        detail = await run_in_threadpool(
+            repository.get_source_detail,
+            tenant_uuid=_tenant_uuid(tenant_id),
+            source_id=_source_id(source_id),
+        )
+    except SourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    return _to_source_detail_response(detail)
+
+
+def _to_source_detail_response(detail: StoredSourceDetail) -> SourceDetailResponse:
+    return SourceDetailResponse(
+        id=detail.source_id,
+        scope_id=detail.scope_id,
+        workspace_id=detail.workspace_id,
+        kind=detail.kind,
+        provider=detail.provider,
+        sync_config=detail.sync_config,
+        status=detail.status,
+        last_sync_at=detail.last_sync_at,
+        document_count=detail.document_count,
+        chunk_count=detail.chunk_count,
+        created_at=detail.created_at,
+        updated_at=detail.updated_at,
     )
 
 

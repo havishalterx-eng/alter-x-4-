@@ -79,6 +79,31 @@ export class AdsService {
     );
   }
 
+  sources(
+    pagination: AdsPagination,
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<EngineResponse<AdsPage>> {
+    const instance = "/api/v1/ads/sources";
+    return this.engine.get(
+      withPagination(instance, pagination),
+      callerContext(actor, traceparent, instance),
+    );
+  }
+
+  sourceDetail(
+    sourceId: string,
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<EngineResponse<AdsResource>> {
+    const instance = `/api/v1/ads/sources/${sourceId}/detail`;
+    const id = parseAdsId(sourceId, "sourceId", instance);
+    return this.engine.get(
+      `/api/v1/ads/sources/${encodeURIComponent(id)}/detail`,
+      callerContext(actor, traceparent, instance),
+    );
+  }
+
   syncSource(
     sourceId: string,
     input: AdsInput,

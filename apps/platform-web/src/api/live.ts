@@ -28,6 +28,10 @@ import type {
   NodeVerification,
   VerificationCheck,
   VerificationStatus,
+  KnowledgeSource,
+  KnowledgeSourceType,
+  KnowledgeDocument,
+  RetrievalResult,
 } from "./types"
 
 type AnyRecord = Record<string, any>
@@ -505,6 +509,174 @@ export async function getEvent(id: string): Promise<IncomingEvent> {
 
 export async function getWebhooks(): Promise<WebhookEndpoint[]> {
   return []
+}
+
+// ads-core's sources table only ever creates connector-backed sources for
+// two real providers (drive, shopify -- src/ingestion/repository.py's
+// create_source hardcodes this pair and rejects anything else). Of the
+// frontend's 7 KnowledgeSourceType values, only "google_drive" has a real
+// connector behind it; file_upload/website/notion/confluence/database/api
+// have no creation path in the live backend at all yet -- rejected below
+// with a clear message rather than silently creating a fake "drive"
+// source for a type the user didn't ask for.
+const CONNECTOR_BY_SOURCE_TYPE: Partial<Record<KnowledgeSourceType, "drive" | "shopify">> = {
+  google_drive: "drive",
+}
+
+// Inverse of the above, for reading sources back -- "shopify" has no
+// matching KnowledgeSourceType at all, so it falls back to "api" (the
+// closest existing category) rather than a type that doesn't exist.
+const SOURCE_TYPE_BY_PROVIDER: Record<string, KnowledgeSourceType> = {
+  google_drive: "google_drive",
+  shopify: "api",
+}
+
+export async function getKnowledgeSources(): Promise<KnowledgeSource[]> {
+  // getKnowledgeSources()'s own return type is a flat array (no pagination
+  // UI in knowledge-list.tsx), and 200 is the endpoint's own max page
+  // size -- a workspace with more sources than that would silently see
+  // only the first page here. Flagged as a known limit, not fixed by
+  // looping pages, to match this function's existing flat-array contract.
+  const body = await apiGet<unknown>("/api/v1/ads/sources?limit=200")
+  return asArray(body, "data").map(mapKnowledgeSource)
+}
+
+export async function getKnowledgeSource(id: string): Promise<KnowledgeSource> {
+  return mapKnowledgeSource(await apiGet<unknown>(`/api/v1/ads/sources/${encodeURIComponent(id)}/detail`))
+}
+
+export async function createKnowledgeSource(data: Partial<KnowledgeSource>): Promise<KnowledgeSource> {
+  const type = data.type ?? "file_upload"
+  const connector = CONNECTOR_BY_SOURCE_TYPE[type]
+  if (!connector) {
+    throw new Error(
+      `Knowledge sources of type "${type}" aren't backed by a real connector yet -- only Google Drive-backed sources (type "google_drive") can be created through the live API today.`,
+    )
+  }
+  const settings: AnyRecord = { ...(data.config ?? {}) }
+  if (data.name) settings.name = data.name
+  const body = await apiPost<unknown>("/api/v1/ads/sources", { connector, settings }, {
+    idempotencyKey: mutationKey("knowledge-source-create"),
+  })
+  const created = body as AnyRecord
+  // The create response (SourceResponse) is deliberately minimal (id,
+  // scope_id, connector, status, created) -- it doesn't carry
+  // document_count/chunk_count/sync_config, so re-fetch the real detail
+  // read this same PR adds rather than fabricate zeros for a source that
+  // was really just created.
+  return getKnowledgeSource(asString(created.id))
+}
+
+export async function syncKnowledgeSource(id: string): Promise<KnowledgeSource> {
+  // scheduled_sync's real response is a list of kicked-off ingestion jobs,
+  // not a source -- re-read the source afterward for an honest current
+  // state instead of guessing at one from that response shape.
+  await apiPost(`/api/v1/ads/sources/${encodeURIComponent(id)}/actions/sync`, {}, {
+    idempotencyKey: mutationKey("knowledge-source-sync"),
+  })
+  return getKnowledgeSource(id)
+}
+
+export async function retryKnowledgeDocument(id: string): Promise<KnowledgeDocument> {
+  const body = await apiPost<AnyRecord>(`/api/v1/ads/documents/${encodeURIComponent(id)}/actions/reindex`, {}, {
+    idempotencyKey: mutationKey("knowledge-document-reindex"),
+  })
+  // reindex re-chunks/re-embeds the document's already-stored content
+  // synchronously and returns only once that finishes -- "indexed" and
+  // chunkCount are real. sourceId/name/createdAt aren't in this response
+  // (ReindexResponse has no document metadata, only version/chunk
+  // counters) and there's no real single-document read yet to backfill
+  // them from (see PR description) -- left honestly blank rather than
+  // guessed. Safe today: document-list.tsx's retry mutation discards this
+  // return value and refetches the document list instead of reading it.
+  return {
+    id: asString(body.document_id ?? id),
+    sourceId: "",
+    name: "",
+    status: "indexed",
+    chunkCount: Number(body.chunk_count ?? 0),
+    createdAt: "",
+  }
+}
+
+export async function testRetrieval(query: string, filters?: any): Promise<RetrievalResult[]> {
+  const requestBody: AnyRecord = { query }
+  if (Array.isArray(filters?.sources) && filters.sources.length) requestBody.source_ids = filters.sources
+  if (typeof filters?.topK === "number") requestBody.top_k = filters.topK
+
+  const response = await apiPost<AnyRecord>("/api/v1/ads/query", requestBody)
+  const hits = Array.isArray(response.results) ? response.results : []
+  if (hits.length === 0) return []
+
+  // Real hits carry only source_id/document_id, no display name. Best-
+  // effort enrichment using the real source list this PR also adds;
+  // falls back to the bare id (honest, not fabricated) when a source
+  // can't be resolved or the lookup itself fails.
+  const sourceNames = await knowledgeSourceNames()
+
+  return hits.map((hit: AnyRecord) => {
+    const sourceId = asString(hit.source_id)
+    const documentId = asString(hit.document_id)
+    return {
+      id: asString(hit.id ?? hit.chunk_id),
+      chunkId: asString(hit.chunk_id),
+      sourceId,
+      documentId,
+      content: asString(hit.text),
+      score: Number(hit.score ?? 0),
+      confidence: confidenceBucket(Number(hit.confidence ?? hit.score ?? 0)),
+      provenance: [{
+        id: asString(hit.chunk_id),
+        sourceId,
+        sourceName: sourceNames.get(sourceId) ?? sourceId,
+        documentId,
+        // No real document-name read exists yet (documents table has a
+        // real `title` column, but nothing exposes it -- see PR
+        // description) -- the raw id is the honest fallback.
+        documentName: documentId,
+      }],
+    }
+  })
+}
+
+async function knowledgeSourceNames(): Promise<Map<string, string>> {
+  try {
+    const sources = await getKnowledgeSources()
+    return new Map(sources.map((source) => [source.id, source.name]))
+  } catch {
+    return new Map()
+  }
+}
+
+function confidenceBucket(value: number): "high" | "medium" | "low" {
+  if (value >= 0.8) return "high"
+  if (value >= 0.5) return "medium"
+  return "low"
+}
+
+function mapKnowledgeSource(value: unknown): KnowledgeSource {
+  const item = value as AnyRecord
+  const config = (item.sync_config ?? {}) as AnyRecord
+  const provider = String(item.provider ?? "")
+  const name = typeof config.name === "string" && config.name.length > 0 ? config.name : asString(item.id)
+  return {
+    id: asString(item.id),
+    name,
+    type: SOURCE_TYPE_BY_PROVIDER[provider] ?? "api",
+    // The sources table has no real syncing/processing/failed/paused
+    // state machine -- status is always "active" (see PR description).
+    // "ready" is the least-wrong reading of that single real value.
+    status: "ready",
+    documentCount: Number(item.document_count ?? 0),
+    chunkCount: Number(item.chunk_count ?? 0),
+    lastSyncedAt: typeof item.last_sync_at === "string" ? item.last_sync_at : undefined,
+    // nextSyncAt intentionally omitted -- sync is caller-triggered only,
+    // there is no scheduled-sync concept anywhere in ads-core.
+    createdAt: asDate(item.created_at),
+    updatedAt: asDate(item.updated_at ?? item.created_at),
+    connectionId: typeof item.integration_ref === "string" ? item.integration_ref : undefined,
+    config,
+  }
 }
 
 function asArray(value: unknown, key: string): AnyRecord[] {

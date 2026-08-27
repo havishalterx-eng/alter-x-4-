@@ -144,6 +144,47 @@ export class AdsController {
     );
   }
 
+  @Get("sources")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("knowledge:read")
+  async sources(
+    @Query("cursor") cursor: string | undefined,
+    @Query("limit") limit: string | undefined,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<AdsPage> {
+    const instance = "/api/v1/ads/sources";
+    return project(
+      await this.ads.sources(
+        parseAdsPagination(cursor, limit, instance),
+        requireActor(actor, instance),
+        traceparent,
+      ),
+      reply,
+    );
+  }
+
+  @Get("sources/:sourceId/detail")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("knowledge:read")
+  async sourceDetail(
+    @Param("sourceId") sourceId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<AdsResource> {
+    const instance = `/api/v1/ads/sources/${sourceId}/detail`;
+    return project(
+      await this.ads.sourceDetail(
+        sourceId,
+        requireActor(actor, instance),
+        traceparent,
+      ),
+      reply,
+    );
+  }
+
   @Post("ingestion/uploads/complete")
   @HttpCode(202)
   @RequireWorkspaceRole(...adminRoles)

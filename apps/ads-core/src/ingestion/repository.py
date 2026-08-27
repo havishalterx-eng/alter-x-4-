@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol, cast
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.db.ids import new_prefixed_id, validate_prefixed_id
@@ -53,6 +53,28 @@ class StoredSource:
     scope_id: str
     connector: str
     status: str
+
+
+@dataclass(frozen=True)
+class StoredSourceDetail:
+    """A source row plus the fields the platform-web read UI actually needs
+    (document_count/chunk_count) that have no columns of their own on
+    `sources` -- these are real COUNT(*) aggregates against `documents`/
+    `chunks`, computed here rather than faked. `workspace_id` is resolved
+    via `scopes` (sources have no workspace_id column directly)."""
+
+    source_id: str
+    scope_id: str
+    workspace_id: str
+    kind: str
+    provider: str | None
+    sync_config: dict[str, object] | None
+    status: str | None
+    last_sync_at: datetime | None
+    document_count: int
+    chunk_count: int
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -158,6 +180,19 @@ class IngestionRepository(Protocol):
     ) -> StoredIngestionJob: ...
 
     def get_source_workspace_id(self, *, tenant_uuid: str, source_id: str) -> str: ...
+
+    def list_sources(
+        self,
+        *,
+        tenant_uuid: str,
+        workspace_id: str,
+        cursor: str | None,
+        limit: int,
+    ) -> tuple[list[StoredSourceDetail], bool]: ...
+
+    def get_source_detail(
+        self, *, tenant_uuid: str, source_id: str
+    ) -> StoredSourceDetail: ...
 
     def get_document_workspace_id(self, *, tenant_uuid: str, document_id: str) -> str: ...
 
@@ -514,6 +549,142 @@ class SqlAlchemyIngestionRepository:
             if workspace_id is None:
                 raise SourceNotFoundError("Source does not exist for requesting tenant")
             return workspace_id
+
+    def list_sources(
+        self,
+        *,
+        tenant_uuid: str,
+        workspace_id: str,
+        cursor: str | None,
+        limit: int,
+    ) -> tuple[list[StoredSourceDetail], bool]:
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            bare_workspace = workspace_id.removeprefix("ws_")
+
+            cursor_position: tuple[datetime, str] | None = None
+            if cursor is not None:
+                cursor_row = session.execute(
+                    select(Source.created_at, Source.id).where(
+                        Source.tenant_id == tenant_uuid, Source.id == cursor
+                    )
+                ).one_or_none()
+                if cursor_row is None:
+                    raise SourceNotFoundError(
+                        "cursor does not belong to this tenant's sources"
+                    )
+                cursor_position = (cursor_row.created_at, cursor_row.id)
+
+            document_counts = (
+                select(
+                    Document.source_id.label("source_id"),
+                    func.count().label("document_count"),
+                )
+                .where(Document.tenant_id == tenant_uuid)
+                .group_by(Document.source_id)
+                .subquery()
+            )
+            chunk_counts = (
+                select(
+                    Document.source_id.label("source_id"),
+                    func.count().label("chunk_count"),
+                )
+                .select_from(Chunk)
+                .join(Document, Document.id == Chunk.document_id)
+                .where(Chunk.tenant_id == tenant_uuid)
+                .group_by(Document.source_id)
+                .subquery()
+            )
+            statement = (
+                select(Source, document_counts.c.document_count, chunk_counts.c.chunk_count)
+                .join(
+                    Scope,
+                    (Source.scope_id == Scope.id) & (Source.tenant_id == Scope.tenant_id),
+                )
+                .outerjoin(document_counts, document_counts.c.source_id == Source.id)
+                .outerjoin(chunk_counts, chunk_counts.c.source_id == Source.id)
+                .where(Source.tenant_id == tenant_uuid, Scope.workspace_id == bare_workspace)
+                .order_by(Source.created_at.desc(), Source.id.desc())
+            )
+            if cursor_position is not None:
+                created_at, source_id = cursor_position
+                statement = statement.where(
+                    (Source.created_at < created_at)
+                    | ((Source.created_at == created_at) & (Source.id < source_id))
+                )
+            rows = session.execute(statement.limit(limit + 1)).all()
+            has_more = len(rows) > limit
+            page = rows[:limit]
+            sources = [
+                StoredSourceDetail(
+                    source_id=row.Source.id,
+                    scope_id=row.Source.scope_id,
+                    workspace_id=bare_workspace,
+                    kind=row.Source.kind,
+                    provider=row.Source.provider,
+                    sync_config=row.Source.sync_config,
+                    status=row.Source.status,
+                    last_sync_at=row.Source.last_sync_at,
+                    document_count=row.document_count or 0,
+                    chunk_count=row.chunk_count or 0,
+                    created_at=row.Source.created_at,
+                    updated_at=row.Source.updated_at,
+                )
+                for row in page
+            ]
+            return sources, has_more
+
+    def get_source_detail(self, *, tenant_uuid: str, source_id: str) -> StoredSourceDetail:
+        with self._sessions.begin() as session:
+            self._set_tenant(session, tenant_uuid)
+            row = session.execute(
+                select(Source, Scope.workspace_id)
+                .join(
+                    Scope,
+                    (Source.scope_id == Scope.id) & (Source.tenant_id == Scope.tenant_id),
+                )
+                .where(Source.tenant_id == tenant_uuid, Source.id == source_id)
+            ).one_or_none()
+            if row is None:
+                raise SourceNotFoundError("Source does not exist for requesting tenant")
+            source, workspace_id = row
+            document_count = (
+                session.scalar(
+                    select(func.count())
+                    .select_from(Document)
+                    .where(
+                        Document.tenant_id == tenant_uuid,
+                        Document.source_id == source_id,
+                    )
+                )
+                or 0
+            )
+            chunk_count = (
+                session.scalar(
+                    select(func.count())
+                    .select_from(Chunk)
+                    .join(Document, Document.id == Chunk.document_id)
+                    .where(
+                        Chunk.tenant_id == tenant_uuid,
+                        Document.source_id == source_id,
+                    )
+                )
+                or 0
+            )
+            return StoredSourceDetail(
+                source_id=source.id,
+                scope_id=source.scope_id,
+                workspace_id=workspace_id,
+                kind=source.kind,
+                provider=source.provider,
+                sync_config=source.sync_config,
+                status=source.status,
+                last_sync_at=source.last_sync_at,
+                document_count=document_count,
+                chunk_count=chunk_count,
+                created_at=source.created_at,
+                updated_at=source.updated_at,
+            )
 
     def get_document_workspace_id(self, *, tenant_uuid: str, document_id: str) -> str:
         with self._sessions.begin() as session:

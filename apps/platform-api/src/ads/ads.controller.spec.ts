@@ -279,6 +279,32 @@ describe("ADS administration routes", () => {
     expect(removed.json()).not.toHaveProperty("deletion_certificate");
   });
 
+  it("relays source list pagination and detail reads", async () => {
+    const list = await request({
+      method: "GET",
+      url: "/api/v1/ads/sources?cursor=next%2Fpage&limit=25",
+      actor,
+    });
+    expect(list.statusCode).toBe(200);
+    expect(list.json()).toEqual(engine.sourcePage);
+    expect(engine.get).toHaveBeenCalledWith(
+      "/api/v1/ads/sources?cursor=next%2Fpage&limit=25",
+      expect.any(Object),
+    );
+
+    const detail = await request({
+      method: "GET",
+      url: `/api/v1/ads/sources/${sourceId}/detail`,
+      actor,
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json()).toEqual(engine.sourceResource);
+    expect(engine.get).toHaveBeenCalledWith(
+      `/api/v1/ads/sources/${sourceId}/detail`,
+      expect.any(Object),
+    );
+  });
+
   it("relays a real deletion certificate unchanged and ignores forged tenant input", async () => {
     const options = {
       method: "POST",
@@ -848,6 +874,24 @@ class AdsEngine {
     data: [this.documentResource],
     page: { next_cursor: "next-engine", has_more: true },
   };
+  readonly sourceResource = {
+    id: sourceId,
+    scope_id: `scp_${uuid}`,
+    workspace_id: actor.workspace_id,
+    kind: "connector",
+    provider: "google_drive",
+    sync_config: { name: "Policies" },
+    status: "active",
+    last_sync_at: "2026-08-04T08:00:00Z",
+    document_count: 4,
+    chunk_count: 12,
+    created_at: "2026-08-04T07:00:00Z",
+    updated_at: "2026-08-04T08:00:00Z",
+  };
+  readonly sourcePage = {
+    data: [this.sourceResource],
+    page: { next_cursor: null, has_more: false },
+  };
   readonly deletedResource = {
     id: documentId,
     deleted: true,
@@ -1012,6 +1056,12 @@ class AdsEngine {
     }
     if (pathname === "/api/v1/ads/documents") {
       return response(this.documentPage);
+    }
+    if (pathname === "/api/v1/ads/sources") {
+      return response(this.sourcePage);
+    }
+    if (pathname === `/api/v1/ads/sources/${sourceId}/detail`) {
+      return response(this.sourceResource);
     }
     if (pathname === `/api/v1/ads/sources/${sourceId}/permissions`) {
       return response(this.sourcePermissionsResource);
