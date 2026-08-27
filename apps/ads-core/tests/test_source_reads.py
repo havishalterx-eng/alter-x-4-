@@ -135,6 +135,18 @@ def _seed_document_with_chunks(
             ),
             {"id": document_id, "tenant": tenant_uuid, "scope": scope_id, "source": source_id},
         )
+        connection.execute(
+            sa.text(
+                "INSERT INTO document_versions(document_id, version, content_ref, "
+                "provenance) "
+                "VALUES (:document, 1, :content_ref, CAST(:provenance AS jsonb))"
+            ),
+            {
+                "document": document_id,
+                "content_ref": f"tenants/{tenant_uuid}/documents/{document_id}/versions/1/content",
+                "provenance": _json({}),
+            },
+        )
         for seq in range(chunk_count):
             connection.execute(
                 sa.text(
