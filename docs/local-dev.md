@@ -263,11 +263,15 @@ Health check (HTTP, default port 3000):
 curl --fail --silent http://127.0.0.1:3000/health
 ```
 
-Requires platform-db (Postgres, port 5432). With `IDENTITY_PROVIDER=mock`,
-`EMAIL_PROVIDER=mock`, and `ALTER_CONFIG_SOURCE=local-file` (all set in
-`.env.local`), Auth0, Google OAuth, SES, and AppConfig are replaced by mock
-implementations. Marketplace still needs a real Postgres-backed
-`MARKETPLACE_DATABASE_URL` for entitlement and credential-guard specs.
+Requires platform-db (Postgres, port 5432). `IDENTITY_PROVIDER` and
+`EMAIL_PROVIDER` both default to `mock` in code
+(`apps/platform-api/src/identity/identity.module.ts`,
+`packages/adapters/src/ses/resolve-email-provider.ts`) — leave them unset
+and Auth0/Google OAuth and SES are already replaced by mock
+implementations, no `.env.local` entry needed. `ALTER_CONFIG_SOURCE=local-file`
+*is* set in `.env.local` and is what replaces AppConfig with the mock.
+Marketplace still needs a real Postgres-backed `MARKETPLACE_DATABASE_URL`
+for entitlement and credential-guard specs.
 
 ## Run platform-web
 
