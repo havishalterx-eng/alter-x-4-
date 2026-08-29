@@ -21,10 +21,16 @@ export class VerifyGateService {
   ): Promise<ScoreNodeInlineResponse> {
     try {
       return await this.client.scoreNodeInline(request);
-    } catch {
+    } catch (error: unknown) {
+      // Preserve the underlying cause. Swallowing it made every distinct
+      // failure -- auth rejection, request validation, a genuinely
+      // unreachable service -- look identical as a bare
+      // VERIFY_SERVICE_UNAVAILABLE on the node, with nothing anywhere to
+      // tell them apart.
+      const cause = error instanceof Error ? error.message : String(error);
       throw new VerifyGateError(
         "VERIFY_SERVICE_UNAVAILABLE",
-        "Verify Service is unavailable",
+        `Verify Service is unavailable: ${cause}`,
       );
     }
   }

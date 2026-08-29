@@ -25,8 +25,16 @@ type VerifyServiceErrorCode =
   | "upstream";
 
 export class VerifyServiceClientError extends Error {
-  constructor(readonly code: VerifyServiceErrorCode) {
-    super("Verify Service request failed");
+  constructor(readonly code: VerifyServiceErrorCode, cause?: string) {
+    // Carry the classified code (and the upstream detail when the caller
+    // has it) in the message: every caller logs `error.message`, so a
+    // fixed string made an auth rejection, a bad request and a genuinely
+    // unreachable service indistinguishable in the logs.
+    super(
+      cause === undefined
+        ? `Verify Service request failed (${code})`
+        : `Verify Service request failed (${code}): ${cause}`,
+    );
   }
 }
 
@@ -84,7 +92,7 @@ export class VerifyServiceClient implements VerifyServiceHandlerClient {
         { deadline: new Date(Date.now() + this.#timeoutMs) },
         (error, response) => {
           if (error !== null) {
-            reject(new VerifyServiceClientError(errorCode(error)));
+            reject(new VerifyServiceClientError(errorCode(error), error.message));
             return;
           }
           if (response === undefined) {

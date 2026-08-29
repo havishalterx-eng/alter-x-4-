@@ -7,7 +7,18 @@ export const ENGINE_M2M_TOKEN_PROVIDER = Symbol("ENGINE_M2M_TOKEN_PROVIDER");
 export const ENGINE_AUTH_PROVIDER = Symbol("ENGINE_AUTH_PROVIDER");
 
 export interface EngineM2mTokenProvider {
-  getAccessToken(tenantId: string): Promise<string>;
+  /**
+   * Service-level credential proving "this is platform-api", nothing more.
+   * Deliberately takes no tenant: per-request tenancy travels in the actor
+   * token (X-Alter-Actor-Token), and Auth0's client-credentials grant has no
+   * user and no organization. Passing a tenant id here previously reached
+   * Auth0 as its `organization` parameter -- an Auth0 Organization id
+   * (`org_...`), a different namespace from an Alter tenant UUID -- so every
+   * real-Auth0 call failed with "The client is not permitted to use an
+   * organization with this audience", and each tenant also cached its own
+   * redundant copy of an otherwise identical token.
+   */
+  getAccessToken(): Promise<string>;
 }
 
 export interface EngineAuthProvider {
@@ -39,8 +50,8 @@ export class Auth0EngineM2mTokenProvider implements EngineM2mTokenProvider {
     });
   }
 
-  async getAccessToken(tenantId: string): Promise<string> {
-    return this.provider.getAccessToken(tenantId);
+  async getAccessToken(): Promise<string> {
+    return this.provider.getAccessToken();
   }
 }
 
@@ -56,7 +67,7 @@ export class IdentityBrokerEngineAuthProvider implements EngineAuthProvider {
     context: EngineCallerContext,
   ): Promise<EngineAuthorization> {
     const [m2mAccessToken, actor] = await Promise.all([
-      this.m2mTokenProvider.getAccessToken(context.tenantId),
+      this.m2mTokenProvider.getAccessToken(),
       this.identityBroker.mintActorToken({
         userId: context.userId,
         tenantId: context.tenantId,

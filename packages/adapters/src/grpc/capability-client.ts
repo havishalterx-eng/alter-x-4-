@@ -66,7 +66,7 @@ export class CapabilityServiceClient implements CapabilityServiceHandlerClient {
     return new Promise((resolve, reject) => {
       this.#client.resolveNodeRequirements(request, this.#metadata, { deadline: new Date(Date.now() + this.#timeoutMs) }, (error, response) => {
         if (error !== null) {
-          reject(new Error(`Capability Service request failed: ${errorCode(error)}`));
+          reject(new Error(`Capability Service request failed: ${errorCode(error)}: ${error.message}`));
         } else if (response === undefined) {
           reject(new Error("Capability Service returned no response"));
         } else {

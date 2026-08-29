@@ -8,7 +8,7 @@ import {
 import type { EngineCallerContext } from "./types";
 
 describe("Auth0EngineM2mTokenProvider", () => {
-  it("requests a tenant-scoped token and caches it", async () => {
+  it("requests a service-level token, never tenant-scoped, and caches it", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -30,16 +30,23 @@ describe("Auth0EngineM2mTokenProvider", () => {
       now: () => 1_000,
     });
 
-    await expect(provider.getAccessToken("tenant-a")).resolves.toBe("engine-m2m");
-    await expect(provider.getAccessToken("tenant-a")).resolves.toBe("engine-m2m");
+    await expect(provider.getAccessToken()).resolves.toBe("engine-m2m");
+    await expect(provider.getAccessToken()).resolves.toBe("engine-m2m");
 
     expect(fetchImpl).toHaveBeenCalledOnce();
     expect(resolveSecret).toHaveBeenCalledWith("env:ENGINE_SECRET");
-    expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toMatchObject({
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject({
       grant_type: "client_credentials",
-      organization: "tenant-a",
       audience: "https://engine.test",
     });
+    // Regression guard: an Alter tenant id must never reach Auth0 as its
+    // `organization` parameter. Auth0 organizations are a different id
+    // namespace (`org_...`); sending a tenant UUID makes real Auth0 reject
+    // every request with "The client is not permitted to use an organization
+    // with this audience", and also fragments the token cache per tenant.
+    expect(body).not.toHaveProperty("organization");
   });
 
   it("rejects failed and malformed token responses", async () => {
@@ -54,7 +61,7 @@ describe("Auth0EngineM2mTokenProvider", () => {
       new Auth0EngineM2mTokenProvider({
         ...options,
         fetchImpl: vi.fn().mockResolvedValue(new Response(null, { status: 401 })),
-      }).getAccessToken("tenant-a"),
+      }).getAccessToken(),
     ).rejects.toThrow("M2M token request failed with status 401");
 
     await expect(
@@ -63,13 +70,13 @@ describe("Auth0EngineM2mTokenProvider", () => {
         fetchImpl: vi.fn().mockResolvedValue(
           new Response(JSON.stringify({ token: "wrong" }), { status: 200 }),
         ),
-      }).getAccessToken("tenant-a"),
+      }).getAccessToken(),
     ).rejects.toThrow("M2M token response failed validation");
   });
 });
 
 describe("IdentityBrokerEngineAuthProvider", () => {
-  it("mints a caller-scoped actor token and pairs it with tenant M2M auth", async () => {
+  it("mints a caller-scoped actor token and pairs it with service M2M auth", async () => {
     const identityBroker = {
       mintActorToken: vi.fn().mockResolvedValue({
         token: "actor-token",
@@ -108,5 +115,8 @@ describe("IdentityBrokerEngineAuthProvider", () => {
       permissions: ["runs:create"],
       callingTenantId: "tenant-a",
     });
+    // Tenancy belongs to the actor token above, never to the service
+    // credential -- the M2M call takes no arguments at all.
+    expect(m2mProvider.getAccessToken).toHaveBeenCalledWith();
   });
 });

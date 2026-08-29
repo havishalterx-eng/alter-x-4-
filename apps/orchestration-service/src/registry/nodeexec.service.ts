@@ -377,8 +377,21 @@ export class NodeexecService {
         tenant_id: request.tenant_id,
         run_id: request.run_id,
         node_key: request.node_key,
-        node_requirements_json: requirements.node_requirements_json,
-        workspace_id: workspaceId,
+        // Capability Resolver returns ONE node's requirement object, but
+        // Selection & Binding validates this field as NodeRequirements --
+        // a map keyed by node key. Passing the resolver's output through
+        // unwrapped always failed validation with HTTP 422
+        // ("node_requirements_json must match NodeRequirements").
+        node_requirements_json: JSON.stringify({
+          [request.node_key]: JSON.parse(requirements.node_requirements_json),
+        }),
+        // runWorkspaceLookup returns the bare DB uuid, but Selection &
+        // Binding validates WorkspaceId as a prefixed `ws_<uuid>` (its
+        // sibling caller in recovery-dispatch.service.ts already prefixes
+        // here). Sending the bare uuid made every LLMTask binding fail
+        // with HTTP 422, which this catch then swallowed as a fail-open
+        // "resolution failed" and the node ultimately failed.
+        workspace_id: workspaceId.startsWith("ws_") ? workspaceId : `ws_${workspaceId}`,
         node_type: request.node_type,
       });
     } catch (error: unknown) {

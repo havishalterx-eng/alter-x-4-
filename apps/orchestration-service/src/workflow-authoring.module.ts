@@ -129,6 +129,9 @@ import { OperationsModule } from "./operations.module";
         return new GraphCompilerService(store, new CapabilityServiceClient({
           address: recoveryConfig.capabilityResolverAddress,
           protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+          
+          // capability-client.ts adds the "Bearer " scheme itself --
+          // pass the bare token or the service sees "Bearer Bearer <token>".
           authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
         }));
       },

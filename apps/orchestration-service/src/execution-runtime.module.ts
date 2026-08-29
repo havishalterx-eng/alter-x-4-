@@ -99,6 +99,9 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
   const compiler = new GraphCompilerService(store, new CapabilityServiceClient({
     address: recoveryConfig.capabilityResolverAddress,
     protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+    
+    // capability-client.ts adds the "Bearer " scheme itself --
+    // pass the bare token or the service sees "Bearer Bearer <token>".
     authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
   }));
   const planner = new PlannerClient({ baseUrl: recoveryConfig.plannerBaseUrl });
@@ -110,6 +113,9 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
   const capabilityResolverForRecovery = new CapabilityServiceClient({
     address: recoveryConfig.capabilityResolverAddress,
     protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+    
+    // capability-client.ts adds the "Bearer " scheme itself --
+    // pass the bare token or the service sees "Bearer Bearer <token>".
     authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
   });
   const selectionBinding = new SelectionBindingClient({ baseUrl: recoveryConfig.plannerBaseUrl });
@@ -229,7 +235,14 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
           new VerifyServiceClient({
             address: nodeexecConfig.verifyServiceAddress,
             protoPath: VERIFY_CLIENT_PROTO_PATH,
-            authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
+            // verification-service validates a *bearer* credential
+            // (service_auth.verify_service_token strips the "Bearer "
+            // prefix before hashing), so the scheme must be sent. Passing
+            // the bare token made every inline verification gate fail with
+            // VERIFY_SERVICE_UNAVAILABLE, which the executor then retried
+            // and surfaced as a node failure. Mirrors how
+            // MEMORY_SERVICE_AUTHORIZATION is already supplied.
+            authorization: `Bearer ${process.env["INTERNAL_SERVICE_TOKEN"] ?? ""}`,
           }),
         );
         // No real QueueProvider adapter exists yet -- PubSubHandler uses
@@ -279,6 +292,9 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
         const capabilityResolverForNodeexec = new CapabilityServiceClient({
           address: bindingConfig.capabilityResolverAddress,
           protoPath: CAPABILITY_CLIENT_PROTO_PATH,
+          
+          // capability-client.ts adds the "Bearer " scheme itself --
+          // pass the bare token or the service sees "Bearer Bearer <token>".
           authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
         });
         const selectionBindingForNodeexec = new SelectionBindingClient({

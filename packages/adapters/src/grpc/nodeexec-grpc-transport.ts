@@ -118,7 +118,9 @@ function mapNodeexecError(error: unknown, fallbackMessage: string): RpcException
   }
   return new RpcException({
     code: status.INTERNAL,
-    message: fallbackMessage,
+    message: error instanceof Error
+      ? `${fallbackMessage}: ${error.message}`
+      : fallbackMessage,
   });
 }
 
