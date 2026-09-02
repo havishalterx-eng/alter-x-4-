@@ -46,6 +46,28 @@ from local runtime values and creates `alter-local-cost-events` with its DLQ.
 AWS SDK v3 reads `AWS_ENDPOINT_URL`, so all local AWS clients use LocalStack and
 production adapter code needs no LocalStack-specific branch.
 
+## Seed fixtures
+
+Once the databases below are migrated, seed the fixtures the component probes
+need. The script is idempotent, so re-run it freely:
+
+```bash
+set -a; . ./.env.local; set +a
+sh scripts/seed-local.sh
+```
+
+It creates a tenant, a workspace and a user in `platform_db`, a workflow with a
+compiled version in `orchestration_db`, and two agents in `intelligence_db` that
+are identical in capability embedding and recorded verdict but differ by roughly
+an order of magnitude in `latency_ms` and `token_count`. That last pair exists so
+routing behaviour can be observed directly: anything scoring on cost or latency
+separates them, anything scoring only on similarity and verdict cannot.
+
+Identifiers are fixed rather than generated, so probes can reference them. Note
+that `tenant_id` and `workspace_id` are bare `uuid` values in every database
+while the API layer expects the `ten_` / `ws_` prefixed form -- prefix them when
+calling an HTTP or gRPC surface.
+
 ## Run ADS Core
 
 ADS Core owns its dedicated `pgvector` cluster; apply its migrations before
