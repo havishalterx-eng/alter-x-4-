@@ -135,7 +135,14 @@ jobs:
           upload-artifact: true
           upload-release-assets: false
 
+      # Without a token this action resolves its release through unauthenticated
+      # GitHub API calls, which are rate limited per runner IP. Shared runners
+      # exhaust that budget regularly, producing a failure that has nothing to do
+      # with the change under test and that a rerun alone fixes. Supplying the
+      # workflow token raises the limit and removes the flake at its source.
       - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: contract breaking-change check
         run: buf breaking packages/contracts/proto --against '.git#branch=origin/main,subdir=packages/contracts/proto'
