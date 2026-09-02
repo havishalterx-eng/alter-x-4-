@@ -1,9 +1,10 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
-from src.config import get_settings
+from src.config import DEFAULT_EVAL_DB_URL_SYNC
 from src.db.models import Base
 
 config = context.config
@@ -19,7 +20,12 @@ def get_url() -> str:
     configured = config.get_main_option("sqlalchemy.url")
     if configured and configured != _PLACEHOLDER:
         return configured
-    return get_settings().eval_db_url_sync
+    # A migration needs the database URL and nothing else. Calling
+    # get_settings() here additionally required thirty runtime service
+    # addresses -- verification_grpc_target, planner_base_url and the rest --
+    # describing services a migration never contacts, which made this database
+    # impossible to bootstrap. Read the one setting that is actually needed.
+    return os.environ.get("EVAL_DB_URL_SYNC", DEFAULT_EVAL_DB_URL_SYNC)
 
 
 def run_migrations_offline() -> None:

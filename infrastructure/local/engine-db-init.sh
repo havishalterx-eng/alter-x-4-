@@ -1,11 +1,18 @@
 #!/bin/sh
 set -eu
 
+# Only AUDIT_DB_PASSWORD is required. Every other role falls back to it, so a
+# minimal .env.local still produces a working cluster -- but that means several
+# roles share one credential unless you set them explicitly. Passing each one
+# through docker-compose.yml makes that visible rather than silent.
 : "${AUDIT_DB_PASSWORD:?AUDIT_DB_PASSWORD is required}"
 : "${ORCHESTRATION_DB_PASSWORD:=$AUDIT_DB_PASSWORD}"
 : "${INTELLIGENCE_DB_PASSWORD:=$AUDIT_DB_PASSWORD}"
 : "${COST_DB_PASSWORD:=$AUDIT_DB_PASSWORD}"
 : "${EVAL_DB_PASSWORD:=$AUDIT_DB_PASSWORD}"
+: "${MEMORY_DB_PASSWORD:=$AUDIT_DB_PASSWORD}"
+: "${POLICY_SYSTEM_WRITER_PASSWORD:=$AUDIT_DB_PASSWORD}"
+: "${INTELLIGENCE_DRIFT_READER_PASSWORD:=$AUDIT_DB_PASSWORD}"
 
 psql \
   --set=ON_ERROR_STOP=1 \
@@ -15,7 +22,10 @@ psql \
   --set=orchestration_db_password="$ORCHESTRATION_DB_PASSWORD" \
   --set=intelligence_db_password="$INTELLIGENCE_DB_PASSWORD" \
   --set=cost_db_password="$COST_DB_PASSWORD" \
-  --set=eval_db_password="$EVAL_DB_PASSWORD" <<'SQL'
+  --set=eval_db_password="$EVAL_DB_PASSWORD" \
+  --set=memory_db_password="$MEMORY_DB_PASSWORD" \
+  --set=policy_system_writer_password="$POLICY_SYSTEM_WRITER_PASSWORD" \
+  --set=intelligence_drift_reader_password="$INTELLIGENCE_DRIFT_READER_PASSWORD" <<'SQL'
 SELECT format(
   'CREATE ROLE audit_service LOGIN PASSWORD %L',
   :'audit_db_password'
@@ -116,4 +126,64 @@ WHERE NOT EXISTS (
 ALTER DATABASE eval_db OWNER TO eval_service;
 REVOKE CONNECT, TEMPORARY ON DATABASE eval_db FROM PUBLIC;
 GRANT CONNECT, TEMPORARY ON DATABASE eval_db TO eval_service;
+
+-- memory-service. Its settings default to policy_db on this cluster, but
+-- neither the role nor the database was ever created here, so the service
+-- could not run locally at all.
+SELECT format(
+  'CREATE ROLE memory_service LOGIN PASSWORD %L',
+  :'memory_db_password'
+)
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_roles WHERE rolname = 'memory_service'
+) \gexec
+
+ALTER ROLE memory_service WITH LOGIN PASSWORD :'memory_db_password';
+
+SELECT 'CREATE DATABASE policy_db OWNER memory_service'
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_database WHERE datname = 'policy_db'
+) \gexec
+
+ALTER DATABASE policy_db OWNER TO memory_service;
+REVOKE CONNECT, TEMPORARY ON DATABASE policy_db FROM PUBLIC;
+GRANT CONNECT, TEMPORARY ON DATABASE policy_db TO memory_service;
+
+-- Second identity memory-service expects: policy_db_system_url_sync connects
+-- as policy_system_writer for system-owned policy rows.
+SELECT format(
+  'CREATE ROLE policy_system_writer LOGIN PASSWORD %L',
+  :'policy_system_writer_password'
+)
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_roles WHERE rolname = 'policy_system_writer'
+) \gexec
+
+ALTER ROLE policy_system_writer WITH LOGIN PASSWORD :'policy_system_writer_password';
+GRANT CONNECT, TEMPORARY ON DATABASE policy_db TO policy_system_writer;
+
+-- intelligence-service migration 0002 creates this role with BYPASSRLS, which
+-- PostgreSQL 16 refuses from a non-superuser even with CREATEROLE. The
+-- migration guards on pg_roles, so pre-creating it here lets the migration run
+-- as intelligence_service and apply only its GRANTs.
+SELECT format(
+  'CREATE ROLE intelligence_drift_reader LOGIN BYPASSRLS PASSWORD %L',
+  :'intelligence_drift_reader_password'
+)
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_roles WHERE rolname = 'intelligence_drift_reader'
+) \gexec
+
+ALTER ROLE intelligence_drift_reader WITH LOGIN BYPASSRLS PASSWORD :'intelligence_drift_reader_password';
+GRANT CONNECT ON DATABASE intelligence_db TO intelligence_drift_reader;
 SQL
+
+# pgvector must exist before intelligence-service migration 0001 runs. The
+# migration uses CREATE EXTENSION IF NOT EXISTS, but creating an extension
+# requires superuser, which intelligence_service is not -- so create it here
+# and the migration becomes a no-op.
+psql \
+  --set=ON_ERROR_STOP=1 \
+  --username "$POSTGRES_USER" \
+  --dbname intelligence_db \
+  --command 'CREATE EXTENSION IF NOT EXISTS vector'

@@ -1,4 +1,4 @@
-# Local development
+﻿# Local development
 
 Root Compose stack runs Engine dependencies without live AWS, Temporal Cloud,
 Grafana Cloud, or Sentry accounts. `platform-db` remains Platform-owned and is
@@ -46,6 +46,28 @@ from local runtime values and creates `alter-local-cost-events` with its DLQ.
 AWS SDK v3 reads `AWS_ENDPOINT_URL`, so all local AWS clients use LocalStack and
 production adapter code needs no LocalStack-specific branch.
 
+## Seed fixtures
+
+Once the databases below are migrated, seed the fixtures the component probes
+need. The script is idempotent, so re-run it freely:
+
+```bash
+set -a; . ./.env.local; set +a
+sh scripts/seed-local.sh
+```
+
+It creates a tenant, a workspace and a user in `platform_db`, a workflow with a
+compiled version in `orchestration_db`, and two agents in `intelligence_db` that
+are identical in capability embedding and recorded verdict but differ by roughly
+an order of magnitude in `latency_ms` and `token_count`. That last pair exists so
+routing behaviour can be observed directly: anything scoring on cost or latency
+separates them, anything scoring only on similarity and verdict cannot.
+
+Identifiers are fixed rather than generated, so probes can reference them. Note
+that `tenant_id` and `workspace_id` are bare `uuid` values in every database
+while the API layer expects the `ten_` / `ws_` prefixed form -- prefix them when
+calling an HTTP or gRPC surface.
+
 ## Run ADS Core
 
 ADS Core owns its dedicated `pgvector` cluster; apply its migrations before
@@ -54,7 +76,7 @@ starting the HTTP and gRPC processes:
 ```bash
 export ADS_LOCAL_SERVICE_TOKEN="$(openssl rand -hex 32)"
 export INTERNAL_SERVICE_TOKEN_SHA256="$(printf %s "$ADS_LOCAL_SERVICE_TOKEN" | shasum -a 256 | awk '{print $1}')"
-uv run --project apps/ads-core alembic -c apps/ads-core/alembic.ini upgrade head
+pnpm nx run ads-core:migrate
 INTERNAL_SERVICE_TOKEN_SHA256="$INTERNAL_SERVICE_TOKEN_SHA256" \
   uv run --project apps/ads-core uvicorn src.main:app --app-dir apps/ads-core \
   --host 127.0.0.1 --port 8000
@@ -135,7 +157,7 @@ eval-service is a FastAPI service (Python) providing evaluation, golden-set,
 and red-team capabilities. It has both HTTP and gRPC surfaces.
 
 ```bash
-uv run --project apps/eval-service alembic -c apps/eval-service/alembic.ini upgrade head
+pnpm nx run eval-service:migrate
 NODE_ENV=development pnpm nx run eval-service:serve
 ```
 
@@ -160,7 +182,7 @@ problem-understanding, selection-binding, performance) and a gRPC surface
 
 Apply migrations and start:
 ```bash
-uv run --project apps/intelligence-service alembic -c apps/intelligence-service/alembic.ini upgrade head
+pnpm nx run intelligence-service:migrate
 NODE_ENV=development pnpm nx run intelligence-service:serve
 ```
 
@@ -169,7 +191,7 @@ Health check (HTTP, default port 8000):
 curl --fail --silent http://127.0.0.1:8000/health
 ```
 
-Depends on engine-db (Postgres, port 5433 — `intelligence_db`), model-gateway
+Depends on engine-db (Postgres, port 5433 â€” `intelligence_db`), model-gateway
 gRPC (default `localhost:50051`), sandbox-service gRPC (default `localhost:50057`),
 and memory-service HTTP (default `http://localhost:8002`). Auth0 M2M credentials
 are optional for local (`AUTH0_M2M_*` can be empty when `ALTER_ENV=local`).
@@ -182,7 +204,7 @@ policy store, and drift detection. It exposes three HTTP routers:
 
 Apply migrations and start:
 ```bash
-uv run --project apps/memory-service alembic -c apps/memory-service/alembic.ini upgrade head
+pnpm nx run memory-service:migrate
 PORT=8002 NODE_ENV=development pnpm nx run memory-service:serve
 ```
 
@@ -191,9 +213,9 @@ Health check (HTTP, port 8002):
 curl --fail --silent http://127.0.0.1:8002/health
 ```
 
-Depends on engine-db (Postgres, port 5433 — `policy_db`), orchestration-service
+Depends on engine-db (Postgres, port 5433 â€” `policy_db`), orchestration-service
 HTTP (default `http://127.0.0.1:3000`), intelligence-service HTTP, ads-core HTTP,
-and cost-ledger-service HTTP. Protected by `INTERNAL_SERVICE_TOKEN_SHA256` —
+and cost-ledger-service HTTP. Protected by `INTERNAL_SERVICE_TOKEN_SHA256` â€”
 export this consistently with `INTERNAL_SERVICE_TOKEN` used by calling services.
 
 ## Run model-gateway
@@ -218,7 +240,7 @@ Requires Redis (port 6379, for cache), Presidio analyzer/anonymizer
 (ports 5001/5002, for PII redaction), and LocalStack (port 4566, for
 AppConfig and SecretsManager). With `ALTER_CONFIG_SOURCE=mock` and
 `ALTER_ENV=local`, model providers and AWS services are replaced by mock
-implementations — this is the recommended local mode.
+implementations â€” this is the recommended local mode.
 
 ## Run orchestration-service
 
@@ -247,7 +269,7 @@ intelligence-service/planner HTTP. Has drizzle migrations under
 
 ## Run platform-api
 
-platform-api is the Platform's NestJS BFF — the edge service handling
+platform-api is the Platform's NestJS BFF â€” the edge service handling
 identity (Auth0/Google), signup, billing, marketplace, integrations,
 env vars, credentials, registry, publisher, entitlements, and admin tenants.
 It starts with OpenTelemetry tracing preloaded.
@@ -266,7 +288,7 @@ curl --fail --silent http://127.0.0.1:3000/health
 Requires platform-db (Postgres, port 5432). `IDENTITY_PROVIDER` and
 `EMAIL_PROVIDER` both default to `mock` in code
 (`apps/platform-api/src/identity/identity.module.ts`,
-`packages/adapters/src/ses/resolve-email-provider.ts`) — leave them unset
+`packages/adapters/src/ses/resolve-email-provider.ts`) â€” leave them unset
 and Auth0/Google OAuth and SES are already replaced by mock
 implementations, no `.env.local` entry needed. `ALTER_CONFIG_SOURCE=local-file`
 *is* set in `.env.local` and is what replaces AppConfig with the mock.
@@ -275,7 +297,7 @@ for entitlement and credential-guard specs.
 
 ## Run platform-web
 
-platform-web is the Platform's frontend — a React SPA built with Vite.
+platform-web is the Platform's frontend â€” a React SPA built with Vite.
 It has no server-side runtime; all API calls go to platform-api or proxied
 Engine services.
 
@@ -383,7 +405,7 @@ curl --fail --silent http://127.0.0.1:8000/health
 
 Minimal external dependencies: requires model-gateway gRPC (port 50051)
 and, optionally, memory-service HTTP for quality-threshold policy lookups.
-Protected by `INTERNAL_SERVICE_TOKEN_SHA256`. No database of its own —
+Protected by `INTERNAL_SERVICE_TOKEN_SHA256`. No database of its own â€”
 no migrations needed.
 
 ## Provider choices
@@ -425,7 +447,7 @@ wiring remains a future service integration task.
 
 `presidio-analyzer`/`presidio-anonymizer` containers (PII redaction for
 `model-gateway`, ports 5001/5002) are not started by the dependency stack's
-`docker compose` command above — model-gateway's mock mode works without them,
+`docker compose` command above â€” model-gateway's mock mode works without them,
 but real Presidio requires manually starting those containers.
 
 `cost-ledger-service`'s own HTTP boot still needs a LocalStack
@@ -434,5 +456,5 @@ but real Presidio requires manually starting those containers.
 
 `background-workers` and `eval-service` effectively cannot function without
 most of the platform already running (Temporal, SQS, 10+ downstream services
-respectively) — they are documented here for completeness but are not
+respectively) â€” they are documented here for completeness but are not
 independently runnable in isolation.
