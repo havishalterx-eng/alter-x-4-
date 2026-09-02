@@ -2,9 +2,18 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# eval_db is created inside the engine-db cluster on 5433 by
+# infrastructure/local/engine-db-init.sh. The previous default named port 5432,
+# which is platform-db and has no eval_db, so the default could not connect.
+#
+# Exported as a constant so alembic/env.py can reach the database URL without
+# constructing Settings, which would additionally require every runtime service
+# address below.
+DEFAULT_EVAL_DB_URL_SYNC = "postgresql+psycopg2://eval_service:eval_local@localhost:5433/eval_db"
+
 
 class Settings(BaseSettings):
-    eval_db_url_sync: str = "postgresql+psycopg2://eval_service:eval_local@localhost:5432/eval_db"
+    eval_db_url_sync: str = DEFAULT_EVAL_DB_URL_SYNC
     grpc_bind_address: str = "0.0.0.0:50062"
     verification_grpc_target: str
     planner_base_url: str
