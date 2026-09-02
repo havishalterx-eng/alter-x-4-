@@ -196,15 +196,16 @@ services:
     image: mcr.microsoft.com/presidio-analyzer:2.2.360
     ports:
       - "127.0.0.1:5001:3000"
+    # The Presidio images ship neither wget nor curl, so the usual HTTP probe
+    # can never pass. They are Python images, so probe with the interpreter
+    # that is guaranteed to be present.
     healthcheck:
       test:
         [
           "CMD",
-          "wget",
-          "--quiet",
-          "--tries=1",
-          "--spider",
-          "http://127.0.0.1:3000/health",
+          "python",
+          "-c",
+          "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=4).status == 200 else 1)",
         ]
       interval: 5s
       timeout: 5s
@@ -215,15 +216,16 @@ services:
     image: mcr.microsoft.com/presidio-anonymizer:2.2.360
     ports:
       - "127.0.0.1:5002:3000"
+    # The Presidio images ship neither wget nor curl, so the usual HTTP probe
+    # can never pass. They are Python images, so probe with the interpreter
+    # that is guaranteed to be present.
     healthcheck:
       test:
         [
           "CMD",
-          "wget",
-          "--quiet",
-          "--tries=1",
-          "--spider",
-          "http://127.0.0.1:3000/health",
+          "python",
+          "-c",
+          "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=4).status == 200 else 1)",
         ]
       interval: 5s
       timeout: 5s
