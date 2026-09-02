@@ -15,6 +15,25 @@
 #   sh scripts/probe-batch2.sh
 set -eu
 
+# psql is not on the PATH of a typical developer machine on any platform, and
+# nothing in this repository installs it. The compose stack already provides it
+# inside the postgres image, so re-exec there when it is missing. Inside the
+# container psql exists, so this cannot recurse.
+if ! command -v psql >/dev/null 2>&1; then
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "neither psql nor docker is available; cannot run probes" >&2
+    exit 127
+  fi
+  # MSYS_NO_PATHCONV stops Git Bash rewriting the mount path into a Windows one.
+  MSYS_NO_PATHCONV=1 exec docker run --rm --network host \
+    -v "$PWD:/repo" -w /repo \
+    -e AUDIT_DB_PASSWORD -e PLATFORM_DB_PASSWORD -e COST_DB_PASSWORD \
+    -e INTELLIGENCE_DB_PASSWORD \
+    -e ENGINE_DB_HOST -e ENGINE_DB_PORT -e PLATFORM_DB_HOST -e PLATFORM_DB_PORT \
+    -e ADS_DB_HOST -e ADS_DB_PORT -e COST_DB_HOST -e COST_DB_PORT \
+    postgres:16-alpine sh /repo/scripts/probe-batch2.sh
+fi
+
 : "${AUDIT_DB_PASSWORD:?AUDIT_DB_PASSWORD is required (source .env.local first)}"
 : "${PLATFORM_DB_PASSWORD:?PLATFORM_DB_PASSWORD is required}"
 : "${COST_DB_PASSWORD:?COST_DB_PASSWORD is required}"
