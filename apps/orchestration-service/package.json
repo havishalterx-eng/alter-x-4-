@@ -2,6 +2,9 @@
   "name": "@alterx/orchestration-service",
   "version": "0.0.0",
   "private": true,
+  "scripts": {
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts"
+  },
   "dependencies": {
     "@alterx/adapters": "workspace:*",
     "@alterx/auth": "workspace:*",

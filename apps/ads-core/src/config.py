@@ -18,7 +18,15 @@ class Settings(BaseSettings):
         "application/json,text/plain,application/pdf,image/png,image/jpeg"
     )
     ads_ingestion_stub_bad_signatures: str = "EICAR-STANDARD-ANTIVIRUS-TEST-FILE"
-    deletion_service_token_sha256: str = Field(default="", min_length=64, max_length=64)
+    # Empty is allowed and fail-closed: router.py compares a caller's digest
+    # against this, so an unset value rejects every deletion request. The
+    # previous Field(default="", min_length=64) could never validate its own
+    # default, so the service refused to start -- and refused to migrate --
+    # until the credential was set, even for work that never touches deletion.
+    deletion_service_token_sha256: str = Field(
+        default="",
+        pattern=r"^$|^[0-9a-f]{64}$",
+    )
     model_gateway_grpc_target: str = "localhost:50051"
     auth0_m2m_token_url: str = ""
     auth0_m2m_audience: str = ""

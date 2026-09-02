@@ -21,8 +21,18 @@ services:
       POSTGRES_DB: postgres
       POSTGRES_USER: engine_admin
       POSTGRES_PASSWORD: ${ENGINE_DB_ADMIN_PASSWORD:?Set ENGINE_DB_ADMIN_PASSWORD in .env.local}
+      # AUDIT_DB_PASSWORD is the only required one; engine-db-init.sh falls back
+      # to it for every role below. Passing them all through makes the fallback
+      # visible -- previously orchestration, cost and eval silently shared the
+      # audit credential with nothing recording that they did.
       AUDIT_DB_PASSWORD: ${AUDIT_DB_PASSWORD:?Set AUDIT_DB_PASSWORD in .env.local}
       INTELLIGENCE_DB_PASSWORD: ${INTELLIGENCE_DB_PASSWORD:?Set INTELLIGENCE_DB_PASSWORD in .env.local}
+      ORCHESTRATION_DB_PASSWORD: ${ORCHESTRATION_DB_PASSWORD:-}
+      COST_DB_PASSWORD: ${COST_DB_PASSWORD:-}
+      EVAL_DB_PASSWORD: ${EVAL_DB_PASSWORD:-}
+      MEMORY_DB_PASSWORD: ${MEMORY_DB_PASSWORD:-}
+      POLICY_SYSTEM_WRITER_PASSWORD: ${POLICY_SYSTEM_WRITER_PASSWORD:-}
+      INTELLIGENCE_DRIFT_READER_PASSWORD: ${INTELLIGENCE_DRIFT_READER_PASSWORD:-}
     ports:
       - "127.0.0.1:5433:5432"
     healthcheck:
