@@ -13,6 +13,7 @@ import type {
   BlackboardWriteValueRequest,
   BlackboardWriteValueResponse,
 } from "@alterx/contracts";
+import { internalError } from "./internal-error";
 
 export const BLACKBOARD_HANDLER = Symbol("BLACKBOARD_HANDLER");
 
@@ -94,10 +95,7 @@ function mapBlackboardError(error: unknown, fallbackMessage: string): RpcExcepti
       message: error.message,
     });
   }
-  return new RpcException({
-    code: status.INTERNAL,
-    message: fallbackMessage,
-  });
+  return internalError(error, fallbackMessage);
 }
 
 function isNamedError(error: unknown, name: string): error is Error {

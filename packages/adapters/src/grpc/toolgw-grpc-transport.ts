@@ -17,6 +17,7 @@ import type {
 } from "@alterx/contracts";
 
 import { SsrfBlockedError } from "../http/ssrf-guard";
+import { internalError } from "./internal-error";
 
 export const TOOLGW_HANDLER = Symbol("TOOLGW_HANDLER");
 
@@ -157,8 +158,5 @@ function mapToolGatewayError(error: unknown, fallbackMessage: string): RpcExcept
       message: error.message,
     });
   }
-  return new RpcException({
-    code: status.INTERNAL,
-    message: fallbackMessage,
-  });
+  return internalError(error, fallbackMessage);
 }

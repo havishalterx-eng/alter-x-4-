@@ -13,6 +13,7 @@ import type {
   ProvisioningProvisionRequest,
   ProvisioningProvisionResponse,
 } from "@alterx/contracts";
+import { internalError } from "./internal-error";
 
 export const PROVISIONING_HANDLER = Symbol("PROVISIONING_HANDLER");
 export interface ProvisioningGrpcHandler {
@@ -74,8 +75,5 @@ function mapError(error: unknown): RpcException {
   ) {
     return new RpcException({ code: status.INVALID_ARGUMENT, message: error.message });
   }
-  return new RpcException({
-    code: status.INTERNAL,
-    message: "Provisioning operation could not be completed",
-  });
+  return internalError(error, "Provisioning operation could not be completed");
 }
