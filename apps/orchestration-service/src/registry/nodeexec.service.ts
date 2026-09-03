@@ -377,8 +377,21 @@ export class NodeexecService {
         tenant_id: request.tenant_id,
         run_id: request.run_id,
         node_key: request.node_key,
-        node_requirements_json: requirements.node_requirements_json,
-        workspace_id: workspaceId,
+        // ResolveNodeRequirements answers for one node and returns that node's
+        // requirement on its own. bind-agent-model-tool takes the DAG-shaped
+        // map of node_key to requirement and looks this node up inside it, so
+        // the single requirement has to be keyed before it is sent. The graph
+        // compiler already does this when it builds a version's requirements
+        // (see graph-compiler.service.ts); passing the bare object through
+        // here made every bind fail with 422 "node_requirements_json has no
+        // entry for node_key".
+        node_requirements_json: JSON.stringify({
+          [request.node_key]: JSON.parse(requirements.node_requirements_json),
+        }),
+        // getWorkspaceId returns the bare uuid the runs table stores; the
+        // Selection & Binding contract takes a ws_ prefixed identifier, the
+        // same way the recovery dispatcher already sends it.
+        workspace_id: `ws_${workspaceId}`,
         node_type: request.node_type,
       });
     } catch (error: unknown) {

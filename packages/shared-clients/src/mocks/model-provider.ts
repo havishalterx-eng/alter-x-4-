@@ -40,9 +40,19 @@ function defaultStream(
       JSON.parse(request.inputJson),
     );
     const lastMessage = payload.messages[payload.messages.length - 1];
+    // Consumers concatenate the deltas and parse the result as the node's
+    // output_json, so the stream has to spell out the same JSON envelope the
+    // invoke path returns. Emitting bare prose here made every streamed node
+    // fail with "output_json is not valid JSON".
     yield {
       sequence: 1,
-      delta: `mock response to: ${lastMessage?.content ?? ""}`,
+      delta: JSON.stringify({
+        message: {
+          role: "assistant",
+          content: `mock response to: ${lastMessage?.content ?? ""}`,
+        },
+        stop_reason: "end_turn",
+      }),
       final: false,
       servedBy: providerId,
     };
