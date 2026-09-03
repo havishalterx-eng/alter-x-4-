@@ -303,7 +303,7 @@ describe("NodeexecService.executeNode", () => {
         return { output: {} };
       },
     };
-    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef") };
     const capabilityResolver = {
       resolveNodeRequirements: vi.fn().mockResolvedValue({
         node_requirements_json: '{"task_category":"codegen"}',
@@ -338,7 +338,7 @@ describe("NodeexecService.executeNode", () => {
     });
     expect(selectionBinding.bindAgentModelTool).toHaveBeenCalledWith({
       tenant_id: TENANT_ID, run_id: RUN_ID, node_key: "node_task",
-      node_requirements_json: '{"task_category":"codegen"}', workspace_id: "ws_abc",
+      node_requirements_json: '{"node_task":{"task_category":"codegen"}}', workspace_id: "ws_018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef",
       node_type: "LLMTask",
     });
     expect(received?.agent_id).toBe("agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab");
@@ -355,7 +355,7 @@ describe("NodeexecService.executeNode", () => {
         return { output: {} };
       },
     };
-    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef") };
     const capabilityResolver = {
       resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
     };
@@ -415,7 +415,7 @@ describe("NodeexecService.executeNode", () => {
         return { output: {} };
       },
     };
-    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef") };
     const capabilityResolver = {
       resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
     };
@@ -445,7 +445,7 @@ describe("NodeexecService.executeNode", () => {
       },
     };
     const ledger = fakeLedger();
-    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef") };
     const capabilityResolver = {
       resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
     };
@@ -479,7 +479,7 @@ describe("NodeexecService.executeNode", () => {
         return { output: {} };
       },
     };
-    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef") };
     const capabilityResolver = {
       resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
     };
@@ -559,7 +559,7 @@ describe("NodeexecService.executeNode", () => {
         };
       },
     };
-    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef") };
     const capabilityResolver = {
       resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
     };
@@ -603,7 +603,7 @@ describe("NodeexecService.executeNode", () => {
         throw new NodeHandlerValidationError("model gateway rejected the request");
       },
     };
-    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef") };
     const capabilityResolver = {
       resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
     };
@@ -643,7 +643,7 @@ describe("NodeexecService.executeNode", () => {
         return { output: {} };
       },
     };
-    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("ws_abc") };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef") };
     const capabilityResolver = {
       resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
     };

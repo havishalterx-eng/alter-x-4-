@@ -338,7 +338,11 @@ export class RecoveryDispatchService {
         tenant_id: `ten_${context.tenantId}`,
         run_id: context.runId,
         node_key: context.nodeKey,
-        node_requirements_json: resolved.node_requirements_json,
+        // Same keying the node executor does: ResolveNodeRequirements answers
+        // for one node, bind-agent-model-tool looks the node up inside a map.
+        node_requirements_json: JSON.stringify({
+          [context.nodeKey]: JSON.parse(resolved.node_requirements_json),
+        }),
         workspace_id: `ws_${workspaceId}`,
         node_type: node.type,
       });
