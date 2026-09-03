@@ -144,7 +144,7 @@ INSERT INTO workflow_versions (
 )
 VALUES (
   '$WORKFLOW_VERSION_ID', '$TENANT_ID', '$WORKFLOW_ID', 1,
-  '{"schema_version":"1","entry_node_keys":["start"],"nodes":[{"key":"start","type":"LLMTask","config":{},"metadata":{"ui":{}}}],"edges":[],"waves":[{"key":"w1","order":0,"node_keys":["start"],"depends_on":[]}]}'::jsonb,
+  '{"schema_version":"1","entry_node_keys":["start"],"nodes":[{"key":"start","type":"LLMTask","config":{"model_alias":"FAST","prompt":"Say hello."},"metadata":{"ui":{}}}],"edges":[],"waves":[{"key":"w1","order":0,"node_keys":["start"],"depends_on":[]}]}'::jsonb,
   '1', 'compiled'
 )
 ON CONFLICT (id) DO NOTHING;
