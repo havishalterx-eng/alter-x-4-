@@ -25,8 +25,15 @@ type VerifyServiceErrorCode =
   | "upstream";
 
 export class VerifyServiceClientError extends Error {
-  constructor(readonly code: VerifyServiceErrorCode) {
-    super("Verify Service request failed");
+  constructor(
+    readonly code: VerifyServiceErrorCode,
+    options?: ErrorOptions,
+  ) {
+    // The code separates a service that never answered from one that answered
+    // and rejected the call, which is the first thing an operator needs and
+    // what the sibling Capability Service client already reports. Naming the
+    // class of failure is not the same as leaking the upstream body.
+    super(`Verify Service request failed: ${code}`, options);
   }
 }
 
@@ -84,7 +91,7 @@ export class VerifyServiceClient implements VerifyServiceHandlerClient {
         { deadline: new Date(Date.now() + this.#timeoutMs) },
         (error, response) => {
           if (error !== null) {
-            reject(new VerifyServiceClientError(errorCode(error)));
+            reject(new VerifyServiceClientError(errorCode(error), { cause: error }));
             return;
           }
           if (response === undefined) {
