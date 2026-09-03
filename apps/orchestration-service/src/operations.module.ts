@@ -66,7 +66,11 @@ function requireSha256Fingerprint(value: string | undefined, field: string): str
       useFactory: (config: EvalFacadeEnvironment) => new EvalServiceClient({
         address: config.grpcTarget,
         protoPath: EVAL_PROTO_PATH,
-        authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
+        // Sent verbatim by EvalServiceClient, and eval-service reads the token
+        // only after a "Bearer " prefix -- the same requirement
+        // verification-service has, and the same reason a bare token here
+        // authenticated nothing.
+        authorization: `Bearer ${process.env["INTERNAL_SERVICE_TOKEN"] ?? ""}`,
       }),
     },
     EvalFacadeService,
