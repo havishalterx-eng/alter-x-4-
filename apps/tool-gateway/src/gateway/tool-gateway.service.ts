@@ -261,8 +261,20 @@ export class ToolGatewayService implements ToolgwHandler {
       // tenant credential has already been resolved above, so this rejection
       // is a credential-access event that must leave an audit trail.
       await this.#auditToolInvocation(request, "denied");
+      // Name every wired tool rather than writing browser.* and database.*.
+      // Neither is a prefix match: #isBrowserTool is BROWSER_TOOL_NAMES.has()
+      // and the database dispatch is a fixed switch, so browser.screenshot is
+      // refused by a message that appears to promise it works. Derived from the
+      // same constants the dispatcher matches on, so the message cannot drift
+      // from the behaviour.
+      const wired = [
+        SEARCH_WEB_TOOL_NAME,
+        ...[...DATABASE_OPERATIONS].map((operation) => `database.${operation}`),
+        ...BROWSER_TOOL_NAMES,
+        EMAIL_SEND_TOOL_NAME,
+      ].join(", ");
       throw new ToolGatewayNotImplementedError(
-        `Tool ${request.tool_name} has no real dispatch yet; only ${SEARCH_WEB_TOOL_NAME}, database.*, browser.* and ${EMAIL_SEND_TOOL_NAME} are wired`,
+        `Tool ${request.tool_name} has no real dispatch yet; wired tools are: ${wired}`,
       );
     } catch (error: unknown) {
       if (error instanceof ToolGatewayNotImplementedError) {
