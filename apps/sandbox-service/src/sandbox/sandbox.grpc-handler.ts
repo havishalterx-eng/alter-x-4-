@@ -54,7 +54,8 @@ export class SandboxServiceGrpcHandler {
     requireValue(request.node_execution_id, "node_execution_id");
     requireValue(request.session_id, "session_id");
     requireValue(request.command, "command");
-    if (request.arguments.length > 0) {
+    // Unset repeated fields arrive as undefined over gRPC, not as [].
+    if (request.arguments?.length) {
       throw new SandboxGrpcValidationError(
         "Sandbox Execute does not support command arguments",
       );
@@ -95,7 +96,7 @@ export class SandboxServiceGrpcHandler {
     requireValue(request.run_id, "run_id");
     requireValue(request.node_execution_id, "node_execution_id");
     requireValue(request.session_id, "session_id");
-    if (request.checks.length === 0) {
+    if (!request.checks?.length) {
       throw new SandboxGrpcValidationError(
         "RunVerificationSuite requires at least one check",
       );
@@ -168,14 +169,21 @@ export class SandboxServiceGrpcHandler {
   }
 }
 
-function requireValue(value: string, field: string): void {
-  if (value.trim().length === 0) {
+function requireValue(value: string | undefined, field: string): void {
+  // An omitted field arrives as undefined, not "", so this must accept both or
+  // it throws TypeError and the caller sees INTERNAL instead of the intended
+  // INVALID_ARGUMENT for the field it names.
+  if (!value?.trim()) {
     throw new SandboxGrpcValidationError(`${field} is required`);
   }
 }
 
-function parseEnvironmentJson(environmentJson: string): Readonly<Record<string, string>> {
-  if (environmentJson.trim().length === 0) return {};
+function parseEnvironmentJson(
+  environmentJson: string | undefined,
+): Readonly<Record<string, string>> {
+  // gRPC omits an unset optional string entirely, so this arrives as undefined
+  // rather than "". Treat both as "no environment supplied".
+  if (!environmentJson?.trim()) return {};
   let parsed: unknown;
   try {
     parsed = JSON.parse(environmentJson);

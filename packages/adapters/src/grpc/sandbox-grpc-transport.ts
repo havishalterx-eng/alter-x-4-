@@ -22,6 +22,8 @@ import type {
   SandboxWriteFileResponse,
 } from "@alterx/contracts";
 
+import { internalError } from "./internal-error";
+
 export const SANDBOX_HANDLER = Symbol("SANDBOX_HANDLER");
 
 export class SandboxGrpcValidationError extends Error {
@@ -70,10 +72,7 @@ export class SandboxGrpcController {
           message: error.message,
         });
       }
-      throw new RpcException({
-        code: status.INTERNAL,
-        message: "Sandbox execution could not be completed",
-      });
+      throw internalError(error, "Sandbox execution could not be completed");
     }
   }
 
@@ -111,7 +110,7 @@ export class SandboxGrpcController {
 
 function mapSandboxError(error: unknown): RpcException {
   if (error instanceof SandboxGrpcValidationError) return new RpcException({ code: status.INVALID_ARGUMENT, message: error.message });
-  return new RpcException({ code: status.INTERNAL, message: "Sandbox file operation could not be completed" });
+  return internalError(error, "Sandbox file operation could not be completed");
 }
 
 export async function startSandboxGrpcTransport(
