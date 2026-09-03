@@ -61,6 +61,8 @@ AGENT_SLOW="agt_01930000-0000-7000-8000-000000000011"
 
 WORKFLOW_ID="wf_01930000-0000-7000-8000-000000000020"
 WORKFLOW_VERSION_ID="wfv_01930000-0000-7000-8000-000000000021"
+TRIGGER_ID="trg_01930000-0000-7000-8000-000000000030"
+TRIGGER_VERSION_ID="trgv_01930000-0000-7000-8000-000000000031"
 
 run_sql() {
   # run_sql <host> <port> <user> <password> <database> <label>
@@ -86,6 +88,7 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO users (id, identity_ref, email, display_name, status)
 VALUES ('$USER_ID', 'local|probe-user', 'probe@local.invalid', 'Probe User', 'active')
 ON CONFLICT (id) DO NOTHING;
+
 SQL
 
 # --- intelligence_db: the Selection & Binding fixture ---------------------
@@ -141,8 +144,24 @@ INSERT INTO workflow_versions (
 )
 VALUES (
   '$WORKFLOW_VERSION_ID', '$TENANT_ID', '$WORKFLOW_ID', 1,
-  '{"nodes":[{"key":"start","type":"llm","config":{},"depends_on":[]}],"edges":[],"waves":[["start"]]}'::jsonb,
+  '{"schema_version":"1","entry_node_keys":["start"],"nodes":[{"key":"start","type":"LLMTask","config":{},"metadata":{"ui":{}}}],"edges":[],"waves":[{"key":"w1","order":0,"node_keys":["start"],"depends_on":[]}]}'::jsonb,
   '1', 'compiled'
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- RunDispatchService.CreateRun resolves the trigger and its active version
+-- before it will insert an events row. Without both, every dispatch is a
+-- silent no-op that returns an empty response and creates nothing.
+INSERT INTO triggers (id, tenant_id, workspace_id, workflow_id, name, type, status)
+VALUES ('$TRIGGER_ID', '$TENANT_ID', '$WORKSPACE_ID', '$WORKFLOW_ID', 'probe-trigger', 'manual', 'enabled')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO trigger_versions (
+  id, tenant_id, trigger_id, version, workflow_version_id, config, status, activated_at
+)
+VALUES (
+  '$TRIGGER_VERSION_ID', '$TENANT_ID', '$TRIGGER_ID', 1,
+  '$WORKFLOW_VERSION_ID', '{}'::jsonb, 'active', now()
 )
 ON CONFLICT (id) DO NOTHING;
 SQL
@@ -158,6 +177,7 @@ seeded. fixture identifiers:
   agent slow  $AGENT_SLOW
   workflow    $WORKFLOW_ID
   version     $WORKFLOW_VERSION_ID
+  trigger     $TRIGGER_ID
 
 Prefix tenant and workspace with ten_ / ws_ when calling an API surface;
 the databases store the bare uuid.
