@@ -229,7 +229,12 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
           new VerifyServiceClient({
             address: nodeexecConfig.verifyServiceAddress,
             protoPath: VERIFY_CLIENT_PROTO_PATH,
-            authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
+            // VerifyServiceClient sends this header verbatim, the same way the
+            // memory client does. verification-service reads the token only
+            // after a "Bearer " prefix and treats anything else as no
+            // credential at all, so passing the bare token authenticated
+            // nothing and every node scored through this client was rejected.
+            authorization: `Bearer ${process.env["INTERNAL_SERVICE_TOKEN"] ?? ""}`,
           }),
         );
         // No real QueueProvider adapter exists yet -- PubSubHandler uses

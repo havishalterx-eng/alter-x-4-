@@ -32,6 +32,86 @@ export interface MockModelProviderOptions {
   ) => AsyncIterable<ModelInvocationStreamChunk>;
 }
 
+/**
+ * Callers that ask this provider for a specific JSON shape parse the reply
+ * against that shape and fail closed when it does not match, so a mock that
+ * always answers in prose blocks them all. Verification cannot score a node,
+ * recovery cannot estimate a root cause, and a local run stops at the first
+ * gate that needs an opinion from a model.
+ *
+ * Each entry below is matched against the request's own instruction text and
+ * mirrors a contract that a caller states in its prompt. The verdicts are
+ * deliberately benign -- a passing score, no hallucination, low severity, no
+ * injection -- so a run proceeds far enough to exercise the path.
+ *
+ * The ceiling: these are fixed answers keyed off the prompt, not a model. A
+ * test that needs a specific verdict should inject its own `invoke` through
+ * MockModelProviderOptions rather than adding a branch here, and anything
+ * asserting real model judgement belongs against a real provider.
+ */
+const STRUCTURED_REPLIES: readonly {
+  readonly matches: RegExp;
+  readonly reply: Readonly<Record<string, unknown>>;
+}[] = [
+  {
+    // verification-service, ADVANCED reviewer: {"score", "rationale"}
+    matches: /ADVANCED-tier reviewer/,
+    reply: { score: 0.9, rationale: "mock reviewer: output satisfies the rubric" },
+  },
+  {
+    // verification-service, hallucination assessor
+    matches: /Classify hallucination risk/,
+    reply: {
+      hallucination_score: 0.05,
+      verdict: "pass",
+      flagged_spans: [],
+      reasons: ["mock assessor: every claim is supported by the evidence"],
+    },
+  },
+  {
+    // verification-service, safety severity assessor
+    matches: /Assess safety severity/,
+    reply: { severity: "low", rationale: "mock assessor: no unsafe content" },
+  },
+  {
+    // orchestration recovery, ADVANCED root-cause estimator. It states its
+    // contract as an output_schema field rather than in prose.
+    matches: /"output_schema"[\s\S]*"explanation"/,
+    reply: {
+      explanation: "mock estimator: the node failed on a transient dependency error",
+      confidence: 0.5,
+      evidence: ["mock estimator: derived from the deterministic classification"],
+    },
+  },
+  {
+    // session-gateway prompt-injection classifier
+    matches: /injection_detected/,
+    reply: {
+      injection_detected: false,
+      confidence: 0.02,
+      reason: "mock classifier: no attempt to override instructions",
+    },
+  },
+  {
+    // orchestration conversation manager, intent classification
+    matches: /classify a single user utterance/i,
+    reply: { intent: "answer", confidence: 0.9 },
+  },
+];
+
+/** The assistant text for a request: a contract-shaped reply when the caller
+ * asked for one, otherwise the prose echo. */
+function mockAssistantContent(
+  messages: readonly { readonly content: string }[],
+): string {
+  const instruction = messages.map((message) => message.content).join("\n");
+  const structured = STRUCTURED_REPLIES.find(({ matches }) =>
+    matches.test(instruction),
+  );
+  if (structured !== undefined) return JSON.stringify(structured.reply);
+  return `mock response to: ${messages[messages.length - 1]?.content ?? ""}`;
+}
+
 function defaultStream(
   providerId: string,
 ): (request: ModelInvocationRequest) => AsyncIterable<ModelInvocationStreamChunk> {
@@ -39,7 +119,6 @@ function defaultStream(
     const payload = ModelInvocationPayloadSchema.parse(
       JSON.parse(request.inputJson),
     );
-    const lastMessage = payload.messages[payload.messages.length - 1];
     // Consumers concatenate the deltas and parse the result as the node's
     // output_json, so the stream has to spell out the same JSON envelope the
     // invoke path returns. Emitting bare prose here made every streamed node
@@ -49,7 +128,7 @@ function defaultStream(
       delta: JSON.stringify({
         message: {
           role: "assistant",
-          content: `mock response to: ${lastMessage?.content ?? ""}`,
+          content: mockAssistantContent(payload.messages),
         },
         stop_reason: "end_turn",
       }),
@@ -73,12 +152,11 @@ function defaultInvoke(
     const payload = ModelInvocationPayloadSchema.parse(
       JSON.parse(request.inputJson),
     );
-    const lastMessage = payload.messages[payload.messages.length - 1];
     return {
       outputJson: JSON.stringify({
         message: {
           role: "assistant",
-          content: `mock response to: ${lastMessage?.content ?? ""}`,
+          content: mockAssistantContent(payload.messages),
         },
         stop_reason: "end_turn",
       }),
