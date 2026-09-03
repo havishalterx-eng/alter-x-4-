@@ -242,6 +242,51 @@ AppConfig and SecretsManager). With `ALTER_CONFIG_SOURCE=mock` and
 `ALTER_ENV=local`, model providers and AWS services are replaced by mock
 implementations â€” this is the recommended local mode.
 
+**Mock mode does not cover authentication.** `M2mValidator` requires
+`AUTH0_DOMAIN` and `API_AUDIENCE` unconditionally and throws
+`Session Gateway M2M configuration is incomplete` at boot without them, so the
+service will not start on mock settings alone. Point it at the local issuer
+described next.
+
+## Local M2M authentication
+
+Every gRPC and internal HTTP surface sits behind `ServiceAuthGuard`, which
+validates a real Auth0 M2M JWT. There is no local bypass. Calling a service
+without one returns `Internal service credential is invalid`, which reads like a
+broken service rather than a missing credential.
+
+`scripts/local-mock-auth0/server.js` issues tokens the validator accepts. Start
+it before any service that needs authentication:
+
+```bash
+node scripts/local-mock-auth0/server.js &
+```
+
+It serves `/.well-known/jwks.json` and `POST /oauth/token` on port 4999, signing
+RS256 tokens as issuer `alterx-local-m2m.test`. Export these alongside
+`.env.local`:
+
+```bash
+export AUTH0_DOMAIN=alterx-local-m2m.test
+export AUTH0_JWKS_URL=http://127.0.0.1:4999/.well-known/jwks.json
+export API_AUDIENCE=https://engine.alter.local
+```
+
+To call a service, mint a token:
+
+```bash
+TOKEN=$(sh scripts/local-m2m-token.sh)
+grpcurl -H "authorization: Bearer $TOKEN" ...
+```
+
+Two notes for gRPC surfaces. They do not enable reflection, so pass the proto
+explicitly: `-import-path packages/contracts/proto -proto
+alter/<svc>/v1/<svc>.proto`. And if you run `grpcurl` from a container while the
+service runs natively on the host, reach it at `host.docker.internal` rather
+than `127.0.0.1` -- `--network host` places the container in the Docker VM's
+network namespace, which is where the compose containers live but not where a
+locally started service does.
+
 ## Run orchestration-service
 
 orchestration-service is the Engine's largest NestJS service. It hosts 8
