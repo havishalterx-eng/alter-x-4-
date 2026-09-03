@@ -2,6 +2,7 @@ import { status } from "@grpc/grpc-js";
 import { Controller, Inject, type INestApplication } from "@nestjs/common";
 import { GrpcMethod, RpcException, Transport, type MicroserviceOptions } from "@nestjs/microservices";
 import type { ArtifactCreateContentRequest, ArtifactCreateContentResponse, ArtifactReadContentRequest, ArtifactReadContentResponse } from "@alterx/contracts";
+import { internalError } from "./internal-error";
 
 export const ARTIFACT_CONTENT_HANDLER = Symbol("ARTIFACT_CONTENT_HANDLER");
 
@@ -34,5 +35,5 @@ export function connectArtifactContentGrpcTransport(app: INestApplication, confi
 function mapArtifactError(error: unknown): RpcException {
   if (error instanceof Error && error.name === "ArtifactValidationError") return new RpcException({ code: status.INVALID_ARGUMENT, message: error.message });
   if (error instanceof Error && error.name === "ArtifactNotFoundError") return new RpcException({ code: status.NOT_FOUND, message: error.message });
-  return new RpcException({ code: status.INTERNAL, message: "Artifact content operation could not be completed" });
+  return internalError(error, "Artifact content operation could not be completed");
 }

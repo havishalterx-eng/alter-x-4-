@@ -25,6 +25,7 @@ import {
   ModelGatewayCostLimitExceededError,
   ModelGatewayInvalidResponseError,
 } from "@alterx/shared-clients";
+import { internalError } from "./internal-error";
 
 export const MODELGW_HANDLER = Symbol("MODELGW_HANDLER");
 
@@ -96,11 +97,8 @@ export class ModelgwGrpcController {
   ): Promise<ModelgwRedactResponse> {
     try {
       return await this.handler.redact(request);
-    } catch {
-      throw new RpcException({
-        code: status.INTERNAL,
-        message: "PII redaction could not be completed",
-      });
+    } catch (error: unknown) {
+      throw internalError(error, "PII redaction could not be completed");
     }
   }
 
@@ -117,11 +115,8 @@ export class ModelgwGrpcController {
   async embed(request: ModelgwEmbedRequest): Promise<ModelgwEmbedResponse> {
     try {
       return await this.handler.embed(request);
-    } catch {
-      throw new RpcException({
-        code: status.INTERNAL,
-        message: "Embedding could not be completed",
-      });
+    } catch (error: unknown) {
+      throw internalError(error, "Embedding could not be completed");
     }
   }
 }
@@ -149,7 +144,7 @@ function mapModelgwError(error: unknown, fallbackMessage: string): RpcException 
   // below (no internal detail over the wire) -- log the real cause here or
   // it's gone.
   console.error("modelgw invoke failed:", error);
-  return new RpcException({ code: status.INTERNAL, message: fallbackMessage });
+  return internalError(error, fallbackMessage);
 }
 
 export async function startModelgwGrpcTransport(

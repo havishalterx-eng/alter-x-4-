@@ -19,6 +19,7 @@ import {
   AuditValidationError,
   type AuditEventHandler,
 } from "@alterx/shared-clients";
+import { internalError } from "./internal-error";
 
 export interface AuditGrpcTransportConfig {
   readonly bindAddress: string;
@@ -43,10 +44,7 @@ export class AuditGrpcController {
           message: error.message,
         });
       }
-      throw new RpcException({
-        code: status.INTERNAL,
-        message: "Audit event could not be recorded",
-      });
+      throw internalError(error, "Audit event could not be recorded");
     }
   }
 
@@ -61,10 +59,7 @@ export class AuditGrpcController {
           message: error.message,
         });
       }
-      throw new RpcException({
-        code: status.INTERNAL,
-        message: "Audit event could not be retrieved",
-      });
+      throw internalError(error, "Audit event could not be retrieved");
     }
   }
 }

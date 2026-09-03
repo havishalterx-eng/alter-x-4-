@@ -15,6 +15,7 @@ import type {
   ConversationMergeClarificationRequest,
   ConversationMergeClarificationResponse,
 } from "@alterx/contracts";
+import { internalError } from "./internal-error";
 
 export const CONVERSATION_HANDLER = Symbol("CONVERSATION_HANDLER");
 
@@ -114,10 +115,7 @@ function mapConversationError(
       message: error.message,
     });
   }
-  return new RpcException({
-    code: status.INTERNAL,
-    message: fallbackMessage,
-  });
+  return internalError(error, fallbackMessage);
 }
 
 function isNamedError(error: unknown, name: string): error is Error {

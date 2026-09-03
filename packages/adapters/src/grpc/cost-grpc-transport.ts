@@ -17,6 +17,7 @@ import type {
   CostRecordModelOutcomeRequest,
   CostRecordModelOutcomeResponse,
 } from "@alterx/contracts";
+import { internalError } from "./internal-error";
 
 export const COST_HANDLER = Symbol("COST_HANDLER");
 
@@ -121,10 +122,7 @@ function mapCostError(error: unknown): RpcException {
       message: error.message,
     });
   }
-  return new RpcException({
-    code: status.INTERNAL,
-    message: "Cost Ledger request could not be completed",
-  });
+  return internalError(error, "Cost Ledger request could not be completed");
 }
 
 function isNamedError(error: unknown, name: string): error is Error {

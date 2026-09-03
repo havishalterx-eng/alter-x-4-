@@ -15,6 +15,7 @@ import type {
   NodeexecFinalizeRunRequest,
   NodeexecFinalizeRunResponse,
 } from "@alterx/contracts";
+import { internalError } from "./internal-error";
 
 export const NODEEXEC_HANDLER = Symbol("NODEEXEC_HANDLER");
 
@@ -116,10 +117,7 @@ function mapNodeexecError(error: unknown, fallbackMessage: string): RpcException
       message: error.message,
     });
   }
-  return new RpcException({
-    code: status.INTERNAL,
-    message: fallbackMessage,
-  });
+  return internalError(error, fallbackMessage);
 }
 
 function isNamedError(error: unknown, name: string): error is Error {

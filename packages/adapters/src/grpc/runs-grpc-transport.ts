@@ -15,6 +15,7 @@ import type {
   RunsGetRunWorkspaceRequest,
   RunsGetRunWorkspaceResponse,
 } from "@alterx/contracts";
+import { internalError } from "./internal-error";
 
 export const RUNS_HANDLER = Symbol("RUNS_HANDLER");
 
@@ -121,10 +122,7 @@ function mapRunsError(error: unknown): RpcException {
       message: error.message,
     });
   }
-  return new RpcException({
-    code: status.INTERNAL,
-    message: "Run workspace lookup could not be completed",
-  });
+  return internalError(error, "Run workspace lookup could not be completed");
 }
 
 function isNamedError(error: unknown, name: string): error is Error {

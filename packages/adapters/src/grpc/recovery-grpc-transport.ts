@@ -15,6 +15,7 @@ import type {
   RecoverySelectStrategyRequest,
   RecoverySelectStrategyResponse,
 } from "@alterx/contracts";
+import { internalError } from "./internal-error";
 
 export const RECOVERY_HANDLER = Symbol("RECOVERY_HANDLER");
 
@@ -128,10 +129,7 @@ function mapRecoveryError(error: unknown): RpcException {
       message: error.message,
     });
   }
-  return new RpcException({
-    code: status.INTERNAL,
-    message: "Failure classification could not be completed",
-  });
+  return internalError(error, "Failure classification could not be completed");
 }
 
 function isNamedError(error: unknown, name: string): error is Error {

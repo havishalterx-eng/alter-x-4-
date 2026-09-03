@@ -15,6 +15,7 @@ import type {
   DeployctlStartCanaryRequest,
   DeployctlStartCanaryResponse,
 } from "@alterx/contracts";
+import { internalError } from "./internal-error";
 
 export const DEPLOYCTL_HANDLER = Symbol("DEPLOYCTL_HANDLER");
 
@@ -119,10 +120,7 @@ function mapDeploymentError(
       message: error.message,
     });
   }
-  return new RpcException({
-    code: status.INTERNAL,
-    message: fallbackMessage,
-  });
+  return internalError(error, fallbackMessage);
 }
 
 function isNamedError(error: unknown, name: string): error is Error {

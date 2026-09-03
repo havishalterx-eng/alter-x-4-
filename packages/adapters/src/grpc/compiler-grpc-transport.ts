@@ -14,6 +14,7 @@ import type {
   CompilerValidateWorkflowDagRequest,
   CompilerValidateWorkflowDagResponse,
 } from "@alterx/contracts";
+import { internalError } from "./internal-error";
 
 export const COMPILER_HANDLER = Symbol("COMPILER_HANDLER");
 
@@ -107,10 +108,7 @@ function mapCompilerError(error: unknown, fallbackMessage: string): RpcException
       message: error.message,
     });
   }
-  return new RpcException({
-    code: status.INTERNAL,
-    message: fallbackMessage,
-  });
+  return internalError(error, fallbackMessage);
 }
 
 function isNamedError(error: unknown, name: string): error is Error {
