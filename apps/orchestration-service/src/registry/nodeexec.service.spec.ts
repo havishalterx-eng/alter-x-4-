@@ -155,11 +155,13 @@ describe("NodeexecService.executeNode", () => {
     await expect(nodeexec.executeNode({
       tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
       node_key: "node_merge", node_type: "Merge", config_json: "{}", inputs_json: "{}",
-    })).rejects.toThrow(/Verify Service is unavailable/);
+    })).rejects.toThrow(/Verify Service call failed: unavailable/);
     expect(ledger.recordSucceeded).not.toHaveBeenCalled();
+    // The code is what the caller branches on; the detail carries the reason
+    // the gate actually failed, so a stored row is diagnosable on its own.
     expect(ledger.recordFailed).toHaveBeenCalledWith(
       expect.anything(),
-      { code: "VERIFY_SERVICE_UNAVAILABLE", detail: "Verify Service is unavailable" },
+      { code: "VERIFY_SERVICE_UNAVAILABLE", detail: "Verify Service call failed: unavailable" },
     );
   });
 
