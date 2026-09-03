@@ -337,3 +337,73 @@ describe("SandboxServiceGrpcHandler", () => {
     ).rejects.toThrow("environment_json.PORT must be a string");
   });
 });
+
+/**
+ * gRPC delivers an unset field as undefined rather than the proto3 default, so
+ * a request built by a real client is not shaped like the fully-populated
+ * fixtures above. Every case here threw TypeError before the handler accepted
+ * undefined, which the transport reported as INTERNAL -- the caller was told
+ * the service had failed rather than which field was missing.
+ */
+describe("SandboxServiceGrpcHandler with fields omitted by the caller", () => {
+  const stubs = () => ({
+    execute: vi.fn().mockResolvedValue({ exitCode: 0, stdout: "ok", stderr: "" }),
+    readFile: vi.fn(),
+    writeFiles: vi.fn(),
+    verifyBuild: vi.fn(),
+    verifyRender: vi.fn(),
+    closeSession: vi.fn(),
+    createSession: vi
+      .fn()
+      .mockResolvedValue({ sessionId: "ses_1", expiresAt: "1970-01-01T01:00:00.000Z" }),
+  });
+
+  it("executes when the optional arguments field is absent", async () => {
+    const sandbox = stubs();
+    const handler = new SandboxServiceGrpcHandler(sandbox, artifacts);
+    const { tenant_id, run_id, node_execution_id, session_id, command } = request;
+
+    await expect(
+      handler.execute({
+        tenant_id,
+        run_id,
+        node_execution_id,
+        session_id,
+        command,
+      } as typeof request),
+    ).resolves.toMatchObject({ exit_code: 0, stdout: "ok" });
+  });
+
+  it("creates a session when the optional environment_json field is absent", async () => {
+    const sandbox = stubs();
+    const handler = new SandboxServiceGrpcHandler(sandbox, artifacts);
+
+    await expect(
+      handler.createSession({
+        tenant_id: request.tenant_id,
+        run_id: request.run_id,
+        template_id: "node",
+      } as never),
+    ).resolves.toMatchObject({ session_id: "ses_1", template_id: "node" });
+    expect(sandbox.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ environment: {} }),
+    );
+  });
+
+  it("names the missing field when a required one is absent", async () => {
+    const handler = new SandboxServiceGrpcHandler(stubs(), artifacts);
+    const { run_id, node_execution_id, session_id, command } = request;
+
+    await expect(
+      handler.execute({ run_id, node_execution_id, session_id, command } as never),
+    ).rejects.toThrow("tenant_id is required");
+  });
+
+  it("still rejects a required field present but blank", async () => {
+    const handler = new SandboxServiceGrpcHandler(stubs(), artifacts);
+
+    await expect(
+      handler.execute({ ...request, command: "   " }),
+    ).rejects.toThrow("command is required");
+  });
+});
