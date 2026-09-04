@@ -115,6 +115,53 @@ async def test_adds_explicit_verification_and_approval_boundaries() -> None:
 
 
 @pytest.mark.asyncio
+async def test_topology_and_confidence_are_identical_under_wildly_different_stakes() -> None:
+    """Batch 5 probe (rebuild plan, "Synthesizer identical-output-under-
+    different-constraints" -- the moat decision).
+
+    _topology reads only node types, the dependency graph, and the single
+    boolean coordination_required. Nothing in SynthesisConstraints or
+    anywhere else in the request carries a notion of risk, ambition, or
+    judgment required -- so two requests that describe wildly different real
+    stakes, but share the same task-skeleton shape, must produce the exact
+    same topology and the same hardcoded confidence=1.0. This test is
+    written to fail if that diagnosis is wrong: a synthesizer that actually
+    weighed the stakes would be expected to treat these differently.
+    """
+    low_stakes = request(
+        [TaskNode(key="one", type="llm"), TaskNode(key="two", type="llm", depends_on=["one"])],
+        SynthesisConstraints(),
+    )
+    high_stakes = request(
+        [TaskNode(key="one", type="llm"), TaskNode(key="two", type="llm", depends_on=["one"])],
+        SynthesisConstraints(
+            verification_required=True,
+            human_approval_required=True,
+            customer_visible=True,
+            allowed_regions=["eu-west-1"],
+            allowed_data_residency=["eu"],
+            allowed_permissions=["finance:write", "pii:read"],
+        ),
+    )
+
+    low = await ArchitectureSynthesizer(Registry()).synthesize(low_stakes)
+    high = await ArchitectureSynthesizer(Registry()).synthesize(high_stakes)
+
+    assert isinstance(low, ArchitectureSpec)
+    assert isinstance(high, ArchitectureSpec)
+    # Everything that could reflect a real judgment about the two very
+    # different situations comes out identical.
+    assert low.topology == high.topology == "sequential"
+    assert low.execution_waves == high.execution_waves
+    assert low.confidence == high.confidence == 1.0
+    assert [n.role for n in low.nodes] == [n.role for n in high.nodes]
+    # Only the boundaries list -- a direct, mechanical echo of which
+    # boolean constraint flags were set -- actually differs.
+    assert low.boundaries == []
+    assert len(high.boundaries) == 2
+
+
+@pytest.mark.asyncio
 async def test_output_is_stable_and_preserves_dependencies() -> None:
     value = request(
         [
