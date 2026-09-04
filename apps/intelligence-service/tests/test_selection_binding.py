@@ -287,15 +287,18 @@ async def seed_performance(
     node_type: str = "LLMTask",
     task_category: str = "analysis",
     id_suffix: str = "matching",
+    latency_ms: int | None = None,
+    token_count: int | None = None,
 ) -> None:
     for index, verdict in enumerate(verdicts):
         await session.execute(
             text(
                 """
 INSERT INTO performance_records
-  (id, agent_id, tenant_id, node_type, task_category, verdict)
+  (id, agent_id, tenant_id, node_type, task_category, verdict, latency_ms, token_count)
 VALUES
-  (:id, :agent_id, CAST(:tenant_id AS uuid), :node_type, :task_category, :verdict)
+  (:id, :agent_id, CAST(:tenant_id AS uuid), :node_type, :task_category, :verdict,
+   :latency_ms, :token_count)
 """
             ),
             {
@@ -305,6 +308,8 @@ VALUES
                 "node_type": node_type,
                 "task_category": task_category,
                 "verdict": verdict,
+                "latency_ms": latency_ms,
+                "token_count": token_count,
             },
         )
 
@@ -801,3 +806,74 @@ class TestSelectionBindingIntegration:
         )
 
         assert outcome == NoAgentMatch(node_key="node.one", reason="no_eligible_agent")
+
+    async def test_recorded_latency_and_cost_do_not_move_the_routing_decision(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Batch 5 probe (rebuild plan, "Selection & Binding cost-and-
+        latency-ignored").
+
+        _RANKED_AGENT_QUERY's combined_score is
+        similarity_weight * capability_similarity + performance_weight *
+        performance_score -- both purely similarity/verdict terms.
+        performance_records.latency_ms and .token_count exist in the schema
+        (the seed script that ships with this repo deliberately gives two
+        fixture agents matching embeddings and verdicts but roughly an
+        order-of-magnitude difference in latency_ms/token_count, exactly so
+        this could be observed), but the query never selects either column.
+
+        This test is written to fail if that diagnosis is wrong: two agents
+        with identical capability similarity and identical verdict mix, but
+        a ~30x difference in recorded latency and token cost, must produce
+        the identical routing decision regardless of which one is actually
+        cheap and fast -- because the tiebreak (agent_id ASC) is the only
+        thing left once similarity and performance_score tie.
+        """
+        CHEAP_LATENCY_MS, CHEAP_TOKEN_COUNT = 200, 150
+        SLOW_LATENCY_MS, SLOW_TOKEN_COUNT = 8_000, 4_200
+
+        await seed_agent(db_session, agent_id=AGENT_A, embedding=vector(1.0))
+        await seed_agent(db_session, agent_id=AGENT_B, embedding=vector(1.0))
+        await seed_performance(
+            db_session,
+            agent_id=AGENT_A,
+            verdicts=["success", "success"],
+            latency_ms=CHEAP_LATENCY_MS,
+            token_count=CHEAP_TOKEN_COUNT,
+        )
+        await seed_performance(
+            db_session,
+            agent_id=AGENT_B,
+            verdicts=["success", "success"],
+            latency_ms=SLOW_LATENCY_MS,
+            token_count=SLOW_TOKEN_COUNT,
+        )
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+        request = request_for(NodeRequirement(capabilities=["text.generation"]))
+
+        cheap_agent_wins = await engine.bind(request, context())
+        assert isinstance(cheap_agent_wins, BindAgentModelToolResponse)
+        assert cheap_agent_wins.agent_id == AGENT_A
+
+        # Swap which agent is actually cheap and fast. If cost or latency
+        # influenced the ranking at all, the winner would flip too.
+        await db_session.execute(text("DELETE FROM performance_records"))
+        await seed_performance(
+            db_session,
+            agent_id=AGENT_A,
+            verdicts=["success", "success"],
+            latency_ms=SLOW_LATENCY_MS,
+            token_count=SLOW_TOKEN_COUNT,
+        )
+        await seed_performance(
+            db_session,
+            agent_id=AGENT_B,
+            verdicts=["success", "success"],
+            latency_ms=CHEAP_LATENCY_MS,
+            token_count=CHEAP_TOKEN_COUNT,
+        )
+
+        same_agent_wins_again = await engine.bind(request, context())
+        assert isinstance(same_agent_wins_again, BindAgentModelToolResponse)
+        assert same_agent_wins_again.agent_id == AGENT_A

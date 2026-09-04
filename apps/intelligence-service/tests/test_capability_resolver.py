@@ -275,3 +275,63 @@ class TestResolution:
             )
         with pytest.raises(ValidationError):
             WorkflowDagNode.model_validate(node("invented", "HttpRequest"))
+
+
+class TestTierResolutionIsKeywordMatchingNotComplexityAssessment:
+    """Batch 5 probe (rebuild plan, "Capability Resolver keyword tie").
+
+    _model_alias checks _ADVANCED_TIER_TERMS before _FAST_TIER_TERMS with a
+    plain `if / elif`, over the whole free-text description. There is no
+    notion of which word names the actual action versus an incidental
+    modifier, and no tie-break by frequency or position -- one match from the
+    advanced list anywhere in the text always wins, however trivial the real
+    task is. These tests are written to fail if that diagnosis is wrong.
+    """
+
+    def test_incidental_advanced_word_overrides_the_actual_fast_verb(self) -> None:
+        # "summarize" is the task; "complex" is an incidental adjective on
+        # the noun being summarized, not a description of the summarizing
+        # itself. A resolver reasoning about the *task* would call this
+        # FAST -- summarizing is summarizing, whatever the input describes.
+        result = dumped(
+            resolve_node_requirements(
+                [
+                    node(
+                        "summarize",
+                        "LLMTask",
+                        {"prompt": "Summarize this complex regulatory filing"},
+                    )
+                ]
+            )
+        )
+        assert result["summarize"]["model_alias"] == "ADVANCED"
+
+    def test_word_order_does_not_change_the_outcome(self) -> None:
+        # Same two terms, incidental word moved to the front. If this were
+        # about which word names the task, order or position could matter.
+        # It doesn't -- confirming this is unordered set membership, not any
+        # kind of parse.
+        result = dumped(
+            resolve_node_requirements(
+                [
+                    node(
+                        "summarize",
+                        "LLMTask",
+                        {"prompt": "This regulatory filing is complex; summarize it"},
+                    )
+                ]
+            )
+        )
+        assert result["summarize"]["model_alias"] == "ADVANCED"
+
+    def test_removing_the_incidental_word_flips_the_tier(self) -> None:
+        # Same actual task (summarize), same length, only the incidental
+        # adjective removed -- and the tier flips from ADVANCED to FAST.
+        # The task did not get easier; the resolver's signal was never the
+        # task's real difficulty, only which fixed words happen to appear.
+        result = dumped(
+            resolve_node_requirements(
+                [node("summarize", "LLMTask", {"prompt": "Summarize this regulatory filing"})]
+            )
+        )
+        assert result["summarize"]["model_alias"] == "FAST"

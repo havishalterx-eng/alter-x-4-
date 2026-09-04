@@ -114,3 +114,53 @@ class TestUnknownMode:
         strategy, _ = select_strategy("do something", "")
 
         assert strategy == STRATEGY_ITERATIVE
+
+
+class TestStrategySelectionTracksSurfaceFormNotActualScope:
+    """Batch 5 probe (rebuild plan, "Planner 40-word threshold").
+
+    select_strategy's own docstring says this "never calls the LLM" -- it is
+    word count plus membership in a fixed 23-word set, nothing else. These
+    tests are written to fail if that diagnosis is wrong: a semantically
+    trivial objective padded past the thresholds should escalate, and a
+    genuinely multi-team, multi-region objective phrased concisely should
+    not, even though the second is the harder problem by any real measure.
+    """
+
+    def test_trivial_lookup_padded_past_both_thresholds_escalates(self) -> None:
+        # The actual task is "look up one fact." Padding with filler words
+        # and a handful of incidental complex-keyword hits is enough to
+        # trigger the fan-out strategy meant for genuinely large,
+        # multi-workstream work.
+        objective = (
+            "please look up the capital city of France and also generate a small "
+            "report about it then review it every single time even though this is "
+            "really just one simple trivial lookup that anyone could plan to "
+            "compile quickly without needing a team to coordinate anything at all today"
+        )
+        assert len(objective.split()) >= 40
+
+        strategy, reason = select_strategy(objective, "workflow")
+
+        assert strategy == STRATEGY_MANAGER_WORKER
+        assert reason
+
+    def test_genuinely_multi_team_objective_stated_concisely_does_not_escalate(self) -> None:
+        # The actual task -- a zero-downtime, multi-region regulatory
+        # migration synchronized across three engineering teams -- is a
+        # textbook case for the parallel manager/worker strategy. Phrased in
+        # 28 words with none of the fixed keywords, it is classified as
+        # ITERATIVE: a single execution path, not a fan-out. The heuristic
+        # never sees "three teams," "twelve countries," or "zero downtime"
+        # as complexity signals -- only word count and set membership.
+        objective = (
+            "Restructure our multi-region payment infrastructure to comply with new "
+            "regulations across twelve countries while keeping zero downtime and "
+            "syncing three separate engineering teams on a shared cutover window"
+        )
+        assert len(objective.split()) < 40
+
+        strategy, _ = select_strategy(objective, "workflow")
+
+        assert strategy != STRATEGY_MANAGER_WORKER
+        assert strategy == STRATEGY_ITERATIVE
