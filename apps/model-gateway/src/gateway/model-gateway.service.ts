@@ -107,6 +107,57 @@ export class ModelGatewayService implements ModelgwHandler {
     private readonly costClient: CostHandlerClient,
   ) {}
 
+
+  /**
+   * Redacts a model invocation payload WITHOUT destroying its JSON shape.
+   *
+   * The payload reaching this gateway is a serialized envelope
+   * (`{ messages: [{ role, content }], ... }`). Redacting that whole string
+   * as free text let a replacement span swallow structural characters --
+   * an escaped quote, or the quotes around a URL -- leaving JSON that no
+   * longer parses. The provider adapters call JSON.parse on this value, so
+   * every payload containing a name or URL (i.e. most real ones) failed
+   * with "Bad escaped character in JSON", surfacing far downstream as an
+   * opaque node failure.
+   *
+   * Redacting each message's `content` instead scrubs exactly the operator
+   * text while leaving the envelope intact. Behaviour is unchanged for any
+   * payload this cannot parse: it falls back to redacting the whole string,
+   * so a malformed envelope is never forwarded less-redacted than before.
+   */
+  async #redactInvocationPayload(
+    tenantId: string,
+    inputJson: string,
+  ): Promise<{ redactedText: string }> {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(inputJson);
+    } catch {
+      const whole = await this.piiRedactionProvider.redact({ tenantId, text: inputJson });
+      return { redactedText: whole.redactedText };
+    }
+
+    const payload = parsed as { messages?: unknown };
+    if (!Array.isArray(payload.messages)) {
+      const whole = await this.piiRedactionProvider.redact({ tenantId, text: inputJson });
+      return { redactedText: whole.redactedText };
+    }
+
+    const messages = await Promise.all(
+      payload.messages.map(async (message: unknown) => {
+        const record = message as { content?: unknown };
+        if (typeof record.content !== "string") return message;
+        const result = await this.piiRedactionProvider.redact({
+          tenantId,
+          text: record.content,
+        });
+        return { ...(message as object), content: result.redactedText };
+      }),
+    );
+
+    return { redactedText: JSON.stringify({ ...(parsed as object), messages }) };
+  }
+
   async invoke(request: ModelgwInvokeRequest): Promise<ModelgwInvokeResponse> {
     const parsedAlias = ModelAliasSchema.safeParse(request.model_alias);
     if (!parsedAlias.success) {
@@ -120,10 +171,10 @@ export class ModelGatewayService implements ModelgwHandler {
     // the standalone Redact RPC on the content itself. The semantic cache
     // below is keyed on this redacted text too, so a cache hit can never
     // leak PII that would not have left the gateway on a cache miss either.
-    const redacted = await this.piiRedactionProvider.redact({
-      tenantId: request.tenant_id,
-      text: request.input_json,
-    });
+    const redacted = await this.#redactInvocationPayload(
+      request.tenant_id,
+      request.input_json,
+    );
 
     // Embedded once and reused for both the lookup and (on a miss) the
     // store below -- computing it twice would double the embedding
@@ -225,10 +276,10 @@ export class ModelGatewayService implements ModelgwHandler {
     }
     const alias = parsedAlias.data;
     const binding = await this.configProvider.resolveModelAlias(alias);
-    const redacted = await this.piiRedactionProvider.redact({
-      tenantId: request.tenant_id,
-      text: request.input_json,
-    });
+    const redacted = await this.#redactInvocationPayload(
+      request.tenant_id,
+      request.input_json,
+    );
 
     // ENGINE-FIX-B5-19: mirrors invoke()'s own embed-once-then-check-cache
     // sequence above -- same reasons apply here (one embedding call, cache

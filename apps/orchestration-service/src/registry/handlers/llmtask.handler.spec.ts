@@ -44,7 +44,14 @@ describe("LlmTaskHandler", () => {
       node_execution_id: NODE_EXECUTION_ID,
       model_alias: "ADVANCED",
       input_json: JSON.stringify({
-        messages: [{ role: "user", content: "summarize this" }],
+        messages: [
+          {
+            role: "user",
+            content:
+              "summarize this\n\nUpstream node output:\n" +
+              JSON.stringify({ node_a: { text: "upstream text" } }, null, 2),
+          },
+        ],
       }),
     });
     expect(result.output).toEqual({ text: "hello" });
