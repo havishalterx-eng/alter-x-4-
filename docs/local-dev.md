@@ -205,7 +205,7 @@ policy store, and drift detection. It exposes three HTTP routers:
 Apply migrations and start:
 ```bash
 pnpm nx run memory-service:migrate
-PORT=8002 NODE_ENV=development pnpm nx run memory-service:serve
+UVICORN_PORT=8002 NODE_ENV=development pnpm nx run memory-service:serve
 ```
 
 Health check (HTTP, port 8002):
@@ -214,9 +214,20 @@ curl --fail --silent http://127.0.0.1:8002/health
 ```
 
 Depends on engine-db (Postgres, port 5433 â€” `policy_db`), orchestration-service
-HTTP (default `http://127.0.0.1:3000`), intelligence-service HTTP, ads-core HTTP,
+HTTP (`ORCHESTRATION_SERVICE_BASE_URL`, `http://127.0.0.1:3010` for this stack;
+the service's own default is 3000, which is platform-web), intelligence-service HTTP, ads-core HTTP,
 and cost-ledger-service HTTP. Protected by `INTERNAL_SERVICE_TOKEN_SHA256` â€”
 export this consistently with `INTERNAL_SERVICE_TOKEN` used by calling services.
+
+The serve target runs `uvicorn`, which reads `UVICORN_PORT` and ignores `PORT`: started
+with `PORT=8002` the service comes up on uvicorn's default 8000 instead, and every
+caller configured for 8002 fails to reach it.
+
+Set `POLICY_DB_SYSTEM_URL_SYNC` as well as `POLICY_DB_URL_SYNC`. memory-service connects
+a second time as `policy_system_writer` for the rows its RLS policies reserve to that
+identity, which is every agent drift write and every global-scope policy or memory
+write. Its built-in default for that URL carries no password, so leaving it unset fails
+at call time rather than at boot.
 
 ## Run model-gateway
 
@@ -475,10 +486,19 @@ Health check (HTTP, default port 8000):
 curl --fail --silent http://127.0.0.1:8000/health
 ```
 
+intelligence-service also defaults to uvicorn's port 8000, so give one of the two
+an explicit `UVICORN_PORT` when both are running.
+
 Minimal external dependencies: requires model-gateway gRPC (port 50051)
 and, optionally, memory-service HTTP for quality-threshold policy lookups.
-Protected by `INTERNAL_SERVICE_TOKEN_SHA256`. No database of its own â€”
-no migrations needed.
+Both processes call model-gateway as a client, so both need the outbound
+`AUTH0_M2M_*` credentials, not just the inbound `AUTH0_*` ones -- without them
+every content-bearing node type fails its gate with `FAST classifier call
+failed` while the deterministic node types keep passing.
+Protected by `INTERNAL_SERVICE_TOKEN_SHA256`. It owns no database and has no
+migrations, but the gRPC server still requires `ORCHESTRATION_DATABASE_URL`: it
+writes its verdicts into orchestration_db's `verification_results`, which that
+service owns.
 
 ## Provider choices
 
