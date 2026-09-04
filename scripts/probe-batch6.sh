@@ -64,12 +64,23 @@ note()    { NOTE=$((NOTE+1)); printf '  NOTE      %s\n' "$1"; }
 # psql is not on a typical developer machine and nothing here installs it. The
 # compose stack ships it inside the postgres image, so borrow it from there --
 # same approach scripts/probe-batch2.sh takes.
+# Each engine-db role carries its own password: .env.local.example ships
+# ORCHESTRATION_DB_PASSWORD separately from AUDIT_DB_PASSWORD, and
+# engine-db-init.sh creates the roles from those distinct values. Sending one
+# password for every role only works where a machine happens to have set them
+# all the same, and fails authentication everywhere else.
+role_password() {
+  case "$1" in
+    orchestration_service) printf '%s' "${ORCHESTRATION_DB_PASSWORD:-$AUDIT_DB_PASSWORD}" ;;
+    *) printf '%s' "$AUDIT_DB_PASSWORD" ;;
+  esac
+}
 if command -v psql >/dev/null 2>&1; then
-  pg() { PGPASSWORD="$AUDIT_DB_PASSWORD" psql --quiet --no-psqlrc --tuples-only --no-align \
+  pg() { PGPASSWORD="$(role_password "$1")" psql --quiet --no-psqlrc --tuples-only --no-align \
     --set=ON_ERROR_STOP=1 --host "$ENGINE_HOST" --port "$ENGINE_PORT" \
     --username "$1" --dbname "$2" --command "$3"; }
 else
-  pg() { MSYS_NO_PATHCONV=1 docker run --rm --network host -e PGPASSWORD="$AUDIT_DB_PASSWORD" \
+  pg() { MSYS_NO_PATHCONV=1 docker run --rm --network host -e PGPASSWORD="$(role_password "$1")" \
     postgres:16-alpine psql --quiet --no-psqlrc --tuples-only --no-align \
     --set=ON_ERROR_STOP=1 --host "$ENGINE_HOST" --port "$ENGINE_PORT" \
     --username "$1" --dbname "$2" --command "$3"; }
