@@ -155,7 +155,14 @@ function isNodeGatedOff(
 function gatedOffOutput(gateNodeKeys: readonly string[]): Record<string, unknown> {
   return {
     skipped: true,
-    reason: "gated_off_by_verification",
+    // isNodeGatedOff only inspects edges of kind "conditional", so reaching
+    // here always means a Gate's routing conditions were not satisfied --
+    // never a verification failure. Gate's verification mode reports itself
+    // separately, as verification_status "blocked_pending_recovery" with a
+    // blocked_successor. Naming this one after verification sent anyone
+    // auditing a skipped branch to look at quality gates instead of at the
+    // condition that actually excluded it.
+    reason: "gated_off_by_condition",
     gate_node_keys: gateNodeKeys,
   };
 }

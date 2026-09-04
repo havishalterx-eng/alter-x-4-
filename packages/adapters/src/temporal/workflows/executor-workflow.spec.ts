@@ -815,7 +815,10 @@ describe.sequential("executorWorkflow", () => {
       expect(callOrder).not.toContain("node_protected");
       expect(result.outputs["node_protected"]).toEqual({
         skipped: true,
-        reason: "gated_off_by_verification",
+        // Excluded because its conditional edge was not satisfied, which is
+        // the only thing this path detects. Gate's verification mode reports
+        // itself separately through verification_status.
+        reason: "gated_off_by_condition",
         gate_node_keys: ["node_gate"],
       });
     } finally {
