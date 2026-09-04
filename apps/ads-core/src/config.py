@@ -50,6 +50,13 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         validate_default=True,
+        # .env.local is shared by every service in the monorepo, so it always
+        # carries keys this service does not declare -- another service's
+        # database URL, another service's bind address. Rejecting them made
+        # ads-core the one service that could not start from the documented
+        # steps, failing on a variable belonging to memory-service rather than
+        # on anything of its own.
+        extra="ignore",
     )
 
 
