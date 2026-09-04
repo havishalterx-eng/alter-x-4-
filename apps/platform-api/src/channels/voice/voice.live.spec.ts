@@ -64,8 +64,11 @@ describe.skipIf(!liveEnabled)("Voice Engine live round trip", () => {
       resolveSecret: resolveRuntimeSecret,
     });
     const authProvider: EngineAuthProvider = {
-      authorize: async (context) => ({
-        m2mAccessToken: await m2mProvider.getAccessToken(context.tenantId),
+      // The service credential carries no tenant: per-request tenancy travels
+      // in the actor token below, and Auth0's client-credentials grant has no
+      // organization to attach one to.
+      authorize: async () => ({
+        m2mAccessToken: await m2mProvider.getAccessToken(),
         actorToken: process.env.VOICE_LIVE_ACTOR_TOKEN!,
       }),
     };

@@ -5,13 +5,14 @@ import { randomUUID } from "node:crypto";
 import { getCompilerProtoPath } from "./compiler-client";
 import { ENGINE_M2M_TOKEN_PROVIDER, type EngineM2mTokenProvider } from "../engine/auth";
 
-export function createFetchPlannerHttpClient(tokenProvider: (tenantId: string) => Promise<string>): PlannerHttpClient {
+export function createFetchPlannerHttpClient(tokenProvider: () => Promise<string>): PlannerHttpClient {
   return {
     async postJson(url: string, body: unknown): Promise<unknown> {
-      // The decompose request always contains tenant_id
-      const bodyRecord = body as Record<string, unknown>;
-      const tenantId = typeof bodyRecord.tenant_id === "string" ? bodyRecord.tenant_id : "";
-      const token = await tokenProvider(tenantId);
+      // Service-level credential only -- the tenant travels in the request
+      // body (and, for Engine calls, the actor token), never in the M2M
+      // grant. See EngineM2mTokenProvider for why tenant-scoping this call
+      // is wrong and breaks against real Auth0.
+      const token = await tokenProvider();
 
       const response = await fetch(url, {
         method: "POST",
@@ -65,7 +66,7 @@ export class PlannerFacadeService {
 
     this.plannerClient = plannerClient ?? new PlannerClient(
       { baseUrl: intelligenceUrl },
-      createFetchPlannerHttpClient((tenantId) => this.m2mTokenProvider.getAccessToken(tenantId))
+      createFetchPlannerHttpClient(() => this.m2mTokenProvider.getAccessToken())
     );
 
     // 50051 is model-gateway's gRPC port -- the compiler lives in

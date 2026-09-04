@@ -54,13 +54,28 @@ export class LlmTaskHandler implements NodeHandler {
       );
     }
 
+    // Upstream node output (context.inputs, keyed by producing node's key)
+    // must reach the model -- without this, LLMTask only ever sees its own
+    // static config.prompt and hallucinates whenever the prompt implies it
+    // should act on a prior node's result (e.g. "summarise the search
+    // results above"). Appended as JSON rather than invented into a
+    // template/variable-substitution syntax the DAG contract doesn't
+    // declare (see workflow-dag.ts) -- no node type currently supports
+    // {{placeholder}} interpolation in config.prompt, so this stays a
+    // fixed, always-present block instead of a partially-supported syntax.
+    const upstreamEntries = Object.entries(context.inputs);
+    const content =
+      upstreamEntries.length === 0
+        ? prompt
+        : `${prompt}\n\nUpstream node output:\n${JSON.stringify(context.inputs, null, 2)}`;
+
     const modelRequest = {
       tenant_id: context.tenant_id,
       run_id: context.run_id,
       node_execution_id: context.node_execution_id,
       model_alias: aliasResult.data,
       input_json: JSON.stringify({
-        messages: [{ role: "user", content: prompt }],
+        messages: [{ role: "user", content }],
       }),
     };
     const streaming = this.modelGateway as ModelGatewayHandler & Partial<ModelGatewayStreamHandler>;
