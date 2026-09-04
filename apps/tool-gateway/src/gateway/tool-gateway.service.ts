@@ -1313,8 +1313,14 @@ function parseTenantIntegrationSecretReference(
   };
 }
 
-function requireNonEmpty(value: string, field: string): void {
-  if (value.trim().length === 0) {
+function requireNonEmpty(value: string | undefined, field: string): void {
+  // gRPC delivers an unset string as undefined rather than "", so this has to
+  // accept both. Dereferencing undefined threw TypeError before the validator
+  // could raise its own error, and the transport reported that as a generic
+  // INTERNAL -- so a caller omitting a field was told the tool invocation had
+  // failed rather than which field was missing. credential_ref is the one that
+  // surfaces it, being the field callers most often leave out.
+  if (!value?.trim()) {
     throw new ToolGatewayValidationError(`${field} is required`);
   }
 }
