@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { EngineConfig } from "./config";
 import {
   ENGINE_AUTH_PROVIDER,
@@ -23,6 +23,24 @@ import type {
 } from "./types";
 
 export const ENGINE_CONFIG = Symbol("ENGINE_CONFIG");
+
+const logger = new Logger("EngineClient");
+
+/**
+ * Authorizing a call mints two tokens locally -- the Auth0 M2M access token and
+ * a per-actor token -- before any request leaves the process. When that step
+ * fails the caller still receives UPSTREAM_SERVICE_ERROR, which names the one
+ * component that is definitely not at fault, and the cause was discarded
+ * entirely. Keep the opaque problem for the caller; keep the cause for the
+ * operator, the same way `internalError` does for the gRPC transports.
+ */
+function authorizationFailed(error: unknown, path: EnginePath): EngineProblemError {
+  logger.error(
+    `Engine authorization failed before calling ${path}`,
+    error instanceof Error ? error.stack : String(error),
+  );
+  return new EngineProblemError(upstreamProblem(502, path, "UPSTREAM_SERVICE_ERROR"));
+}
 
 type EngineMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -158,10 +176,8 @@ export class EngineClient {
     let authorization;
     try {
       authorization = await this.authProvider.authorize(context);
-    } catch {
-      throw new EngineProblemError(
-        upstreamProblem(502, path, "UPSTREAM_SERVICE_ERROR"),
-      );
+    } catch (error) {
+      throw authorizationFailed(error, path);
     }
 
     const controller = new AbortController();
@@ -228,10 +244,8 @@ export class EngineClient {
       let authorization;
       try {
         authorization = await this.authProvider.authorize(context);
-      } catch {
-        throw new EngineProblemError(
-          upstreamProblem(502, path, "UPSTREAM_SERVICE_ERROR"),
-        );
+      } catch (error) {
+        throw authorizationFailed(error, path);
       }
       try {
         const response = await this.fetchWithTimeout(

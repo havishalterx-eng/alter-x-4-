@@ -1,5 +1,5 @@
 import type { ProblemDetails } from "@alterx/contracts";
-import type { ArgumentsHost } from "@nestjs/common";
+import { Logger, type ArgumentsHost } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { EngineAuthProvider } from "./auth";
 import type { EngineConfig } from "./config";
@@ -198,6 +198,35 @@ describe("EngineClient", () => {
       },
     });
     expect(failureFetch).toHaveBeenCalledOnce();
+  });
+
+  it("logs why authorization failed while still returning the opaque 502", async () => {
+    // The caller must not learn why -- but an operator has to. Authorizing mints
+    // both tokens locally, so this 502 is routinely not the upstream's fault at
+    // all, and the cause used to be dropped on the floor: UPSTREAM_SERVICE_ERROR
+    // was the only evidence that anything had happened.
+    const logged = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
+    const fetchImpl = vi.fn();
+
+    await expect(
+      new EngineClient(
+        config,
+        { authorize: vi.fn().mockRejectedValue(new Error("signing key unavailable")) },
+        fetchImpl,
+        noDelay,
+      ).get("/api/v1/workflows" as EnginePath, context),
+    ).rejects.toMatchObject({
+      problem: { status: 502, error_code: "UPSTREAM_SERVICE_ERROR" },
+    });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/workflows"),
+      expect.stringContaining("signing key unavailable"),
+    );
+    logged.mockRestore();
   });
 
   it("maps ADS query auth, network, and timeout failures without leaking detail", async () => {

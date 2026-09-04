@@ -350,6 +350,25 @@ intelligence-service/planner HTTP. Has drizzle migrations under
 defaults collide with something else (`EVAL_SERVICE_GRPC_TARGET` and
 intelligence-service's own gRPC bind, respectively). Do not unset them.
 
+### Actor tokens, when the caller is platform-api
+
+Every Engine call platform-api makes carries two tokens: an Auth0 M2M token for
+the service, and an *actor* (delegation) token carrying the end user. Only the
+first comes from Auth0. Actor tokens are minted by platform-api's own identity
+broker, signed with `ACTOR_TOKEN_SIGNING_KEY_REF`, and the matching public key is
+served at platform-api's `/.well-known/actor-jwks.json`.
+
+So `ACTOR_TOKEN_JWKS_URL` must point at **platform-api**, not at the mock Auth0
+server -- that server mints an ephemeral keypair at startup for M2M tokens and
+never sees the actor-token key, so no token it publishes can validate one.
+`ACTOR_TOKEN_ISSUER` and `ACTOR_TOKEN_AUDIENCE` must equal the constants
+platform-api stamps (`alter-platform-api.identity-broker` and `alter-engine`,
+in `apps/platform-api/src/identity-broker/identity-broker.service.ts`). Any of
+the three disagreeing fails every Engine-proxied route with
+`AUTH_INVALID_ACTOR_TOKEN`, which platform-api reports to the browser as a 502.
+`.env.local.example` carried placeholder values for all three until Batch 7 ran
+platform-api against this stack for the first time.
+
 ## Run platform-api
 
 platform-api is the Platform's NestJS BFF â€” the edge service handling
@@ -367,6 +386,27 @@ Health check (HTTP, default port 3000):
 ```bash
 curl --fail --silent http://127.0.0.1:3000/health
 ```
+
+`PORT` moves it if 3000 is taken. platform-web's dev proxy sends `/api` to
+3000 as well, so move both together:
+`PORT=3020 ... platform-api:serve` and
+`PLATFORM_API_PROXY_TARGET=http://127.0.0.1:3020 ... platform-web:serve`.
+
+Eleven Engine-client variables are validated at boot and are not in
+`.env.local.example`; without them the process exits with
+`Invalid Engine client environment`. `ENGINE_BASE_URL` is orchestration-service
+(`http://127.0.0.1:3010` for this stack), `ADS_CORE_BASE_URL`,
+`COST_LEDGER_BASE_URL` and `AUDIT_SERVICE_BASE_URL` are their own services, the
+four `ENGINE_M2M_*` values mirror the `AUTH0_M2M_*` block, and the `*_TOKEN_REF`
+entries take `env:VARNAME` form (`env:INTERNAL_SERVICE_TOKEN` locally). Two more
+are validated when their module is constructed rather than by the schema, so
+they surface one at a time:
+`CONNECTOR_HEALTH_SWEEP_SERVICE_TOKEN_REF` and
+`NOTIFICATION_DIGEST_SERVICE_TOKEN_REF`.
+
+platform-api also needs the outbound `AUTH0_M2M_*` block itself. Without it every
+Engine-proxied route answers 502 `UPSTREAM_SERVICE_ERROR` -- which names the one
+component that is not at fault; the real cause is now logged by `EngineClient`.
 
 Requires platform-db (Postgres, port 5432). `IDENTITY_PROVIDER` and
 `EMAIL_PROVIDER` both default to `mock` in code
@@ -393,8 +433,14 @@ Vite dev server runs on port 5173 by default:
 curl --fail --silent http://127.0.0.1:5173/
 ```
 
+Set `VITE_API_MODE=live` to talk to platform-api at all; the default build is
+mock end to end. `PLATFORM_API_PROXY_TARGET` overrides where `/api` is proxied
+when platform-api is not on 3000.
+
 Requires platform-api (and/or Engine services) to be running for any
-functional use beyond the static UI shell. Build for production with
+functional use beyond the static UI shell. Note that live mode does not make the
+whole UI live: `node scripts/batch7-api-surface.mjs` lists which API methods have
+a live path and which are mock in every mode. Build for production with
 `pnpm nx build platform-web` and preview with `pnpm nx preview platform-web`.
 
 ## Run provisioning-service

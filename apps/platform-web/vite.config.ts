@@ -8,8 +8,12 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
+      // platform-api's own default port is 3000, but so is platform-web's, and
+      // on a machine where anything else already holds 3000 platform-api has to
+      // move. Without this override the dev proxy still points at 3000 and every
+      // request in live mode reaches whatever is there instead of the API.
       "/api": {
-        target: "http://localhost:3000",
+        target: process.env.PLATFORM_API_PROXY_TARGET ?? "http://localhost:3000",
         changeOrigin: true,
       },
     },
