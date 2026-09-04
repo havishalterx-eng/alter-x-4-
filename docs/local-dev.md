@@ -287,6 +287,28 @@ than `127.0.0.1` -- `--network host` places the container in the Docker VM's
 network namespace, which is where the compose containers live but not where a
 locally started service does.
 
+**A service that calls another service needs a second, separate set of
+variables.** The block above lets a service *validate an incoming* token.
+orchestration-service's node executor also acts as a *client* -- e.g.
+`LlmTaskHandler` streaming to model-gateway through `ModelGatewayClient` --
+and that path goes through `Auth0M2mTokenProvider`
+(`packages/auth/session-gateway`), which is configured separately and fails
+at call time, not at boot:
+
+```
+Missing required Auth0 M2M configuration: AUTH0_M2M_TOKEN_URL
+```
+
+The same local-mock-auth0 server issues these tokens too; any non-empty
+client id/secret is accepted locally:
+
+```bash
+export AUTH0_M2M_TOKEN_URL=http://127.0.0.1:4999/oauth/token
+export AUTH0_M2M_AUDIENCE=https://engine.alter.local
+export AUTH0_M2M_CLIENT_ID=local-dev-client
+export AUTH0_M2M_CLIENT_SECRET=local-dev-secret
+```
+
 ## Run orchestration-service
 
 orchestration-service is the Engine's largest NestJS service. It hosts 8
@@ -311,6 +333,11 @@ state via Drizzle), model-gateway gRPC (port 50051), tool-gateway gRPC,
 sandbox-service gRPC, verification-service gRPC, memory-service HTTP, and
 intelligence-service/planner HTTP. Has drizzle migrations under
 `apps/orchestration-service/drizzle/`. Tagged `security-critical`.
+
+`.env.local.example` sets `CAPABILITY_RESOLVER_ADDRESS` and
+`ARTIFACT_CONTENT_GRPC_BIND_ADDRESS` explicitly -- both of their code
+defaults collide with something else (`EVAL_SERVICE_GRPC_TARGET` and
+intelligence-service's own gRPC bind, respectively). Do not unset them.
 
 ## Run platform-api
 
