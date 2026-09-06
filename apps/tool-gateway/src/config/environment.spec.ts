@@ -24,8 +24,8 @@ describe("loadToolGatewayEnvironment", () => {
       serviceName: "tool-gateway",
       region: "ap-south-1",
       configSource: "mock",
-      httpPort: 3000,
-      grpcBindAddress: "0.0.0.0:50052",
+      httpPort: 3024,
+      grpcBindAddress: "0.0.0.0:50053",
     });
   });
 

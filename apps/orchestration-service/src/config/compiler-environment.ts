@@ -23,6 +23,6 @@ export function loadCompilerEnvironment(
   environment: NodeJS.ProcessEnv,
 ): CompilerEnvironment {
   return {
-    grpcBindAddress: parseGrpcAddress(environment.COMPILER_GRPC_BIND_ADDRESS, "COMPILER_GRPC_BIND_ADDRESS", "0.0.0.0:50053"),
+    grpcBindAddress: parseGrpcAddress(environment.COMPILER_GRPC_BIND_ADDRESS, "COMPILER_GRPC_BIND_ADDRESS", "0.0.0.0:50056"),
   };
 }

@@ -16,7 +16,7 @@ describe("loadNodeexecEnvironment", () => {
         MEMORY_SERVICE_AUTHORIZATION: "Bearer service-token",
       }),
     ).toEqual({
-      grpcBindAddress: "0.0.0.0:50056",
+      grpcBindAddress: "0.0.0.0:50064",
       toolGatewayAddress: "tool-gateway:50053",
       sandboxServiceAddress: "sandbox-service:50057",
       verifyServiceAddress: "verification-service:50054",

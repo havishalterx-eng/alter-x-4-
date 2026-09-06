@@ -51,9 +51,14 @@ export class CostLedgerConfigurationError extends Error {
   }
 }
 
-const { requireValue, parsePort, parseRequiredPort, parseGrpcAddress } = createEnvironmentValidators(
+const { requireValue, scopedValue, requireScopedValue, parsePort, parseRequiredPort, parseGrpcAddress } = createEnvironmentValidators(
   (field, reason) => new CostLedgerConfigurationError(field, reason),
 );
+
+// 50060 belongs to memory-service (MEMORY_SERVICE_ADDRESS); the previous
+// default collided with it.
+const DEFAULT_GRPC_BIND_ADDRESS = "0.0.0.0:50069";
+const DEFAULT_HTTP_PORT = 3022;
 
 function parseMarginRate(value: string | undefined): number {
   if (value === undefined) {
@@ -95,7 +100,10 @@ export function loadCostLedgerEnvironment(
     );
   }
 
-  const serviceName = requireValue(environment, "ALTER_SERVICE_NAME");
+  // Defaults to this service's own name: a shared env file can only carry
+  // one value, and the service already knows which one it is. Still validated
+  // when set, so a deployment naming the wrong service is still rejected.
+  const serviceName = environment.ALTER_SERVICE_NAME?.trim() || "cost-ledger-service";
   if (serviceName !== "cost-ledger-service") {
     throw new CostLedgerConfigurationError(
       "ALTER_SERVICE_NAME",
@@ -106,11 +114,11 @@ export function loadCostLedgerEnvironment(
   const baseEnvironment: CostLedgerEnvironmentBase = {
     alterEnvironment: alterEnvironment as CostLedgerEnvironment["alterEnvironment"],
     serviceName,
-    httpPort: parsePort(environment.PORT),
+    httpPort: parsePort(scopedValue(environment, "COST_PORT", "PORT"), "COST_PORT", DEFAULT_HTTP_PORT),
     grpcBindAddress: parseGrpcAddress(
       environment.COST_GRPC_BIND_ADDRESS,
       "COST_GRPC_BIND_ADDRESS",
-      "0.0.0.0:50060",
+      DEFAULT_GRPC_BIND_ADDRESS,
       false,
     ),
     runsServiceAddress: environment.RUNS_SERVICE_ADDRESS?.trim() ?? "localhost:50059",
@@ -123,7 +131,7 @@ export function loadCostLedgerEnvironment(
     return {
       ...baseEnvironment,
       databaseAuthentication: "static",
-      databaseSecretReference: requireValue(environment, "DATABASE_SECRET_REF"),
+      databaseSecretReference: requireScopedValue(environment, "COST_DATABASE_SECRET_REF", "DATABASE_SECRET_REF"),
     };
   }
 

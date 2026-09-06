@@ -44,7 +44,7 @@ export class ModelGatewayConfigurationError extends Error {
   }
 }
 
-const { requireValue, parsePort, parseRequiredPort, parseGrpcAddress } =
+const { requireValue, scopedValue, parsePort, parseRequiredPort, parseGrpcAddress } =
   createEnvironmentValidators((field, reason) => new ModelGatewayConfigurationError(field, reason));
 
 /**
@@ -77,7 +77,10 @@ export function loadModelGatewayEnvironment(
     );
   }
 
-  const serviceName = requireValue(environment, "ALTER_SERVICE_NAME");
+  // Defaults to this service's own name: a shared env file can only carry
+  // one value, and the service already knows which one it is. Still validated
+  // when set, so a deployment naming the wrong service is still rejected.
+  const serviceName = environment.ALTER_SERVICE_NAME?.trim() || "model-gateway";
   if (serviceName !== "model-gateway") {
     throw new ModelGatewayConfigurationError(
       "ALTER_SERVICE_NAME",
@@ -118,16 +121,20 @@ export function loadModelGatewayEnvironment(
       alterEnvironment as ModelGatewayEnvironment["alterEnvironment"],
     serviceName,
     region,
-    httpPort: parsePort(environment.PORT),
-    grpcBindAddress: parseGrpcAddress(environment.GRPC_BIND_ADDRESS, "GRPC_BIND_ADDRESS", "0.0.0.0:50051"),
-    // No fixed port is documented anywhere for cost-ledger-service's real
-    // gRPC bind address (it isn't part of the standard local-dev compose
-    // stack) -- 50065 picked to sit in the same numeric range as this
-    // repo's other real cross-service gRPC defaults (e.g. 50054, 50071,
-    // 50077). Real deployments always override via COST_LEDGER_GRPC_ADDRESS.
+    httpPort: parsePort(scopedValue(environment, "MODEL_GATEWAY_PORT", "PORT"), "MODEL_GATEWAY_PORT", 3023),
+    grpcBindAddress: parseGrpcAddress(
+      scopedValue(environment, "MODEL_GATEWAY_GRPC_BIND_ADDRESS", "GRPC_BIND_ADDRESS"),
+      "MODEL_GATEWAY_GRPC_BIND_ADDRESS",
+      "0.0.0.0:50051",
+    ),
+    // Matches cost-ledger-service's own bind default. The two disagreed
+    // before -- this client assumed 50065 while the service bound 50060 --
+    // and both of those belong to other services (blackboard and
+    // memory-service). Real deployments override via
+    // COST_LEDGER_GRPC_ADDRESS.
     costLedgerGrpcAddress: optionalAddress(
       environment.COST_LEDGER_GRPC_ADDRESS,
-      "127.0.0.1:50065",
+      "127.0.0.1:50069",
     ),
   };
 

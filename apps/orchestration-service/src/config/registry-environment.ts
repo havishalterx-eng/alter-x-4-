@@ -23,6 +23,6 @@ export function loadRegistryEnvironment(
   environment: NodeJS.ProcessEnv,
 ): RegistryEnvironment {
   return {
-    grpcBindAddress: parseGrpcAddress(environment.REGISTRY_GRPC_BIND_ADDRESS, "REGISTRY_GRPC_BIND_ADDRESS", "0.0.0.0:50055"),
+    grpcBindAddress: parseGrpcAddress(environment.REGISTRY_GRPC_BIND_ADDRESS, "REGISTRY_GRPC_BIND_ADDRESS", "0.0.0.0:50063"),
   };
 }

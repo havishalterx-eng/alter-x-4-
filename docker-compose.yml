@@ -122,15 +122,27 @@ services:
       AUDIT_DB_PORT: "5433"
       AUDIT_DATABASE_NAME: audit_db
       AUDIT_DATABASE_USER: audit_service
-      DATABASE_SECRET_REF: ${DATABASE_SECRET_REF:-/alter/local/audit-service/system/database_credentials}
+      DATABASE_SECRET_REF: ${AUDIT_DATABASE_SECRET_REF:-${DATABASE_SECRET_REF:-/alter/local/audit-service/system/database_credentials}}
       ACTOR_TOKEN_SIGNING_KEY_REF: ${ACTOR_TOKEN_SIGNING_KEY_REF:-/alter/local/platform-api/system/actor-token-signing-key}
+      COST_DB_PASSWORD: ${COST_DB_PASSWORD:?Set COST_DB_PASSWORD in .env.local}
+      COST_DB_HOST: 127.0.0.1
+      COST_DB_PORT: "5435"
+      COST_DATABASE_NAME: cost_db
+      COST_DATABASE_USER: cost_ledger_service
+      COST_DATABASE_SECRET_REF: ${COST_DATABASE_SECRET_REF:-/alter/local/cost-ledger-service/system/database_credentials}
+      COST_PSEUDONYM_KEY_REF: ${COST_PSEUDONYM_KEY_REF:-/alter/local/cost-ledger-service/system/pseudonym_key}
+      AUDIT_ARCHIVE_BUCKET_PARAM: ${AUDIT_ARCHIVE_BUCKET_PARAM:-/alter/local/audit/archive-bucket}
+      ARTIFACTS_BUCKET_PARAM: ${ARTIFACTS_BUCKET_PARAM:-alter-local-artifacts-bucket}
+      DELETION_SERVICE_TOKEN: ${DELETION_SERVICE_TOKEN:-}
+      DELETION_SERVICE_TOKEN_REF: ${DELETION_SERVICE_TOKEN_REF:-/alter/local/audit-service/system/deletion_service_token}
+      DELETION_PSEUDONYM_KEY_REF: ${DELETION_PSEUDONYM_KEY_REF:-/alter/local/audit-service/system/deletion_pseudonym_key}
     ports:
       - "127.0.0.1:4566:4566"
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "awslocal sqs get-queue-url --queue-name alter-local-cost-events >/dev/null 2>&1 && awslocal sqs get-queue-url --queue-name alter-local-events.fifo >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${DATABASE_SECRET_REF}\" >/dev/null 2>&1 && awslocal ssm get-parameter --name \"$${ACTOR_TOKEN_SIGNING_KEY_REF}\" --with-decryption >/dev/null 2>&1",
+          "awslocal sqs get-queue-url --queue-name alter-local-cost-events >/dev/null 2>&1 && awslocal sqs get-queue-url --queue-name alter-local-events.fifo >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${DATABASE_SECRET_REF}\" >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${COST_DATABASE_SECRET_REF}\" >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${DELETION_SERVICE_TOKEN_REF}\" >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${DELETION_PSEUDONYM_KEY_REF}\" >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${COST_PSEUDONYM_KEY_REF}\" >/dev/null 2>&1 && awslocal ssm get-parameter --name \"$${AUDIT_ARCHIVE_BUCKET_PARAM}\" >/dev/null 2>&1 && awslocal ssm get-parameter --name \"$${ARTIFACTS_BUCKET_PARAM}\" >/dev/null 2>&1 && awslocal ssm get-parameter --name \"$${ACTOR_TOKEN_SIGNING_KEY_REF}\" --with-decryption >/dev/null 2>&1",
         ]
       interval: 5s
       timeout: 5s

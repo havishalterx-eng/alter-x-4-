@@ -19,6 +19,6 @@ export function loadWorkflowLifecycleEnvironment(
   environment: NodeJS.ProcessEnv,
 ): WorkflowLifecycleEnvironment {
   return {
-    grpcBindAddress: parseGrpcAddress(environment.DEPLOYCTL_GRPC_BIND_ADDRESS, "DEPLOYCTL_GRPC_BIND_ADDRESS", "0.0.0.0:50054"),
+    grpcBindAddress: parseGrpcAddress(environment.DEPLOYCTL_GRPC_BIND_ADDRESS, "DEPLOYCTL_GRPC_BIND_ADDRESS", "0.0.0.0:50066"),
   };
 }

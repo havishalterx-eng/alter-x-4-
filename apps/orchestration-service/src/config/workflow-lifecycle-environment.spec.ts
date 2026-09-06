@@ -8,7 +8,7 @@ import {
 describe("loadWorkflowLifecycleEnvironment", () => {
   it("uses a dedicated default gRPC bind address", () => {
     expect(loadWorkflowLifecycleEnvironment({})).toEqual({
-      grpcBindAddress: "0.0.0.0:50054",
+      grpcBindAddress: "0.0.0.0:50066",
     });
   });
 
