@@ -42,7 +42,7 @@ export class ToolGatewayConfigurationError extends Error {
   }
 }
 
-const { requireValue, parsePort, parseRequiredPort, parseGrpcAddress } =
+const { requireValue, scopedValue, parsePort, parseRequiredPort, parseGrpcAddress } =
   createEnvironmentValidators((field, reason) => new ToolGatewayConfigurationError(field, reason));
 
 export function loadToolGatewayEnvironment(
@@ -60,7 +60,10 @@ export function loadToolGatewayEnvironment(
     );
   }
 
-  const serviceName = requireValue(environment, "ALTER_SERVICE_NAME");
+  // Defaults to this service's own name: a shared env file can only carry
+  // one value, and the service already knows which one it is. Still validated
+  // when set, so a deployment naming the wrong service is still rejected.
+  const serviceName = environment.ALTER_SERVICE_NAME?.trim() || "tool-gateway";
   if (serviceName !== "tool-gateway") {
     throw new ToolGatewayConfigurationError(
       "ALTER_SERVICE_NAME",
@@ -101,8 +104,15 @@ export function loadToolGatewayEnvironment(
       alterEnvironment as ToolGatewayEnvironment["alterEnvironment"],
     serviceName,
     region,
-    httpPort: parsePort(environment.PORT),
-    grpcBindAddress: parseGrpcAddress(environment.GRPC_BIND_ADDRESS, "GRPC_BIND_ADDRESS", "0.0.0.0:50052"),
+    httpPort: parsePort(scopedValue(environment, "TOOL_GATEWAY_PORT", "PORT"), "TOOL_GATEWAY_PORT", 3024),
+    // 50053 is the address every consumer is configured to reach
+    // (TOOL_GATEWAY_ADDRESS); the previous default of 50052 was the
+    // Conversation Manager's port.
+    grpcBindAddress: parseGrpcAddress(
+      scopedValue(environment, "TOOL_GATEWAY_GRPC_BIND_ADDRESS", "GRPC_BIND_ADDRESS"),
+      "TOOL_GATEWAY_GRPC_BIND_ADDRESS",
+      "0.0.0.0:50053",
+    ),
   };
 
   if (configSource === "mock") {

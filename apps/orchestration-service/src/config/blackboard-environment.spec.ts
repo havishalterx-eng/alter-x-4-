@@ -30,7 +30,7 @@ describe("parseRedisHostPort", () => {
 
 describe("loadBlackboardEnvironment", () => {
   it("defaults grpcBindAddress when unset", () => {
-    expect(loadBlackboardEnvironment({}).grpcBindAddress).toBe("0.0.0.0:50057");
+    expect(loadBlackboardEnvironment({}).grpcBindAddress).toBe("0.0.0.0:50065");
   });
 
   it("rejects a malformed grpc bind address", () => {

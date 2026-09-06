@@ -33,7 +33,7 @@ import { RECOVERY_PROTO_PATH } from "./recovery/grpc.constants";
 import { RUNS_PROTO_PATH } from "./runs/grpc.constants";
 import { ARTIFACT_CONTENT_PROTO_PATH } from "./artifacts/grpc.constants";
 
-const { parsePort } = createEnvironmentValidators(
+const { parsePort, scopedValue } = createEnvironmentValidators(
   (field, reason) => new Error(`${field} ${reason}`),
 );
 
@@ -100,7 +100,12 @@ async function bootstrap(): Promise<void> {
     protoPath: CONVERSATION_PROTO_PATH,
   });
   app.enableShutdownHooks();
-  await app.listen(parsePort(process.env.PORT), "0.0.0.0");
+  // 3000 is usually taken by platform-web, and PORT is read by four other
+  // services from the same env file, so this reads its own name first.
+  await app.listen(
+    parsePort(scopedValue(process.env, "ORCHESTRATION_PORT", "PORT"), "ORCHESTRATION_PORT", 3010),
+    "0.0.0.0",
+  );
 }
 
 void bootstrap();

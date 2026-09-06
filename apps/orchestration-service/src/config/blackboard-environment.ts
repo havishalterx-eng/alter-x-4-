@@ -25,7 +25,7 @@ export function loadBlackboardEnvironment(
   environment: NodeJS.ProcessEnv,
 ): BlackboardEnvironment {
   return {
-    grpcBindAddress: parseGrpcAddress(environment.BLACKBOARD_GRPC_BIND_ADDRESS, "BLACKBOARD_GRPC_BIND_ADDRESS", "0.0.0.0:50057"),
+    grpcBindAddress: parseGrpcAddress(environment.BLACKBOARD_GRPC_BIND_ADDRESS, "BLACKBOARD_GRPC_BIND_ADDRESS", "0.0.0.0:50065"),
   };
 }
 

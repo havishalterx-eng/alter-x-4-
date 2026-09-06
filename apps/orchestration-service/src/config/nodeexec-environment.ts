@@ -43,7 +43,7 @@ export function loadNodeexecEnvironment(
     );
   }
   return {
-    grpcBindAddress: parseGrpcAddress(environment.NODEEXEC_GRPC_BIND_ADDRESS, "NODEEXEC_GRPC_BIND_ADDRESS", "0.0.0.0:50056"),
+    grpcBindAddress: parseGrpcAddress(environment.NODEEXEC_GRPC_BIND_ADDRESS, "NODEEXEC_GRPC_BIND_ADDRESS", "0.0.0.0:50064"),
     toolGatewayAddress,
     sandboxServiceAddress,
     verifyServiceAddress,

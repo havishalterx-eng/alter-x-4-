@@ -25,7 +25,7 @@ describe("loadModelGatewayEnvironment", () => {
       serviceName: "model-gateway",
       region: "ap-south-1",
       configSource: "mock",
-      httpPort: 3000,
+      httpPort: 3023,
       grpcBindAddress: "0.0.0.0:50051",
       costLedgerGrpcAddress: "localhost:50060",
     });

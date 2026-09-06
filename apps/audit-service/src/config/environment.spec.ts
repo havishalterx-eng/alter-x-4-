@@ -31,8 +31,8 @@ describe("loadAuditEnvironment", () => {
       databaseSecretReference:
         "/alter/local/audit-service/system/database_credentials",
       auditArchiveBucketParameter: "/alter/local/audit/archive-bucket",
-      httpPort: 3000,
-      grpcBindAddress: "0.0.0.0:50051",
+      httpPort: 3021,
+      grpcBindAddress: "0.0.0.0:50068",
       adsDeletionBaseUrl: "http://ads-core.internal:8000",
       orchestrationDeletionBaseUrl: "http://orchestration-service.internal:3000",
       deletionPseudonymKeyReference: "/alter/local/audit-service/system/deletion-pseudonym-key",
@@ -64,6 +64,45 @@ describe("loadAuditEnvironment", () => {
         environment({ PORT: "3100", GRPC_BIND_ADDRESS: "127.0.0.1:51051" }),
       ),
     ).toMatchObject({ httpPort: 3100, grpcBindAddress: "127.0.0.1:51051" });
+  });
+
+  // One env file is shared by every service, so a variable named for a role
+  // rather than a service can only hold one service's value. The scoped name
+  // wins; the shared one stays as the fallback so existing deployments that
+  // set only it are unaffected.
+  it("prefers the service-scoped bind variables over the shared ones", () => {
+    expect(
+      loadAuditEnvironment(
+        environment({
+          PORT: "3100",
+          GRPC_BIND_ADDRESS: "127.0.0.1:51051",
+          AUDIT_PORT: "3201",
+          AUDIT_GRPC_BIND_ADDRESS: "127.0.0.1:51068",
+        }),
+      ),
+    ).toMatchObject({ httpPort: 3201, grpcBindAddress: "127.0.0.1:51068" });
+  });
+
+  it("starts without ALTER_SERVICE_NAME and still rejects the wrong one", () => {
+    const withoutName = environment();
+    delete withoutName.ALTER_SERVICE_NAME;
+    expect(loadAuditEnvironment(withoutName)).toMatchObject({
+      serviceName: "audit-service",
+    });
+    expect(() =>
+      loadAuditEnvironment(environment({ ALTER_SERVICE_NAME: "model-gateway" })),
+    ).toThrow(AuditConfigurationError);
+  });
+
+  it("prefers AUDIT_CONFIG_SOURCE, which no other service reads", () => {
+    expect(
+      loadAuditEnvironment(
+        environment({
+          ALTER_CONFIG_SOURCE: "mock",
+          AUDIT_CONFIG_SOURCE: "local-file",
+        }),
+      ),
+    ).toMatchObject({ configSource: "local-file" });
   });
 
   it("defaults deployed environments to IAM database authentication metadata", () => {

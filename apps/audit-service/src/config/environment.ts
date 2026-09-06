@@ -39,8 +39,14 @@ export class AuditConfigurationError extends Error {
   }
 }
 
-const { requireValue, parsePort, parseRequiredPort, parseGrpcAddress } =
+const { requireValue, scopedValue, requireScopedValue, parsePort, parseRequiredPort, parseGrpcAddress } =
   createEnvironmentValidators((field, reason) => new AuditConfigurationError(field, reason));
+
+// Distinct from every other service's default, so the whole stack can start
+// with none of these set. The previous default collided with model-gateway,
+// which owns 50051 (MODEL_GATEWAY_ADDRESS).
+const DEFAULT_GRPC_BIND_ADDRESS = "0.0.0.0:50068";
+const DEFAULT_HTTP_PORT = 3021;
 
 export function loadAuditEnvironment(
   environment: NodeJS.ProcessEnv,
@@ -62,7 +68,10 @@ export function loadAuditEnvironment(
     );
   }
 
-  const serviceName = requireValue(environment, "ALTER_SERVICE_NAME");
+  // Defaults to this service's own name: a shared env file can only carry
+  // one value, and the service already knows which one it is. Still validated
+  // when set, so a deployment naming the wrong service is still rejected.
+  const serviceName = environment.ALTER_SERVICE_NAME?.trim() || "audit-service";
   if (serviceName !== "audit-service") {
     throw new AuditConfigurationError(
       "ALTER_SERVICE_NAME",
@@ -78,7 +87,9 @@ export function loadAuditEnvironment(
     );
   }
 
-  const configSource = requireValue(environment, "ALTER_CONFIG_SOURCE");
+  // audit-service is the only service reading "local-file" here; the others
+  // accept appconfig|mock, so one shared value cannot satisfy both.
+  const configSource = requireScopedValue(environment, "AUDIT_CONFIG_SOURCE", "ALTER_CONFIG_SOURCE");
   if (!CONFIG_SOURCES.includes(configSource as AuditEnvironment["configSource"])) {
     throw new AuditConfigurationError(
       "ALTER_CONFIG_SOURCE",
@@ -96,8 +107,12 @@ export function loadAuditEnvironment(
       environment,
       "AUDIT_ARCHIVE_BUCKET_PARAM",
     ),
-    httpPort: parsePort(environment.PORT),
-    grpcBindAddress: parseGrpcAddress(environment.GRPC_BIND_ADDRESS, "GRPC_BIND_ADDRESS", "0.0.0.0:50051"),
+    httpPort: parsePort(scopedValue(environment, "AUDIT_PORT", "PORT"), "AUDIT_PORT", DEFAULT_HTTP_PORT),
+    grpcBindAddress: parseGrpcAddress(
+      scopedValue(environment, "AUDIT_GRPC_BIND_ADDRESS", "GRPC_BIND_ADDRESS"),
+      "AUDIT_GRPC_BIND_ADDRESS",
+      DEFAULT_GRPC_BIND_ADDRESS,
+    ),
     adsDeletionBaseUrl: requireValue(environment, "ADS_DELETION_BASE_URL"),
     orchestrationDeletionBaseUrl: requireValue(environment, "ORCHESTRATION_DELETION_BASE_URL"),
     deletionPseudonymKeyReference: requireValue(environment, "DELETION_PSEUDONYM_KEY_REF"),
@@ -108,7 +123,7 @@ export function loadAuditEnvironment(
     return {
       ...baseEnvironment,
       databaseAuthentication: "static",
-      databaseSecretReference: requireValue(environment, "DATABASE_SECRET_REF"),
+      databaseSecretReference: requireScopedValue(environment, "AUDIT_DATABASE_SECRET_REF", "DATABASE_SECRET_REF"),
     };
   }
 
