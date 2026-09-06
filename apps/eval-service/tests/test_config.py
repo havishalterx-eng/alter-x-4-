@@ -35,9 +35,9 @@ _REQUIRED = {
     "PROJECT_BASE_URL": "http://127.0.0.1:3010",
     "ORCHESTRATION_DB_URL": "postgresql://u:p@127.0.0.1:5433/orchestration_db",
     "PLATFORM_DB_URL": "postgresql://u:p@127.0.0.1:5432/platform_db",
-    "ADS_DB_URL": "postgresql://u:p@127.0.0.1:5434/ads_db",
+    "EVAL_ADS_DB_URL": "postgresql://u:p@127.0.0.1:5434/ads_db",
     "POLICY_DB_URL": "postgresql://u:p@127.0.0.1:5433/policy_db",
-    "INTELLIGENCE_DB_URL": "postgresql://u:p@127.0.0.1:5433/intelligence_db",
+    "EVAL_INTELLIGENCE_DB_URL": "postgresql://u:p@127.0.0.1:5433/intelligence_db",
     "AUTH0_M2M_TOKEN_URL": "http://127.0.0.1:4999/oauth/token",
     "AUTH0_M2M_AUDIENCE": "https://engine.alter.local",
     "AUTH0_M2M_CLIENT_ID": "local-client",
@@ -83,3 +83,36 @@ def test_settings_still_report_their_own_missing_fields(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="model_gateway_grpc_target"):
         Settings(_env_file=_write_env_file(tmp_path, entries))  # type: ignore[call-arg]
+
+
+def test_scoped_database_urls_win_over_the_owning_services_own(tmp_path: Path) -> None:
+    """ADS_DB_URL and INTELLIGENCE_DB_URL belong to ads-core and
+    intelligence-service, which set them to SQLAlchemy URLs naming an async
+    driver. These two fields are handed to psycopg2.connect(), which cannot
+    parse that form, so the scoped name has to win.
+    """
+    entries = [f"{name}={value}" for name, value in _REQUIRED.items()] + [
+        "ADS_DB_URL=postgresql+asyncpg://ads_core:p@127.0.0.1:5434/ads_db",
+        "INTELLIGENCE_DB_URL=postgresql+asyncpg://intel:p@127.0.0.1:5433/intelligence_db",
+    ]
+
+    settings = Settings(_env_file=_write_env_file(tmp_path, entries))  # type: ignore[call-arg]
+
+    assert settings.ads_db_url.startswith("postgresql://")
+    assert settings.intelligence_db_url.startswith("postgresql://")
+
+
+def test_shared_database_urls_remain_the_fallback(tmp_path: Path) -> None:
+    """Nothing else reads them today, so the unscoped names still work."""
+    entries = [
+        f"{name}={value}"
+        for name, value in _REQUIRED.items()
+        if not name.startswith("EVAL_")
+    ] + [
+        "ADS_DB_URL=postgresql://ads_core:p@127.0.0.1:5434/ads_db",
+        "INTELLIGENCE_DB_URL=postgresql://intel:p@127.0.0.1:5433/intelligence_db",
+    ]
+
+    settings = Settings(_env_file=_write_env_file(tmp_path, entries))  # type: ignore[call-arg]
+
+    assert settings.ads_db_url == "postgresql://ads_core:p@127.0.0.1:5434/ads_db"
