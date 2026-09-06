@@ -57,6 +57,13 @@ class ArchitectureNode(StrictModel):
     execution_kind: ExecutionKind
     depends_on: list[NonEmpty]
     capability_role: EligibleCapabilityRole | None = None
+    # The skeleton node's own configuration -- a prompt for an llm node, a
+    # command for a deterministic one. Synthesis decides topology and must
+    # carry this through untouched. Dropping it left the compiler with nothing
+    # to lower, so every DAG built from an architecture failed at its first
+    # node on a missing prompt. Defaults to empty, so an architecture produced
+    # before this field existed still validates.
+    config: dict[str, object] = Field(default_factory=dict)
 
 
 class ExecutionWave(StrictModel):

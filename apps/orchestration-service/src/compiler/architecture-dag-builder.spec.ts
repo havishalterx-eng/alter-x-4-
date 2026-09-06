@@ -31,6 +31,36 @@ describe("compileArchitectureToDag", () => {
     expect(first.waves.map((wave) => wave.node_keys)).toEqual([["plan"], ["review"], ["human_approval_review"]]);
   });
 
+  it("carries each node's own configuration into the compiled node", () => {
+    const value = input();
+    value.architecture.nodes[0]!.config = { model_alias: "FAST", prompt: "Draft the plan." };
+    value.architecture.nodes[1]!.config = { command: "pnpm test" };
+
+    const dag = compileArchitectureToDag(value);
+
+    // Without this the compiler emitted only binding identifiers, so every
+    // node arrived at the executor missing the prompt or command its handler
+    // requires and the run failed on its first node.
+    expect(dag.nodes.find((node) => node.key === "plan")?.config).toMatchObject({
+      model_alias: "FAST",
+      prompt: "Draft the plan.",
+      capability_record_id: "model-main",
+    });
+    expect(dag.nodes.find((node) => node.key === "review")?.config).toMatchObject({
+      command: "pnpm test",
+      capability_record_id: "tool-review",
+    });
+  });
+
+  it("lets binding identifiers win over a colliding skeleton key", () => {
+    const value = input();
+    value.architecture.nodes[0]!.config = { capability_record_id: "from-skeleton" };
+
+    const dag = compileArchitectureToDag(value);
+
+    expect(dag.nodes.find((node) => node.key === "plan")?.config).toMatchObject({ capability_record_id: "model-main" });
+  });
+
   it.each([
     ["missing binding", (value: ArchitectureCompileInput) => { value.binding_decision.bindings = value.binding_decision.bindings.slice(1); }],
     ["ineligible kind", (value: ArchitectureCompileInput) => { value.binding_decision.bindings[0]!.kind = "tool"; }],

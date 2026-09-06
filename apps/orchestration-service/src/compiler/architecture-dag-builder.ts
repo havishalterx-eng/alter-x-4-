@@ -16,6 +16,11 @@ const ArchitectureNode = z.object({
     required_capabilities: z.array(z.string().min(1)),
     eligible_kinds: z.array(CapabilityKind).min(1),
   }).strict().nullable().optional(),
+  // Carried through synthesis from the task skeleton: the node's prompt, its
+  // command, whatever its handler requires. Optional, so an architecture
+  // produced before synthesis carried it still compiles -- into exactly the
+  // configuration-free DAG it produced before.
+  config: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 const ArchitectureSpec = z.object({
   status: z.literal("ready"),
@@ -85,7 +90,11 @@ export function compileArchitectureToDag(raw: ArchitectureCompileInput): Compile
   }
   const nodes: CompiledDag["nodes"] = architecture.nodes.map((node) => {
     const binding = bindings.get(node.source_node_key);
-    return { key: node.source_node_key, type: nodeType(node, binding), config: binding === undefined ? {} : { capability_record_id: binding.record_id, capability_version: binding.version }, metadata: { ui: {} } };
+    // The node's own configuration first, then the binding's identifiers on
+    // top -- binding metadata is chosen here and must win over anything a
+    // skeleton happened to carry under the same keys.
+    const bindingConfig = binding === undefined ? {} : { capability_record_id: binding.record_id, capability_version: binding.version };
+    return { key: node.source_node_key, type: nodeType(node, binding), config: { ...(node.config ?? {}), ...bindingConfig }, metadata: { ui: {} } };
   });
   const edges: CompiledDag["edges"] = architecture.nodes.flatMap((node) => node.depends_on.map((from) => ({ key: `${from}-to-${node.source_node_key}`, from, to: node.source_node_key, kind: "sequential" as const })));
   for (const boundary of architecture.boundaries) {
