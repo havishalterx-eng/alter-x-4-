@@ -54,6 +54,14 @@ class Settings(BaseSettings):
         env_file=".env.local",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        # .env.local is shared by every service in the monorepo, so it always
+        # carries keys this service does not declare -- another service's
+        # database password, another service's bind address. Rejecting them
+        # produced 113 extra_forbidden errors before a single one of this
+        # service's own required fields was reported, so the real problem
+        # (missing configuration) was buried under noise about configuration
+        # belonging to other services. Same fix already applied to ads-core.
+        extra="ignore",
     )
 
 
