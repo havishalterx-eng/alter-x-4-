@@ -217,6 +217,25 @@ describe("TriggerEventDispatchService", () => {
     ).rejects.toThrow(TriggerEventValidationError);
   });
 
+  // proto3 cannot distinguish an unset string field from an empty one, and
+  // the gRPC loader delivers an omitted field as undefined rather than "".
+  // Omitting one raised a TypeError inside the validator, which the transport
+  // reported as INTERNAL with the message "Run workspace lookup could not be
+  // completed" -- naming a lookup that had not yet run, on the engine's main
+  // run-dispatch entry point.
+  it.each(["event_type", "schema_version", "source", "idempotency_key"])(
+    "rejects an omitted %s as validation, not as a TypeError",
+    async (field) => {
+      const { service } = setup(undefined);
+      const payload = request() as unknown as Record<string, unknown>;
+      delete payload[field];
+
+      await expect(
+        service.createRun(payload as unknown as RunsCreateRunRequest),
+      ).rejects.toThrow(new TriggerEventValidationError(`${field} is required`));
+    },
+  );
+
   it("validates the carried trigger_version", async () => {
     const { service } = setup(undefined);
     await expect(

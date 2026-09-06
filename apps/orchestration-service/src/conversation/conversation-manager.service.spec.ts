@@ -248,6 +248,35 @@ describe("ConversationManagerService.classifyIntent", () => {
     ).rejects.toThrow(ConversationValidationError);
   });
 
+  // proto3 cannot distinguish an unset string field from an empty one, and
+  // the gRPC loader delivers an omitted field as undefined rather than "".
+  // The empty-string case above therefore never exercised what a real client
+  // sends: omitting the field raised a TypeError inside the validator, which
+  // the transport reported as INTERNAL rather than INVALID_ARGUMENT.
+  it.each(["tenant_id", "conversation_id", "utterance"])(
+    "rejects an omitted %s as validation, not as a TypeError",
+    async (field) => {
+      const { store } = createFakeStore();
+      const service = new ConversationManagerService(
+        store,
+        fakeModelGateway(vi.fn()),
+      );
+      const request = {
+        tenant_id: TENANT_A,
+        workspace_id: "ws_1",
+        conversation_id: CONVERSATION,
+        utterance: "ship it",
+      } as Record<string, string | undefined>;
+      delete request[field];
+
+      await expect(
+        service.classifyIntent(
+          request as unknown as Parameters<typeof service.classifyIntent>[0],
+        ),
+      ).rejects.toThrow(new ConversationValidationError(`${field} is required`));
+    },
+  );
+
   it("throws when the model returns an unrecognized intent", async () => {
     const { store } = createFakeStore();
     const service = new ConversationManagerService(
