@@ -35,9 +35,9 @@ export class NodeCostsService {
   ) {}
 
   async getForRun(input: {
-    readonly tenantId: string;
-    readonly workspaceId: string;
-    readonly runId: string;
+    readonly tenantId: unknown;
+    readonly workspaceId: unknown;
+    readonly runId: unknown;
   }): Promise<readonly NodeCost[]> {
     const tenantId = requirePrefixedUuid(input.tenantId, "ten", "tenantId");
     const workspaceId = requirePrefixedUuid(
@@ -71,8 +71,16 @@ export class NodeCostsService {
   }
 }
 
-function requirePrefixedUuid(value: string, prefix: string, field: string): string {
+// Query parameters are absent, not empty, when a caller omits them, so this
+// takes unknown rather than string: the declared type does not survive the
+// wire. Dereferencing an absent value here threw a TypeError before the
+// validator could raise its own error, turning a missing tenantId into a 500
+// instead of the 400 this function exists to produce.
+function requirePrefixedUuid(value: unknown, prefix: string, field: string): string {
   const expected = `${prefix}_`;
+  if (typeof value !== "string" || value.length === 0) {
+    throw new NodeCostValidationError(`${field} is required`);
+  }
   if (!value.startsWith(expected)) {
     throw new NodeCostValidationError(`${field} must have prefix ${expected}`);
   }

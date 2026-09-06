@@ -2,9 +2,12 @@ import { BadRequestException, Controller, Get, Param, Query } from "@nestjs/comm
 
 import { NodeCostsService, NodeCostValidationError } from "./node-costs.service";
 
+// unknown, not string: these are absent when a caller omits them, and the
+// declared type is not enforced at the wire boundary. CostSummaryController's
+// SummaryQuery already models them this way.
 interface NodeCostsQuery {
-  readonly tenantId: string;
-  readonly workspaceId: string;
+  readonly tenantId?: unknown;
+  readonly workspaceId?: unknown;
 }
 
 @Controller("costs")

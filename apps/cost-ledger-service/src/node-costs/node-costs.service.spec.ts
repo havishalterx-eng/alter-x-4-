@@ -39,4 +39,23 @@ describe("NodeCostsService", () => {
     ).rejects.toThrow(NodeCostValidationError);
     expect(withTenant).not.toHaveBeenCalled();
   });
+
+  // An omitted query parameter arrives as undefined, not as an empty string.
+  // Before the validator accepted unknown, dereferencing it raised a
+  // TypeError, which surfaced to the caller as a 500 -- so omitting a
+  // parameter was reported as a server fault while supplying a malformed one
+  // was correctly reported as a bad request.
+  it.each([
+    ["tenantId", { tenantId: undefined, workspaceId: WORKSPACE, runId: RUN }],
+    ["workspaceId", { tenantId: TENANT, workspaceId: undefined, runId: RUN }],
+    ["runId", { tenantId: TENANT, workspaceId: WORKSPACE, runId: undefined }],
+  ])("reports an omitted %s as validation, not as a TypeError", async (field, input) => {
+    const withTenant = vi.fn();
+    const service = new NodeCostsService({ withTenant } as unknown as CostStoreProvider);
+
+    await expect(service.getForRun(input)).rejects.toThrow(
+      new NodeCostValidationError(`${field} is required`),
+    );
+    expect(withTenant).not.toHaveBeenCalled();
+  });
 });

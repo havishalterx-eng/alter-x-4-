@@ -256,8 +256,14 @@ function applyMargin(internalCostMinor: string, marginRate: number): string {
   return billable.toString();
 }
 
-function requireUuidPrefixed(value: string, prefix: string, field: string): string {
+// Takes unknown for the same reason requirePrefixedUuid does: a caller that
+// omits a field sends undefined, and dereferencing it raises a TypeError
+// rather than this function's own validation error.
+function requireUuidPrefixed(value: unknown, prefix: string, field: string): string {
   const expected = `${prefix}_`;
+  if (typeof value !== "string" || value.length === 0) {
+    throw new RollupValidationError(`${field} is required`);
+  }
   if (!value.startsWith(expected)) {
     throw new RollupValidationError(`${field} must have prefix ${expected}`);
   }
