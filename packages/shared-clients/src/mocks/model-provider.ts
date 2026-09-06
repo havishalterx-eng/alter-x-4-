@@ -97,6 +97,29 @@ const STRUCTURED_REPLIES: readonly {
     matches: /classify a single user utterance/i,
     reply: { intent: "answer", confidence: 0.9 },
   },
+  {
+    // intelligence-service problem understanding. Its contract is the
+    // ProblemSpec protobuf, parsed with unknown fields rejected, so every
+    // key here has to exist in the message and nothing else may. Without
+    // it the prose echo cannot parse and the endpoint answers 503 for
+    // every request, which reads as a broken service rather than as a
+    // mock that does not speak this contract.
+    matches: /Turn a user request and verified context into a ProblemSpec/,
+    reply: {
+      objective: "mock analyst: the stated objective, restated without additions",
+      current_situation: "mock analyst: no verified context was supplied to draw on",
+      actors: ["mock analyst: unspecified"],
+      systems_involved: ["mock analyst: unspecified"],
+      constraints: ["mock analyst: unspecified"],
+      required_data: ["mock analyst: unspecified"],
+      risk: "unknown",
+      missing_information: [
+        "mock analyst: every specific fact this spec would need is absent",
+      ],
+      success_criteria: ["mock analyst: unspecified"],
+      context_references: [],
+    },
+  },
 ];
 
 /** The assistant text for a request: a contract-shaped reply when the caller
