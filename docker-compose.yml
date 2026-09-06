@@ -144,9 +144,12 @@ services:
           "CMD-SHELL",
           "awslocal sqs get-queue-url --queue-name alter-local-cost-events >/dev/null 2>&1 && awslocal sqs get-queue-url --queue-name alter-local-events.fifo >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${DATABASE_SECRET_REF}\" >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${COST_DATABASE_SECRET_REF}\" >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${DELETION_SERVICE_TOKEN_REF}\" >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${DELETION_PSEUDONYM_KEY_REF}\" >/dev/null 2>&1 && awslocal secretsmanager describe-secret --secret-id \"$${COST_PSEUDONYM_KEY_REF}\" >/dev/null 2>&1 && awslocal ssm get-parameter --name \"$${AUDIT_ARCHIVE_BUCKET_PARAM}\" >/dev/null 2>&1 && awslocal ssm get-parameter --name \"$${ARTIFACTS_BUCKET_PARAM}\" >/dev/null 2>&1 && awslocal ssm get-parameter --name \"$${ACTOR_TOKEN_SIGNING_KEY_REF}\" --with-decryption >/dev/null 2>&1",
         ]
-      interval: 5s
-      timeout: 5s
-      retries: 30
+      # Ten assertions at roughly 0.7s each take about 7.4s to run, so the
+      # previous 5s timeout killed the probe before it could finish and
+      # reported exit -1 forever, whatever the state of the resources.
+      interval: 10s
+      timeout: 20s
+      retries: 20
       start_period: 10s
     volumes:
       - ./infrastructure/local/localstack-init:/etc/localstack/init/ready.d:ro
