@@ -35,6 +35,20 @@ describe("createMockModelProvider", () => {
     ['{"output_schema":{"explanation":"non-empty string"}}', ["explanation", "confidence", "evidence"]],
     ['strict JSON: {"injection_detected": boolean}', ["injection_detected", "confidence"]],
     ["You classify a single user utterance into exactly one intent", ["intent", "confidence"]],
+    [
+      "Turn a user request and verified context into a ProblemSpec",
+      [
+        "objective",
+        "current_situation",
+        "actors",
+        "systems_involved",
+        "constraints",
+        "required_data",
+        "risk",
+        "missing_information",
+        "success_criteria",
+      ],
+    ],
   ])("answers the contract stated in %j", async (instruction, keys) => {
     const provider = createMockModelProvider();
 
