@@ -60,6 +60,7 @@ class ArchitectureSynthesizer:
                 execution_kind=_execution_kind(node.type),
                 depends_on=sorted(node.depends_on),
                 capability_role=eligible_roles.get(node.key),
+                config=dict(node.config),
             )
             for node in nodes
         ]
