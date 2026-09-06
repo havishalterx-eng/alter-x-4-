@@ -234,8 +234,14 @@ function parsePrefixed(
   return value;
 }
 
-function requireNonEmpty(field: string, value: string): void {
-  if (value.trim().length === 0) {
+// Takes unknown, not string: proto3 has no way to distinguish an unset
+// string field from an empty one, and the gRPC loader delivers an omitted
+// field as undefined rather than as "". Calling .trim() on it raised a
+// TypeError before this function could raise its own validation error, so
+// every caller who omitted a field was told the request failed internally
+// instead of which field was missing.
+function requireNonEmpty(field: string, value: unknown): void {
+  if (typeof value !== "string" || value.trim().length === 0) {
     throw new TriggerEventValidationError(`${field} is required`);
   }
 }
