@@ -122,7 +122,7 @@ works, so the table names that.
 | `intent` | 25/30 | 3 genuine misclassifications, 2 still blocked by the injection screen |
 | `injection` | 22/25 | was 8/25 before the classifier payload fix |
 | `verification` | 16/20 | model-quality limited |
-| `planner` | 13/20 | not model-limited -- see below |
+| `planner` | 15/20 | partly model-limited now -- see below |
 
 `retrieval` moving 0 to 20 was an address, not a defect: it had been aimed at a
 service that has neither the corpus nor the scope, and refusing an unknown
@@ -149,6 +149,7 @@ not move them. Of the seven that were failing, four were a ManagerWorker
 threshold no realistic objective could reach, now fixed. The remaining three
 are keyword-set misses in both directions, left alone deliberately: tuning a
 fixed keyword list against the twenty cases that measure it would raise the
-number without telling anyone anything. The four `decompose` cases are wired
-to the real planner but currently fail upstream in Problem Understanding
-(#139).
+number without telling anyone anything. The four `decompose` cases run end to
+end against the real planner; two pass and two disagree with the seeded
+`ambiguity_detected`, which is a real model judgement and the only part of
+this set that a better model would move.

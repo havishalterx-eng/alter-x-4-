@@ -61,7 +61,11 @@ def parse_problem_spec_json(value: str) -> ProblemSpec:
     try:
         Parse(value, spec, ignore_unknown_fields=False)
     except (ParseError, TypeError, ValueError) as exc:
-        raise ValueError("problem_spec_json must contain a valid ProblemSpec") from exc
+        # The reason travels in the message, not only on __cause__: every
+        # caller renders str(...) of this and nothing walks the chain, so the
+        # parser's account of which field was wrong was being discarded at the
+        # one point it was known (#139).
+        raise ValueError(f"problem_spec_json must contain a valid ProblemSpec: {exc}") from exc
     return validate_problem_spec(spec)
 
 

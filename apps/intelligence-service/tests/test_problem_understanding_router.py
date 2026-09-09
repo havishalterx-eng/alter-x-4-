@@ -7,7 +7,10 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from src.main import app
-from src.problem_understanding.kernel import ProblemUnderstandingExecutionError
+from src.problem_understanding.kernel import (
+    ProblemUnderstandingExecutionError,
+    ProblemUnderstandingResponseError,
+)
 from src.problem_understanding.models import ProblemSpec, ProblemUnderstandingRequest
 from src.problem_understanding.router import (
     get_kernel,
@@ -106,6 +109,31 @@ async def test_understand_surfaces_execution_failure_without_problem_spec(
     assert response.status_code == 503
     assert response.json()["detail"] == "Model Gateway could not produce a ProblemSpec"
     assert "objective" not in response.json()
+
+
+async def test_understand_reports_an_unusable_model_reply_as_bad_gateway(
+    client: AsyncClient,
+) -> None:
+    """A reply that arrived and could not be read is not an outage.
+
+    Both were 503 with the same sentence until #139, so an operator reading
+    the status could not tell whether to look at the gateway or at the prompt.
+    """
+
+    class RejectingKernel:
+        async def understand(self, request: ProblemUnderstandingRequest) -> ProblemSpec:
+            del request
+            raise ProblemUnderstandingResponseError(
+                "Model Gateway returned an invalid ProblemSpec: "
+                "problem_spec_json must contain a valid ProblemSpec: "
+                'Failed to parse actors field: repeated field actors must be in [] which is {}.'
+            )
+
+    app.dependency_overrides[get_kernel] = RejectingKernel
+    response = await client.post("/internal/problem-understanding/understand", json=_payload())
+
+    assert response.status_code == 502
+    assert "actors" in response.json()["detail"]
 
 
 async def test_lifespan_closes_owned_resources_once_and_clears_kernel(
