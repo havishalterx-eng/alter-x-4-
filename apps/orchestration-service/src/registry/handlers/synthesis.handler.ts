@@ -1,4 +1,8 @@
-import { ModelAliasSchema, type NodeType } from "@alterx/contracts";
+import {
+  ModelAliasSchema,
+  type ModelInvocationPayload,
+  type NodeType,
+} from "@alterx/contracts";
 import type { ModelGatewayHandler } from "@alterx/adapters";
 import { ModelGatewayInvalidResponseError } from "@alterx/shared-clients";
 
@@ -164,10 +168,22 @@ export class SynthesisHandler implements NodeHandler {
       run_id: context.run_id,
       node_execution_id: context.node_execution_id,
       model_alias: ModelAliasSchema.parse("ADVANCED"),
+      // The gateway hands input_json straight to a provider, which parses it
+      // with ModelInvocationPayloadSchema -- strict, and `messages` is
+      // required. This used to send the task object bare, so every provider
+      // rejected it before a model saw it and every Synthesis node threw.
+      // Same wrapping as RecoveryPolicyService's own root-cause call.
       input_json: JSON.stringify({
-        task: "synthesize_deliverable",
-        inputs: verifiedInputs,
-      }),
+        messages: [
+          {
+            role: "user",
+            content: JSON.stringify({
+              task: "synthesize_deliverable",
+              inputs: verifiedInputs,
+            }),
+          },
+        ],
+      } satisfies ModelInvocationPayload),
     };
     const response = await this.modelGateway.invoke(modelRequest);
 

@@ -2,6 +2,7 @@ import type { ModelGatewayHandler } from "@alterx/adapters";
 import type {
   CompiledDag,
   CompilerCompileWorkflowRequest,
+  ModelInvocationPayload,
   RootCauseEstimate,
 } from "@alterx/contracts";
 import { CompiledDagSchema } from "@alterx/contracts";
@@ -272,11 +273,24 @@ export class RecoveryDispatchService {
         run_id: context.runId,
         node_execution_id: context.nodeExecutionId,
         model_alias: "ADVANCED",
+        // The gateway hands input_json straight to a provider, which parses
+        // it with ModelInvocationPayloadSchema -- strict, and `messages` is
+        // required. This used to send the task object bare, so every
+        // provider rejected it before a model saw it and escalation could
+        // only ever report "failed". Same wrapping as
+        // RecoveryPolicyService's own root-cause call.
         input_json: JSON.stringify({
-          task: "Re-attempt this node's output at a higher model tier after a logic/output failure.",
-          failure_class: context.failureClass,
-          root_cause: context.estimate,
-        }),
+          messages: [
+            {
+              role: "user",
+              content: JSON.stringify({
+                task: "Re-attempt this node's output at a higher model tier after a logic/output failure.",
+                failure_class: context.failureClass,
+                root_cause: context.estimate,
+              }),
+            },
+          ],
+        } satisfies ModelInvocationPayload),
       });
       return {
         outcome: "resolved",
