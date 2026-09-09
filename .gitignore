@@ -19,3 +19,4 @@ tmp/
 *.tsbuildinfo
 packages/*/src/**/*.js
 packages/*/src/**/*.js.map
+.eval-helpers/
