@@ -44,7 +44,7 @@ export class ModelGatewayConfigurationError extends Error {
   }
 }
 
-const { requireValue, scopedValue, parsePort, parseRequiredPort, parseGrpcAddress } =
+const { requireValue, scopedValue, requireScopedValue, parsePort, parseRequiredPort, parseGrpcAddress } =
   createEnvironmentValidators((field, reason) => new ModelGatewayConfigurationError(field, reason));
 
 /**
@@ -96,7 +96,15 @@ export function loadModelGatewayEnvironment(
     );
   }
 
-  const configSource = requireValue(environment, "ALTER_CONFIG_SOURCE");
+  // Scoped first, for the same reason audit-service reads AUDIT_CONFIG_SOURCE:
+  // one shared env file cannot hold two values, and this is the service that
+  // needs "appconfig" while sandbox, provisioning and tool-gateway are still
+  // running against the local mocks.
+  const configSource = requireScopedValue(
+    environment,
+    "MODEL_GATEWAY_CONFIG_SOURCE",
+    "ALTER_CONFIG_SOURCE",
+  );
   if (configSource !== "appconfig" && configSource !== "mock") {
     throw new ModelGatewayConfigurationError(
       "ALTER_CONFIG_SOURCE",
