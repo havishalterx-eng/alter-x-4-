@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from ..ads_client.client import AdsClient
 from ..ads_client.models import RetrievalHit, RetrieveRequest
-from .llm_client import ProblemUnderstandingLlmClient
+from .llm_client import ProblemUnderstandingLlmClient, ProblemUnderstandingLlmError
 from .models import (
     ProblemContextReference,
     ProblemSpec,
@@ -16,9 +17,23 @@ from .models import (
 
 _ADS_TOP_K = 5
 
+_logger = logging.getLogger(__name__)
+
 
 class ProblemUnderstandingExecutionError(RuntimeError):
     """Problem Understanding could not complete its LLM-backed enrichment."""
+
+
+class ProblemUnderstandingResponseError(ProblemUnderstandingExecutionError):
+    """The Model Gateway answered, and the answer is not a ProblemSpec.
+
+    Distinct from its parent because the two are different events deserving
+    different responses: an unreachable gateway is a service that is
+    unavailable, while a reply this code cannot read is an upstream that
+    answered badly. Reporting the second as the first sends an operator to
+    look at the wrong thing, which is what happened until #139 -- both arrived
+    as the same 503 carrying the same sentence.
+    """
 
 
 class ProblemUnderstandingKernel:
@@ -60,9 +75,22 @@ class ProblemUnderstandingKernel:
                 actor_context=request.actor_context,
                 kb_context=kb_context,
             )
+        except ProblemUnderstandingLlmError as exc:
+            # The gateway answered; the answer is not a ProblemSpec. Logged
+            # here rather than left to the caller because the HTTP layer only
+            # renders the message, so without this the reason existed on the
+            # exception chain and nowhere a human would ever see it.
+            _logger.warning("problem understanding rejected the model reply: %s", exc)
+            raise ProblemUnderstandingResponseError(str(exc)) from exc
         except Exception as exc:
+            # Still broad: the LLM client is a Protocol, so its transport
+            # failures are whatever the injected implementation raises and
+            # cannot be enumerated here. The difference from before is that
+            # the cause now survives into the message and the log instead of
+            # being replaced by a sentence that fits every failure equally.
+            _logger.warning("problem understanding model call failed", exc_info=True)
             raise ProblemUnderstandingExecutionError(
-                "Model Gateway could not produce a ProblemSpec"
+                f"Model Gateway call failed: {type(exc).__name__}: {exc}"
             ) from exc
 
         # Raw request and ADS provenance are authoritative; an LLM cannot

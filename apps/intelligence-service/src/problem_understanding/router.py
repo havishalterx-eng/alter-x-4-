@@ -8,7 +8,11 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse
 from google.protobuf.json_format import MessageToDict
 
-from .kernel import ProblemUnderstandingExecutionError, ProblemUnderstandingKernel
+from .kernel import (
+    ProblemUnderstandingExecutionError,
+    ProblemUnderstandingKernel,
+    ProblemUnderstandingResponseError,
+)
 from .llm_client import ModelGatewayProblemUnderstandingClient
 from .models import ProblemUnderstandingRequest, validate_problem_spec
 
@@ -75,6 +79,15 @@ async def understand(
             spec.current_situation if spec.HasField("current_situation") else None
         )
         return JSONResponse(content=body)
+    # Checked before its parent: a reply this service could not read is an
+    # upstream that answered badly, which is a 502, not a service that is
+    # unavailable. Both were reported as 503 carrying the same sentence until
+    # #139, so an operator could not tell an outage from a shape mismatch.
+    except ProblemUnderstandingResponseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
     except ProblemUnderstandingExecutionError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
