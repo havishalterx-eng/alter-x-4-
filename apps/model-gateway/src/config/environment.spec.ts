@@ -219,4 +219,47 @@ describe("loadModelGatewayEnvironment", () => {
       field,
     );
   });
+
+  // One shared env file cannot hold two values for ALTER_CONFIG_SOURCE, and
+  // this is the service that has to say "appconfig" while sandbox,
+  // provisioning and tool-gateway are still on the local mocks.
+  const appConfigOverrides = {
+    MODEL_GATEWAY_CONFIG_SOURCE: "appconfig",
+    APPCONFIG_APPLICATION_ID: "app-1",
+    APPCONFIG_ENVIRONMENT_ID: "env-1",
+    APPCONFIG_CONFIGURATION_PROFILE_ID: "profile-1",
+    ANTHROPIC_API_KEY_SECRET_REF: "/alter/local/model-gateway/anthropic-api-key",
+    OPENAI_API_KEY_SECRET_REF: "/alter/local/model-gateway/openai-api-key",
+    PLATFORM_ADMIN_SERVICE_TOKEN_SECRET_REF: "/alter/local/model-gateway/platform-admin-token",
+    PRESIDIO_ANALYZER_URL: "http://127.0.0.1:5001",
+    PRESIDIO_ANONYMIZER_URL: "http://127.0.0.1:5002",
+    CACHE_REDIS_HOST: "127.0.0.1",
+    CACHE_REDIS_PORT: "6379",
+  } as const;
+
+  it("prefers MODEL_GATEWAY_CONFIG_SOURCE over the shared value", () => {
+    expect(
+      loadModelGatewayEnvironment(
+        environment({ ...appConfigOverrides, ALTER_CONFIG_SOURCE: "mock" }),
+      ),
+    ).toMatchObject({ configSource: "appconfig" });
+  });
+
+  it("still reads ALTER_CONFIG_SOURCE when the scoped name is absent", () => {
+    expect(loadModelGatewayEnvironment(environment())).toMatchObject({
+      configSource: "mock",
+    });
+  });
+
+  // The parameter names are deliberately left unset in .env.local: they
+  // default under /alter/<env>/, which is what an IAM policy scopes to, and
+  // neither parameter has to exist before the service writes it.
+  it("defaults both SSM parameter names under the /alter prefix", () => {
+    expect(
+      loadModelGatewayEnvironment(environment(appConfigOverrides)),
+    ).toMatchObject({
+      providerControlParameterName: "/alter/local/model-gateway/provider-controls",
+      modelPolicyOverrideParameterName: "/alter/local/model-gateway/model-policy",
+    });
+  });
 });
