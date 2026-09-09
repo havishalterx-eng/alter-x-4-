@@ -33,9 +33,11 @@ export {
 } from "./upload-allowlist.guard";
 export {
   PromptInjectionClassifier,
+  buildClassificationPayload,
   type ModelGatewayInvokeLike,
   type PromptInjectionClassificationRequest,
   type PromptInjectionClassificationResult,
+  type PromptInjectionFailOpenCause,
 } from "./prompt-injection-classifier";
 export {
   SessionGatewayPromptInjectionGuard,
