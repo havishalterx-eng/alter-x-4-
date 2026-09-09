@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ModelGatewayHandler } from "@alterx/adapters";
-import type { ModelgwInvokeRequest, ModelgwInvokeResponse } from "@alterx/contracts";
+import {
+  ModelInvocationPayloadSchema,
+  type ModelgwInvokeRequest,
+  type ModelgwInvokeResponse,
+} from "@alterx/contracts";
 
 import {
   ConversationConcurrencyError,
@@ -212,14 +216,17 @@ describe("ConversationManagerService.classifyIntent", () => {
       utterance: "build me a workflow",
     });
 
-    const screenInput = JSON.parse(invoke.mock.calls[0]![0].input_json) as {
-      task: string;
-      text: string;
-    };
-    expect(screenInput).toMatchObject({
-      task: "prompt_injection_classification",
-      text: "build me a workflow",
-    });
+    // The screening call has to satisfy the same wire contract as any other
+    // Model Gateway call. It used to send a bespoke {task, instructions, text}
+    // object, which every provider rejected before a model ever saw it (#129),
+    // so this asserts the contract rather than the old bespoke keys.
+    const screenInput = ModelInvocationPayloadSchema.parse(
+      JSON.parse(invoke.mock.calls[0]![0].input_json),
+    );
+    expect(screenInput.messages).toEqual([
+      { role: "system", content: expect.stringContaining("injection_detected") },
+      { role: "user", content: "build me a workflow" },
+    ]);
 
     const sent = invoke.mock.calls[1]![0];
     const parsedInput = JSON.parse(sent.input_json) as {
