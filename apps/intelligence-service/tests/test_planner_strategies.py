@@ -57,23 +57,22 @@ class TestWorkflowModeIterative:
 
 
 class TestWorkflowModeManagerWorker:
-    def test_long_objective_with_many_complex_keywords_escalates(self) -> None:
-        # >= 40 words, >= 3 distinct complex keywords.
+    def test_enumerated_workstreams_escalate(self) -> None:
+        # Four enumerated workstreams, past the length floor.
         objective = (
-            "coordinate and orchestrate the quarterly initiative to research "
-            "compare and compile findings from every regional team then generate "
-            "a report summarizing and synthesizing all results before we schedule "
-            "the review and deploy the final plan across every workspace we manage"
+            "Run a cross-region disaster recovery exercise with database, "
+            "platform, support, and documentation workstreams"
         )
-        assert len(objective.split()) >= 40
 
         strategy, reason = select_strategy(objective, "workflow")
 
         assert strategy == STRATEGY_MANAGER_WORKER
         assert reason
 
-    def test_long_objective_with_too_few_keywords_stays_iterative(self) -> None:
-        # Long enough, but only one complex keyword -- below the keyword threshold.
+    def test_long_objective_without_enumeration_stays_iterative(self) -> None:
+        # Long, but one workstream. Length alone must not fan out -- this is
+        # what the old 40-word threshold got wrong in the other direction,
+        # escalating anything verbose enough.
         objective = "please " * 39 + "report"
         assert len(objective.split()) >= 40
 
@@ -81,10 +80,24 @@ class TestWorkflowModeManagerWorker:
 
         assert strategy == STRATEGY_ITERATIVE
 
-    def test_many_keywords_but_short_objective_stays_iterative(self) -> None:
-        # Below the word-count threshold even with several complex keywords.
-        objective = "deploy migrate generate compile compare review"
-        assert len(objective.split()) < 40
+    def test_short_enumeration_does_not_escalate(self) -> None:
+        # Four items, but trivial ones: fanning out to parallel agents costs
+        # more than doing the work, which is what the length floor is for.
+        # It falls through to the ordinary direct/iterative split, and this
+        # one is short with no complex keyword, so: direct.
+        objective = "fix a, b, c, and d"
+        assert objective.count(",") + 1 >= 4
+
+        strategy, _ = select_strategy(objective, "workflow")
+
+        assert strategy == STRATEGY_DIRECT
+
+    def test_few_enumerated_items_stays_iterative(self) -> None:
+        objective = (
+            "Migrate the reporting database and then deploy the replacement "
+            "service, once the maintenance window has been agreed with support"
+        )
+        assert objective.count(",") + 1 < 4
 
         strategy, _ = select_strategy(objective, "workflow")
 
@@ -119,19 +132,25 @@ class TestUnknownMode:
 class TestStrategySelectionTracksSurfaceFormNotActualScope:
     """Batch 5 probe (rebuild plan, "Planner 40-word threshold").
 
-    select_strategy's own docstring says this "never calls the LLM" -- it is
-    word count plus membership in a fixed 23-word set, nothing else. These
-    tests are written to fail if that diagnosis is wrong: a semantically
-    trivial objective padded past the thresholds should escalate, and a
-    genuinely multi-team, multi-region objective phrased concisely should
-    not, even though the second is the harder problem by any real measure.
+    select_strategy's own docstring says this "never calls the LLM" -- it
+    reads the objective's surface form, nothing else. These tests are written
+    to fail if that diagnosis stops being true.
+
+    Half of what they documented has been fixed: padding a trivial objective
+    past a word count no longer escalates it, because the rule now counts
+    enumerated workstreams rather than words. The other half has not, and the
+    second test still passes for the original reason -- a concisely stated,
+    genuinely parallel objective is still classified as a single execution
+    path. Counting commas is a better proxy for scope than counting words; it
+    is still a proxy.
     """
 
-    def test_trivial_lookup_padded_past_both_thresholds_escalates(self) -> None:
-        # The actual task is "look up one fact." Padding with filler words
-        # and a handful of incidental complex-keyword hits is enough to
-        # trigger the fan-out strategy meant for genuinely large,
-        # multi-workstream work.
+    def test_trivial_lookup_padded_out_no_longer_escalates(self) -> None:
+        # The actual task is "look up one fact". Under the old 40-word /
+        # 3-keyword rule, padding it with filler and incidental keyword hits
+        # was enough to trigger the fan-out strategy meant for genuinely
+        # large, multi-workstream work. It enumerates nothing, so it no
+        # longer does.
         objective = (
             "please look up the capital city of France and also generate a small "
             "report about it then review it every single time even though this is "
@@ -142,7 +161,7 @@ class TestStrategySelectionTracksSurfaceFormNotActualScope:
 
         strategy, reason = select_strategy(objective, "workflow")
 
-        assert strategy == STRATEGY_MANAGER_WORKER
+        assert strategy == STRATEGY_ITERATIVE
         assert reason
 
     def test_genuinely_multi_team_objective_stated_concisely_does_not_escalate(self) -> None:

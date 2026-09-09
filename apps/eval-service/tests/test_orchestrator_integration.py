@@ -1191,31 +1191,38 @@ def test_planner_select_strategy_cases_execute_for_real(
         agent_binding_client.close()
         project_client.close()
 
-    # 16 of the 20 seeded planner cases are select_strategy (real as of
-    # HARD-7b); the remaining 4 are decompose/ambiguity cases, still
-    # disclosed follow-up scope -- real-failing, never silently skipped.
+    # 16 of the 20 seeded planner cases are select_strategy; the remaining 4
+    # are decompose/ambiguity cases. Both operations execute for real now --
+    # decompose was refused outright until #138, on the grounds that it needed
+    # ADS+LLM wiring that _score_project_case in this same file already used.
     #
-    # Of the 16 real select_strategy calls, only 9 actually match the golden
-    # set's expected strategy. This is a REAL, GENUINE finding surfaced by
-    # actually executing these cases for the first time (HARD-2's own
-    # docstring: the cases were "data for a future runner", never verified
-    # against real execution before now) -- not a bug in this test or the
-    # orchestrator. strategies.py's manager_worker escalation requires
-    # word_list >= 40 AND >= 3 complex-keyword hits; none of the golden
-    # set's 5 seeded "manager_worker" objectives actually reach 40 words,
-    # so all 5 fall through to iterative/direct. Separately, "summarize"
-    # and "report" are in _COMPLEX_KEYWORDS, which reclassifies 2 of the
-    # golden set's "direct" examples ("Summarize this incident report") as
-    # iterative, and "investigate"/"resolve" are NOT in that keyword list,
-    # so 2 "iterative" examples classify as direct instead.
+    # 13 pass. The 7 failures are two separate things, and neither is a bug in
+    # this test or in the orchestrator:
     #
-    # Deliberately not fixed here -- picking a side (loosen the heuristic
-    # vs. correct the golden set) is a product decision, not an eval-
-    # wiring decision. Asserting the real, observed numbers so this test
-    # stays honest and will fail loudly if this drifts further.
+    #   * 3 select_strategy cases. "summarize" is in strategies.py's
+    #     _COMPLEX_KEYWORDS, so "Summarize this incident report" classifies as
+    #     iterative rather than direct; "investigate" and "resolve" are not in
+    #     it, so two open-ended objectives classify as direct rather than
+    #     iterative. Deliberately not fixed: tuning a fixed keyword list
+    #     against the 20 cases that measure it would raise this number and
+    #     establish nothing. Whether select_strategy should be model-backed at
+    #     all is the open question in #138.
+    #
+    #     The manager_worker half of this used to be here too -- all 4 of the
+    #     golden set's manager_worker objectives failed a >= 40-word threshold
+    #     that no realistic objective reaches. That was a dead branch rather
+    #     than a product judgement, and #138 replaced it with a count of
+    #     enumerated workstreams; all 4 pass now.
+    #
+    #   * 4 decompose cases, which fail downstream in Problem Understanding
+    #     (#139) rather than being refused here. Real-failing, never silently
+    #     skipped.
+    #
+    # Asserting the real, observed numbers so this stays honest and fails
+    # loudly if it drifts.
     assert summary.total_cases == 20
-    assert summary.passed == 9
-    assert summary.failed == 11
+    assert summary.passed == 13
+    assert summary.failed == 7
 
     with sessions() as session:
         results = session.execute(
@@ -1225,20 +1232,24 @@ def test_planner_select_strategy_cases_execute_for_real(
             {"id": str(summary.eval_run_id)},
         ).all()
         assert len(results) == 20
-        unsupported_op_errors = [
+        # The 4 decompose cases now reach the real planner and fail there,
+        # rather than being turned away by _score_planner_case. The message is
+        # whatever the call actually failed with -- what matters is that it
+        # names the call, not that the harness declined to make it.
+        call_errors = [
             row.details["error"]
             for row in results
             if row.verdict == "fail" and "error" in row.details
         ]
-        assert len(unsupported_op_errors) == 4
-        assert all("unsupported operation" in error for error in unsupported_op_errors)
+        assert len(call_errors) == 4
+        assert all(error.startswith("Decompose call failed:") for error in call_errors)
 
         mismatched_strategy_results = [
             row.details
             for row in results
             if row.verdict == "fail" and "error" not in row.details
         ]
-        assert len(mismatched_strategy_results) == 7
+        assert len(mismatched_strategy_results) == 3
         assert all(
             "observed" in details and "expected" in details
             for details in mismatched_strategy_results
