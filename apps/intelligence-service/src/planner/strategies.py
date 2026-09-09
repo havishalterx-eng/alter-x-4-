@@ -22,13 +22,26 @@ STRATEGY_ITERATIVE = "iterative"
 STRATEGY_PLAN_THEN_EXECUTE = "plan_then_execute"
 STRATEGY_MANAGER_WORKER = "manager_worker"
 
-# A workflow objective escalates to ManagerWorker only when both signals of
-# large, multi-workstream scope are present -- long AND touching several
-# distinct complex-action keywords. Conservative on purpose: iterative is a
-# safe default, so we only fan out to parallel agents when the objective
-# clearly can't be served by a single execution path.
-_MANAGER_WORKER_WORD_THRESHOLD = 40
-_MANAGER_WORKER_KEYWORD_THRESHOLD = 3
+# A workflow objective escalates to ManagerWorker when it enumerates several
+# distinct workstreams and is substantial enough for the fan-out to pay for
+# itself. Conservative on purpose: iterative is a safe default, so we only fan
+# out to parallel agents when the objective clearly can't be served by a single
+# execution path.
+#
+# This replaced a 40-word / 3-keyword rule that no realistic objective reached.
+# All four of the planner golden set's manager_worker cases failed under it --
+# the longest is 26 words -- so the branch was dead in practice, while padding
+# a trivial objective past 40 words with incidental keyword hits did escalate.
+# Counting enumerated workstreams is a better proxy: it is what the escalation
+# is for, and it does not reward verbosity.
+#
+# It is still a proxy. An objective describing genuinely parallel work in one
+# clause without enumerating it stays iterative -- see
+# TestStrategySelectionTracksSurfaceFormNotActualScope in
+# tests/test_planner_strategies.py, which keeps asserting that limit rather
+# than hiding it.
+_MANAGER_WORKER_ENUMERATED_ITEMS = 4
+_MANAGER_WORKER_LENGTH_THRESHOLD = 80
 
 # Keywords in the objective that signal non-trivial multi-step work.
 _COMPLEX_KEYWORDS = frozenset(
@@ -63,6 +76,17 @@ _COMPLEX_KEYWORDS = frozenset(
 _ITERATIVE_LENGTH_THRESHOLD = 120
 
 
+def _enumerated_workstreams(objective: str) -> int:
+    """Count the comma-separated items in the objective.
+
+    A trailing "and" list ("a, b, c, and d") is four items and three commas, so
+    the count is commas plus one. An objective with no commas is one item,
+    which is what keeps every short objective out of the ManagerWorker branch
+    without needing a separate guard.
+    """
+    return objective.count(",") + 1
+
+
 def select_strategy(objective: str, mode: str) -> tuple[str, str]:
     """Return (strategy, reason) for the given objective and mode.
 
@@ -78,20 +102,19 @@ def select_strategy(objective: str, mode: str) -> tuple[str, str]:
         )
 
     if mode == "workflow":
-        word_list = objective.lower().split()
-        words = set(word_list)
+        words = set(objective.lower().split())
         complex_hits = words & _COMPLEX_KEYWORDS
+        enumerated = _enumerated_workstreams(objective)
 
         if (
-            len(word_list) >= _MANAGER_WORKER_WORD_THRESHOLD
-            and len(complex_hits) >= _MANAGER_WORKER_KEYWORD_THRESHOLD
+            enumerated >= _MANAGER_WORKER_ENUMERATED_ITEMS
+            and len(objective) >= _MANAGER_WORKER_LENGTH_THRESHOLD
         ):
             return (
                 STRATEGY_MANAGER_WORKER,
-                "Objective spans multiple large workstreams "
-                f"({len(complex_hits)} distinct complex actions across "
-                f"{len(word_list)} words); fanning out to parallel manager/worker "
-                "agents rather than a single execution path.",
+                f"Objective enumerates {enumerated} distinct workstreams; fanning "
+                "out to parallel manager/worker agents rather than a single "
+                "execution path.",
             )
 
         is_complex = bool(complex_hits)

@@ -110,7 +110,7 @@ works, so the table names that.
 | --- | --- |
 | `intent` | model-gateway, orchestration-service, `security` helper (the screen runs first) |
 | `verification` | model-gateway, verification-service |
-| `planner` | intelligence-service |
+| `planner` | intelligence-service; its 4 `decompose` cases also need model-gateway |
 | `injection` | model-gateway, `security` helper |
 | `retrieval` | `retrieval` helper only — no model-gateway; its embeddings are deterministic and local |
 
@@ -122,7 +122,7 @@ works, so the table names that.
 | `intent` | 25/30 | 3 genuine misclassifications, 2 still blocked by the injection screen |
 | `injection` | 22/25 | was 8/25 before the classifier payload fix |
 | `verification` | 16/20 | model-quality limited |
-| `planner` | 9/20 | 11 cases hit an unimplemented `decompose` operation |
+| `planner` | 13/20 | not model-limited -- see below |
 
 `retrieval` moving 0 to 20 was an address, not a defect: it had been aimed at a
 service that has neither the corpus nor the scope, and refusing an unknown
@@ -140,3 +140,15 @@ request took it back to 25/30 without giving up any of `injection`'s gain
 This is the regression test for the classifier prompt. There is no unit test
 for it: the behaviour under test is a model's judgement, and a test asserting
 the prompt's wording would only assert that nobody edited the string.
+
+`planner` is the one set that is **not** model-limited, and its number should
+not be read next to the others as though it were. Sixteen of its twenty cases
+exercise `select_strategy`, which is a deterministic heuristic over the
+objective's surface form and never calls a model at all; a better model would
+not move them. Of the seven that were failing, four were a ManagerWorker
+threshold no realistic objective could reach, now fixed. The remaining three
+are keyword-set misses in both directions, left alone deliberately: tuning a
+fixed keyword list against the twenty cases that measure it would raise the
+number without telling anyone anything. The four `decompose` cases are wired
+to the real planner but currently fail upstream in Problem Understanding
+(#139).

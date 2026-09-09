@@ -1131,18 +1131,77 @@ class EvalRunOrchestrator:
             },
         )
 
+    def _score_planner_decompose_case(self, case: EvalCase) -> _CaseVerdict:
+        """Score a planner `decompose` case against the real planner.
+
+        This runs the same understand-then-decompose pair `_score_project_case`
+        already runs, scored on a different property: the project domain
+        asserts the shape of the task skeleton, these cases assert only whether
+        the planner noticed the objective was ambiguous. So `observed` is built
+        from `ambiguity_detected` alone rather than reusing the project
+        domain's stage_count/entry_point/stages comparison, which no planner
+        case seeds an expectation for.
+
+        Unlike `select_strategy`, this needs a live model-gateway --
+        `understand` is a real Problem Understanding call.
+        """
+        objective = str(case.input_json["objective"])
+        strategy = str(case.input_json["strategy"])
+
+        try:
+            problem_spec_json = self._planner_client.understand(
+                tenant_id=_EVAL_TENANT_ID,
+                workspace_id=_EVAL_WORKSPACE_ID,
+                run_id=_EVAL_RUN_ID,
+                objective=objective,
+            )
+            result = self._planner_client.decompose(
+                tenant_id=_EVAL_TENANT_ID,
+                workspace_id=_EVAL_WORKSPACE_ID,
+                run_id=_EVAL_RUN_ID,
+                problem_spec_json=problem_spec_json,
+                strategy=strategy,
+            )
+        except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={"error": f"Decompose call failed: {error}"},
+            )
+
+        observed = {"ambiguity_detected": result.ambiguity_detected}
+        expected = case.expected_json
+        real_verdict = "pass" if observed == expected else "fail"
+
+        return _CaseVerdict(
+            verdict=real_verdict,
+            score=1.0 if real_verdict == "pass" else 0.0,
+            details={
+                "observed": observed,
+                "expected": expected,
+                "stage_count": result.stage_count,
+            },
+        )
+
     def _score_planner_case(self, case: EvalCase) -> _CaseVerdict:
         operation = case.input_json.get("operation")
+        if operation == "decompose":
+            # This was refused alongside replan on the grounds that it "needs
+            # real ADS+LLM wiring". That stopped being true: _score_project_case
+            # above runs the same understand-then-decompose pair against the
+            # live planner, so the wiring the refusal named as missing is
+            # wiring this file already uses.
+            return self._score_planner_decompose_case(case)
         if operation != "select_strategy":
-            # decompose/replan need real ADS+LLM wiring -- disclosed
-            # follow-up scope (see module doc), same fail-closed pattern
-            # as an unsupported domain: never silently skipped.
+            # replan still needs a real prior plan to replan from -- disclosed
+            # follow-up scope, same fail-closed pattern as an unsupported
+            # domain: never silently skipped.
             return _CaseVerdict(
                 verdict="fail",
                 score=0.0,
                 details={
                     "error": f"unsupported operation {operation!r} for domain=planner "
-                    "(only select_strategy is real as of HARD-7b)"
+                    "(select_strategy and decompose are real)"
                 },
             )
 
