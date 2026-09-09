@@ -1,5 +1,9 @@
 import type { ModelGatewayHandler } from "@alterx/adapters";
-import type { ModelgwInvokeRequest, ModelgwInvokeResponse } from "@alterx/contracts";
+import {
+  ModelInvocationPayloadSchema,
+  type ModelgwInvokeRequest,
+  type ModelgwInvokeResponse,
+} from "@alterx/contracts";
 import { ModelGatewayInvalidResponseError } from "@alterx/shared-clients";
 import { describe, expect, it, vi } from "vitest";
 
@@ -15,6 +19,19 @@ function fakeGateway(
   invoke: (request: ModelgwInvokeRequest) => Promise<ModelgwInvokeResponse>,
 ): ModelGatewayHandler {
   return { invoke };
+}
+
+/**
+ * Parses what actually went on the wire with the provider's own schema, then
+ * returns the task object carried inside the user message. The handler used
+ * to send `{task, inputs}` bare, which every provider rejects before a model
+ * sees it (#133); the old assertions pinned that shape, so they agreed with
+ * the handler and neither agreed with the contract.
+ */
+function sentTask(inputJson: string): Record<string, unknown> {
+  const payload = ModelInvocationPayloadSchema.parse(JSON.parse(inputJson));
+  expect(payload.messages).toHaveLength(1);
+  return JSON.parse(payload.messages[0]!.content) as Record<string, unknown>;
 }
 
 function readerFor(
@@ -76,15 +93,17 @@ describe("SynthesisHandler", () => {
       baseContext({ node_a: { x: 1 }, node_b: { y: 2 } }),
     );
 
-    expect(invoke).toHaveBeenCalledWith({
-      tenant_id: TENANT_ID,
-      run_id: RUN_ID,
-      node_execution_id: NODE_EXECUTION_ID,
-      model_alias: "ADVANCED",
-      input_json: JSON.stringify({
-        task: "synthesize_deliverable",
-        inputs: { node_a: { x: 1 }, node_b: { y: 2 } },
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenant_id: TENANT_ID,
+        run_id: RUN_ID,
+        node_execution_id: NODE_EXECUTION_ID,
+        model_alias: "ADVANCED",
       }),
+    );
+    expect(sentTask(invoke.mock.calls[0]![0].input_json)).toEqual({
+      task: "synthesize_deliverable",
+      inputs: { node_a: { x: 1 }, node_b: { y: 2 } },
     });
     expect(result.output).toEqual({
       deliverable: { summary: "final answer" },
@@ -113,14 +132,10 @@ describe("SynthesisHandler", () => {
       baseContext({ node_a: { x: 1 }, node_b: { y: 2 } }),
     );
 
-    expect(invoke).toHaveBeenCalledWith(
-      expect.objectContaining({
-        input_json: JSON.stringify({
-          task: "synthesize_deliverable",
-          inputs: { node_a: { x: 1 } },
-        }),
-      }),
-    );
+    expect(sentTask(invoke.mock.calls[0]![0].input_json)).toEqual({
+      task: "synthesize_deliverable",
+      inputs: { node_a: { x: 1 } },
+    });
     expect(result.output).toEqual({
       deliverable: { summary: "partial" },
       degraded: true,

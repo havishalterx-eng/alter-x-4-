@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { RootCauseEstimate } from "@alterx/contracts";
+import {
+  ModelInvocationPayloadSchema,
+  type RootCauseEstimate,
+} from "@alterx/contracts";
 
 import {
   RecoveryDispatchService,
@@ -273,6 +276,18 @@ describe("RecoveryDispatchService", () => {
     expect(invoke).toHaveBeenCalledWith(
       expect.objectContaining({ model_alias: "ADVANCED" }),
     );
+
+    // Asserted through the provider's own schema rather than against bespoke
+    // keys: this used to send `{task, failure_class, root_cause}` bare, which
+    // every provider rejects before a model sees it, so escalation could only
+    // ever report "failed" against a real gateway (#133).
+    const payload = ModelInvocationPayloadSchema.parse(
+      JSON.parse(invoke.mock.calls[0]![0].input_json),
+    );
+    expect(payload.messages).toHaveLength(1);
+    expect(JSON.parse(payload.messages[0]!.content)).toMatchObject({
+      failure_class: CONTEXT.failureClass,
+    });
   });
 
   it("escalate_model fails (not throws) when Model Gateway errors", async () => {
@@ -280,6 +295,8 @@ describe("RecoveryDispatchService", () => {
     const service = buildService({ invoke });
     const result = await service.dispatch("escalate_model", CONTEXT);
     expect(result.outcome).toBe("failed");
+    // The cause has to survive: this is the only place it is reported.
+    expect(result.detail).toContain("gateway unreachable");
   });
 
   it("replan loads the compiled DAG, calls Planner, then recompiles", async () => {
