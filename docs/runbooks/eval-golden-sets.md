@@ -119,14 +119,24 @@ works, so the table names that.
 | Set | Score | Note |
 | --- | --- | --- |
 | `retrieval` | 20/20 | was 0/20 against ads-core's production entrypoint |
+| `intent` | 25/30 | 3 genuine misclassifications, 2 still blocked by the injection screen |
 | `injection` | 22/25 | was 8/25 before the classifier payload fix |
 | `verification` | 16/20 | model-quality limited |
 | `planner` | 9/20 | 11 cases hit an unimplemented `decompose` operation |
-| `intent` | 15/30 | was 26/30; 15 cases are now blocked by the injection screen |
 
-The last row is a real regression and not a harness artefact: with the screen
-working, Nova micro classifies "run the invoice workflow"-shaped utterances as
-injection attempts, and `ClassifyIntent` answers `INVALID_ARGUMENT` before
-classifying. `retrieval` moving 0 to 20 is the reverse: nothing was wrong with
-retrieval, the address was pointing at a service that has neither the corpus
-nor the scope, and refusing an unknown scope is correct tenant isolation.
+`retrieval` moving 0 to 20 was an address, not a defect: it had been aimed at a
+service that has neither the corpus nor the scope, and refusing an unknown
+scope is correct tenant isolation.
+
+`intent` and `injection` are coupled, because `ClassifyIntent` screens the
+utterance for prompt injection before classifying it. That screen never ran
+until the payload fix, so `intent` scored 26/30 with the control off. Turning
+it on took `intent` to 15/30 -- Nova micro read "run the nightly database
+backup workflow" as an attack -- and rewriting the classifier's system prompt
+to separate an attack on the assistant's instructions from an ordinary product
+request took it back to 25/30 without giving up any of `injection`'s gain
+(#136). Change one of these two and re-measure both.
+
+This is the regression test for the classifier prompt. There is no unit test
+for it: the behaviour under test is a model's judgement, and a test asserting
+the prompt's wording would only assert that nobody edited the string.
