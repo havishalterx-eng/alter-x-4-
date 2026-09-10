@@ -537,8 +537,11 @@ class FakeAdsCoreMemoryClient:
         statement: str,
         confidence: float | None,
         provenance: dict[str, object],
-        authorization: str,
     ) -> str:
+        # No `authorization` parameter, deliberately: the real client mints its
+        # own credential at construction, so a caller cannot hand one in. A
+        # fake that still accepted one would let the forwarding come back
+        # without failing here.
         if self.raise_unavailable:
             raise AdsCoreMemoryDeliveryUnavailableError("simulated unavailable")
         self.calls.append(
@@ -549,7 +552,6 @@ class FakeAdsCoreMemoryClient:
                 "statement": statement,
                 "confidence": confidence,
                 "provenance": provenance,
-                "authorization": authorization,
             }
         )
         return "mns_test"

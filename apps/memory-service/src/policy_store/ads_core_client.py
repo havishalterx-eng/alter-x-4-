@@ -4,6 +4,8 @@ from typing import Protocol
 
 import httpx
 
+from ..m2m_auth import AccessTokenProvider, bearer_headers
+
 
 class AdsCoreMemoryDeliveryUnavailableError(RuntimeError):
     pass
@@ -19,7 +21,6 @@ class AdsCoreMemoryClient(Protocol):
         statement: str,
         confidence: float | None,
         provenance: dict[str, object],
-        authorization: str,
     ) -> str: ...
 
 
@@ -29,10 +30,13 @@ class HttpxAdsCoreMemoryClient:
         base_url: str,
         timeout_seconds: float,
         client: httpx.AsyncClient | None = None,
+        *,
+        access_token_provider: AccessTokenProvider,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._client = client or httpx.AsyncClient(timeout=timeout_seconds)
         self._owns_client = client is None
+        self._access_token_provider = access_token_provider
 
     async def record_memory_namespace(
         self,
@@ -43,7 +47,6 @@ class HttpxAdsCoreMemoryClient:
         statement: str,
         confidence: float | None,
         provenance: dict[str, object],
-        authorization: str,
     ) -> str:
         try:
             response = await self._client.post(
@@ -56,7 +59,7 @@ class HttpxAdsCoreMemoryClient:
                     "confidence": confidence,
                     "provenance": provenance,
                 },
-                headers={"authorization": authorization},
+                headers=await bearer_headers(self._access_token_provider),
             )
         except httpx.HTTPError as error:
             raise AdsCoreMemoryDeliveryUnavailableError(
