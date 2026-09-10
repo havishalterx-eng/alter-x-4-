@@ -203,7 +203,6 @@ class PolicyStoreService:
                 statement=statement_for_run_content(result.content),
                 confidence=None,
                 provenance={"memory_id": request.memory_id},
-                authorization=authorization,
             )
         except AdsCoreMemoryDeliveryUnavailableError as error:
             logger.error(

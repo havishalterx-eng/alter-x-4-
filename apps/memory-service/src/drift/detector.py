@@ -84,7 +84,6 @@ class DriftDetector:
             agent_id=request.agent_id,
             task_class=request.task_class,
             limit=self._window_size * 2,
-            authorization=authorization,
         )
         if performance.agent_id != request.agent_id or performance.task_class != request.task_class:
             raise DriftValidationError("intelligence performance response identity mismatch")
@@ -162,7 +161,6 @@ class DriftDetector:
             provider=request.provider,
             resource=request.resource,
             limit=self._window_size * 2,
-            authorization=authorization,
         )
         score, baseline, recent, baseline_window, p_value = self._score_outcome_window(window)
         action = self._flag_only_action(score, p_value)
@@ -198,7 +196,6 @@ class DriftDetector:
             provider=request.provider,
             resource=None,
             limit=self._window_size * 2,
-            authorization=authorization,
         )
         score, baseline, recent, baseline_window, p_value = self._score_outcome_window(window)
         action = self._flag_only_action(score, p_value)

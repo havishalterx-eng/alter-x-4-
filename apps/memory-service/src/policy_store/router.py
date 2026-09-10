@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import get_settings
+from src.m2m_auth import lazy_auth0_m2m_token_provider_from_settings
 
 from .ads_core_client import HttpxAdsCoreMemoryClient
 from .models import (
@@ -47,6 +48,7 @@ async def policy_store_lifespan(app: FastAPI) -> AsyncIterator[None]:
     _default_ads_core_client = HttpxAdsCoreMemoryClient(
         str(settings.ads_core_base_url),
         settings.ads_core_timeout_seconds,
+        access_token_provider=lazy_auth0_m2m_token_provider_from_settings(settings),
     )
     _default_service = PolicyStoreService(
         SqlAlchemyPolicyStoreRepository(

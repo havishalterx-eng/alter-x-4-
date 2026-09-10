@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import get_settings
+from src.m2m_auth import lazy_auth0_m2m_token_provider_from_settings
 from src.policy_store.router import get_policy_store_service
 
 from .cost_ledger_client import (
@@ -48,13 +49,16 @@ async def drift_lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     tenant_engine = create_engine(settings.policy_db_url_sync, pool_pre_ping=True)
     system_engine = create_engine(settings.policy_db_system_url_sync, pool_pre_ping=True)
+    token_provider = lazy_auth0_m2m_token_provider_from_settings(settings)
     _default_client = HttpxIntelligencePerformanceClient(
         str(settings.intelligence_service_base_url),
         settings.intelligence_service_timeout_seconds,
+        access_token_provider=token_provider,
     )
     _default_outcome_client = HttpxCostLedgerOutcomeClient(
         str(settings.cost_ledger_service_base_url),
         settings.cost_ledger_service_timeout_seconds,
+        access_token_provider=token_provider,
     )
     _default_detector = DriftDetector(
         _default_client,

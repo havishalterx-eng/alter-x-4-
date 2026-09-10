@@ -19,6 +19,21 @@ class Settings(BaseSettings):
     ads_core_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     cost_ledger_service_base_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8000")
     cost_ledger_service_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    # This service's own machine-to-machine identity, used for every outbound
+    # call it makes. It previously forwarded whichever credential its caller
+    # arrived with, which made the callee authorise the caller rather than
+    # memory-service, and replayed a token minted for one audience against
+    # another. Same four settings ads-core, intelligence-service and
+    # eval-service already declare.
+    #
+    # Empty defaults, and LazyAuth0M2mTokenProvider validates them on the
+    # first outbound call rather than at import: a deployment that makes no
+    # outbound call should not be forced to configure one, and a misconfigured
+    # one should fail where the call is, naming the call.
+    auth0_m2m_token_url: str = ""
+    auth0_m2m_audience: str = ""
+    auth0_m2m_client_id: str = ""
+    auth0_m2m_client_secret: str = ""
     drift_failure_threshold: float = Field(default=0.2, ge=0, le=1)
     drift_window_size: int = Field(default=20, ge=2, le=100)
     # gt=0, not ge=0: DriftDetector rejects a significance_level of exactly

@@ -5,6 +5,7 @@ from typing import Protocol
 import httpx
 from pydantic import ValidationError
 
+from ..m2m_auth import AccessTokenProvider, bearer_headers
 from .models import ModelOutcomeWindow
 
 
@@ -19,7 +20,6 @@ class CostLedgerOutcomeClient(Protocol):
         provider: str,
         resource: str | None,
         limit: int,
-        authorization: str,
     ) -> ModelOutcomeWindow: ...
 
 
@@ -29,10 +29,13 @@ class HttpxCostLedgerOutcomeClient:
         base_url: str,
         timeout_seconds: float,
         client: httpx.AsyncClient | None = None,
+        *,
+        access_token_provider: AccessTokenProvider,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._client = client or httpx.AsyncClient(timeout=timeout_seconds)
         self._owns_client = client is None
+        self._access_token_provider = access_token_provider
 
     async def load_outcome_window(
         self,
@@ -40,7 +43,6 @@ class HttpxCostLedgerOutcomeClient:
         provider: str,
         resource: str | None,
         limit: int,
-        authorization: str,
     ) -> ModelOutcomeWindow:
         params = {"provider": provider, "limit": str(limit)}
         if resource is not None:
@@ -49,7 +51,7 @@ class HttpxCostLedgerOutcomeClient:
             response = await self._client.get(
                 f"{self._base_url}/internal/model-outcomes",
                 params=params,
-                headers={"authorization": authorization},
+                headers=await bearer_headers(self._access_token_provider),
             )
         except httpx.HTTPError as error:
             raise CostLedgerOutcomeUnavailableError(
