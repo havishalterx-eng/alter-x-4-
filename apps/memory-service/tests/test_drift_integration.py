@@ -75,7 +75,7 @@ class _UnexercisedOutcomeClient:
     Protocol shape without a real cost-ledger-service running."""
 
     async def load_outcome_window(
-        self, *, provider: str, resource: str | None, limit: int, authorization: str
+        self, *, provider: str, resource: str | None, limit: int
     ) -> ModelOutcomeWindow:
         raise AssertionError("not exercised by this test")
 
@@ -103,9 +103,9 @@ class _FakeOutcomeClient:
         self._windows = windows
 
     async def load_outcome_window(
-        self, *, provider: str, resource: str | None, limit: int, authorization: str
+        self, *, provider: str, resource: str | None, limit: int
     ) -> ModelOutcomeWindow:
-        del limit, authorization
+        del limit
         return self._windows.get((provider, resource), ModelOutcomeWindow(observations=()))
 
 
