@@ -51,6 +51,10 @@ class DriftScore(Base):
     __tablename__ = "drift_scores"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
+    # Set on agent rows, NULL on model/provider ones: model and provider drift
+    # are platform-wide facts every tenant may read, while agent drift belongs
+    # to one tenant and drift_read scopes it on this column.
+    tenant_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False))
     subject_type: Mapped[str] = mapped_column(Text, nullable=False)
     subject_ref: Mapped[str] = mapped_column(Text, nullable=False)
     task_class: Mapped[str | None] = mapped_column(Text)

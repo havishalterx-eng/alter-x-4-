@@ -25,6 +25,7 @@ class SqlAlchemyDriftRepository:
     def record_agent_score(
         self,
         *,
+        tenant_uuid: str,
         agent_id: str,
         task_class: str,
         score: float,
@@ -39,6 +40,11 @@ class SqlAlchemyDriftRepository:
         with self._system_sessions.begin() as session:
             row = DriftScore(
                 id=new_prefixed_uuid7("drift"),
+                # Written on the system session, which bypasses drift_read --
+                # so this column is the only thing that will let the owning
+                # tenant read the row back. A row written without it is
+                # invisible to everyone, which is what every agent row was.
+                tenant_id=tenant_uuid,
                 subject_type="agent",
                 subject_ref=agent_id,
                 task_class=task_class,
@@ -215,15 +221,16 @@ class SqlAlchemyDriftRepository:
     def list_agent_scores(
         self, *, tenant_uuid: str, agent_id: str
     ) -> tuple[StoredDriftScore, ...]:
-        """Real read under RLS. drift_scores' own drift_read policy
-        (0001_create_policy_tables.py) only permits SELECT of
-        subject_type IN ('model','provider') rows -- agent-subject rows
-        are deliberately default-deny for every tenant session pending
-        KNOW-15's local ownership projection, per that migration's own
-        docstring. A cross-tenant (or same-tenant) read of another
-        agent's drift scores therefore always returns empty here, not
-        because of an app-level ownership check but because the real,
-        unmodified RLS policy excludes the row entirely."""
+        """Real read under RLS. drift_scores' own drift_read policy admits an
+        agent row only when its `tenant_id` equals the session's
+        `app.current_tenant_id`, so a cross-tenant read returns empty because
+        the row is excluded by the policy, not by an app-level ownership check.
+
+        Until 0006 the policy admitted `subject_type IN ('model','provider')`
+        and nothing else, so this returned empty for every caller including the
+        owning tenant -- and an empty list reads as "no drift" rather than as
+        "not yours". `tenant_uuid` must be the bare UUID: the policy casts the
+        session setting to ::uuid, which a `ten_`-prefixed value fails."""
         with self._tenant_sessions.begin() as session:
             session.execute(_SET_TENANT, {"tenant_id": tenant_uuid})
             rows = session.scalars(

@@ -74,7 +74,10 @@ class DriftDetector:
         authorization: str,
     ) -> ComputeAgentDriftResponse:
         self._validate_authorization(authorization)
-        self._raw_id(request.tenant_id, "ten")
+        # Kept, not discarded: the row this writes is scoped by tenant_id, and
+        # the RLS policy that reads it back casts the session setting to
+        # ::uuid, which a `ten_`-prefixed value fails.
+        tenant_uuid = self._raw_id(request.tenant_id, "ten")
         self._raw_id(request.agent_id, "agt")
         performance = await self._client.load_agent_performance(
             tenant_id=request.tenant_id,
@@ -110,6 +113,7 @@ class DriftDetector:
             ) else "flagged"
         stored = await asyncio.to_thread(
             self._repository.record_agent_score,
+            tenant_uuid=tenant_uuid,
             agent_id=request.agent_id,
             task_class=request.task_class,
             score=score,
@@ -137,11 +141,13 @@ class DriftDetector:
         authorization: str,
     ) -> ListAgentDriftResponse:
         self._validate_authorization(authorization)
-        self._raw_id(request.tenant_id, "ten")
+        # Bare UUID, not request.tenant_id: drift_read casts the session
+        # setting to ::uuid, and a `ten_`-prefixed value fails that cast.
+        tenant_uuid = self._raw_id(request.tenant_id, "ten")
         self._raw_id(request.agent_id, "agt")
         scores = await asyncio.to_thread(
             self._repository.list_agent_scores,
-            tenant_uuid=request.tenant_id,
+            tenant_uuid=tenant_uuid,
             agent_id=request.agent_id,
         )
         return ListAgentDriftResponse(agent_id=request.agent_id, scores=scores)
