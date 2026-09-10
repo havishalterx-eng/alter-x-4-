@@ -996,3 +996,87 @@ describe("NodeexecService.finalizeRun", () => {
     expect(response.status).toBe("completed");
   });
 });
+
+describe("NodeexecService failure cause (#149)", () => {
+  /** A handler that always throws whatever it is given. */
+  function throwingHandler(error: unknown): NodeHandler {
+    return {
+      nodeType: "Merge",
+      execute: () => {
+        throw error;
+      },
+    } as unknown as NodeHandler;
+  }
+
+  async function failWith(error: unknown): Promise<{ code: string; detail: string }> {
+    const ledger = fakeLedger();
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([throwingHandler(error)]),
+      ledger,
+    );
+    await expect(
+      nodeexec.executeNode({
+        tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+        node_key: "node_merge", node_type: "Merge", config_json: "{}", inputs_json: "{}",
+      }),
+    ).rejects.toBeDefined();
+    return vi.mocked(ledger.recordFailed).mock.calls[0]![1] as {
+      code: string;
+      detail: string;
+    };
+  }
+
+  it("keeps the message of an error that carries no code", async () => {
+    // This is the whole defect: the message used to be replaced by the
+    // constant "Node execution failed", which matches none of the
+    // classifier's patterns, so the failure classified as `unknown`.
+    const failure = await failWith(new Error("model gateway returned no content"));
+
+    expect(failure.code).toBe("NODE_EXECUTION_FAILED");
+    expect(failure.detail).toBe("model gateway returned no content");
+  });
+
+  it("uses a string code as the error code", async () => {
+    const failure = await failWith(
+      Object.assign(new Error("credential is missing"), { code: "CREDENTIAL_MISSING" }),
+    );
+
+    expect(failure.code).toBe("CREDENTIAL_MISSING");
+    expect(failure.detail).toBe("credential is missing");
+  });
+
+  it("names a gRPC status number so the classifier can read it", async () => {
+    // 14 is UNAVAILABLE. As a bare number it matched no pattern; named, the
+    // classifier scores it as an infrastructure_failure, which is the one
+    // thing a transport error should be.
+    const failure = await failWith(
+      Object.assign(new Error("no connection established"), { code: 14 }),
+    );
+
+    expect(failure.code).toBe("UNAVAILABLE");
+  });
+
+  it("falls back to the error name when the message is empty", async () => {
+    // `name`, not `constructor.name`: a subclass that does not assign
+    // `this.name` inherits "Error", but every error class in this codebase
+    // assigns it, and `constructor.name` would not survive a minified bundle.
+    class SandboxSessionLost extends Error {
+      constructor(message: string) {
+        super(message);
+        this.name = "SandboxSessionLost";
+      }
+    }
+    const failure = await failWith(new SandboxSessionLost(""));
+
+    expect(failure.detail).toBe("SandboxSessionLost");
+  });
+
+  it("still reports a non-Error throw without inventing a cause", async () => {
+    const failure = await failWith("a bare string");
+
+    expect(failure).toEqual({
+      code: "NODE_EXECUTION_FAILED",
+      detail: "Node execution failed",
+    });
+  });
+});
