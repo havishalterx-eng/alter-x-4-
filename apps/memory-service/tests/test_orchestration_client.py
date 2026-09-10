@@ -30,7 +30,24 @@ def valid_summary() -> dict[str, object]:
     }
 
 
-def test_calls_internal_summary_endpoint_with_forwarded_m2m_bearer() -> None:
+
+class _StubTokenProvider:
+    """Stands in for Auth0. The client mints its own credential now, so these
+    tests supply a provider rather than a caller's header."""
+
+    def metadata(self) -> tuple[tuple[str, str], ...]:
+        return (("authorization", "Bearer token"),)
+
+
+def test_calls_internal_summary_endpoint_with_its_own_minted_bearer() -> None:
+    """The credential is this service's own, not the caller's.
+
+    The previous name -- ...with_forwarded_m2m_bearer -- described the defect
+    accurately: memory-service replayed whichever header its caller arrived
+    with, so orchestration-service authorised the caller rather than
+    memory-service and answered 401 for anything that was not already a
+    valid M2M token for it.
+    """
     seen: httpx.Request | None = None
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -40,12 +57,16 @@ def test_calls_internal_summary_endpoint_with_forwarded_m2m_bearer() -> None:
 
     transport = httpx.MockTransport(handler)
     http = httpx.AsyncClient(transport=transport)
-    client = HttpxOrchestrationRunClient("https://orchestration.internal", 2, http)
+    client = HttpxOrchestrationRunClient(
+        "https://orchestration.internal",
+        2,
+        http,
+        access_token_provider=_StubTokenProvider(),
+    )
     result = asyncio.run(
         client.load_summary(
             tenant_id=TENANT_ID,
             run_id=RUN_ID,
-            authorization="Bearer tenant-token",
         )
     )
 
@@ -54,7 +75,7 @@ def test_calls_internal_summary_endpoint_with_forwarded_m2m_bearer() -> None:
     assert str(seen.url) == (
         f"https://orchestration.internal/internal/runs/{RUN_ID}/outcome-summary"
     )
-    assert seen.headers["authorization"] == "Bearer tenant-token"
+    assert seen.headers["authorization"] == "Bearer token"
     asyncio.run(http.aclose())
 
 
@@ -65,13 +86,17 @@ def test_calls_internal_summary_endpoint_with_forwarded_m2m_bearer() -> None:
 def test_maps_typed_run_errors(status: int, error_type: type[Exception]) -> None:
     transport = httpx.MockTransport(lambda request: httpx.Response(status, request=request))
     http = httpx.AsyncClient(transport=transport)
-    client = HttpxOrchestrationRunClient("https://orchestration.internal", 2, http)
+    client = HttpxOrchestrationRunClient(
+        "https://orchestration.internal",
+        2,
+        http,
+        access_token_provider=_StubTokenProvider(),
+    )
     with pytest.raises(error_type):
         asyncio.run(
             client.load_summary(
                 tenant_id=TENANT_ID,
                 run_id=RUN_ID,
-                authorization="Bearer token",
             )
         )
     asyncio.run(http.aclose())
@@ -82,13 +107,17 @@ def test_rejects_malformed_success_response() -> None:
         lambda request: httpx.Response(200, json={"run_id": RUN_ID}, request=request)
     )
     http = httpx.AsyncClient(transport=transport)
-    client = HttpxOrchestrationRunClient("https://orchestration.internal", 2, http)
+    client = HttpxOrchestrationRunClient(
+        "https://orchestration.internal",
+        2,
+        http,
+        access_token_provider=_StubTokenProvider(),
+    )
     with pytest.raises(OrchestrationUnavailableError, match="failed validation"):
         asyncio.run(
             client.load_summary(
                 tenant_id=TENANT_ID,
                 run_id=RUN_ID,
-                authorization="Bearer token",
             )
         )
     asyncio.run(http.aclose())

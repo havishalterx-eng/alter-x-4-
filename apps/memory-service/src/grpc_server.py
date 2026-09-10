@@ -30,6 +30,7 @@ async def serve() -> None:
     orchestration = HttpxOrchestrationRunClient(
         str(settings.orchestration_service_base_url),
         settings.orchestration_service_timeout_seconds,
+        access_token_provider=lazy_auth0_m2m_token_provider_from_settings(settings),
     )
     ads_core = HttpxAdsCoreMemoryClient(
         str(settings.ads_core_base_url),

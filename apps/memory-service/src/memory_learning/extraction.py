@@ -40,7 +40,6 @@ class MemoryLearningKernel:
         summary = await self._orchestration.load_summary(
             tenant_id=request.tenant_id,
             run_id=request.run_id,
-            authorization=authorization,
         )
         if summary.tenant_id != request.tenant_id:
             raise MemoryLearningValidationError(

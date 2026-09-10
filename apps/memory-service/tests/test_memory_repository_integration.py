@@ -25,11 +25,9 @@ class SeededRunClient:
         *,
         tenant_id: str,
         run_id: str,
-        authorization: str,
     ) -> RunLearningSummary:
         assert tenant_id == f"ten_{TENANT}"
         assert run_id == RUN
-        assert authorization == "Bearer integration-token"
         return RunLearningSummary.model_validate(
             {
                 "tenant_id": f"ten_{TENANT}",
