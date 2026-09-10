@@ -444,8 +444,15 @@ def test_real_performance_http_projection_computes_and_persists_drift(
     cross_tenant_scores = asyncio.run(list_scores(OTHER_TENANT_ID))
     same_tenant_scores = asyncio.run(list_scores(TENANT_ID))
     tenant_engine.dispose()
+    # Another tenant sees nothing, and the owner sees its own score. Both come
+    # from drift_read alone, not from an app-level ownership check.
+    #
+    # `same_tenant_scores` asserted `()` until 0006, which was accurate and
+    # was the defect: the policy admitted only model and provider rows, so a
+    # tenant reading back the agent drift written for it got an empty list --
+    # indistinguishable from "this agent has never drifted".
     assert cross_tenant_scores == ()
-    assert same_tenant_scores == ()
+    assert len(same_tenant_scores) == 1
 
     admin = sa.create_engine(drift_stack["policy_admin_url"])
     with admin.connect() as connection:

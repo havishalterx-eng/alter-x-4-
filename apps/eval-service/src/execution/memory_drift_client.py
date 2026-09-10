@@ -2,18 +2,20 @@
 
 Targets memory-service's real, unmodified production FastAPI app
 (src.main:app, run directly via uvicorn -- same shape as
-policy_client.py's target). Unlike policy_read, the real cross-tenant
-"empty_result" for agent drift scores does NOT come from a tenant_id
-filter at all: drift_scores' own `drift_read` RLS policy
-(apps/memory-service/alembic/versions/0001_create_policy_tables.py)
-only permits SELECT of subject_type IN ('model','provider') rows --
-agent-subject rows are deliberately default-deny for every tenant
-session pending KNOW-15's local ownership projection, per that
-migration's own docstring. Seeding writes as the real
-`policy_system_writer` role (the only role drift_scores' own
-`drift_system_write` policy permits to INSERT), then reads back as an
-unrelated eval tenant -- the real RLS policy denies the row outright,
-regardless of which tenant asks.
+policy_client.py's target). The real cross-tenant "empty_result" for
+agent drift scores comes from drift_scores' own `drift_read` RLS policy
+rather than from any app-level ownership check: since 0006 that policy
+admits an agent row only when its `tenant_id` matches the session's
+`app.current_tenant_id`.
+
+Seeding writes as the real `policy_system_writer` role -- the only role
+`drift_system_write` permits to INSERT -- under an owner tenant that is
+not the eval tenant, then reads back as the eval tenant and gets
+nothing.
+
+Before 0006 the policy excluded every agent row from every session, so
+this case passed for a reason that had nothing to do with tenancy: the
+owning tenant saw the same empty result. It now demonstrates scoping.
 """
 
 from __future__ import annotations
@@ -52,17 +54,28 @@ class MemoryDriftEvalClient(httpx.Client):
         self._system_db_url = system_db_url
 
     def seed_agent_drift_score(self) -> str:
+        """Seed one agent drift row owned by a tenant that is not the reader.
+
+        The row carries an owner because memory-service's 0006 requires one:
+        an agent row with no tenant is a row nobody can read, which is the
+        state this probe used to rely on. Owning it makes the case sharper
+        rather than weaker -- the row is now readable by somebody, and the
+        eval tenant still gets nothing, so the empty result demonstrates
+        tenant scoping instead of a blanket exclusion of every agent row.
+        """
         agent_id = f"agt_{_uuid7_shaped()}"
         drift_score_id = f"drift_{uuid.uuid4().hex}"
+        owner_tenant_uuid = _uuid7_shaped()
         connection = psycopg2.connect(self._system_db_url)
         connection.autocommit = True
         try:
             cursor = connection.cursor()
             cursor.execute(
                 "INSERT INTO drift_scores "
-                "(id, subject_type, subject_ref, task_class, score, baseline, action_taken) "
-                "VALUES (%s, 'agent', %s, 'eval-probe', 1.0, 0.0, 'flagged')",
-                (drift_score_id, agent_id),
+                "(id, tenant_id, subject_type, subject_ref, task_class, score, "
+                "baseline, action_taken) "
+                "VALUES (%s, %s, 'agent', %s, 'eval-probe', 1.0, 0.0, 'flagged')",
+                (drift_score_id, owner_tenant_uuid, agent_id),
             )
             cursor.close()
         finally:

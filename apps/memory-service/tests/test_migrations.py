@@ -118,3 +118,68 @@ def test_live_immutability_unique_and_downgrade(pg_url: str) -> None:
         conn.execute(sa.text("INSERT INTO memory_records(id,tenant_id,scope,content,provenance,status) VALUES ('mem_t',:t,'failure','{}','{}','verified')"), {"t": tenant})
         with pytest.raises(Exception, match="tenant_id is immutable"):
             conn.execute(sa.text("UPDATE memory_records SET tenant_id='dddddddd-0000-4000-8000-dddddddddddd' WHERE id='mem_t'"))
+
+
+def _insert_agent_drift(conn: sa.Connection, row_id: str, tenant: str | None) -> None:
+    conn.execute(
+        sa.text(
+            "INSERT INTO drift_scores(id,tenant_id,subject_type,subject_ref,task_class,score) "
+            "VALUES (:id,:t,'agent','agt_1','summarise',0.4)"
+        ),
+        {"id": row_id, "t": tenant},
+    )
+
+
+def test_live_agent_drift_is_readable_by_its_own_tenant_only(pg_url: str) -> None:
+    """0006. Agent drift was written and then invisible to everyone.
+
+    The failure mode this guards is the quiet one: a default-deny read policy
+    returns an empty list, and an empty list of drift scores reads as "this
+    agent is behaving" rather than as "you cannot see this".
+    """
+    owner = "11111111-0000-4000-8000-111111111111"
+    other = "22222222-0000-4000-8000-222222222222"
+    engine = sa.create_engine(pg_url)
+    with engine.connect() as conn:
+        _insert_agent_drift(conn, "drift_owned", owner)
+        conn.commit()
+
+        conn.execute(sa.text("SET ROLE policy_reader"))
+        _tenant(conn, owner)
+        assert conn.execute(sa.text("SELECT count(*) FROM drift_scores WHERE id='drift_owned'")).scalar() == 1
+
+        _tenant(conn, other)
+        assert conn.execute(sa.text("SELECT count(*) FROM drift_scores WHERE id='drift_owned'")).scalar() == 0
+
+
+def test_live_platform_drift_stays_readable_by_every_tenant(pg_url: str) -> None:
+    """Model and provider drift are platform-wide facts, not tenant-owned.
+
+    Scoping agent rows must not narrow these -- they carry no tenant and 0001
+    admitted them unconditionally on purpose.
+    """
+    engine = sa.create_engine(pg_url)
+    with engine.connect() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO drift_scores(id,subject_type,subject_ref,score) "
+                "VALUES ('drift_model','model','claude',0.2)"
+            )
+        )
+        conn.commit()
+
+        conn.execute(sa.text("SET ROLE policy_reader"))
+        _tenant(conn, "33333333-0000-4000-8000-333333333333")
+        assert conn.execute(sa.text("SELECT count(*) FROM drift_scores WHERE id='drift_model'")).scalar() == 1
+
+
+def test_live_agent_drift_cannot_be_written_without_a_tenant(pg_url: str) -> None:
+    """An agent row with no tenant is a row nobody can ever read.
+
+    The CHECK is what stops a future writer recreating the original defect by
+    omitting the column.
+    """
+    engine = sa.create_engine(pg_url)
+    with engine.connect() as conn:
+        with pytest.raises(Exception, match="drift_scores_agent_tenant_check"):
+            _insert_agent_drift(conn, "drift_orphan", None)
