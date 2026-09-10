@@ -114,15 +114,22 @@ export class GraphCompilerService {
       try {
         await tx.query(
           `INSERT INTO workflow_versions
-             (id, tenant_id, workflow_id, version, compiled_dag, dag_schema_version,
-              node_requirements, policy_bindings, compile_metadata, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'compiled')`,
+             (id, tenant_id, workflow_id, version, compiled_dag, task_skeleton,
+              dag_schema_version, node_requirements, policy_bindings,
+              compile_metadata, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'compiled')`,
           [
             workflowVersionId,
             bareTenant,
             request.workflow_id,
             nextVersion,
             JSON.stringify(compiledDag),
+            // The parsed skeleton rather than request.task_skeleton_json: the
+            // raw string is what compile_metadata hashes, and keeping both the
+            // hash's input and a re-serialisation of the parse would let the
+            // two disagree. Recovery replans from the shape the DAG was
+            // actually built from, which is this one.
+            JSON.stringify(skeleton),
             request.dag_schema_version,
             JSON.stringify(nodeRequirements),
             JSON.stringify(policyBindings),
@@ -187,6 +194,11 @@ export class GraphCompilerService {
         throw new CompilerValidationError("workflow is not visible in the supplied tenant/workspace");
       }
       const version = await tx.query<{ next_version: number }>("SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM workflow_versions WHERE tenant_id = $1 AND workflow_id = $2", [bareTenant, input.workflow_id]);
+      // task_skeleton is deliberately absent from this insert. This path
+      // compiles an architecture, not a TaskSkeleton, so there is no skeleton
+      // to record and NULL is the truthful value -- the same thing
+      // source_skeleton_hash: "architecture-bound" already says. Recovery
+      // reads the NULL and declines to replan rather than inventing one.
       await tx.query(
         "INSERT INTO workflow_versions (id, tenant_id, workflow_id, version, compiled_dag, dag_schema_version, node_requirements, policy_bindings, compile_metadata, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'compiled')",
         [workflowVersionId, bareTenant, input.workflow_id, version.rows[0]?.next_version ?? 1, JSON.stringify(compiledDag), input.dag_schema_version, "{}", "{}", JSON.stringify({ compiler_version: COMPILER_VERSION, source_skeleton_hash: "architecture-bound", compiled_at: new Date().toISOString() })],

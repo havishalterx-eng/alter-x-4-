@@ -253,6 +253,13 @@
       "when": 1786904001000,
       "tag": "0035_add_workflow_version_test_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786904002000,
+      "tag": "0036_add_workflow_version_task_skeleton",
+      "breakpoints": true
     }
   ]
 }

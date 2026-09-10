@@ -29,6 +29,17 @@ export const workflowVersions = pgTable(
     workflowId: text("workflow_id").notNull(),
     version: integer("version").notNull(),
     compiledDag: jsonb("compiled_dag").$type<CompiledDag>().notNull(),
+    // The TaskSkeleton this version was compiled from -- what recovery
+    // replans against, since the compiled DAG is a different shape and the
+    // planner rejects it. Nullable because only a one-way hash of it was kept
+    // before 0036, so versions compiled earlier have none and never will.
+    //
+    // Deliberately untyped: TaskSkeleton is declared in
+    // src/compiler/dag-builder.ts rather than in @alterx/contracts, and a
+    // schema file reaching into src/ would invert the dependency for
+    // decoration alone. Every reader parses it with parseTaskSkeleton, which
+    // is where the shape is actually enforced.
+    taskSkeleton: jsonb("task_skeleton"),
     dagSchemaVersion: text("dag_schema_version").notNull(),
     nodeRequirements: jsonb("node_requirements").$type<NodeRequirements>(),
     policyBindings: jsonb("policy_bindings").$type<PolicyBindings>(),

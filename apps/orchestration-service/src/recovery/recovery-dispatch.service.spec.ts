@@ -95,6 +95,9 @@ function buildService(overrides: {
       overrides.loadCompiledDagJson ??
       vi.fn().mockResolvedValue({
         compiledDagJson: "{}",
+        // A version compiled since 0036 has one; the tests that care about
+        // its absence override this with null.
+        taskSkeletonJson: '{"version":"1","entry_point":"a","nodes":[]}',
         dagSchemaVersion: "v1",
         workflowId: "wf_test",
         workspaceId: "018f47a5-7b2c-7d10-8f11-000000000ws1",
@@ -299,9 +302,11 @@ describe("RecoveryDispatchService", () => {
     expect(result.detail).toContain("gateway unreachable");
   });
 
-  it("replan loads the compiled DAG, calls Planner, then recompiles", async () => {
+  it("replan sends the stored task skeleton, calls Planner, then recompiles", async () => {
+    const taskSkeletonJson = '{"version":"1","entry_point":"a","nodes":[]}';
     const loadCompiledDagJson = vi.fn().mockResolvedValue({
       compiledDagJson: '{"schema_version":"v1"}',
+      taskSkeletonJson,
       dagSchemaVersion: "v1",
       workflowId: "wf_real",
     });
@@ -315,10 +320,14 @@ describe("RecoveryDispatchService", () => {
     const result = await service.dispatch("replan", CONTEXT);
 
     expect(result.outcome).toBe("resolved");
+    // The skeleton, never compiledDagJson. This assertion pinned the compiled
+    // DAG until the skeleton was persisted, which is what made the defect
+    // invisible: the planner parses this field as a TaskSkeleton regardless of
+    // its `current_dag_json` name, so a DAG here fails every time.
     expect(replan).toHaveBeenCalledWith(
       expect.objectContaining({
         run_id: CONTEXT.runId,
-        current_dag_json: '{"schema_version":"v1"}',
+        current_dag_json: taskSkeletonJson,
       }),
     );
     expect(compileWorkflow).toHaveBeenCalledWith(
@@ -328,6 +337,26 @@ describe("RecoveryDispatchService", () => {
         dag_schema_version: "v1",
       }),
     );
+  });
+
+  it("replan defers instead of guessing when the version has no task skeleton", async () => {
+    // Two real cases: a version compiled before task_skeleton existed, whose
+    // skeleton survives only as a one-way hash, and an architecture-compiled
+    // version, which never had one. Neither is a failure of this run.
+    const loadCompiledDagJson = vi.fn().mockResolvedValue({
+      compiledDagJson: '{"schema_version":"v1"}',
+      taskSkeletonJson: null,
+      dagSchemaVersion: "v1",
+      workflowId: "wf_real",
+    });
+    const replan = vi.fn();
+    const service = buildService({ loadCompiledDagJson, replan });
+
+    const result = await service.dispatch("replan", CONTEXT);
+
+    expect(result.outcome).toBe("escalated");
+    expect(result.detail).toContain("strategy_dispatch_deferred");
+    expect(replan).not.toHaveBeenCalled();
   });
 
   it("replan fails (not throws) when the run has no compiled DAG to replan from", async () => {

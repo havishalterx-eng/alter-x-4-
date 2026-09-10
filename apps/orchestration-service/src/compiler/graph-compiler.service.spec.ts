@@ -28,6 +28,7 @@ interface WorkflowVersionRow {
   workflow_id: string;
   version: number;
   compiled_dag: string;
+  task_skeleton: string;
   status: string;
 }
 
@@ -67,14 +68,26 @@ function createFakeStore(options: { failNextInsertWithCode?: string } = {}): {
               failNextInsertWithCode = undefined;
               throw Object.assign(new Error("simulated db error"), { code });
             }
-            const [id, tenantId, workflowId, version, compiledDag, , , , ] =
-              values as [string, string, string, number, string, string, string, string, string];
+            const [id, tenantId, workflowId, version, compiledDag, taskSkeleton] =
+              values as [
+                string,
+                string,
+                string,
+                number,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+              ];
             rows.push({
               id,
               tenant_id: tenantId,
               workflow_id: workflowId,
               version,
               compiled_dag: compiledDag,
+              task_skeleton: taskSkeleton,
               status: "compiled",
             });
             return { rowCount: 1, rows: [] };
@@ -123,6 +136,20 @@ describe("GraphCompilerService.compileWorkflow", () => {
     expect(rows[0]!.tenant_id).toBe(TENANT_ID.slice("ten_".length));
     expect(rows[0]!.workflow_id).toBe(WORKFLOW_ID);
     expect(rows[0]!.version).toBe(1);
+  });
+
+  it("persists the task skeleton the version was compiled from", async () => {
+    // Recovery replans from this. Only a SHA-256 of it used to be kept, which
+    // is one-way, so `replan` sent the compiled DAG instead -- a shape the
+    // planner rejects -- and the strategy could never succeed.
+    const { store, rows } = createFakeStore();
+    const service = new GraphCompilerService(store, capabilityService);
+
+    await service.compileWorkflow(compileRequest());
+
+    expect(JSON.parse(rows[0]!.task_skeleton)).toEqual(
+      JSON.parse(skeletonJson()),
+    );
   });
 
   it("returns a wfv_ prefixed workflow_version_id", async () => {
