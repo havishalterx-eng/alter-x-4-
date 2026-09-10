@@ -303,10 +303,20 @@ describe("PostgresOrchestrationStoreProvider", () => {
       .mocked(client.query)
       .mock.calls.map(([statement]) => String(statement));
     expect(statements[0]).toBe("BEGIN");
-    expect(statements[1]).toContain(
+    const rollbackSql = statements.slice(1, -2).join("\n");
+    // Reverse order asserted as a relative property rather than by naming
+    // whichever rollback happens to be newest. Pinning statements[1] to the
+    // newest file's first line meant any migration added after it broke this
+    // test for a reason unrelated to ordering -- 0036 did exactly that, and it
+    // only surfaced once an unrelated change pulled this spec into the
+    // affected set.
+    const taskSkeletonAt = rollbackSql.indexOf("DROP COLUMN task_skeleton");
+    const testGateAt = rollbackSql.indexOf(
       "UPDATE workflow_versions SET status = 'compiled' WHERE status = 'tested'",
     );
-    const rollbackSql = statements.slice(1, -2).join("\n");
+    expect(taskSkeletonAt).toBeGreaterThanOrEqual(0);
+    expect(testGateAt).toBeGreaterThanOrEqual(0);
+    expect(taskSkeletonAt).toBeLessThan(testGateAt);
     for (const expected of [
       "DROP CONSTRAINT workflow_versions_tested_evidence_check",
       "CHECK (status IN ('compiled', 'canary', 'promoted', 'rolled_back', 'retired'))",
