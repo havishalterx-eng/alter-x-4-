@@ -845,6 +845,17 @@ export class ModelGatewayCostLimitExceededError extends Error {
 }
 
 export class ModelGatewayInvalidResponseError extends Error {
+  /**
+   * Carried so a node failure can be classified rather than guessed at.
+   *
+   * NodeexecService puts this on `node_executions.error.code`, and
+   * FailureClassifier scores `OUTPUT_INVALID` as a logic_output_failure --
+   * which selects escalate_model, then replan, instead of the ask_user every
+   * unclassified failure fell through to. A model answering in prose where
+   * JSON was asked for is the textbook case for it (#149).
+   */
+  readonly code = "MODEL_OUTPUT_INVALID";
+
   constructor(reason: string) {
     super(`Model response failed validation: ${reason}`);
     this.name = "ModelGatewayInvalidResponseError";

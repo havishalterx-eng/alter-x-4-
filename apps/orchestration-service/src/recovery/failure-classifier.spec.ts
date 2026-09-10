@@ -104,3 +104,49 @@ describe("classifyNodeFailure", () => {
     });
   });
 });
+
+describe("codes the handlers actually emit (#149)", () => {
+  /**
+   * These codes are set by ModelGatewayInvalidResponseError and
+   * ToolGatewayClientError. Before they existed every one of these failures
+   * reached the classifier as NODE_EXECUTION_FAILED, matched no pattern, and
+   * classified as `unknown` -- which the strategy table sends to ask_user.
+   *
+   * The point of each case is the pairing: the code a handler really throws,
+   * and the class the classifier really gives it.
+   */
+  const cases: readonly [string, string][] = [
+    ["MODEL_OUTPUT_INVALID", "logic_output_failure"],
+    ["TOOL_GATEWAY_PERMISSION_DENIED", "tool_permission_denial"],
+    ["TOOL_GATEWAY_RATE_LIMIT", "rate_limit"],
+    ["TOOL_GATEWAY_DEADLINE_EXCEEDED", "timeout"],
+    ["TOOL_GATEWAY_UNAVAILABLE", "infrastructure_failure"],
+    ["TOOL_GATEWAY_INVALID_RESPONSE", "logic_output_failure"],
+    ["TOOL_GATEWAY_INTERNAL_ERROR", "infrastructure_failure"],
+  ];
+
+  it.each(cases)("classifies %s as %s", (code, expected) => {
+    expect(
+      classifyNodeFailure(
+        { nodeType: "LLMTask", attempt: 1, error: { code, retryable: false } },
+        BASE_OBSERVATION,
+      ),
+    ).toMatchObject({ failureClass: expected });
+  });
+
+  it("still classifies an uninformative code as unknown", () => {
+    // NODE_EXECUTION_FAILED remains the fallback for an error carrying no code
+    // at all. It should keep classifying as unknown -- that is honest, and it
+    // is what the codes above exist to avoid reaching.
+    expect(
+      classifyNodeFailure(
+        {
+          nodeType: "LLMTask",
+          attempt: 1,
+          error: { code: "NODE_EXECUTION_FAILED", retryable: false },
+        },
+        BASE_OBSERVATION,
+      ),
+    ).toMatchObject({ failureClass: "unknown" });
+  });
+});

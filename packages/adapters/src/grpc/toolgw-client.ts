@@ -37,7 +37,35 @@ export type ToolGatewayClientErrorKind =
   | "invalid_response"
   | "internal";
 
+/**
+ * `kind` spelled as a code FailureClassifier can score.
+ *
+ * NodeexecService writes an error's `code` to `node_executions.error.code`,
+ * and the classifier matches that textually. These five spellings each land on
+ * a pattern it already has -- PERMISSION_DENIED, RATE_LIMIT,
+ * DEADLINE_EXCEEDED, UNAVAILABLE, INVALID_RESPONSE -- so a tool failure
+ * selects the strategy for what actually went wrong rather than falling
+ * through to ask_user (#149).
+ *
+ * `invalid_argument` and `not_implemented` are deliberately absent. Neither
+ * describes a runtime condition recovery can act on -- both mean the call was
+ * wrong before it was made -- and inventing a class for them would route a
+ * caller bug into a retry loop.
+ */
+const TOOL_GATEWAY_ERROR_CODES: Partial<
+  Readonly<Record<ToolGatewayClientErrorKind, string>>
+> = {
+  permission_denied: "TOOL_GATEWAY_PERMISSION_DENIED",
+  rate_limited: "TOOL_GATEWAY_RATE_LIMIT",
+  deadline_exceeded: "TOOL_GATEWAY_DEADLINE_EXCEEDED",
+  unavailable: "TOOL_GATEWAY_UNAVAILABLE",
+  invalid_response: "TOOL_GATEWAY_INVALID_RESPONSE",
+  internal: "TOOL_GATEWAY_INTERNAL_ERROR",
+};
+
 export class ToolGatewayClientError extends Error {
+  readonly code: string;
+
   constructor(
     readonly kind: ToolGatewayClientErrorKind,
     readonly retryable: boolean,
@@ -45,6 +73,7 @@ export class ToolGatewayClientError extends Error {
   ) {
     super(`Tool Gateway request failed: ${kind}`, options);
     this.name = "ToolGatewayClientError";
+    this.code = TOOL_GATEWAY_ERROR_CODES[kind] ?? `TOOL_GATEWAY_${kind.toUpperCase()}`;
   }
 }
 
