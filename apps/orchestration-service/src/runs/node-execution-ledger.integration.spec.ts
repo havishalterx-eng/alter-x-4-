@@ -260,7 +260,14 @@ describe.sequential("node executions durable ledger", () => {
         id: NODE_A,
         status: "failed",
         attempt: 2,
-        error: { code: "NODE_EXECUTION_FAILED", detail: "Node execution failed" },
+        // The handler threw `new Error("provider failure")`. `detail` used to
+        // be the constant "Node execution failed", which is what left every
+        // unrecognised failure classifying as `unknown` (#149). The code stays
+        // NODE_EXECUTION_FAILED because a plain Error carries none.
+        error: {
+          code: "NODE_EXECUTION_FAILED",
+          detail: "provider failure contains no persisted secret",
+        },
       }),
     ]);
   });
