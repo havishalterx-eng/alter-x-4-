@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import get_settings
+from src.m2m_auth import lazy_auth0_m2m_token_provider_from_settings
 
 from .extraction import MemoryLearningKernel, MemoryLearningValidationError
 from .models import ProposeWritebackRequest, ProposeWritebackResponse
@@ -34,6 +35,7 @@ async def memory_learning_lifespan(app: FastAPI) -> AsyncIterator[None]:
     _default_client = HttpxOrchestrationRunClient(
         str(settings.orchestration_service_base_url),
         settings.orchestration_service_timeout_seconds,
+        access_token_provider=lazy_auth0_m2m_token_provider_from_settings(settings),
     )
     _default_kernel = MemoryLearningKernel(
         _default_client,

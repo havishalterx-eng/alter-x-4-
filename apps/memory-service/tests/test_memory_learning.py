@@ -98,13 +98,13 @@ class FakeOrchestrationClient:
         *,
         tenant_id: str,
         run_id: str,
-        authorization: str,
     ) -> RunLearningSummary:
+        # No `authorization`: the real client mints its own credential at
+        # construction, so a caller cannot pass one in.
         self.calls.append(
             {
                 "tenant_id": tenant_id,
                 "run_id": run_id,
-                "authorization": authorization,
             }
         )
         return self.result
@@ -162,7 +162,6 @@ def test_extracts_real_failure_data_and_writes_candidate() -> None:
         {
             "tenant_id": TENANT_ID,
             "run_id": RUN_ID,
-            "authorization": "Bearer tenant-service-token",
         }
     ]
 
