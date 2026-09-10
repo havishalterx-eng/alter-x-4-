@@ -14,12 +14,18 @@ function service(): RunOutcomeService {
   return { getLearningSummary: vi.fn() } as unknown as RunOutcomeService;
 }
 
-function request(tenantId: string | null = TENANT) {
+function request(
+  tenantId: string | null = TENANT,
+  actorType: "user" | "service" = "user",
+) {
   return {
-    actorContext: tenantId === null ? undefined : { tenant_id: tenantId },
+    actorContext:
+      tenantId === null ? undefined : { tenant_id: tenantId, actor_type: actorType },
     url: `/internal/runs/${RUN}/outcome-summary`,
   };
 }
+
+const OTHER_TENANT = "ten_018f4d6e-2b4a-7a3e-8c1a-99999999ffff";
 
 describe("RunLearningController", () => {
   it("uses authenticated tenant context and returns the minimal summary", async () => {
@@ -66,5 +72,51 @@ describe("RunLearningController", () => {
     await expect(
       new RunLearningController(service()).summary(request(null) as never, RUN),
     ).rejects.toMatchObject({ status: 500 });
+  });
+});
+
+describe("RunLearningController tenant_id parameter", () => {
+  it("lets a service caller name the tenant it is reading for", async () => {
+    // memory-service calls under its own machine identity, so the tenant in
+    // its token is memory-service's rather than the run's. Without this it
+    // could only ever read runs belonging to its service identity.
+    const outcomes = service();
+    vi.mocked(outcomes.getLearningSummary).mockResolvedValue({} as never);
+
+    await new RunLearningController(outcomes).summary(
+      request(TENANT, "service") as never,
+      RUN,
+      OTHER_TENANT,
+    );
+
+    expect(outcomes.getLearningSummary).toHaveBeenCalledWith(OTHER_TENANT, RUN);
+  });
+
+  it("ignores the parameter for a user caller", async () => {
+    // This route is behind SessionGatewayGuard, which authenticates user
+    // session tokens too. Honouring the parameter for one would be a
+    // cross-tenant read.
+    const outcomes = service();
+    vi.mocked(outcomes.getLearningSummary).mockResolvedValue({} as never);
+
+    await new RunLearningController(outcomes).summary(
+      request(TENANT, "user") as never,
+      RUN,
+      OTHER_TENANT,
+    );
+
+    expect(outcomes.getLearningSummary).toHaveBeenCalledWith(TENANT, RUN);
+  });
+
+  it("falls back to the token tenant when a service caller omits it", async () => {
+    const outcomes = service();
+    vi.mocked(outcomes.getLearningSummary).mockResolvedValue({} as never);
+
+    await new RunLearningController(outcomes).summary(
+      request(TENANT, "service") as never,
+      RUN,
+    );
+
+    expect(outcomes.getLearningSummary).toHaveBeenCalledWith(TENANT, RUN);
   });
 });

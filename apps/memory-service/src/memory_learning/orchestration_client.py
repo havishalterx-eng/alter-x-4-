@@ -50,10 +50,15 @@ class HttpxOrchestrationRunClient:
         tenant_id: str,
         run_id: str,
     ) -> RunLearningSummary:
-        del tenant_id  # Tenant comes from validated service token at orchestration ingress.
         try:
+            # Tenant travels as a parameter, not in the credential. The
+            # token is this service's own machine identity, so the tenant in
+            # it is memory-service's rather than the run's; orchestration
+            # honours this parameter for a service caller and ignores it for a
+            # user one.
             response = await self._client.get(
                 f"{self._base_url}/internal/runs/{run_id}/outcome-summary",
+                params={"tenant_id": tenant_id},
                 headers=await bearer_headers(self._access_token_provider),
             )
         except httpx.HTTPError as error:
