@@ -26,6 +26,7 @@ export class PostgresRecoveryRunReader implements RecoveryRunReader {
     runId: string,
   ): Promise<{
     readonly compiledDagJson: string;
+    readonly taskSkeletonJson: string | null;
     readonly dagSchemaVersion: string;
     readonly workflowId: string;
     readonly workspaceId: string;
@@ -45,8 +46,11 @@ export class PostgresRecoveryRunReader implements RecoveryRunReader {
       if (workflowVersionId === null) {
         throw new RecoveryRunCompiledDagUnavailableError(runId);
       }
-      const versionResult = await tx.query<{ readonly compiled_dag: unknown }>(
-        "SELECT compiled_dag FROM workflow_versions WHERE tenant_id = $1 AND id = $2",
+      const versionResult = await tx.query<{
+        readonly compiled_dag: unknown;
+        readonly task_skeleton: unknown;
+      }>(
+        "SELECT compiled_dag, task_skeleton FROM workflow_versions WHERE tenant_id = $1 AND id = $2",
         [tenantId, workflowVersionId],
       );
       const compiledDagRaw = versionResult.rows[0]?.compiled_dag;
@@ -54,8 +58,17 @@ export class PostgresRecoveryRunReader implements RecoveryRunReader {
       if (!parsed.success) {
         throw new RecoveryRunCompiledDagUnavailableError(runId);
       }
+      // Not validated here. A missing skeleton is an ordinary outcome that
+      // replan reports honestly, unlike a missing compiled DAG, which means
+      // the run cannot be reasoned about at all. The shape is enforced where
+      // it is used -- #replan parses it before sending.
+      const taskSkeletonRaw = versionResult.rows[0]?.task_skeleton;
       return {
         compiledDagJson: JSON.stringify(parsed.data),
+        taskSkeletonJson:
+          taskSkeletonRaw === null || taskSkeletonRaw === undefined
+            ? null
+            : JSON.stringify(taskSkeletonRaw),
         dagSchemaVersion: parsed.data.schema_version,
         workflowId: runRow.workflow_id,
         workspaceId: runRow.workspace_id,
