@@ -123,14 +123,13 @@ A tenth follow-up adds 'memory_drift_observations': a new real GET-style
 read route (POST /drift/agents/scores) on memory-service's real
 DriftDetector/SqlAlchemyDriftRepository (previously write-only via
 compute_agent_drift). The real cross-tenant "empty_result" is NOT an
-app-level tenant check at all -- drift_scores' own `drift_read` RLS
-policy (0001_create_policy_tables.py) only permits SELECT of
-subject_type IN ('model','provider'); agent-subject rows are
-deliberately default-deny for every tenant session pending KNOW-15's
-local ownership projection, per that migration's own docstring (see
-memory_drift_client.py's own module doc). No eval-only entrypoint
-needed -- src.main:app run directly, same shape as policy_client.py's
-target.
+app-level tenant check at all -- it is drift_scores' own `drift_read`
+RLS policy, which since memory-service's 0006 admits an agent row only
+when its `tenant_id` matches the session's `app.current_tenant_id` (see
+memory_drift_client.py's own module doc). Before 0006 the policy
+excluded every agent row from every session, so this case passed for a
+reason unrelated to tenancy. No eval-only entrypoint needed --
+src.main:app run directly, same shape as policy_client.py's target.
 An eleventh follow-up adds 'ads_upload_download': ads-core's real,
 unmodified production POST /ads/ingestion/uploads/complete. Unlike
 ads_get_ingestion_job (a resource-visibility "not_found"), the real
