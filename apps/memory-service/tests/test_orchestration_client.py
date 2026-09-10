@@ -72,8 +72,12 @@ def test_calls_internal_summary_endpoint_with_its_own_minted_bearer() -> None:
 
     assert result.verdict == "completed_verified"
     assert seen is not None
+    # Tenant travels as a parameter, not in the credential: the token is
+    # memory-service's own machine identity, so the tenant in it is not the
+    # run's.
     assert str(seen.url) == (
-        f"https://orchestration.internal/internal/runs/{RUN_ID}/outcome-summary"
+        f"https://orchestration.internal/internal/runs/{RUN_ID}"
+        f"/outcome-summary?tenant_id={TENANT_ID}"
     )
     assert seen.headers["authorization"] == "Bearer token"
     asyncio.run(http.aclose())

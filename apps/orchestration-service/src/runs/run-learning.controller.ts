@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { Controller, Get, HttpException, Param, Req } from "@nestjs/common";
+import { Controller, Get, HttpException, Param, Query, Req } from "@nestjs/common";
 import type { SessionGatewayRequest } from "@alterx/auth";
 import type { ProblemDetails } from "@alterx/contracts";
 import {
@@ -14,18 +14,40 @@ import {
 export class RunLearningController {
   constructor(private readonly outcomes: RunOutcomeService) {}
 
+  /**
+   * `tenant_id` is honoured only for a service caller, and ignored entirely
+   * for a user one.
+   *
+   * memory-service calls this under its own machine identity rather than
+   * forwarding its caller's credential, so the tenant in its token is
+   * memory-service's own and not the run's -- without an explicit parameter
+   * it could only ever read runs belonging to its service identity. This is
+   * the "pass tenant as an explicit parameter" half of that decision, which
+   * intelligence-service's performance endpoint already does for the same
+   * reason.
+   *
+   * The actor_type check is what stops this widening anything: the route sits
+   * behind SessionGatewayGuard, which authenticates user session tokens as
+   * readily as service ones, and a user naming an arbitrary tenant here would
+   * be a cross-tenant read.
+   */
   @Get(":id/outcome-summary")
   async summary(
     @Req() request: SessionGatewayRequest,
     @Param("id") runId: string,
+    @Query("tenant_id") requestedTenantId?: string,
   ) {
-    const tenantId = request.actorContext?.tenant_id;
-    if (tenantId === undefined) {
+    const actor = request.actorContext;
+    if (actor === undefined) {
       throw new HttpException(
         problem(request.url, 500, "RUN_LEARNING_INTERNAL", "Missing authenticated tenant context"),
         500,
       );
     }
+    const tenantId =
+      actor.actor_type === "service" && requestedTenantId !== undefined
+        ? requestedTenantId
+        : actor.tenant_id;
     try {
       return await this.outcomes.getLearningSummary(tenantId, runId);
     } catch (error: unknown) {
