@@ -7,8 +7,7 @@ import type {
   CompilerValidateWorkflowDagRequest,
   CompilerValidateWorkflowDagResponse,
 } from "@alterx/contracts";
-import { CompiledDagSchema, NodeRequirementsSchema, type NodeRequirements } from "@alterx/contracts";
-import type { CapabilityServiceHandlerClient } from "@alterx/adapters";
+import { CompiledDagSchema } from "@alterx/contracts";
 
 import {
   CompilerValidationError,
@@ -67,10 +66,7 @@ function prefixedUuidV7(prefix: string): string {
 }
 
 export class GraphCompilerService {
-  constructor(
-    private readonly store: OrchestrationTenantStore,
-    private readonly capabilityService: CapabilityServiceHandlerClient,
-  ) {}
+  constructor(private readonly store: OrchestrationTenantStore) {}
 
   async compileWorkflow(
     request: CompilerCompileWorkflowRequest,
@@ -94,12 +90,6 @@ export class GraphCompilerService {
         .digest("hex"),
       compiled_at: new Date().toISOString(),
     };
-    const nodeRequirements = await this.#resolveNodeRequirements(
-      request.tenant_id,
-      compiledDag.nodes,
-    );
-    const policyBindings = {};
-
     const workflowVersionId = prefixedUuidV7("wfv");
 
     await this.store.withTenant(bareTenant, async (tx) => {
@@ -115,9 +105,8 @@ export class GraphCompilerService {
         await tx.query(
           `INSERT INTO workflow_versions
              (id, tenant_id, workflow_id, version, compiled_dag, task_skeleton,
-              dag_schema_version, node_requirements, policy_bindings,
-              compile_metadata, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'compiled')`,
+              dag_schema_version, compile_metadata, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'compiled')`,
           [
             workflowVersionId,
             bareTenant,
@@ -131,8 +120,6 @@ export class GraphCompilerService {
             // actually built from, which is this one.
             JSON.stringify(skeleton),
             request.dag_schema_version,
-            JSON.stringify(nodeRequirements),
-            JSON.stringify(policyBindings),
             JSON.stringify(compileMetadata),
           ],
         );
@@ -155,8 +142,11 @@ export class GraphCompilerService {
     return {
       workflow_version_id: workflowVersionId,
       compiled_dag_json: JSON.stringify(compiledDag),
-      node_requirements_json: JSON.stringify(nodeRequirements),
-      policy_bindings_json: JSON.stringify(policyBindings),
+      // Retired with the columns in 0037. Both fields are deprecated in
+      // alter.compiler.v1 and kept on the wire only because `buf breaking`'s
+      // FIELD_NO_DELETE is enforced on this repo's contracts.
+      node_requirements_json: "{}",
+      policy_bindings_json: "{}",
     };
   }
 
@@ -200,41 +190,11 @@ export class GraphCompilerService {
       // source_skeleton_hash: "architecture-bound" already says. Recovery
       // reads the NULL and declines to replan rather than inventing one.
       await tx.query(
-        "INSERT INTO workflow_versions (id, tenant_id, workflow_id, version, compiled_dag, dag_schema_version, node_requirements, policy_bindings, compile_metadata, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'compiled')",
-        [workflowVersionId, bareTenant, input.workflow_id, version.rows[0]?.next_version ?? 1, JSON.stringify(compiledDag), input.dag_schema_version, "{}", "{}", JSON.stringify({ compiler_version: COMPILER_VERSION, source_skeleton_hash: "architecture-bound", compiled_at: new Date().toISOString() })],
+        "INSERT INTO workflow_versions (id, tenant_id, workflow_id, version, compiled_dag, dag_schema_version, compile_metadata, status) VALUES ($1, $2, $3, $4, $5, $6, $7, 'compiled')",
+        [workflowVersionId, bareTenant, input.workflow_id, version.rows[0]?.next_version ?? 1, JSON.stringify(compiledDag), input.dag_schema_version, JSON.stringify({ compiler_version: COMPILER_VERSION, source_skeleton_hash: "architecture-bound", compiled_at: new Date().toISOString() })],
       );
     });
     return { workflow_version_id: workflowVersionId, compiled_dag_json: JSON.stringify(compiledDag), node_requirements_json: "{}", policy_bindings_json: "{}" };
-  }
-
-  async #resolveNodeRequirements(
-    tenantId: string,
-    nodes: readonly { readonly key: string; readonly type: string; readonly config: Record<string, unknown> }[],
-  ): Promise<NodeRequirements> {
-    const entries = await Promise.all(nodes.map(async (node) => {
-      const response = await this.capabilityService.resolveNodeRequirements({
-        tenant_id: tenantId,
-        // Compilation happens before a run exists; the resolver does not use this field.
-        run_id: "",
-        node_key: node.key,
-        node_type: node.type,
-        node_config_json: JSON.stringify(node.config),
-      });
-      try {
-        return [node.key, JSON.parse(response.node_requirements_json)] as const;
-      } catch {
-        throw new CompilerValidationError(
-          `Capability Service returned invalid requirements for node ${node.key}`,
-        );
-      }
-    }));
-    const parsed = NodeRequirementsSchema.safeParse(Object.fromEntries(entries));
-    if (!parsed.success) {
-      throw new CompilerValidationError(
-        `Capability Service returned invalid requirements: ${parsed.error.message}`,
-      );
-    }
-    return parsed.data;
   }
 
   async validateWorkflowDag(

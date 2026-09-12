@@ -34,8 +34,15 @@ message CompileWorkflowResponse {
 
   string workflow_version_id = 1; // wfv_ prefixed UUIDv7
   string compiled_dag_json = 2;
-  string node_requirements_json = 3;
-  string policy_bindings_json = 4;
+  // Retired: the workflow_versions columns these mirrored were write-only and
+  // were dropped in orchestration migration 0037. The compiler now returns "{}"
+  // for both. Node requirements are resolved fresh, per node, at run time.
+  //
+  // Kept present rather than removed because `buf breaking`'s FIELD_NO_DELETE
+  // is enforced on this repo's contracts and fires even when the number is
+  // reserved -- the same retirement alter.binding.v1 uses for persona_json.
+  string node_requirements_json = 3 [deprecated = true];
+  string policy_bindings_json = 4 [deprecated = true];
 }
 
 message ValidateWorkflowDagRequest {

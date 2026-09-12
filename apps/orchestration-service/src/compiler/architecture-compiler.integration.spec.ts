@@ -35,7 +35,7 @@ describe.sequential("architecture graph compiler Postgres integration", () => {
   afterAll(async () => { await store?.close(); await postgres?.stop(); }, 30_000);
 
   it("persists a valid pinned DAG under its tenant", async () => {
-    const compiler = new GraphCompilerService(store, {} as never);
+    const compiler = new GraphCompilerService(store);
     const input = request();
     const result = await compiler.compileArchitectureWorkflow({ ...input, architecture_json: JSON.stringify(input.architecture), binding_decision_json: JSON.stringify(input.binding_decision) });
     const dag = JSON.parse(result.compiled_dag_json);
@@ -44,7 +44,7 @@ describe.sequential("architecture graph compiler Postgres integration", () => {
   });
 
   it("rejects a workflow compiled under another workspace", async () => {
-    const compiler = new GraphCompilerService(store, {} as never);
+    const compiler = new GraphCompilerService(store);
     const input = request();
     await expect(compiler.compileArchitectureWorkflow({ ...input, workspace_id: "ws_018f4d6e-2b4a-7a3e-8c1a-1234567890ac", architecture_json: JSON.stringify(input.architecture), binding_decision_json: JSON.stringify(input.binding_decision) })).rejects.toThrow("workflow is not visible");
   });

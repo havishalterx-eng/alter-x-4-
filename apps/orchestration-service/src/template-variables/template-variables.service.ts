@@ -208,9 +208,8 @@ export class TemplateVariablesService {
         await tx.query(
           `INSERT INTO workflow_versions
              (id, tenant_id, workflow_id, version, compiled_dag, dag_schema_version,
-              node_requirements, policy_bindings, compile_metadata, status)
+              compile_metadata, status)
            SELECT $1, tenant_id, workflow_id, version + 1, compiled_dag, dag_schema_version,
-                  node_requirements, policy_bindings,
                   COALESCE(compile_metadata, '{}'::jsonb)
                     || jsonb_build_object('template_variables_versioned_at', clock_timestamp()::text),
                   'compiled'

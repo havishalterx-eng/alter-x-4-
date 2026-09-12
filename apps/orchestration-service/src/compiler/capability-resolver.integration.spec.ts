@@ -8,10 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { CapabilityServiceClient } from "@alterx/adapters";
 
-import {
-  GraphCompilerService,
-  type OrchestrationTenantStore,
-} from "./graph-compiler.service";
+import { compileTaskSkeletonToDag, parseTaskSkeleton } from "./dag-builder";
 import { CAPABILITY_CLIENT_PROTO_PATH } from "./capability-client.constants";
 
 // Shared internal-service credential for the spawned intelligence-service.
@@ -22,7 +19,6 @@ const INTERNAL_SERVICE_TOKEN_SHA256 = createHash("sha256")
   .digest("hex");
 
 const TENANT_ID = "ten_018f47a5-7b2c-7d10-8f11-123456789abc";
-const WORKFLOW_ID = "wf_018f47a5-7b2c-7d10-8f11-123456789abc";
 
 async function availablePort(): Promise<number> {
   const server = createServer();
@@ -35,27 +31,7 @@ async function availablePort(): Promise<number> {
   return port;
 }
 
-function fakeStore(): OrchestrationTenantStore {
-  return {
-    async withTenant(_tenantId, operation) {
-      return operation({
-        async query<TRow extends Record<string, unknown> = Record<string, unknown>>(
-          statement: string,
-        ) {
-          if (statement.includes("SELECT COALESCE(MAX(version)")) {
-            return { rowCount: 1, rows: [{ next_version: 1 } as unknown as TRow] };
-          }
-          if (statement.includes("INSERT INTO workflow_versions")) {
-            return { rowCount: 1, rows: [] as TRow[] };
-          }
-          throw new Error(`unexpected query: ${statement}`);
-        },
-      });
-    },
-  };
-}
-
-describe.sequential("Graph Compiler -> Capability Resolver gRPC", () => {
+describe.sequential("Capability Resolver gRPC", () => {
   let resolver: ChildProcess;
   let address: string;
 
@@ -113,26 +89,43 @@ describe.sequential("Graph Compiler -> Capability Resolver gRPC", () => {
     ).rejects.toThrow();
   });
 
-  it("compiles representative nodes through the live typed resolver", async () => {
-    const compiler = new GraphCompilerService(
-      fakeStore(),
-      new CapabilityServiceClient({ address, protoPath: CAPABILITY_CLIENT_PROTO_PATH, authorization: INTERNAL_SERVICE_TOKEN }),
-    );
-    const result = await compiler.compileWorkflow({
-      tenant_id: TENANT_ID,
-      workflow_id: WORKFLOW_ID,
-      dag_schema_version: "1",
-      task_skeleton_json: JSON.stringify({
+  // The compiler used to make this call, once per node, to fill a column
+  // nothing read; 0037 dropped the column and the round trip with it. The
+  // resolver itself is still on the live path -- NodeExecService and
+  // RecoveryDispatchService each call it per node, per run -- so the coverage
+  // moves to that call rather than disappearing with its old caller. Nodes are
+  // still produced by the real lowering, so this asserts the resolver against
+  // every node shape the compiler actually emits, exactly as before.
+  it("answers for every node the compiler emits, through the live typed resolver", async () => {
+    const client = new CapabilityServiceClient({ address, protoPath: CAPABILITY_CLIENT_PROTO_PATH, authorization: INTERNAL_SERVICE_TOKEN });
+    const dag = compileTaskSkeletonToDag(
+      parseTaskSkeleton(JSON.stringify({
         version: "1",
         entry_point: "summarize",
         nodes: [
           { key: "summarize", type: "llm", config: { prompt: "Summarize this report" }, depends_on: [] },
           { key: "search", type: "tool", config: { tool_name: "search.web", tool_version: "v1", permissions: ["web:read"] }, depends_on: ["summarize"] },
         ],
-      }),
-    });
+      })),
+      "1",
+    );
 
-    expect(JSON.parse(result.node_requirements_json)).toEqual({
+    const resolved = Object.fromEntries(
+      await Promise.all(dag.nodes.map(async (node) => [
+        node.key,
+        JSON.parse(
+          (await client.resolveNodeRequirements({
+            tenant_id: TENANT_ID,
+            run_id: "",
+            node_key: node.key,
+            node_type: node.type,
+            node_config_json: JSON.stringify(node.config),
+          })).node_requirements_json,
+        ),
+      ])),
+    );
+
+    expect(resolved).toEqual({
       summarize: { capabilities: ["text.generation", "text.summarization"], model_alias: "FAST" },
       search: { capabilities: [], tools: [{ name: "search.web", version: "v1", permissions: ["web:read"] }] },
       verify_step_0: { capabilities: [] },
