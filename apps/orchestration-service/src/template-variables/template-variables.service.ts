@@ -206,10 +206,18 @@ export class TemplateVariablesService {
       const nextVersionId = versionId();
       try {
         await tx.query(
+          // task_skeleton is copied with the rest of the compiled shape. This
+          // version is the source version's DAG under new variable
+          // definitions, and it carries the source's compile_metadata --
+          // source_skeleton_hash included -- so dropping the skeleton here
+          // would leave a row claiming a skeleton it no longer has, and
+          // Recovery would decline to replan a workflow that was in fact
+          // skeleton-compiled.
           `INSERT INTO workflow_versions
-             (id, tenant_id, workflow_id, version, compiled_dag, dag_schema_version,
-              compile_metadata, status)
-           SELECT $1, tenant_id, workflow_id, version + 1, compiled_dag, dag_schema_version,
+             (id, tenant_id, workflow_id, version, compiled_dag, task_skeleton,
+              dag_schema_version, compile_metadata, status)
+           SELECT $1, tenant_id, workflow_id, version + 1, compiled_dag, task_skeleton,
+                  dag_schema_version,
                   COALESCE(compile_metadata, '{}'::jsonb)
                     || jsonb_build_object('template_variables_versioned_at', clock_timestamp()::text),
                   'compiled'
