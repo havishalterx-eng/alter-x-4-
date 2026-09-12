@@ -34,6 +34,12 @@ import type {
   ToolPermissionBinding,
 } from "@alterx/shared-clients";
 
+import {
+  dispatchedToolNames,
+  isCanonicalToolName,
+  toolNamesInFamily,
+} from "./tool-catalog";
+
 import { createCostEventId } from "./cost-event-id";
 
 interface CredentialRecord {
@@ -83,7 +89,11 @@ const SEARCH_WEB_TOOL_NAME = "search.web";
 // output), just relocated to the component the architecture doc says
 // owns it. Never had a real caller in its old home either (grepped the
 // whole repo before moving it) -- this is a relocation, not a rewire.
-const DATABASE_OPERATIONS = new Set(["select", "insert", "update", "delete"]);
+// Derived from the canonical catalogue rather than restated, so the set the
+// dispatcher matches on and the set the gateway declares cannot drift apart.
+const DATABASE_OPERATIONS = new Set(
+  toolNamesInFamily("database").map((name) => name.slice("database.".length)),
+);
 const MAX_TOOL_OUTPUT_BYTES = 1_048_576;
 // ENGINE-RESTRUCTURE-P4-1b: browser.* moved here from sandbox-service's
 // SandboxService (createBrowserSession/navigateBrowser/clickBrowser/
@@ -96,13 +106,7 @@ const MAX_TOOL_OUTPUT_BYTES = 1_048_576;
 // exact literals SandboxService.#requireBrowserPermission already resolved
 // tenant policy against, so existing per-tenant permission bindings stay
 // valid unchanged.
-const BROWSER_TOOL_NAMES = new Set([
-  "browser.session.create",
-  "browser.navigate",
-  "browser.click",
-  "browser.extract",
-  "browser.session.close",
-]);
+const BROWSER_TOOL_NAMES = new Set<string>(toolNamesInFamily("browser"));
 // ENGINE-RESTRUCTURE-P4-1b: reserved integration segment for the
 // deterministic browser credential_ref template
 // (`alter/{env}/tenant/{tenantId}/integration/browser-automation/session`).
@@ -261,20 +265,18 @@ export class ToolGatewayService implements ToolgwHandler {
       // tenant credential has already been resolved above, so this rejection
       // is a credential-access event that must leave an audit trail.
       await this.#auditToolInvocation(request, "denied");
-      // Name every wired tool rather than writing browser.* and database.*.
-      // Neither is a prefix match: #isBrowserTool is BROWSER_TOOL_NAMES.has()
-      // and the database dispatch is a fixed switch, so browser.screenshot is
-      // refused by a message that appears to promise it works. Derived from the
-      // same constants the dispatcher matches on, so the message cannot drift
-      // from the behaviour.
-      const wired = [
-        SEARCH_WEB_TOOL_NAME,
-        ...[...DATABASE_OPERATIONS].map((operation) => `database.${operation}`),
-        ...BROWSER_TOOL_NAMES,
-        EMAIL_SEND_TOOL_NAME,
-      ].join(", ");
+      // Two different failures used to share one message. A name outside the
+      // canonical set is not a tool that is coming later -- it is not a tool,
+      // and telling the caller "no real dispatch yet" invited them to wait for
+      // one. Names are listed rather than globbed for the same reason as
+      // before: neither browser.* nor database.* is a prefix match, so
+      // browser.screenshot must not be refused by a message that appears to
+      // promise it works.
+      const dispatched = dispatchedToolNames().join(", ");
       throw new ToolGatewayNotImplementedError(
-        `Tool ${request.tool_name} has no real dispatch yet; wired tools are: ${wired}`,
+        isCanonicalToolName(request.tool_name)
+          ? `Tool ${request.tool_name} is declared but has no dispatch yet; dispatched tools are: ${dispatched}`
+          : `Tool ${request.tool_name} is not a tool this gateway offers; the tools it offers are: ${dispatched}`,
       );
     } catch (error: unknown) {
       if (error instanceof ToolGatewayNotImplementedError) {

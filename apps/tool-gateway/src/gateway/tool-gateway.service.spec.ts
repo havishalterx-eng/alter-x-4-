@@ -33,6 +33,7 @@ import {
   ToolGatewayService,
   type ToolGatewayServiceOptions,
 } from "./tool-gateway.service";
+import { dispatchedToolNames } from "./tool-catalog";
 
 const RAW_SECRET_VALUE = "raw-tool-api-key-value";
 const TENANT_A = "ten_018f47a2-7b11-7b11-8a11-1234567890ab";
@@ -1227,5 +1228,38 @@ describe("ToolGatewayService", () => {
         network_policy_json: "{}",
       }),
     ).rejects.toBeInstanceOf(ToolGatewayValidationError);
+  });
+});
+
+describe("ToolGatewayService dispatch agrees with the catalogue", () => {
+  // tool-catalog.spec.ts asserts the catalogue matches the canonical enum.
+  // That is bookkeeping until something proves the catalogue also matches the
+  // dispatcher, which is the half that was never pinned: the real set lived
+  // in an `if` chain, so a tool could be added or lost there silently.
+  //
+  // `{}` is deliberately invalid input for every tool. A tool that dispatches
+  // gets far enough to have its own input parser (or its permission scope)
+  // reject it; a tool with no dispatch falls through the whole chain to
+  // ToolGatewayNotImplementedError. So "not that error" is exactly the
+  // assertion "dispatch was reached", without needing eleven valid payloads.
+  it.each(dispatchedToolNames())("reaches a real dispatch for %s", async (toolName) => {
+    const service = buildService();
+
+    const outcome = await service
+      .invokeTool(invokeRequest({ tool_name: toolName, input_json: "{}" }))
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+    expect(outcome).not.toBeInstanceOf(ToolGatewayNotImplementedError);
+  });
+
+  it("refuses an uncatalogued name as not a tool, not as one still coming", async () => {
+    const service = buildService();
+
+    await expect(
+      service.invokeTool(invokeRequest({ tool_name: "browser.screenshot" })),
+    ).rejects.toThrow(/is not a tool this gateway offers/);
   });
 });
