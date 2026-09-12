@@ -62,17 +62,28 @@ _LLM_CAPABILITY_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
 )
 
-_ADVANCED_TIER_TERMS = (
-    "architecture",
+# Tier terms are split by what they can name, not by which tier they argue
+# for. An *action* term can name the task itself; a *qualifier* only ever
+# describes the material the task is performed on.
+#
+# Both advanced groups used to be one tuple checked before the fast one, so a
+# single qualifier anywhere in the description decided the tier outright:
+# "Summarize this complex regulatory filing" resolved ADVANCED because
+# "complex" appeared, while the same request without that one adjective
+# resolved FAST. The adjective describes the filing, not the summarizing.
+_ADVANCED_TIER_ACTIONS = (
     "architect",
-    "complex",
     "decompose",
-    "multi-step",
     "research",
+)
+_ADVANCED_TIER_QUALIFIERS = (
+    "architecture",
+    "complex",
+    "multi-step",
     "root cause",
     "strategy",
 )
-_FAST_TIER_TERMS = (
+_FAST_TIER_ACTIONS = (
     "categorize",
     "categorise",
     "classify",
@@ -208,10 +219,17 @@ def _model_alias(node: WorkflowDagNode, description: str) -> ModelAlias | None:
         return default
 
     lowered = description.casefold()
-    if _contains_any(lowered, _ADVANCED_TIER_TERMS):
+    # Whichever group names the *action* decides, advanced before fast: a
+    # request that both researches and summarizes is the harder of the two.
+    if _contains_any(lowered, _ADVANCED_TIER_ACTIONS):
         return "ADVANCED"
-    if _contains_any(lowered, _FAST_TIER_TERMS):
+    if _contains_any(lowered, _FAST_TIER_ACTIONS):
         return "FAST"
+    # No recognised action. A qualifier is all that is left to go on, and
+    # "complex" with no verb naming a cheap task is still worth escalating --
+    # this is the one case where a qualifier decides, rather than the first.
+    if _contains_any(lowered, _ADVANCED_TIER_QUALIFIERS):
+        return "ADVANCED"
     return default
 
 

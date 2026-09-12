@@ -277,22 +277,25 @@ class TestResolution:
             WorkflowDagNode.model_validate(node("invented", "HttpRequest"))
 
 
-class TestTierResolutionIsKeywordMatchingNotComplexityAssessment:
-    """Batch 5 probe (rebuild plan, "Capability Resolver keyword tie").
+class TestTierIsDecidedByTheWordThatNamesTheTask:
+    """Was the Batch 5 probe "Capability Resolver keyword tie"; now the
+    regression test for the fix.
 
-    _model_alias checks _ADVANCED_TIER_TERMS before _FAST_TIER_TERMS with a
-    plain `if / elif`, over the whole free-text description. There is no
-    notion of which word names the actual action versus an incidental
-    modifier, and no tie-break by frequency or position -- one match from the
-    advanced list anywhere in the text always wins, however trivial the real
-    task is. These tests are written to fail if that diagnosis is wrong.
+    The probe recorded the defect: _model_alias checked one advanced tuple
+    before the fast one over the whole description, with no notion of which
+    word named the action versus which merely described the material. One
+    advanced-list match anywhere always won, however trivial the real task.
+
+    The tuples are now split by what a term can name. An action term can name
+    the task; a qualifier only ever describes what the task is performed on,
+    so a qualifier decides only when no action term is present at all. These
+    tests assert that contract, on the same inputs the probe used.
     """
 
-    def test_incidental_advanced_word_overrides_the_actual_fast_verb(self) -> None:
-        # "summarize" is the task; "complex" is an incidental adjective on
-        # the noun being summarized, not a description of the summarizing
-        # itself. A resolver reasoning about the *task* would call this
-        # FAST -- summarizing is summarizing, whatever the input describes.
+    def test_incidental_advanced_word_no_longer_overrides_the_actual_verb(self) -> None:
+        # "summarize" is the task; "complex" is an incidental adjective on the
+        # noun being summarized, not a description of the summarizing itself.
+        # Summarizing is summarizing, whatever the input describes.
         result = dumped(
             resolve_node_requirements(
                 [
@@ -304,13 +307,12 @@ class TestTierResolutionIsKeywordMatchingNotComplexityAssessment:
                 ]
             )
         )
-        assert result["summarize"]["model_alias"] == "ADVANCED"
+        assert result["summarize"]["model_alias"] == "FAST"
 
-    def test_word_order_does_not_change_the_outcome(self) -> None:
-        # Same two terms, incidental word moved to the front. If this were
-        # about which word names the task, order or position could matter.
-        # It doesn't -- confirming this is unordered set membership, not any
-        # kind of parse.
+    def test_word_order_still_does_not_change_the_outcome(self) -> None:
+        # Same two terms, incidental word moved to the front. Position was
+        # never the signal and still is not -- what changed is that the
+        # adjective no longer outranks the verb.
         result = dumped(
             resolve_node_requirements(
                 [
@@ -322,16 +324,56 @@ class TestTierResolutionIsKeywordMatchingNotComplexityAssessment:
                 ]
             )
         )
-        assert result["summarize"]["model_alias"] == "ADVANCED"
+        assert result["summarize"]["model_alias"] == "FAST"
 
-    def test_removing_the_incidental_word_flips_the_tier(self) -> None:
-        # Same actual task (summarize), same length, only the incidental
-        # adjective removed -- and the tier flips from ADVANCED to FAST.
-        # The task did not get easier; the resolver's signal was never the
-        # task's real difficulty, only which fixed words happen to appear.
+    def test_removing_the_incidental_word_no_longer_flips_the_tier(self) -> None:
+        # The case the probe contrasted against: same actual task, incidental
+        # adjective removed. Both now resolve FAST, because the task did not
+        # change.
         result = dumped(
             resolve_node_requirements(
                 [node("summarize", "LLMTask", {"prompt": "Summarize this regulatory filing"})]
             )
         )
         assert result["summarize"]["model_alias"] == "FAST"
+
+    def test_an_advanced_verb_still_escalates(self) -> None:
+        # The signal the split must not lose: "research" names the action, so
+        # it outranks the cheap verb in the same sentence.
+        result = dumped(
+            resolve_node_requirements(
+                [
+                    node(
+                        "dossier",
+                        "LLMTask",
+                        {"prompt": "Research the filings and summarize what you find"},
+                    )
+                ]
+            )
+        )
+        assert result["dossier"]["model_alias"] == "ADVANCED"
+
+    def test_a_qualifier_decides_when_no_verb_names_the_task(self) -> None:
+        # Nothing in either action list appears, so the qualifier is the only
+        # signal there is and still escalates. This is the one case where a
+        # qualifier decides the tier.
+        result = dumped(
+            resolve_node_requirements(
+                [
+                    node(
+                        "handle",
+                        "LLMTask",
+                        {"prompt": "Handle this complex multi-region migration"},
+                    )
+                ]
+            )
+        )
+        assert result["handle"]["model_alias"] == "ADVANCED"
+
+    def test_a_description_naming_neither_falls_to_the_node_default(self) -> None:
+        result = dumped(
+            resolve_node_requirements(
+                [node("draft", "LLMTask", {"prompt": "Draft a reply to this email"})]
+            )
+        )
+        assert result["draft"]["model_alias"] == "STANDARD"
