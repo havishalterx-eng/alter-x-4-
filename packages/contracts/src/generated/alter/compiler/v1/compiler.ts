@@ -34,7 +34,19 @@ export interface CompileWorkflowResponse {
   /** wfv_ prefixed UUIDv7 */
   workflow_version_id: string;
   compiled_dag_json: string;
+  /**
+   * Retired: the workflow_versions columns these mirrored were write-only and
+   * were dropped in orchestration migration 0037. The compiler now returns "{}"
+   * for both. Node requirements are resolved fresh, per node, at run time.
+   *
+   * Kept present rather than removed because `buf breaking`'s FIELD_NO_DELETE
+   * is enforced on this repo's contracts and fires even when the number is
+   * reserved -- the same retirement alter.binding.v1 uses for persona_json.
+   *
+   * @deprecated
+   */
   node_requirements_json: string;
+  /** @deprecated */
   policy_bindings_json: string;
 }
 

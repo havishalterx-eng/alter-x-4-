@@ -260,6 +260,13 @@
       "when": 1786904002000,
       "tag": "0036_add_workflow_version_task_skeleton",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786904003000,
+      "tag": "0037_drop_workflow_version_requirements_columns",
+      "breakpoints": true
     }
   ]
 }

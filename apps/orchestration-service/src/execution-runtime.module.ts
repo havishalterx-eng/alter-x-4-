@@ -96,11 +96,9 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
     accessTokenProvider: internalM2mTokenProvider(),
   });
   const recoveryConfig = loadRecoveryEnvironment(process.env);
-  const compiler = new GraphCompilerService(store, new CapabilityServiceClient({
-    address: recoveryConfig.capabilityResolverAddress,
-    protoPath: CAPABILITY_CLIENT_PROTO_PATH,
-    authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
-  }));
+  // No Capability Resolver client: compilation stopped resolving node
+  // requirements when 0037 dropped the write-only column they were stored in.
+  const compiler = new GraphCompilerService(store);
   const planner = new PlannerClient({ baseUrl: recoveryConfig.plannerBaseUrl });
   // swap_agent's real dispatch target -- same Capability Resolver gRPC
   // target `compiler` already uses (a fresh client instance, matching

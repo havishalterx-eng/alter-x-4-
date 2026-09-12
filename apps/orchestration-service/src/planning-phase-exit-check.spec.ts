@@ -16,7 +16,6 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
-  CapabilityServiceClient,
   CompilerGrpcController,
   PlannerClient,
   PostgresOrchestrationStoreProvider,
@@ -25,7 +24,6 @@ import {
 import { ConversationManagerService } from "./conversation/conversation-manager.service";
 import { ClarificationLoopService } from "./conversation/clarification-loop.service";
 import { GraphCompilerService } from "./compiler/graph-compiler.service";
-import { CAPABILITY_CLIENT_PROTO_PATH } from "./compiler/capability-client.constants";
 
 const migrationsFolder = resolve(process.cwd(), "apps/orchestration-service/drizzle");
 // TENANT_ID (ten_-prefixed) is what every service request field expects
@@ -37,7 +35,6 @@ const migrationsFolder = resolve(process.cwd(), "apps/orchestration-service/driz
 const TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const BARE_TENANT_ID = "018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const WORKFLOW_ID = "wf_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
-const CAPABILITY_RESOLVER_ADDRESS = "127.0.0.1:50061";
 // Same split as TENANT_ID/BARE_TENANT_ID: the Planner's Pydantic models
 // require workspace_id ws_-prefixed; the workflows table's workspace_id
 // column is a bare uuid.
@@ -176,11 +173,7 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
     expect(decomposed.ambiguity_detected).toBe(false);
     expect(typeof decomposed.task_skeleton_json).toBe("string");
 
-    const compiler = new GraphCompilerService(storeProvider, new CapabilityServiceClient({
-      address: CAPABILITY_RESOLVER_ADDRESS,
-      protoPath: CAPABILITY_CLIENT_PROTO_PATH,
-      authorization: INTERNAL_SERVICE_TOKEN,
-    }));
+    const compiler = new GraphCompilerService(storeProvider);
     const compiled = await compiler.compileWorkflow({
       tenant_id: TENANT_ID,
       workflow_id: WORKFLOW_ID,
@@ -299,11 +292,7 @@ describe.sequential("Planning phase (PLAN-1..11) exit checks", () => {
       ),
     );
 
-    const compiler = new GraphCompilerService(storeProvider, new CapabilityServiceClient({
-      address: CAPABILITY_RESOLVER_ADDRESS,
-      protoPath: CAPABILITY_CLIENT_PROTO_PATH,
-      authorization: INTERNAL_SERVICE_TOKEN,
-    }));
+    const compiler = new GraphCompilerService(storeProvider);
     const controller = new CompilerGrpcController(compiler);
 
     const draftSkeleton = JSON.stringify({

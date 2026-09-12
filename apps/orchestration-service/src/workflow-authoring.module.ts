@@ -1,6 +1,5 @@
 import { Module } from "@nestjs/common";
 import {
-  CapabilityServiceClient,
   COMPILER_HANDLER,
   CompilerGrpcController,
   CONVERSATION_HANDLER,
@@ -16,7 +15,6 @@ import {
 import { MODELGW_CLIENT_PROTO_PATH } from "./conversation/grpc.constants";
 import { ConversationManagerService } from "./conversation/conversation-manager.service";
 import { GraphCompilerService } from "./compiler/graph-compiler.service";
-import { CAPABILITY_CLIENT_PROTO_PATH } from "./compiler/capability-client.constants";
 import { WorkflowLifecycleService } from "./workflow-lifecycle/workflow-lifecycle.service";
 import { WorkflowDeploymentController } from "./workflow-lifecycle/workflow-deployment.controller";
 import { WorkflowReadController } from "./workflow-read/workflow-read.controller";
@@ -125,12 +123,7 @@ import { OperationsModule } from "./operations.module";
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
         const store = orchestrationStore(dbConfig);
-        const recoveryConfig = loadRecoveryEnvironment(process.env);
-        return new GraphCompilerService(store, new CapabilityServiceClient({
-          address: recoveryConfig.capabilityResolverAddress,
-          protoPath: CAPABILITY_CLIENT_PROTO_PATH,
-          authorization: process.env["INTERNAL_SERVICE_TOKEN"] ?? "",
-        }));
+        return new GraphCompilerService(store);
       },
     },
     {

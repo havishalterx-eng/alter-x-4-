@@ -11,12 +11,7 @@ import {
   unique,
   uuid,
 } from "@alterx/adapters";
-import type {
-  CompiledDag,
-  NodeRequirements,
-  PolicyBindings,
-  WorkflowDagCompiled,
-} from "@alterx/contracts";
+import type { CompiledDag, WorkflowDagCompiled } from "@alterx/contracts";
 import { workflows } from "./workflows";
 
 type CompileMetadata = NonNullable<WorkflowDagCompiled["compile_metadata"]>;
@@ -41,8 +36,10 @@ export const workflowVersions = pgTable(
     // is where the shape is actually enforced.
     taskSkeleton: jsonb("task_skeleton"),
     dagSchemaVersion: text("dag_schema_version").notNull(),
-    nodeRequirements: jsonb("node_requirements").$type<NodeRequirements>(),
-    policyBindings: jsonb("policy_bindings").$type<PolicyBindings>(),
+    // node_requirements and policy_bindings were dropped in 0037: write-only
+    // for the life of the table, with no reader anywhere. Requirements are
+    // resolved fresh, per node, at run time by NodeExecService and
+    // RecoveryDispatchService -- that is and stays the source of truth.
     compileMetadata: jsonb("compile_metadata").$type<CompileMetadata>(),
     status: text("status").notNull().default("compiled"),
     evaluationRunId: text("evaluation_run_id"),
