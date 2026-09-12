@@ -109,4 +109,59 @@ describe("TemplateVariablesService", () => {
     ).resolves.toHaveLength(1);
     expect(query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO workflow_versions"), expect.any(Array));
   });
+
+  it("carries the source version's task skeleton onto the re-versioned row", async () => {
+    // The source row is skeleton-compiled: Recovery's replan strategy reads
+    // task_skeleton off the run's version, and compile_metadata already
+    // claims a skeleton via source_skeleton_hash. Re-versioning for a
+    // definition change must not silently turn that into NULL.
+    const source = {
+      id: "wfv_current",
+      version: 3,
+      compiled_dag: { schema_version: "v1", nodes: [] },
+      task_skeleton: { tasks: [{ id: "t1", intent: "summarise" }] },
+      dag_schema_version: "v1",
+      compile_metadata: { source_skeleton_hash: "abc123" },
+    } as const;
+    let inserted: Record<string, unknown> | undefined;
+    let replaced = false;
+    const store: OrchestrationTenantStore = {
+      async withTenant(_tenantId, operation) {
+        return operation({
+          async query(statement: string) {
+            if (statement.includes("FROM workflow_template_variable_definitions")) {
+              return { rowCount: replaced ? 1 : 0, rows: replaced ? [{
+                name: "RETRIES", value_type: "number", required: false,
+                workflow_version_id: "wfv_next", workflow_version: 4, is_set: false, value_json: null,
+              }] : [] };
+            }
+            if (statement.startsWith("SELECT id, version FROM workflow_versions")) {
+              return { rowCount: 1, rows: [{ id: source.id, version: source.version }] };
+            }
+            if (statement.startsWith("INSERT INTO workflow_versions")) {
+              // Stand in for what Postgres does with INSERT ... SELECT: every
+              // column the statement names is copied from the source row, and
+              // every column it omits is left NULL on the new row.
+              const columns = statement
+                .slice(statement.indexOf("(") + 1, statement.indexOf(")"))
+                .split(",")
+                .map((column) => column.trim());
+              inserted = Object.fromEntries(
+                columns.map((column) => [column, (source as Record<string, unknown>)[column] ?? null]),
+              );
+            }
+            if (statement.startsWith("INSERT INTO workflow_template_variable_definitions")) replaced = true;
+            return { rowCount: 1, rows: [] };
+          },
+        } as never);
+      },
+    };
+    const service = new TemplateVariablesService(store);
+
+    await service.replaceDefinitions(TENANT, WORKFLOW, [
+      { name: "RETRIES", value_type: "number", required: false },
+    ]);
+
+    expect(inserted?.task_skeleton).toEqual(source.task_skeleton);
+  });
 });
