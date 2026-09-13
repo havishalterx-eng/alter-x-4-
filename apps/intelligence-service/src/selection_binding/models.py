@@ -60,7 +60,17 @@ class BindAgentModelToolResponse(_StrictFrozenModel):
 NoMatchReason = Literal[
     "agent_not_required",
     "preferred_agent_unavailable",
+    # Nobody in this workspace has the capability at all. Auto-creation, when
+    # configured, turns this into a created agent rather than a no-match --
+    # so it is returned only when creation is unavailable or declined it.
     "no_eligible_agent",
+    # Somebody has the capability, but not at a tier this requirement accepts;
+    # or nobody has it and minting one at the requested tier is above the
+    # configured ceiling. Both are the same answer to the caller: no agent of
+    # yours is allowed a model this expensive. Splitting this out of
+    # no_eligible_agent is what stops auto-creation trying to fix a tier gap
+    # by creating an agent that fails the same filter.
+    "no_agent_at_required_tier",
 ]
 
 

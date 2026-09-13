@@ -275,38 +275,70 @@ class SelectionBindingEngine:
         )
         query_embedding = embedding_vector_literal(raw_embedding)
         similarity_weight = await self._load_similarity_weight(request.tenant_id)
-        result = await self._session.execute(
-            _RANKED_AGENT_QUERY,
-            {
-                "tenant_id": tenant_uuid,
-                "workspace_id": workspace_uuid,
-                "platform_tenant_id": PLATFORM_TENANT_ID,
-                "required_tier": requirement.model_alias,
-                "node_type": context.node_type,
-                "task_category": context.task_category,
-                "query_embedding": query_embedding,
-                "similarity_weight": similarity_weight,
-                "performance_weight": 1.0 - similarity_weight,
-                "minimum_capability_similarity": self._minimum_capability_similarity,
-                "minimum_combined_score": self._minimum_combined_score,
-            },
-        )
+        query_parameters: dict[str, object] = {
+            "tenant_id": tenant_uuid,
+            "workspace_id": workspace_uuid,
+            "platform_tenant_id": PLATFORM_TENANT_ID,
+            "required_tier": requirement.model_alias,
+            "node_type": context.node_type,
+            "task_category": context.task_category,
+            "query_embedding": query_embedding,
+            "similarity_weight": similarity_weight,
+            "performance_weight": 1.0 - similarity_weight,
+            "minimum_capability_similarity": self._minimum_capability_similarity,
+            "minimum_combined_score": self._minimum_combined_score,
+        }
+        result = await self._session.execute(_RANKED_AGENT_QUERY, query_parameters)
         candidate = result.mappings().first()
         if candidate is None:
-            no_match = NoAgentMatch(
-                node_key=request.node_key,
-                reason="no_eligible_agent",
-            )
-            if self._persona_creation_engine is None:
-                return no_match
-            return await self._create_and_bind(
-                no_match=no_match,
+            return await self._no_candidate(
                 request=request,
                 context=context,
                 requirement=requirement,
+                query_parameters=query_parameters,
             )
 
         return _response(candidate, requirement)
+
+    async def _no_candidate(
+        self,
+        *,
+        request: BindAgentModelToolRequest,
+        context: BindingContext,
+        requirement: NodeRequirement,
+        query_parameters: dict[str, object],
+    ) -> BindingOutcome:
+        """Tell a capability gap apart from a tier gap, then act on which it is.
+
+        One reason code used to cover both, and auto-creation acted on it
+        either way -- which is how a tier gap produced an agent that failed the
+        very filter that caused the no-match, once per attempt forever.
+
+        The same ranked query, re-run with the tier filter disabled, is what
+        separates them: if a capability-eligible agent appears once tier is not
+        considered, the requirement's tier is the only thing that excluded it.
+        One extra query, and only on the path that already found nothing.
+        """
+        if requirement.model_alias is not None:
+            without_tier = await self._session.execute(
+                _RANKED_AGENT_QUERY,
+                {**query_parameters, "required_tier": None},
+            )
+            if without_tier.mappings().first() is not None:
+                return NoAgentMatch(
+                    node_key=request.node_key,
+                    reason="no_agent_at_required_tier",
+                )
+
+        no_match = NoAgentMatch(node_key=request.node_key, reason="no_eligible_agent")
+        if self._persona_creation_engine is None:
+            return no_match
+        return await self._create_and_bind(
+            no_match=no_match,
+            request=request,
+            context=context,
+            requirement=requirement,
+        )
 
     async def _create_and_bind(
         self,

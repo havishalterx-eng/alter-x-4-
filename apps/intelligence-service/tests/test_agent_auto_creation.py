@@ -211,13 +211,17 @@ class TestAgentAutoCreationIntegration:
         assert embedding_client.calls == []
         assert await table_counts(db_session) == (0, 0, 0)
 
-    async def test_creates_active_standard_published_persona_and_embedding(
+    async def test_creates_the_persona_at_the_requested_tier(
         self,
         db_session: AsyncSession,
     ) -> None:
+        # This test used to assert tier == "STANDARD" beside model_alias ==
+        # "CEILING" -- it recorded #125's defect rather than catching it. The
+        # agent row is what selection-binding filters on, so a STANDARD row for
+        # an ADVANCED requirement fails the filter that caused the no-match.
         requirement = NodeRequirement(
             capabilities=["analysis.reasoning", "document.synthesis"],
-            model_alias="CEILING",
+            model_alias="ADVANCED",
             tools=[ToolRequirement(name="search.web", permissions=["web:read"])],
             maximum_input_bytes=4096,
         )
@@ -279,7 +283,7 @@ WHERE a.id = :agent_id
         assert row["embedding_tenant_id"] == TENANT_A.removeprefix("ten_")
         assert row["workspace_id"] == WORKSPACE_A.removeprefix("ws_")
         assert row["name"] == "Capability agent: analysis.reasoning"
-        assert row["tier"] == "STANDARD"
+        assert row["tier"] == "ADVANCED"
         assert row["status"] == "draft"
         assert row["persona_description"] == (
             "Specialist agent for capabilities: "
@@ -290,7 +294,7 @@ WHERE a.id = :agent_id
         assert row["version_number"] == 1
         assert row["is_published"] is True
         assert row["capabilities"] == ["analysis.reasoning", "document.synthesis"]
-        assert row["model_alias"] == "CEILING"
+        assert row["model_alias"] == "ADVANCED"
         assert row["tools"] == [
             {"name": "search.web", "permissions": ["web:read"]}
         ]
@@ -301,8 +305,142 @@ WHERE a.id = :agent_id
         assert json.loads(outcome.persona_json) == {
             "capability_profile": requirement.model_dump(exclude_none=True),
             "persona_description": row["persona_description"],
-            "tier": "STANDARD",
+            "tier": "ADVANCED",
         }
+
+    async def test_declines_a_tier_above_the_configured_ceiling(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        # The cost hole the tier fix would otherwise open: no cheaper tier
+        # satisfies a >= filter, so "create at the requested tier" would let any
+        # caller mint the most expensive tier in the system by asking for it.
+        requirement = NodeRequirement(
+            capabilities=["legal.contract.redline"],
+            model_alias="CEILING",
+        )
+        embedding_client = FakeEmbeddingClient(vector(1.0))
+        engine = AgentAutoCreationEngine(db_session, embedding_client)
+
+        outcome = await engine.create_for_no_match(
+            true_no_match(), create_request(requirement)
+        )
+
+        assert isinstance(outcome, NoAgentMatch)
+        assert outcome.reason == "no_agent_at_required_tier"
+        assert await table_counts(db_session) == (0, 0, 0)
+        # Declined before spending an embedding call, not after.
+        assert embedding_client.calls == []
+
+    async def test_mints_the_top_tier_when_the_ceiling_allows_it(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        requirement = NodeRequirement(
+            capabilities=["legal.contract.redline"],
+            model_alias="CEILING",
+        )
+        engine = AgentAutoCreationEngine(
+            db_session, FakeEmbeddingClient(vector(1.0)), maximum_tier="CEILING"
+        )
+
+        outcome = await engine.create_for_no_match(
+            true_no_match(), create_request(requirement)
+        )
+
+        assert isinstance(outcome, CreatePersonaResponse)
+        tier = await db_session.scalar(
+            text("SELECT tier FROM agents WHERE id = :agent_id"),
+            {"agent_id": outcome.agent_id},
+        )
+        assert tier == "CEILING"
+
+    async def test_rejects_a_ceiling_that_is_not_a_tier(self) -> None:
+        with pytest.raises(ValueError, match="maximum_tier"):
+            AgentAutoCreationEngine(
+                None,  # type: ignore[arg-type]
+                FakeEmbeddingClient(vector(1.0)),
+                maximum_tier="ULTRA",
+            )
+
+    async def test_a_repeated_capability_set_binds_the_first_agent_again(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        # #125's unbounded growth: three inserts per call, unconditionally.
+        # Fixing the tier converges the *sequential* case through selection --
+        # the agent now passes the filter that caused the no-match -- but two
+        # concurrent callers still both see no candidate. This engine is the
+        # last line, so it is asserted here directly, with no selection in
+        # between: a second create for the same capability set writes nothing
+        # and binds what the first one made.
+        requirement = NodeRequirement(
+            capabilities=["document.synthesis", "analysis.reasoning"],
+            model_alias="STANDARD",
+        )
+        engine = AgentAutoCreationEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        first = await engine.create_for_no_match(
+            true_no_match(), create_request(requirement)
+        )
+        counts_after_first = await table_counts(db_session)
+        second = await engine.create_for_no_match(
+            true_no_match(), create_request(requirement)
+        )
+
+        assert isinstance(first, CreatePersonaResponse)
+        assert isinstance(second, CreatePersonaResponse)
+        assert second.agent_id == first.agent_id
+        assert second.agent_version == first.agent_version
+        assert counts_after_first == (1, 1, 1)
+        assert await table_counts(db_session) == (1, 1, 1)
+
+    async def test_the_key_ignores_capability_order(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        # The resolver builds the capability list from rule order, so the same
+        # need can arrive spelled two ways. Sorting before hashing is what stops
+        # that being two agents.
+        engine = AgentAutoCreationEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+        forwards = NodeRequirement(capabilities=["a.one", "b.two"], model_alias="FAST")
+        backwards = NodeRequirement(capabilities=["b.two", "a.one"], model_alias="FAST")
+
+        first = await engine.create_for_no_match(
+            true_no_match(), create_request(forwards)
+        )
+        second = await engine.create_for_no_match(
+            true_no_match(), create_request(backwards)
+        )
+
+        assert isinstance(first, CreatePersonaResponse)
+        assert isinstance(second, CreatePersonaResponse)
+        assert second.agent_id == first.agent_id
+        assert await table_counts(db_session) == (1, 1, 1)
+
+    async def test_a_different_workspace_gets_its_own_agent(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        # The key is scoped to the workspace, not to the tenant: two workspaces
+        # needing the same capability each get their own agent.
+        requirement = NodeRequirement(capabilities=["a.one"], model_alias="FAST")
+        engine = AgentAutoCreationEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+        other_workspace = CreatePersonaRequest(
+            tenant_id=TENANT_A,
+            workspace_id="ws_028f47a5-7b2c-7d10-8f11-123456789abc",
+            capability_profile_json=requirement.model_dump_json(exclude_none=True),
+        )
+
+        first = await engine.create_for_no_match(
+            true_no_match(), create_request(requirement)
+        )
+        second = await engine.create_for_no_match(true_no_match(), other_workspace)
+
+        assert isinstance(first, CreatePersonaResponse)
+        assert isinstance(second, CreatePersonaResponse)
+        assert second.agent_id != first.agent_id
+        assert await table_counts(db_session) == (2, 2, 2)
 
     async def test_created_persona_is_immediately_bindable_by_plan7(
         self,
@@ -397,6 +535,86 @@ WHERE a.id = :agent_id
 
         assert outcome == true_no_match()
         assert after == before
+
+    async def test_a_tier_gap_is_refused_rather_than_auto_created_around(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """#125's reproduce, as a regression test.
+
+        An agent exists with the capability at STANDARD; the requirement asks
+        for ADVANCED. The tier filter excludes it, so the ranked query finds
+        nothing -- and auto-creation used to read that as "nobody has this
+        capability" and mint another agent that failed the same filter, once
+        per attempt, forever.
+
+        The mock embedding returns the same vector for every text, so
+        similarity cannot be what excludes the candidate here. The tier is the
+        only discriminator, which is exactly how the issue was provoked.
+        """
+        embedding_client = FakeEmbeddingClient(vector(1.0))
+        creation_engine = AgentAutoCreationEngine(db_session, embedding_client)
+        binding_engine = SelectionBindingEngine(
+            db_session,
+            embedding_client,
+            persona_creation_engine=creation_engine,
+        )
+        existing = await creation_engine.create_for_no_match(
+            true_no_match(),
+            create_request(
+                NodeRequirement(
+                    capabilities=["analysis.reasoning"], model_alias="STANDARD"
+                )
+            ),
+        )
+        assert isinstance(existing, CreatePersonaResponse)
+
+        before = await table_counts(db_session)
+        outcome = await binding_engine.bind(
+            binding_request(
+                NodeRequirement(
+                    capabilities=["analysis.reasoning"], model_alias="ADVANCED"
+                )
+            ),
+            binding_context(),
+        )
+
+        assert outcome == NoAgentMatch(
+            node_key="node.one", reason="no_agent_at_required_tier"
+        )
+        assert await table_counts(db_session) == before
+
+    async def test_a_created_agent_satisfies_the_tier_that_created_it(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """The other half of #125: the loop closes.
+
+        Binding an unmet ADVANCED requirement creates an agent, and binding the
+        same requirement again returns that agent rather than creating a second
+        one -- because it is now created at a tier that passes the filter which
+        caused the no-match. Before the fix this wrote three rows per attempt.
+        """
+        requirement = NodeRequirement(
+            capabilities=["legal.contract.redline"], model_alias="ADVANCED"
+        )
+        embedding_client = FakeEmbeddingClient(vector(1.0))
+        binding_engine = SelectionBindingEngine(
+            db_session,
+            embedding_client,
+            persona_creation_engine=AgentAutoCreationEngine(
+                db_session, embedding_client
+            ),
+        )
+
+        first = await binding_engine.bind(binding_request(requirement), binding_context())
+        after_first = await table_counts(db_session)
+        second = await binding_engine.bind(binding_request(requirement), binding_context())
+
+        assert isinstance(first, BindAgentModelToolResponse)
+        assert first.model_alias == "ADVANCED"
+        assert second == first
+        assert await table_counts(db_session) == after_first
 
     async def test_created_agent_cannot_bind_for_another_tenant(
         self,

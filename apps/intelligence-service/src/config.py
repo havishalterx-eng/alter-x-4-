@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     internal_service_token: str = ""
     capability_grpc_bind_address: str = "0.0.0.0:50061"
     draft_agent_promotion_threshold: int = 3
+    # Highest tier agent auto-creation may mint. A genuine capability gap is
+    # created at the tier the requirement asked for, because no cheaper tier
+    # satisfies a >= filter -- so without a ceiling any caller could cause a
+    # CEILING agent to exist just by asking for one. Above this, the no-match
+    # is returned instead, which is a real answer rather than a failure to
+    # route around.
+    agent_auto_creation_max_tier: str = "ADVANCED"
 
     model_config = SettingsConfigDict(
         env_file=".env.local",

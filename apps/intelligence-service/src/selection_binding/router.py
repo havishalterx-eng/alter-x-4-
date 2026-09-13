@@ -146,7 +146,13 @@ async def bind_agent_model_tool(
     embedding_client: EmbeddingClientDep,
     policy_client: PolicyClientDep,
 ) -> BindingOutcome:
-    persona_creation_engine = AgentAutoCreationEngine(session, embedding_client)
+    from ..config import get_settings
+
+    persona_creation_engine = AgentAutoCreationEngine(
+        session,
+        embedding_client,
+        maximum_tier=get_settings().agent_auto_creation_max_tier,
+    )
     engine = SelectionBindingEngine(
         session,
         embedding_client,
