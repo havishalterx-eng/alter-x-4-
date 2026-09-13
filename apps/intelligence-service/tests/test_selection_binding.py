@@ -799,10 +799,24 @@ class TestSelectionBindingIntegration:
             reason="no_eligible_agent",
         )
 
-    async def test_eligible_agent_below_similarity_threshold_is_no_match(
+    async def test_declared_capability_binds_even_on_a_useless_embedding(
         self,
         db_session: AsyncSession,
     ) -> None:
+        """A stale embedding is a ranking problem, not an eligibility one.
+
+        This agent's stored vector is orthogonal to the query -- similarity
+        0.0, the worst obtainable -- and it still binds, because it published
+        the capability that was asked for. The score floors that used to
+        reject it were measured to be unreachable (minimum_capability_
+        similarity) and wrong (minimum_combined_score, which rejected agents
+        declaring every requested capability once a requirement carried more
+        than three of them); see the ranked query's own note.
+
+        Nothing else can bind here: an agent that has not declared the
+        capability is excluded by containment before any score is computed,
+        which is the test directly above this one.
+        """
         await seed_agent(
             db_session,
             agent_id=AGENT_A,
@@ -815,10 +829,64 @@ class TestSelectionBindingIntegration:
             context(),
         )
 
-        assert outcome == NoAgentMatch(
-            node_key="node.one",
-            reason="no_eligible_agent",
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.agent_id == AGENT_A
+
+    async def test_a_many_capability_requirement_binds_the_agent_declaring_all(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """The case the old combined_score floor got wrong.
+
+        A requirement embeds the join of its capabilities; an agent stores one
+        embedding row per capability. The more capabilities a requirement
+        carries, the less the joined query resembles any single row --
+        measured against real Titan embeddings at 0.51 for four. The agent
+        here declares every one of them and sits at similarity 0.5, which
+        `minimum_combined_score = 0.7` rejected at any performance_score, so
+        the request fell through to auto-creation and minted a duplicate on
+        every attempt.
+        """
+        capabilities = [
+            "text.generation",
+            "analysis.reasoning",
+            "text.summarisation",
+            "text.translation",
+        ]
+        await seed_agent(
+            db_session,
+            agent_id=AGENT_A,
+            # cos = 1 / 2 against the query below: a legitimate declaring
+            # agent, scoring far under the floor that used to be here.
+            embedding=vector(1.0, 3.0**0.5),
+            capabilities=capabilities,
         )
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(NodeRequirement(capabilities=capabilities)),
+            context(),
+        )
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.agent_id == AGENT_A
+
+    async def test_a_declaring_agent_outranks_one_with_a_stale_embedding(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Both declare it; the one whose embedding agrees is preferred."""
+        await seed_agent(db_session, agent_id=AGENT_A, embedding=vector(0.0, 1.0))
+        await seed_agent(db_session, agent_id=AGENT_B, embedding=vector(1.0))
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(NodeRequirement(capabilities=["analysis.reasoning"])),
+            context(),
+        )
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.agent_id == AGENT_B
 
     async def test_empty_capabilities_signal_agent_not_required_without_embedding(
         self,
