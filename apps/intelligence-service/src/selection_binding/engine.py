@@ -109,7 +109,9 @@ WITH performance AS (
         WHEN 'failure' THEN 0.0
         WHEN 'escalated' THEN 0.0
       END
-    )::double precision AS performance_score
+    )::double precision AS performance_score,
+    AVG(pr.latency_ms)::double precision AS mean_latency_ms,
+    AVG(pr.token_count)::double precision AS mean_token_count
   FROM performance_records AS pr
   WHERE pr.tenant_id = CAST(:tenant_id AS uuid)
     AND pr.node_type = :node_type
@@ -126,7 +128,9 @@ WITH performance AS (
     MAX(
       1.0 - (ce.embedding <=> CAST(:query_embedding AS vector(512)))
     )::double precision AS capability_similarity,
-    COALESCE(performance.performance_score, 0.5) AS performance_score
+    COALESCE(performance.performance_score, 0.5) AS performance_score,
+    performance.mean_latency_ms,
+    performance.mean_token_count
   FROM agents AS a
   JOIN capability_embeddings AS ce
     ON ce.tenant_id = a.tenant_id
@@ -183,7 +187,9 @@ WITH performance AS (
     a.id,
     a.tier,
     latest_version.version_number,
-    performance.performance_score
+    performance.performance_score,
+    performance.mean_latency_ms,
+    performance.mean_token_count
 ), ranked AS (
   SELECT
     agent_id,
@@ -194,7 +200,24 @@ WITH performance AS (
     (
       :similarity_weight * capability_similarity
       + :performance_weight * performance_score
-    ) AS combined_score
+    ) AS combined_score,
+    -- Same shape architecture_binder.py already scores availability with:
+    -- 1/(1+x), which is 1.0 at zero and falls away monotonically, so no
+    -- ceiling has to be invented for either quantity. Latency is divided by
+    -- 1000 to put a second at 0.5; tokens by 1000 for the same reason, a
+    -- thousand-token call scoring the same as a one-second one.
+    --
+    -- 0.5 for an agent with no history, matching the neutral
+    -- performance_score above: never having run is not evidence of being
+    -- cheap, and must not beat a measured competitor.
+    (
+      (
+        CASE WHEN mean_latency_ms IS NULL THEN 0.5
+             ELSE 1.0 / (1.0 + mean_latency_ms / 1000.0) END
+        + CASE WHEN mean_token_count IS NULL THEN 0.5
+               ELSE 1.0 / (1.0 + mean_token_count / 1000.0) END
+      ) / 2.0
+    ) AS efficiency_score
   FROM candidate_similarity
   WHERE capability_similarity >= :minimum_capability_similarity
 )
@@ -204,10 +227,18 @@ SELECT
   agent_version,
   capability_similarity,
   performance_score,
-  combined_score
+  combined_score,
+  efficiency_score
 FROM ranked
+-- The floor stays on combined_score alone. Efficiency moves the ranking, not
+-- eligibility: folding it into the gated number would drop agents below
+-- minimum_combined_score for being slow, which is a different decision from
+-- the one this change is making.
 WHERE combined_score >= :minimum_combined_score
-ORDER BY combined_score DESC, capability_similarity DESC, agent_id ASC
+ORDER BY
+  combined_score + :efficiency_weight * efficiency_score DESC,
+  combined_score DESC,
+  agent_id ASC
 LIMIT 1
 """
 )
@@ -230,6 +261,12 @@ class SelectionBindingEngine:
         embedding_client: EmbeddingClient,
         *,
         similarity_weight: float = 0.8,
+        # How far measured latency and token cost may move the ranking. Small
+        # on purpose: a cheap agent should win between comparable candidates,
+        # not beat a clearly better-matched one. Nothing writes this to the
+        # routing policy yet, so unlike similarity_weight it is not read from
+        # there -- see #159 for making drift able to move it.
+        efficiency_weight: float = 0.25,
         minimum_capability_similarity: float = 0.6,
         minimum_combined_score: float = 0.7,
         policy_client: RoutingPolicyClient | None = None,
@@ -237,6 +274,8 @@ class SelectionBindingEngine:
     ) -> None:
         if not 0.0 <= similarity_weight <= 1.0:
             raise ValueError("similarity_weight must be between 0 and 1")
+        if not 0.0 <= efficiency_weight <= 1.0:
+            raise ValueError("efficiency_weight must be between 0 and 1")
         if not 0.0 <= minimum_capability_similarity <= 1.0:
             raise ValueError("minimum_capability_similarity must be between 0 and 1")
         if not 0.0 <= minimum_combined_score <= 1.0:
@@ -245,6 +284,7 @@ class SelectionBindingEngine:
         self._session = session
         self._embedding_client = embedding_client
         self._similarity_weight = similarity_weight
+        self._efficiency_weight = efficiency_weight
         self._performance_weight = 1.0 - similarity_weight
         self._minimum_capability_similarity = minimum_capability_similarity
         self._minimum_combined_score = minimum_combined_score
@@ -300,6 +340,7 @@ class SelectionBindingEngine:
             "query_embedding": query_embedding,
             "similarity_weight": similarity_weight,
             "performance_weight": 1.0 - similarity_weight,
+            "efficiency_weight": self._efficiency_weight,
             "minimum_capability_similarity": self._minimum_capability_similarity,
             "minimum_combined_score": self._minimum_combined_score,
         }
