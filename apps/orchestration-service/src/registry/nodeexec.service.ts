@@ -253,6 +253,7 @@ export class NodeexecService {
         }), request);
         await this.#recordPerformanceBestEffort(
           request, boundAgentId, "failure", executionStartedAtMs, executedMetadata,
+          problem.data.error_code,
         );
       } else {
         const verification = await this.verifyGate?.scoreNodeInline({
@@ -331,6 +332,7 @@ export class NodeexecService {
       }), request);
       await this.#recordPerformanceBestEffort(
         request, boundAgentId, "failure", executionStartedAtMs, executedMetadata,
+        failure.code,
       );
       await this.#triggerRecoveryForFailureBestEffort(request, failure);
       throw error;
@@ -458,12 +460,25 @@ export class NodeexecService {
     verdict: "success" | "failure",
     startedAtMs: number,
     metadata: Record<string, unknown> | undefined,
+    failureCode?: string,
   ): Promise<void> {
     if (
       request.node_type !== "LLMTask" ||
       agentId === undefined ||
       this.performanceRecorder === undefined
     ) {
+      return;
+    }
+    if (verdict === "failure" && !isAgentAttributableFailure(failureCode)) {
+      // Nothing was learned about the agent, so nothing is asserted about it
+      // (#164). Logged rather than silent, because "no record" and "a record
+      // that was never attempted" look identical in the table afterwards.
+      console.warn("performance observation skipped: failure not attributable to the agent", {
+        node_execution_id: request.node_execution_id,
+        run_id: request.run_id,
+        agent_id: agentId,
+        error_code: failureCode ?? "unknown",
+      });
       return;
     }
     const usage = metadata?.["usage"];
@@ -827,6 +842,38 @@ function modelAliasFromConfigJson(configJson: string): { readonly modelAlias?: "
   } catch {
     return {};
   }
+}
+
+/**
+ * The failure codes that say something about the agent that was bound, rather
+ * than about the platform it ran on.
+ *
+ * A `performance_records` row is an assertion that this agent did badly, and
+ * Selection & Binding turns those rows into `performance_score` -- 20% of
+ * `combined_score` at the default weights -- so one row routes work away from
+ * that agent for good. A Verify Service outage, a gateway that could not be
+ * reached, a node config that never named a model: none of those are evidence
+ * about the agent, and recording them punished whichever agent happened to be
+ * bound when the platform had a bad minute (#164). It also decayed fastest for
+ * the agent currently judged best, because that is the agent most often bound
+ * and therefore most exposed.
+ *
+ * An allowlist, not a denylist of infrastructure codes: an unrecognised code
+ * is a failure nobody has classified yet, and the honest answer to "whose
+ * fault was that" is silence. Losing a negative signal costs a ranking nudge;
+ * inventing one poisons the ranking permanently.
+ */
+const AGENT_ATTRIBUTABLE_FAILURE_CODES: ReadonlySet<string> = new Set([
+  // The model's own answer failed validation -- prose where JSON was asked
+  // for, a truncated object. What the agent produced, judged on its face.
+  "MODEL_OUTPUT_INVALID",
+  // Verify Gate scored this output a fail. That is a verdict on the output,
+  // which is the agent's; VERIFY_SERVICE_UNAVAILABLE, the outage, is not here.
+  "VERIFICATION_GATE_FAILED",
+]);
+
+function isAgentAttributableFailure(code: string | undefined): boolean {
+  return code !== undefined && AGENT_ATTRIBUTABLE_FAILURE_CODES.has(code);
 }
 
 /**
