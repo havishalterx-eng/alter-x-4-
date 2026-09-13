@@ -4,8 +4,10 @@ import asyncio
 import hashlib
 import json
 import os
+import signal
 import socket
 import subprocess
+import sys
 import time
 from collections.abc import Generator, Sequence
 from datetime import UTC, datetime, timedelta
@@ -113,6 +115,37 @@ def _free_port() -> int:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         return int(listener.getsockname()[1])
+
+
+def _stop_process_tree(process: subprocess.Popen[str]) -> str:
+    """Stop a spawned service and everything it started, then return its output.
+
+    `uv run uvicorn` is not one process. On Windows it is uv, then the venv's
+    launcher, then the real interpreter that holds the sockets, and
+    `Popen.terminate()` reaches only the first: the interpreter outlived every
+    test run, kept its ports, and made the next run fail to bind (#148).
+    taskkill /T walks the tree from the root. On POSIX the service is started
+    in its own session, so the whole group can be signalled at once.
+    """
+    # sys.platform rather than os.name: it is what type checkers narrow on, so
+    # killpg and SIGKILL are checked only where they exist.
+    if sys.platform == "win32":
+        if process.poll() is None:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True,
+                check=False,
+            )
+        output, _ = process.communicate(timeout=10)
+        return output or ""
+    if process.poll() is None:
+        os.killpg(process.pid, signal.SIGTERM)
+    try:
+        output, _ = process.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        output, _ = process.communicate(timeout=10)
+    return output or ""
 
 
 def _migrate(service_root: Path, url: str) -> None:
@@ -274,6 +307,11 @@ def drift_stack() -> Generator[dict[str, str], None, None]:
         environment["INTERNAL_SERVICE_TOKEN_SHA256"] = hashlib.sha256(
             b"integration-token"
         ).hexdigest()
+        # intelligence-service also serves the Capability Resolver over gRPC,
+        # on 0.0.0.0:50061 unless told otherwise. The HTTP port was already
+        # ephemeral; the gRPC one was not, so a single surviving process -- or
+        # two fixtures alive at once -- failed every later bind (#148).
+        environment["CAPABILITY_GRPC_BIND_ADDRESS"] = f"127.0.0.1:{_free_port()}"
         process = subprocess.Popen(
             [
                 "uv",
@@ -291,6 +329,8 @@ def drift_stack() -> Generator[dict[str, str], None, None]:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            # Its own process group on POSIX, so teardown can signal the tree.
+            start_new_session=sys.platform != "win32",
         )
         base_url = f"http://127.0.0.1:{port}"
         deadline = time.monotonic() + 15
@@ -304,8 +344,7 @@ def drift_stack() -> Generator[dict[str, str], None, None]:
             except httpx.HTTPError:
                 time.sleep(0.1)
         else:
-            process.terminate()
-            output, _ = process.communicate(timeout=5)
+            output = _stop_process_tree(process)
             raise RuntimeError(f"intelligence-service failed to become healthy: {output}")
 
         try:
@@ -320,12 +359,7 @@ def drift_stack() -> Generator[dict[str, str], None, None]:
                 ),
             }
         finally:
-            process.terminate()
-            try:
-                process.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.communicate(timeout=5)
+            _stop_process_tree(process)
 
 
 def test_real_performance_http_projection_computes_and_persists_drift(

@@ -502,6 +502,11 @@ def intelligence_server_target(
             "PATH": os.environ.get("PATH", ""),
             "ADSQ_GRPC_TARGET": "127.0.0.1:1",
             "MODEL_GATEWAY_GRPC_TARGET": f"127.0.0.1:{model_gateway_port}",
+            # The Capability Resolver's gRPC listener defaults to a fixed
+            # 0.0.0.0:50061. Both intelligence-service fixtures in this module
+            # are module-scoped and can be alive at once, and any other
+            # intelligence-service on the machine holds it too (#148).
+            "CAPABILITY_GRPC_BIND_ADDRESS": f"127.0.0.1:{_free_port()}",
             "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
             **local_m2m_issuer.environment(),
         },
@@ -2528,6 +2533,8 @@ def agent_binding_server_target(
                     "INTELLIGENCE_DB_URL_SYNC": sync_url,
                     "ADSQ_GRPC_TARGET": "127.0.0.1:1",
                     "MODEL_GATEWAY_GRPC_TARGET": f"127.0.0.1:{model_gateway_grpc_port}",
+                    # Ephemeral for the same reason as the fixture above (#148).
+                    "CAPABILITY_GRPC_BIND_ADDRESS": f"127.0.0.1:{_free_port()}",
                     "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
                     **local_m2m_issuer.environment(),
                 },
