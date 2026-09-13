@@ -1,5 +1,6 @@
 """Real-Postgres coverage for PLAN-7 selection and binding."""
 
+import json
 from collections.abc import AsyncGenerator, Generator, Sequence
 from pathlib import Path
 
@@ -141,6 +142,12 @@ async def seed_agent(
     embedding: Sequence[float] | None = None,
     published_versions: Sequence[int] = (1,),
     unpublished_versions: Sequence[int] = (),
+    # What the agent declares it can do. Every requirement in this suite asks
+    # for one of these two, so the default keeps a seeded agent eligible; a
+    # test proving the exact-capability filter excludes something overrides it
+    # (#158). Before the filter existed this column was never read, and the
+    # helper did not set it.
+    capabilities: Sequence[str] = ("text.generation", "analysis.reasoning"),
 ) -> None:
     tenant_uuid = raw_id(tenant_id)
     await session.execute(
@@ -167,6 +174,7 @@ VALUES (:agent_id, CAST(:tenant_id AS uuid), CAST(:workspace_id AS uuid), :name,
             agent_id=agent_id,
             version_number=version_number,
             published=True,
+            capabilities=capabilities,
         )
     for version_number in unpublished_versions:
         await seed_version(
@@ -175,6 +183,7 @@ VALUES (:agent_id, CAST(:tenant_id AS uuid), CAST(:workspace_id AS uuid), :name,
             agent_id=agent_id,
             version_number=version_number,
             published=False,
+            capabilities=capabilities,
         )
 
     if embedding is not None:
@@ -203,6 +212,7 @@ async def seed_global_agent(
     agent_id: str = AGENT_GLOBAL,
     tier: str = "STANDARD",
     embedding: Sequence[float] | None = None,
+    capabilities: Sequence[str] = ("text.generation", "analysis.reasoning"),
 ) -> None:
     """A real global agent: tenant_id is the real PLATFORM_TENANT_ID
     sentinel (not NULL -- see 0005_global_agents' own module docstring for
@@ -229,6 +239,7 @@ VALUES (:agent_id, CAST(:tenant_id AS uuid), NULL, :name, :tier, 'active')
         agent_id=agent_id,
         version_number=1,
         published=True,
+        capabilities=capabilities,
     )
     if embedding is not None:
         await session.execute(
@@ -257,19 +268,22 @@ async def seed_version(
     agent_id: str,
     version_number: int,
     published: bool,
+    capabilities: Sequence[str] = (),
 ) -> None:
     await session.execute(
         text(
             """
 INSERT INTO agent_versions
-  (id, agent_id, tenant_id, version_number, published_at)
+  (id, agent_id, tenant_id, version_number, published_at, capabilities)
 VALUES
   (:id, :agent_id, CAST(:tenant_id AS uuid), :version_number,
-   CASE WHEN :published THEN now() ELSE NULL END)
+   CASE WHEN :published THEN now() ELSE NULL END,
+   CAST(:capabilities AS jsonb))
 """
         ),
         {
             "id": f"agtv-{agent_id}-{version_number}",
+            "capabilities": json.dumps(list(capabilities), separators=(",", ":")),
             "agent_id": agent_id,
             "tenant_id": tenant_uuid,
             "version_number": version_number,
@@ -573,6 +587,123 @@ class TestSelectionBindingIntegration:
             reason="preferred_agent_unavailable",
         )
         assert embedding_client.calls == []
+
+    async def test_a_perfect_embedding_match_cannot_bind_an_undeclared_capability(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """The exact-capability filter, and the reason it exists (#158).
+
+        The agent's embedding is the query vector itself, so capability
+        similarity is 1.0 -- the highest score obtainable. It still must not
+        bind, because it does not declare the capability being asked for.
+        Before the filter, similarity alone decided eligibility and this agent
+        would have won outright.
+        """
+        await seed_agent(
+            db_session,
+            agent_id=AGENT_A,
+            embedding=vector(1.0),
+            capabilities=["analysis.reasoning"],
+        )
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(NodeRequirement(capabilities=["text.generation"])),
+            context(),
+        )
+
+        assert outcome == NoAgentMatch(
+            node_key="node.one",
+            reason="no_eligible_agent",
+        )
+
+    async def test_declaring_more_than_is_asked_for_still_binds(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Containment, not equality: the requirement must be a subset.
+
+        An agent that can do more than the node needs is still a match. The
+        opposite reading would make every extra capability an agent declares a
+        reason to reject it.
+        """
+        await seed_agent(
+            db_session,
+            agent_id=AGENT_A,
+            embedding=vector(1.0),
+            capabilities=["text.generation", "analysis.reasoning", "code.review"],
+        )
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(NodeRequirement(capabilities=["text.generation"])),
+            context(),
+        )
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.agent_id == AGENT_A
+
+    async def test_every_requested_capability_must_be_declared(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Declaring one of two is not enough -- `@>` is set containment."""
+        await seed_agent(
+            db_session,
+            agent_id=AGENT_A,
+            embedding=vector(1.0),
+            capabilities=["text.generation"],
+        )
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(
+                NodeRequirement(capabilities=["text.generation", "code.review"]),
+            ),
+            context(),
+        )
+
+        assert outcome == NoAgentMatch(
+            node_key="node.one",
+            reason="no_eligible_agent",
+        )
+
+    async def test_the_capability_filter_reads_the_latest_published_version(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """The filter sits on the same LATERAL the tier and version come from.
+
+        An agent that used to declare the capability and no longer does must
+        stop matching, so the newest published version is what counts.
+        """
+        await seed_agent(
+            db_session,
+            agent_id=AGENT_A,
+            embedding=vector(1.0),
+            published_versions=(1,),
+            capabilities=["text.generation"],
+        )
+        await seed_version(
+            db_session,
+            tenant_uuid=raw_id(TENANT_A),
+            agent_id=AGENT_A,
+            version_number=2,
+            published=True,
+            capabilities=["analysis.reasoning"],
+        )
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(NodeRequirement(capabilities=["text.generation"])),
+            context(),
+        )
+
+        assert outcome == NoAgentMatch(
+            node_key="node.one",
+            reason="no_eligible_agent",
+        )
 
     async def test_ranked_match_includes_a_draft_agent(
         self,

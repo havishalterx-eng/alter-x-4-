@@ -132,7 +132,7 @@ WITH performance AS (
     ON ce.tenant_id = a.tenant_id
    AND ce.agent_id = a.id
   JOIN LATERAL (
-    SELECT av.version_number
+    SELECT av.version_number, av.capabilities
     FROM agent_versions AS av
     WHERE av.tenant_id = a.tenant_id
       AND av.agent_id = a.id
@@ -145,6 +145,16 @@ WITH performance AS (
       a.tenant_id = CAST(:tenant_id AS uuid)
       OR a.tenant_id = CAST(:platform_tenant_id AS uuid)
     )
+    -- The agent has to declare what is being asked for, not merely embed near
+    -- it. Until this existed, eligibility was tenant, workspace, status, tier
+    -- and a vector distance -- a ranking signal doing a matching job, which is
+    -- how an unrelated capability could bind (#158).
+    --
+    -- Containment, with the same `@>` the capability registry already uses on
+    -- supported_capabilities: the requirement's set must be a subset of what
+    -- the agent published. An empty requirement contains nothing, so `@> '[]'`
+    -- holds for every agent, which is the right no-op.
+    AND latest_version.capabilities @> CAST(:required_capabilities AS jsonb)
     AND (
       ce.tenant_id = CAST(:tenant_id AS uuid)
       OR ce.tenant_id = CAST(:platform_tenant_id AS uuid)
@@ -280,6 +290,11 @@ class SelectionBindingEngine:
             "workspace_id": workspace_uuid,
             "platform_tenant_id": PLATFORM_TENANT_ID,
             "required_tier": requirement.model_alias,
+            # Sorted only for a stable query plan and readable logs; `@>` is
+            # set containment and does not care about order.
+            "required_capabilities": json.dumps(
+                sorted(requirement.capabilities), separators=(",", ":")
+            ),
             "node_type": context.node_type,
             "task_category": context.task_category,
             "query_embedding": query_embedding,
