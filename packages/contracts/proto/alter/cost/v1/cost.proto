@@ -54,6 +54,10 @@ message ResolveUnitPriceRequest {
 
   string provider = 1;
   string resource = 2;
+  // The model the price is for. Empty asks for the provider-wide price, which
+  // is all this request could express before #168; a model with no row of its
+  // own falls back to that too.
+  string model_id = 3;
 }
 
 message ResolveUnitPriceResponse {

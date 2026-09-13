@@ -25,6 +25,7 @@ function runtimeRegistry(toolInvoke = vi.fn(async () => ({
         usage_json: "{}",
         resolved_capability: "test",
         cache_hit: false,
+        estimated_cost_usd: "",
       }),
     },
     memoryService: {
@@ -107,6 +108,7 @@ describe("NodeHandlerRegistry", () => {
       usage_json: "{}",
       resolved_capability: "test",
       cache_hit: false,
+      estimated_cost_usd: "",
     }));
     const registry = createRuntimeNodeHandlerRegistry({
       modelGateway: { invoke },

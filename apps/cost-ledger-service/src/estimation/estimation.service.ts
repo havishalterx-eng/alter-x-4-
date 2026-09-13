@@ -172,11 +172,16 @@ export class EstimationService {
       throw new EstimationValidationError("provider and resource are required");
     }
 
-    // 1. Look up fixed price table (model_pricing) using provisioner since it's global
+    // 1. Look up fixed price table (model_pricing) using provisioner since it's global.
+    // The model's own row wins over the provider-wide one (model_id ''); a
+    // request without a model matches only provider-wide rows, as before #168.
     const fixedPrice = await this.store.withProvisioner(async (tx) => {
       const result = await tx.query<{ unit_cost_minor: string; currency: string }>(
-        `SELECT unit_cost_minor::text, currency FROM model_pricing WHERE provider = $1 AND resource = $2`,
-        [request.provider, request.resource]
+        `SELECT unit_cost_minor::text, currency FROM model_pricing
+         WHERE provider = $1 AND resource = $2 AND model_id IN ($3, '')
+         ORDER BY model_id DESC
+         LIMIT 1`,
+        [request.provider, request.resource, request.model_id]
       );
       return result.rows[0];
     });

@@ -82,6 +82,9 @@ export class LlmTaskHandler implements NodeHandler {
     let outputJson: string;
     let usage: unknown = {};
     let resolvedCapability: string | undefined;
+    // Empty is the gateway's "no price on record for this model", and stays
+    // out of metadata rather than being recorded as a cost of zero (#168).
+    let estimatedCostUsd = "";
     if (streaming.stream !== undefined) {
       outputJson = "";
       for await (const chunk of streaming.stream(modelRequest)) {
@@ -96,12 +99,14 @@ export class LlmTaskHandler implements NodeHandler {
         if (chunk.final && chunk.usage_json !== "") {
           try { usage = JSON.parse(chunk.usage_json); } catch { usage = {}; }
         }
+        if (chunk.final) estimatedCostUsd = chunk.estimated_cost_usd;
         await context.on_model_delta?.(chunk.delta, chunk.sequence - 1, chunk.final);
       }
     } else {
       const response = await this.modelGateway.invoke(modelRequest);
       outputJson = response.output_json;
       resolvedCapability = response.resolved_capability;
+      estimatedCostUsd = response.estimated_cost_usd;
       try { usage = JSON.parse(response.usage_json); } catch { usage = {}; }
     }
 
@@ -126,6 +131,7 @@ export class LlmTaskHandler implements NodeHandler {
       output: parsedOutput,
       metadata: {
         usage,
+        ...(estimatedCostUsd === "" ? {} : { estimated_cost_usd: estimatedCostUsd }),
         ...(resolvedCapability === undefined
           ? {}
           : { resolved_capability: resolvedCapability }),

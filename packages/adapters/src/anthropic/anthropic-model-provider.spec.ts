@@ -71,15 +71,16 @@ function equivalentMockProvider(): ModelProvider {
       latencyMs: 0,
       details: { configured: true },
     },
-    invoke: async () => ({
+    invoke: async (request) => ({
       outputJson: JSON.stringify({
         message: { role: "assistant", content: "hi there" },
         stop_reason: "end_turn",
       }),
       usageJson: JSON.stringify({ input_tokens: 3, output_tokens: 4 }),
       servedBy: "anthropic-direct",
+      servedModelId: request.modelId,
     }),
-    stream: async function* () {
+    stream: async function* (request) {
       yield { sequence: 1, delta: "hi ", final: false, servedBy: "anthropic-direct" };
       yield { sequence: 2, delta: "there", final: false, servedBy: "anthropic-direct" };
       yield {
@@ -88,6 +89,7 @@ function equivalentMockProvider(): ModelProvider {
         final: true,
         usageJson: JSON.stringify({ input_tokens: 3, output_tokens: 4 }),
         servedBy: "anthropic-direct",
+        servedModelId: request.modelId,
       };
     },
   });

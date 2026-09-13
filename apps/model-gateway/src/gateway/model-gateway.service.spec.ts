@@ -312,7 +312,7 @@ describe("ModelGatewayService", () => {
 
     await expect(iterator.next()).resolves.toEqual({
       done: false,
-      value: { sequence: 1, delta: "first", final: false, usage_json: "" },
+      value: { sequence: 1, delta: "first", final: false, usage_json: "", estimated_cost_usd: "" },
     });
     const second = iterator.next();
     let secondSettled = false;
@@ -823,6 +823,39 @@ describe("ModelGatewayService", () => {
     );
   });
 
+  it("still trips the cost-limit guard when Cost Ledger has no price at all", async () => {
+    // Cost Ledger answers no_data with unit_cost_minor "0". Read literally that
+    // is a $0 estimate, which can never exceed a limit. Invisible while the
+    // gateway's cost client sent no credential -- every lookup failed before
+    // reaching this branch -- and live the moment it authenticates (#168).
+    const configProvider = createMockConfigProvider({
+      costLimit: { maxTokensPerCall: 1_000_000, maxCostUsdPerCall: 0.0001 },
+    });
+    const modelProvider = createMockModelProvider({
+      invoke: async () => ({
+        outputJson: JSON.stringify({
+          message: { role: "assistant", content: "hi" },
+          stop_reason: "end_turn",
+        }),
+        usageJson: JSON.stringify({ input_tokens: 1_000, output_tokens: 1_000 }),
+        servedBy: "aws-bedrock",
+      }),
+    });
+    const service = buildService({
+      configProvider,
+      modelProvider,
+      costClient: {
+        ingestCostEvent: async () => ({ accepted: true }),
+        resolveUnitPrice: async () => ({ unit_cost_minor: "0", currency: "INR", confidence: "no_data" }),
+        recordModelOutcome: async () => ({ accepted: true }),
+      },
+    });
+
+    await expect(service.invoke(request())).rejects.toThrow(
+      /exceeds the resolved limit/,
+    );
+  });
+
   it("records nonzero spend during a Cost Ledger outage instead of silently $0", async () => {
     const publish: Mock<(queueName: string, message: unknown) => Promise<void>> =
       vi.fn(async () => undefined);
@@ -1110,14 +1143,17 @@ describe("ModelGatewayService", () => {
     // content -- ModelgwStreamResponse's wire contract has no field to
     // reconstruct a cached value's original multi-chunk shape from, so there
     // is nothing to synthesize beyond one final chunk. Its usage is the usage
-    // the original call reported: a replay is not free to whoever accounts
-    // for it downstream.
+    // the original call reported, and so is its cost (#168): a replay is not
+    // free to whoever accounts for it downstream.
+    const originalCost = firstChunks.at(-1)?.estimated_cost_usd;
+    expect(originalCost).not.toBe("");
     expect(secondChunks).toEqual([
       {
         sequence: 1,
         delta: "hello world",
         final: true,
         usage_json: JSON.stringify({ input_tokens: 4, output_tokens: 4 }),
+        estimated_cost_usd: originalCost,
       },
     ]);
   });
@@ -1180,5 +1216,156 @@ describe("ModelGatewayService", () => {
     // (which also throws) would never have been reached.
     await expect(drain()).rejects.toThrow(/upstream connection dropped/);
     expect(stream).toHaveBeenCalledTimes(2);
+  });
+});
+
+// #168: what a call cost, priced at the served model's own input and output
+// rates. An unknown price must read as unknown -- never as free.
+describe("ModelGatewayService reported call cost", () => {
+  // Nova Micro's and Nova Pro's list rates, in US cents per token.
+  const PRICES: Record<string, { input: string; output: string }> = {
+    "apac.amazon.nova-micro-v1:0": { input: "0.0000035", output: "0.000014" },
+    "apac.amazon.nova-pro-v1:0": { input: "0.00008", output: "0.00032" },
+  };
+
+  function pricedCostClient(
+    resolved: Array<{ provider: string; resource: string; model_id: string }> = [],
+  ): CostHandlerClient {
+    return {
+      ingestCostEvent: async () => ({ accepted: true }),
+      recordModelOutcome: async () => ({ accepted: true }),
+      resolveUnitPrice: async (lookup) => {
+        resolved.push(lookup);
+        const price = PRICES[lookup.model_id];
+        if (price === undefined || lookup.resource === "tokens") {
+          return { unit_cost_minor: "0", currency: "INR", confidence: "no_data" };
+        }
+        return {
+          unit_cost_minor: lookup.resource === "input_tokens" ? price.input : price.output,
+          currency: "USD",
+          confidence: "fixed_table",
+        };
+      },
+    };
+  }
+
+  function modelServing(
+    modelId: string,
+    usage: { input_tokens: number; output_tokens: number },
+  ): ModelProvider {
+    return createMockModelProvider({
+      providerId: "aws-bedrock",
+      invoke: async () => ({
+        outputJson: JSON.stringify({ message: { role: "assistant", content: "ok" } }),
+        usageJson: JSON.stringify(usage),
+        servedBy: "aws-bedrock",
+        servedModelId: modelId,
+      }),
+      stream: async function* () {
+        yield { sequence: 1, delta: "ok", final: false as const, servedBy: "aws-bedrock" };
+        yield {
+          sequence: 2,
+          delta: "",
+          final: true as const,
+          usageJson: JSON.stringify(usage),
+          servedBy: "aws-bedrock",
+          servedModelId: modelId,
+        };
+      },
+    });
+  }
+
+  it("prices input and output tokens separately at the served model's rates", async () => {
+    // 300 in, 200 out on Nova Pro: 300 * $0.0000008 + 200 * $0.0000032.
+    const response = await buildService({
+      modelProvider: modelServing("apac.amazon.nova-pro-v1:0", { input_tokens: 300, output_tokens: 200 }),
+      costClient: pricedCostClient(),
+    }).invoke(request());
+
+    expect(response.estimated_cost_usd).toBe("0.00088");
+  });
+
+  it("separates two models that token count alone scores identically", async () => {
+    const usage = { input_tokens: 300, output_tokens: 200 };
+    const micro = await buildService({
+      modelProvider: modelServing("apac.amazon.nova-micro-v1:0", usage),
+      costClient: pricedCostClient(),
+    }).invoke(request());
+    const pro = await buildService({
+      modelProvider: modelServing("apac.amazon.nova-pro-v1:0", usage),
+      costClient: pricedCostClient(),
+    }).invoke(request());
+
+    expect(micro.estimated_cost_usd).toBe("0.0000385");
+    expect(pro.estimated_cost_usd).toBe("0.00088");
+  });
+
+  it("reports an unpriced model as unknown, not as free", async () => {
+    // Cost Ledger answers no_data with a unit price of "0". Passed through,
+    // every call to this model would be reported as costing nothing.
+    const response = await buildService({
+      modelProvider: modelServing("some.unpriced-model", { input_tokens: 300, output_tokens: 200 }),
+      costClient: pricedCostClient(),
+    }).invoke(request());
+
+    expect(response.estimated_cost_usd).toBe("");
+  });
+
+  it("reports cost as unknown when Cost Ledger cannot be reached, without failing the call", async () => {
+    const response = await buildService({
+      modelProvider: modelServing("apac.amazon.nova-pro-v1:0", { input_tokens: 300, output_tokens: 200 }),
+      costClient: {
+        ingestCostEvent: async () => ({ accepted: true }),
+        recordModelOutcome: async () => ({ accepted: true }),
+        resolveUnitPrice: async () => {
+          throw new Error("cost ledger unavailable");
+        },
+      },
+    }).invoke(request());
+
+    expect(response.output_json).toContain("ok");
+    expect(response.estimated_cost_usd).toBe("");
+  });
+
+  it("prices the model that actually served the call, not the alias's primary", async () => {
+    // Under failover servedModelId is the fallback entry's model. Pricing the
+    // alias's bound model instead would charge the wrong rate for the call.
+    const resolved: Array<{ provider: string; resource: string; model_id: string }> = [];
+    await buildService({
+      modelProvider: modelServing("apac.amazon.nova-micro-v1:0", { input_tokens: 10, output_tokens: 10 }),
+      costClient: pricedCostClient(resolved),
+    }).invoke(request({ model_alias: "STANDARD" }));
+
+    const modelLookups = resolved.filter((lookup) => lookup.resource !== "tokens");
+    expect(modelLookups.map((lookup) => lookup.model_id)).toEqual([
+      "apac.amazon.nova-micro-v1:0",
+      "apac.amazon.nova-micro-v1:0",
+    ]);
+  });
+
+  it("carries the cost on the final stream chunk only", async () => {
+    const chunks = [];
+    for await (const chunk of buildService({
+      modelProvider: modelServing("apac.amazon.nova-pro-v1:0", { input_tokens: 300, output_tokens: 200 }),
+      costClient: pricedCostClient(),
+    }).stream(request())) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.map((chunk) => chunk.estimated_cost_usd)).toEqual(["", "0.00088"]);
+  });
+
+  it("asks Cost Ledger once per model and direction, not on every call", async () => {
+    const resolved: Array<{ provider: string; resource: string; model_id: string }> = [];
+    const service = buildService({
+      modelProvider: modelServing("apac.amazon.nova-pro-v1:0", { input_tokens: 1, output_tokens: 1 }),
+      costClient: pricedCostClient(resolved),
+      cacheProvider: createMockCacheProvider(),
+    });
+
+    await service.invoke(request({ input_json: JSON.stringify({ messages: [{ role: "user", content: "one" }] }) }));
+    await service.invoke(request({ input_json: JSON.stringify({ messages: [{ role: "user", content: "two" }] }) }));
+
+    expect(resolved.filter((lookup) => lookup.resource !== "tokens")).toHaveLength(2);
   });
 });

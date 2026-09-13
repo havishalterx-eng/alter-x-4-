@@ -513,6 +513,13 @@ export interface ModelInvocationResult {
   // entry succeeded. Never silently absent: callers must always be able to
   // see whether a downgrade happened.
   readonly servedBy: string;
+  // The model id that served it. servedBy names only the provider, and one
+  // provider serves models at very different prices, so pricing a call needs
+  // this; under failover it is the fallback entry's model, not the primary's.
+  // Optional so a provider that predates it still type-checks -- the gateway
+  // then prices the alias's bound model, which is right whenever no failover
+  // happened.
+  readonly servedModelId?: string;
 }
 
 export type ModelInvocationStreamChunk =
@@ -528,6 +535,8 @@ export type ModelInvocationStreamChunk =
       readonly final: true;
       readonly usageJson: string;
       readonly servedBy: string;
+      // As ModelInvocationResult.servedModelId.
+      readonly servedModelId?: string;
     };
 
 export interface ModelProvider extends BaseProvider<"ModelProvider"> {

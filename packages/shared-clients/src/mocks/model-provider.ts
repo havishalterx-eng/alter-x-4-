@@ -164,6 +164,7 @@ function defaultStream(
       final: true,
       usageJson: JSON.stringify({ input_tokens: 0, output_tokens: 0 }),
       servedBy: providerId,
+      servedModelId: request.modelId,
     };
   };
 }
@@ -185,6 +186,7 @@ function defaultInvoke(
       }),
       usageJson: JSON.stringify({ input_tokens: 0, output_tokens: 0 }),
       servedBy: providerId,
+      servedModelId: request.modelId,
     };
   };
 }

@@ -47,6 +47,7 @@ interface CachedInvokeValue {
   readonly output_json: string;
   readonly usage_json: string;
   readonly resolved_capability: string;
+  readonly estimated_cost_usd?: string;
 }
 
 function parseCachedInvokeValue(
@@ -66,10 +67,23 @@ function parseCachedInvokeValue(
       usage_json: parsed.usage_json,
       resolved_capability: parsed.resolved_capability,
       cache_hit: true,
+      // Entries cached before #168 carry no cost. Unknown, not free.
+      estimated_cost_usd:
+        typeof parsed.estimated_cost_usd === "string" ? parsed.estimated_cost_usd : "",
     };
   } catch {
     return undefined;
   }
+}
+
+/**
+ * A US-dollar amount as the wire carries it: a plain decimal, never exponent
+ * notation. `String(1.75e-7)` is "1.75e-7", and a per-call model cost is
+ * routinely that small. Twelve places is a trillionth of a dollar, far below
+ * anything a price can distinguish.
+ */
+function usdDecimalString(amount: number): string {
+  return amount.toFixed(12).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 // ENGINE-FIX-B5-19: stream() has no equivalent of invoke()'s own output_json
@@ -96,6 +110,7 @@ function extractCachedStreamText(outputJson: string): string | undefined {
 
 export class ModelGatewayService implements ModelgwHandler {
   readonly #unitPriceCache = new Map<string, { unitCostMinor: number; expireAt: number }>();
+  readonly #modelPriceCache = new Map<string, { usdPerToken: number | undefined; expireAt: number }>();
   constructor(
     private readonly configProvider: ConfigProvider,
     private readonly modelProvider: ModelProvider,
@@ -260,6 +275,11 @@ export class ModelGatewayService implements ModelgwHandler {
       // failover chain kicked in -- never a silent downgrade.
       resolved_capability: `${alias}:${result.servedBy}`,
       cache_hit: false,
+      estimated_cost_usd: await this.#priceServedModelBestEffort(
+        result.servedBy,
+        result.servedModelId ?? binding.model_id,
+        result.usageJson,
+      ),
     };
 
     await this.#storeCacheBestEffort(request.tenant_id, embedding, response);
@@ -307,6 +327,7 @@ export class ModelGatewayService implements ModelgwHandler {
           delta: cachedText,
           final: true,
           usage_json: cacheHit.usage_json,
+          estimated_cost_usd: cacheHit.estimated_cost_usd,
         };
         return;
       }
@@ -324,6 +345,7 @@ export class ModelGatewayService implements ModelgwHandler {
     let servedBy: string | undefined;
     let accumulatedContent = "";
     let finalUsageJson: string | undefined;
+    let finalCostUsd = "";
     try {
       for await (const chunk of this.modelProvider.stream({
         tenantId: request.tenant_id,
@@ -380,6 +402,11 @@ export class ModelGatewayService implements ModelgwHandler {
               `estimated $${estimatedCostUsd.toFixed(4)} exceeds the resolved limit of $${limit.maxCostUsdPerCall} for tenant ${request.tenant_id}`,
             );
           }
+          finalCostUsd = await this.#priceServedModelBestEffort(
+            chunk.servedBy,
+            chunk.servedModelId ?? binding.model_id,
+            chunk.usageJson,
+          );
         }
         yield {
           sequence: chunk.sequence,
@@ -388,6 +415,7 @@ export class ModelGatewayService implements ModelgwHandler {
           // Only the final chunk has totals to report; the provider does not
           // know them before its stream ends.
           usage_json: chunk.final ? chunk.usageJson : "",
+          estimated_cost_usd: chunk.final ? finalCostUsd : "",
         };
       }
       if (!finalSeen) {
@@ -412,6 +440,7 @@ export class ModelGatewayService implements ModelgwHandler {
           JSON.stringify({ input_tokens: 0, output_tokens: 0 }),
         resolved_capability: `${alias}:${servedBy ?? binding.model_id}`,
         cache_hit: false,
+        estimated_cost_usd: finalCostUsd,
       });
     } catch (error) {
       // A success outcome was already recorded above the moment the final
@@ -509,8 +538,22 @@ export class ModelGatewayService implements ModelgwHandler {
     }
 
     try {
-      const response = await this.costClient.resolveUnitPrice({ provider, resource });
-      const unitCostMinor = Number(response.unit_cost_minor);
+      // Provider-wide on purpose: this price drives cost-limit enforcement
+      // and the amount billed, both unchanged by #168. The per-model price is
+      // #priceServedModelBestEffort's, and reaches only the reported cost.
+      const response = await this.costClient.resolveUnitPrice({ provider, resource, model_id: "" });
+      // "0" with no_data is Cost Ledger saying it has no price, not that the
+      // call was free. Taken literally it zeroes the estimate, and a $0
+      // estimate can never exceed a cost limit -- the enforcement gap
+      // ENGINE-FIX-B5-9 closed for outages. Unreachable while this client sent
+      // no credential, because every lookup failed first; reachable the moment
+      // it authenticates (#168). Unlike an outage this is a steady state, so
+      // the fallback is cached for the TTL rather than re-asked and re-logged
+      // on every call.
+      const unitCostMinor =
+        response.confidence === "no_data"
+          ? ESTIMATED_USD_PER_TOKEN * 100 * FALLBACK_USD_TO_INR_RATE
+          : Number(response.unit_cost_minor);
       
       this.#unitPriceCache.set(cacheKey, {
         unitCostMinor,
@@ -535,6 +578,76 @@ export class ModelGatewayService implements ModelgwHandler {
       console.error(`Failed to resolve unit price for ${provider}/${resource}, falling back to constant`, error);
       return ESTIMATED_USD_PER_TOKEN * 100 * FALLBACK_USD_TO_INR_RATE;
     }
+  }
+
+  /**
+   * What a call cost, priced at the served model's own input and output rates
+   * (#168) -- reported to the caller, and not used for enforcement or billing.
+   *
+   * Deliberately stricter than #resolveUnitPriceBestEffort. Only a price read
+   * from the fixed table counts. Cost Ledger answers "no_data" with a unit
+   * price of "0", and a lookup failure falls back to a flat constant; either
+   * would report a number that is not this model's price, and the first would
+   * make every unpriced model look free to anyone summing what calls cost.
+   * Anything short of a real price is reported as unknown ("").
+   */
+  async #priceServedModelBestEffort(
+    provider: string,
+    modelId: string,
+    usageJson: string,
+  ): Promise<string> {
+    let usage: { readonly input_tokens: number; readonly output_tokens: number };
+    try {
+      usage = this.#parseUsage(usageJson);
+    } catch {
+      return "";
+    }
+    const [input, output] = await Promise.all([
+      this.#modelTokenPriceUsdBestEffort(provider, modelId, "input_tokens"),
+      this.#modelTokenPriceUsdBestEffort(provider, modelId, "output_tokens"),
+    ]);
+    if (input === undefined || output === undefined) return "";
+    return usdDecimalString(usage.input_tokens * input + usage.output_tokens * output);
+  }
+
+  async #modelTokenPriceUsdBestEffort(
+    provider: string,
+    modelId: string,
+    resource: "input_tokens" | "output_tokens",
+  ): Promise<number | undefined> {
+    const cacheKey = `${provider}:${modelId}:${resource}`;
+    const cached = this.#modelPriceCache.get(cacheKey);
+    if (cached !== undefined && Date.now() < cached.expireAt) {
+      return cached.usdPerToken;
+    }
+    let usdPerToken: number | undefined;
+    try {
+      const response = await this.costClient.resolveUnitPrice({
+        provider,
+        resource,
+        model_id: modelId,
+      });
+      const unitCostMinor = Number(response.unit_cost_minor);
+      if (response.confidence === "fixed_table" && Number.isFinite(unitCostMinor)) {
+        // unit_cost_minor is a minor unit per token: US cents for a USD row,
+        // paise for an INR one, converted at the same rate cost events use.
+        usdPerToken =
+          response.currency === "USD"
+            ? unitCostMinor / 100
+            : unitCostMinor / (100 * FALLBACK_USD_TO_INR_RATE);
+      }
+    } catch (error) {
+      console.error(`Failed to price ${modelId} ${resource} from Cost Ledger; reporting cost as unknown`, error);
+      // Not cached: an outage should not pin "unknown" for a whole TTL.
+      return undefined;
+    }
+    // A miss is cached too -- an unpriced model would otherwise cost two Cost
+    // Ledger round trips on every call.
+    this.#modelPriceCache.set(cacheKey, {
+      usdPerToken,
+      expireAt: Date.now() + COST_CACHE_TTL_MS,
+    });
+    return usdPerToken;
   }
 
   async #emitCostEventBestEffort(

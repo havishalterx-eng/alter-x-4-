@@ -34,6 +34,7 @@ import {
   type QueueProvider,
 } from "@alterx/shared-clients";
 import { CostClient } from "@alterx/adapters";
+import { lazyAuth0M2mTokenProviderFromEnvironment } from "@alterx/auth";
 
 import { AppModule } from "./app.module";
 import {
@@ -215,6 +216,13 @@ async function bootstrap(): Promise<void> {
   const costClient = new CostClient({
     address: environment.costLedgerGrpcAddress,
     protoPath: resolve(process.cwd(), "packages/contracts/proto/alter/cost/v1/cost.proto"),
+    // cost-ledger-service is behind the default-deny ServiceAuthGuard. With no
+    // provider this client sent no credential, so every call was rejected
+    // UNAUTHENTICATED: unit prices fell back to the flat constant, model
+    // outcomes were never recorded, and a per-model price could never be read
+    // (#168). All three are best-effort, so nothing surfaced it.
+    // background-workers' CostClient already authenticates this way.
+    accessTokenProvider: lazyAuth0M2mTokenProviderFromEnvironment(process.env),
   });
 
   const app = await NestFactory.create<NestFastifyApplication>(

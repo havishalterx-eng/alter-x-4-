@@ -45,6 +45,7 @@ const invoke = vi.fn<ModelGatewayHandler["invoke"]>().mockResolvedValue({
   usage_json: "{}",
   resolved_capability: "FAST:test",
   cache_hit: false,
+  estimated_cost_usd: "",
 });
 
 @Module({
