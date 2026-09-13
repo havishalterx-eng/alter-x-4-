@@ -47,14 +47,16 @@ class StreamRequest(_message.Message):
     def __init__(self, tenant_id: _Optional[str] = ..., run_id: _Optional[str] = ..., node_execution_id: _Optional[str] = ..., model_alias: _Optional[str] = ..., input_json: _Optional[str] = ...) -> None: ...
 
 class StreamResponse(_message.Message):
-    __slots__ = ("sequence", "delta", "final")
+    __slots__ = ("sequence", "delta", "final", "usage_json")
     SEQUENCE_FIELD_NUMBER: _ClassVar[int]
     DELTA_FIELD_NUMBER: _ClassVar[int]
     FINAL_FIELD_NUMBER: _ClassVar[int]
+    USAGE_JSON_FIELD_NUMBER: _ClassVar[int]
     sequence: int
     delta: str
     final: bool
-    def __init__(self, sequence: _Optional[int] = ..., delta: _Optional[str] = ..., final: _Optional[bool] = ...) -> None: ...
+    usage_json: str
+    def __init__(self, sequence: _Optional[int] = ..., delta: _Optional[str] = ..., final: _Optional[bool] = ..., usage_json: _Optional[str] = ...) -> None: ...
 
 class RedactRequest(_message.Message):
     __slots__ = ("tenant_id", "run_id", "content")

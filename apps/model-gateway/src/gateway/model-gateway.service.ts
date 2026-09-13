@@ -298,7 +298,16 @@ export class ModelGatewayService implements ModelgwHandler {
     if (cacheHit !== undefined) {
       const cachedText = extractCachedStreamText(cacheHit.output_json);
       if (cachedText !== undefined) {
-        yield { sequence: 1, delta: cachedText, final: true };
+        // The cached entry carries the usage the original call reported, and
+        // a replay costs the same tokens downstream accounting-wise as the
+        // call it stands in for -- so it is passed through rather than
+        // blanked, which would make a cache hit look free to every consumer.
+        yield {
+          sequence: 1,
+          delta: cachedText,
+          final: true,
+          usage_json: cacheHit.usage_json,
+        };
         return;
       }
       // Cached value isn't in the expected shape -- fall through to a real
@@ -376,6 +385,9 @@ export class ModelGatewayService implements ModelgwHandler {
           sequence: chunk.sequence,
           delta: chunk.delta,
           final: chunk.final,
+          // Only the final chunk has totals to report; the provider does not
+          // know them before its stream ends.
+          usage_json: chunk.final ? chunk.usageJson : "",
         };
       }
       if (!finalSeen) {

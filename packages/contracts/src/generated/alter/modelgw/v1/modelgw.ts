@@ -42,6 +42,14 @@ export interface StreamResponse {
   sequence: number;
   delta: string;
   final: boolean;
+  /**
+   * The same token-usage contract InvokeResponse.usage_json carries, and
+   * empty on every chunk but the final one -- a provider only knows the
+   * totals once its stream ends. Without it a streamed call reported no usage
+   * at all, which is why every real LLMTask node recorded a NULL token_count
+   * (#163).
+   */
+  usage_json: string;
 }
 
 export interface RedactRequest {

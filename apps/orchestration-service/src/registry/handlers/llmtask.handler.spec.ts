@@ -16,6 +16,28 @@ function fakeGateway(
   return { invoke };
 }
 
+interface FakeStreamChunk {
+  readonly delta: string;
+  readonly sequence: number;
+  readonly final: boolean;
+  readonly usage_json: string;
+}
+
+const streamOf = (...chunks: readonly FakeStreamChunk[]) =>
+  vi.fn(async function* () {
+    for (const chunk of chunks) yield chunk;
+  });
+
+function streamingGateway(
+  stream: ReturnType<typeof streamOf>,
+): ModelGatewayHandler & {
+  stream(request: ModelgwInvokeRequest): AsyncIterable<FakeStreamChunk>;
+} {
+  return { invoke: vi.fn(), stream } as ModelGatewayHandler & {
+    stream(request: ModelgwInvokeRequest): AsyncIterable<FakeStreamChunk>;
+  };
+}
+
 describe("LlmTaskHandler", () => {
   it("has nodeType LLMTask", () => {
     const handler = new LlmTaskHandler(fakeGateway(vi.fn()));
@@ -112,20 +134,16 @@ describe("LlmTaskHandler", () => {
 
   it("forwards incremental model deltas before assembling the final output", async () => {
     const onModelDelta = vi.fn().mockResolvedValue(undefined);
-    const stream = vi.fn(async function* () {
-      yield { delta: '{"text":"hel', sequence: 1, final: false };
-      yield { delta: 'lo"}', sequence: 2, final: true };
-    });
-    const handler = new LlmTaskHandler({
-      invoke: vi.fn(),
-      stream,
-    } as ModelGatewayHandler & {
-      stream(request: ModelgwInvokeRequest): AsyncIterable<{
-        delta: string;
-        sequence: number;
-        final: boolean;
-      }>;
-    });
+    const stream = streamOf(
+      { delta: '{"text":"hel', sequence: 1, final: false, usage_json: "" },
+      {
+        delta: 'lo"}',
+        sequence: 2,
+        final: true,
+        usage_json: JSON.stringify({ input_tokens: 12, output_tokens: 34 }),
+      },
+    );
+    const handler = new LlmTaskHandler(streamingGateway(stream));
 
     const result = await handler.execute({
       config: { model_alias: "ADVANCED", prompt: "summarize this" },
@@ -142,6 +160,51 @@ describe("LlmTaskHandler", () => {
       ['lo"}', 1, true],
     ]);
     expect(result.output).toEqual({ text: "hello" });
+  });
+
+  it("records the usage the final stream chunk reports", async () => {
+    // The streaming branch is the one every real deployment takes -- the gRPC
+    // client implements stream() -- and it used to drop usage entirely, so no
+    // real run ever recorded a token_count and half of the binding efficiency
+    // score was a constant (#163).
+    const handler = new LlmTaskHandler(streamingGateway(streamOf(
+      { delta: '{"ok":', sequence: 1, final: false, usage_json: "" },
+      {
+        delta: "true}",
+        sequence: 2,
+        final: true,
+        usage_json: JSON.stringify({ input_tokens: 12, output_tokens: 34 }),
+      },
+    )));
+
+    const result = await handler.execute({
+      config: { model_alias: "ADVANCED", prompt: "summarize this" },
+      inputs: {},
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      node_execution_id: NODE_EXECUTION_ID,
+    });
+
+    expect(result.metadata).toEqual({
+      usage: { input_tokens: 12, output_tokens: 34 },
+    });
+  });
+
+  it("fails open on a malformed usage_json from a stream, keeping the output", async () => {
+    const handler = new LlmTaskHandler(streamingGateway(streamOf(
+      { delta: '{"ok":true}', sequence: 1, final: true, usage_json: "{not json" },
+    )));
+
+    const result = await handler.execute({
+      config: { model_alias: "ADVANCED", prompt: "summarize this" },
+      inputs: {},
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      node_execution_id: NODE_EXECUTION_ID,
+    });
+
+    expect(result.output).toEqual({ ok: true });
+    expect(result.metadata).toEqual({ usage: {} });
   });
 
   it("rejects a missing model_alias", async () => {
