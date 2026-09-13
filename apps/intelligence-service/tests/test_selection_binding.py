@@ -938,28 +938,118 @@ class TestSelectionBindingIntegration:
 
         assert outcome == NoAgentMatch(node_key="node.one", reason="no_eligible_agent")
 
-    async def test_recorded_latency_and_cost_do_not_move_the_routing_decision(
+    async def test_an_agent_with_no_history_does_not_beat_a_measured_cheap_one(
         self,
         db_session: AsyncSession,
     ) -> None:
-        """Batch 5 probe (rebuild plan, "Selection & Binding cost-and-
-        latency-ignored").
+        """Never having run is not evidence of being cheap.
 
-        _RANKED_AGENT_QUERY's combined_score is
-        similarity_weight * capability_similarity + performance_weight *
-        performance_score -- both purely similarity/verdict terms.
-        performance_records.latency_ms and .token_count exist in the schema
-        (the seed script that ships with this repo deliberately gives two
-        fixture agents matching embeddings and verdicts but roughly an
-        order-of-magnitude difference in latency_ms/token_count, exactly so
-        this could be observed), but the query never selects either column.
+        An unmeasured agent scores the neutral 0.5 on efficiency, the same
+        default performance_score already uses. If absence scored as free, a
+        brand-new agent would outrank every agent that has ever done any work.
+        """
+        await seed_agent(db_session, agent_id=AGENT_A, embedding=vector(1.0))
+        await seed_agent(db_session, agent_id=AGENT_B, embedding=vector(1.0))
+        # AGENT_A: measured, and very cheap. AGENT_B: no records at all.
+        await seed_performance(
+            db_session,
+            agent_id=AGENT_A,
+            verdicts=["success", "success"],
+            latency_ms=50,
+            token_count=40,
+        )
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
 
-        This test is written to fail if that diagnosis is wrong: two agents
-        with identical capability similarity and identical verdict mix, but
-        a ~30x difference in recorded latency and token cost, must produce
-        the identical routing decision regardless of which one is actually
-        cheap and fast -- because the tiebreak (agent_id ASC) is the only
-        thing left once similarity and performance_score tie.
+        outcome = await engine.bind(
+            request_for(NodeRequirement(capabilities=["text.generation"])),
+            context(),
+        )
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.agent_id == AGENT_A
+
+    async def test_efficiency_never_outweighs_a_clearly_better_match(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """The weight is deliberately small.
+
+        A cheap agent should win between comparable candidates, not beat one
+        that matches the requirement far better. AGENT_B is as cheap as the
+        fixture gets and still loses to a materially closer embedding.
+        """
+        await seed_agent(db_session, agent_id=AGENT_A, embedding=vector(1.0))
+        await seed_agent(db_session, agent_id=AGENT_B, embedding=vector(0.55, 0.835))
+        await seed_performance(
+            db_session,
+            agent_id=AGENT_A,
+            verdicts=["success", "success"],
+            latency_ms=9_000,
+            token_count=9_000,
+        )
+        await seed_performance(
+            db_session,
+            agent_id=AGENT_B,
+            verdicts=["success", "success"],
+            latency_ms=10,
+            token_count=10,
+        )
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(NodeRequirement(capabilities=["text.generation"])),
+            context(),
+        )
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.agent_id == AGENT_A
+
+    async def test_efficiency_does_not_decide_eligibility(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """The floor stays on combined_score alone.
+
+        A very slow, very expensive agent is still eligible if it matches --
+        being slow is a reason to prefer somebody else, not a reason to be
+        unbindable when there is nobody else.
+        """
+        await seed_agent(db_session, agent_id=AGENT_A, embedding=vector(1.0))
+        await seed_performance(
+            db_session,
+            agent_id=AGENT_A,
+            verdicts=["success", "success"],
+            latency_ms=120_000,
+            token_count=500_000,
+        )
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(NodeRequirement(capabilities=["text.generation"])),
+            context(),
+        )
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.agent_id == AGENT_A
+
+    async def test_recorded_latency_and_cost_move_the_routing_decision(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Batch 5 probe (rebuild plan, "Selection & Binding cost-and-latency
+        -ignored"), now asserting the fixed behaviour.
+
+        It used to assert the defect, and was accurate: combined_score was
+        similarity and verdicts only, so two agents tying on both were ordered
+        by `agent_id ASC` and a ~30x gap in recorded latency and tokens could
+        not move the winner. performance_records has carried latency_ms and
+        token_count all along -- seed-local.sh seeds exactly this pair to make
+        it observable -- and the query simply never selected either column.
+
+        The swap is what makes this test worth having. AGENT_A sorts first, so
+        the first bind alone proves nothing; after the costs are exchanged the
+        winner has to become AGENT_B, which is precisely what `agent_id ASC`
+        would not do.
         """
         CHEAP_LATENCY_MS, CHEAP_TOKEN_COUNT = 200, 150
         SLOW_LATENCY_MS, SLOW_TOKEN_COUNT = 8_000, 4_200
@@ -987,8 +1077,9 @@ class TestSelectionBindingIntegration:
         assert isinstance(cheap_agent_wins, BindAgentModelToolResponse)
         assert cheap_agent_wins.agent_id == AGENT_A
 
-        # Swap which agent is actually cheap and fast. If cost or latency
-        # influenced the ranking at all, the winner would flip too.
+        # Exchange which agent is cheap and fast. Similarity and verdicts are
+        # unchanged and identical, so combined_score still ties; only the
+        # efficiency term differs, and the winner must follow it.
         await db_session.execute(text("DELETE FROM performance_records"))
         await seed_performance(
             db_session,
@@ -1005,6 +1096,6 @@ class TestSelectionBindingIntegration:
             token_count=CHEAP_TOKEN_COUNT,
         )
 
-        same_agent_wins_again = await engine.bind(request, context())
-        assert isinstance(same_agent_wins_again, BindAgentModelToolResponse)
-        assert same_agent_wins_again.agent_id == AGENT_A
+        cheap_agent_wins_again = await engine.bind(request, context())
+        assert isinstance(cheap_agent_wins_again, BindAgentModelToolResponse)
+        assert cheap_agent_wins_again.agent_id == AGENT_B
