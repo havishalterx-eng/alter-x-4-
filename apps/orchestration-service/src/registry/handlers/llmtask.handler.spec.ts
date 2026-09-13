@@ -21,6 +21,7 @@ interface FakeStreamChunk {
   readonly sequence: number;
   readonly final: boolean;
   readonly usage_json: string;
+  readonly estimated_cost_usd?: string;
 }
 
 const streamOf = (...chunks: readonly FakeStreamChunk[]) =>
@@ -188,6 +189,58 @@ describe("LlmTaskHandler", () => {
     expect(result.metadata).toEqual({
       usage: { input_tokens: 12, output_tokens: 34 },
     });
+  });
+
+  it("records the cost the gateway priced on the final stream chunk", async () => {
+    // #168: carried beside usage, so a node's metadata says what its model
+    // call cost and not only how many tokens it used.
+    const handler = new LlmTaskHandler(streamingGateway(streamOf(
+      { delta: '{"ok":', sequence: 1, final: false, usage_json: "", estimated_cost_usd: "" },
+      {
+        delta: "true}",
+        sequence: 2,
+        final: true,
+        usage_json: JSON.stringify({ input_tokens: 300, output_tokens: 200 }),
+        estimated_cost_usd: "0.00088",
+      },
+    )));
+
+    const result = await handler.execute({
+      config: { model_alias: "ADVANCED", prompt: "summarize this" },
+      inputs: {},
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      node_execution_id: NODE_EXECUTION_ID,
+    });
+
+    expect(result.metadata).toEqual({
+      usage: { input_tokens: 300, output_tokens: 200 },
+      estimated_cost_usd: "0.00088",
+    });
+  });
+
+  it("leaves cost out entirely when the gateway had no price for the model", async () => {
+    // Recorded as "0" it would read as free. Absent, it reads as what it is:
+    // no price on record for that model.
+    const handler = new LlmTaskHandler(streamingGateway(streamOf(
+      {
+        delta: '{"ok":true}',
+        sequence: 1,
+        final: true,
+        usage_json: JSON.stringify({ input_tokens: 1, output_tokens: 1 }),
+        estimated_cost_usd: "",
+      },
+    )));
+
+    const result = await handler.execute({
+      config: { model_alias: "ADVANCED", prompt: "summarize this" },
+      inputs: {},
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      node_execution_id: NODE_EXECUTION_ID,
+    });
+
+    expect(result.metadata).not.toHaveProperty("estimated_cost_usd");
   });
 
   it("fails open on a malformed usage_json from a stream, keeping the output", async () => {

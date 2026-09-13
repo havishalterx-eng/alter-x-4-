@@ -141,6 +141,7 @@ export class OpenAiModelProvider implements ModelProvider {
       outputJson: JSON.stringify(result),
       usageJson: JSON.stringify(usage),
       servedBy: this.metadata.providerId,
+      servedModelId: request.modelId,
     };
   }
 
@@ -181,6 +182,7 @@ export class OpenAiModelProvider implements ModelProvider {
         output_tokens: outputTokens,
       }),
       servedBy: this.metadata.providerId,
+      servedModelId: request.modelId,
     };
   }
 

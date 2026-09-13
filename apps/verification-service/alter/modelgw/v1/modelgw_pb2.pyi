@@ -21,16 +21,18 @@ class InvokeRequest(_message.Message):
     def __init__(self, tenant_id: _Optional[str] = ..., run_id: _Optional[str] = ..., node_execution_id: _Optional[str] = ..., model_alias: _Optional[str] = ..., input_json: _Optional[str] = ...) -> None: ...
 
 class InvokeResponse(_message.Message):
-    __slots__ = ("output_json", "usage_json", "resolved_capability", "cache_hit")
+    __slots__ = ("output_json", "usage_json", "resolved_capability", "cache_hit", "estimated_cost_usd")
     OUTPUT_JSON_FIELD_NUMBER: _ClassVar[int]
     USAGE_JSON_FIELD_NUMBER: _ClassVar[int]
     RESOLVED_CAPABILITY_FIELD_NUMBER: _ClassVar[int]
     CACHE_HIT_FIELD_NUMBER: _ClassVar[int]
+    ESTIMATED_COST_USD_FIELD_NUMBER: _ClassVar[int]
     output_json: str
     usage_json: str
     resolved_capability: str
     cache_hit: bool
-    def __init__(self, output_json: _Optional[str] = ..., usage_json: _Optional[str] = ..., resolved_capability: _Optional[str] = ..., cache_hit: _Optional[bool] = ...) -> None: ...
+    estimated_cost_usd: str
+    def __init__(self, output_json: _Optional[str] = ..., usage_json: _Optional[str] = ..., resolved_capability: _Optional[str] = ..., cache_hit: _Optional[bool] = ..., estimated_cost_usd: _Optional[str] = ...) -> None: ...
 
 class StreamRequest(_message.Message):
     __slots__ = ("tenant_id", "run_id", "node_execution_id", "model_alias", "input_json")
@@ -47,16 +49,18 @@ class StreamRequest(_message.Message):
     def __init__(self, tenant_id: _Optional[str] = ..., run_id: _Optional[str] = ..., node_execution_id: _Optional[str] = ..., model_alias: _Optional[str] = ..., input_json: _Optional[str] = ...) -> None: ...
 
 class StreamResponse(_message.Message):
-    __slots__ = ("sequence", "delta", "final", "usage_json")
+    __slots__ = ("sequence", "delta", "final", "usage_json", "estimated_cost_usd")
     SEQUENCE_FIELD_NUMBER: _ClassVar[int]
     DELTA_FIELD_NUMBER: _ClassVar[int]
     FINAL_FIELD_NUMBER: _ClassVar[int]
     USAGE_JSON_FIELD_NUMBER: _ClassVar[int]
+    ESTIMATED_COST_USD_FIELD_NUMBER: _ClassVar[int]
     sequence: int
     delta: str
     final: bool
     usage_json: str
-    def __init__(self, sequence: _Optional[int] = ..., delta: _Optional[str] = ..., final: _Optional[bool] = ..., usage_json: _Optional[str] = ...) -> None: ...
+    estimated_cost_usd: str
+    def __init__(self, sequence: _Optional[int] = ..., delta: _Optional[str] = ..., final: _Optional[bool] = ..., usage_json: _Optional[str] = ..., estimated_cost_usd: _Optional[str] = ...) -> None: ...
 
 class RedactRequest(_message.Message):
     __slots__ = ("tenant_id", "run_id", "content")

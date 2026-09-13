@@ -63,13 +63,14 @@ async function seedModelPricing(
   store: PostgresCostStoreProvider,
   provider: string,
   resource: string,
-  unitCostMinor: number,
+  unitCostMinor: number | string,
+  { modelId = "", currency = "INR" }: { readonly modelId?: string; readonly currency?: string } = {},
 ): Promise<void> {
   await store.withProvisioner(async (tx) => {
     await tx.query(
-      `INSERT INTO model_pricing (provider, resource, unit_cost_minor, currency)
-       VALUES ($1, $2, $3, 'INR')`,
-      [provider, resource, unitCostMinor],
+      `INSERT INTO model_pricing (provider, model_id, resource, unit_cost_minor, currency)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [provider, modelId, resource, unitCostMinor, currency],
     );
   });
 }
@@ -311,6 +312,7 @@ describe.sequential("EstimationService", () => {
       const response = await service.resolveUnitPrice({
         provider: "openai/gpt-4",
         resource: "tokens",
+        model_id: "",
       });
 
       expect(response).toEqual({
@@ -333,6 +335,7 @@ describe.sequential("EstimationService", () => {
       const response = await service.resolveUnitPrice({
         provider: "openai/gpt-4",
         resource: "tokens",
+        model_id: "",
       });
 
       expect(response).toEqual({
@@ -346,6 +349,7 @@ describe.sequential("EstimationService", () => {
       const response = await service.resolveUnitPrice({
         provider: "anthropic/claude-3-opus",
         resource: "tokens",
+        model_id: "",
       });
 
       expect(response).toEqual({
@@ -356,10 +360,84 @@ describe.sequential("EstimationService", () => {
     });
 
     it("requires provider and resource", async () => {
-      await expect(service.resolveUnitPrice({ provider: "", resource: "tokens" }))
+      await expect(service.resolveUnitPrice({ provider: "", resource: "tokens", model_id: "" }))
         .rejects.toThrow(EstimationValidationError);
-      await expect(service.resolveUnitPrice({ provider: "openai", resource: "" }))
+      await expect(service.resolveUnitPrice({ provider: "openai", resource: "", model_id: "" }))
         .rejects.toThrow(EstimationValidationError);
+    });
+
+    // #168: one provider serves models at very different prices. Keyed on
+    // (provider, resource) alone, every model behind aws-bedrock shared one
+    // rate, so a cost derived from it could not tell a cheap tier from an
+    // expensive one.
+    it("prices a model at its own rate rather than the provider's", async () => {
+      await seedModelPricing(adminStore, "aws-bedrock", "input_tokens", "0.5");
+      await seedModelPricing(adminStore, "aws-bedrock", "input_tokens", "0.00008", {
+        modelId: "apac.amazon.nova-pro-v1:0",
+        currency: "USD",
+      });
+
+      const response = await service.resolveUnitPrice({
+        provider: "aws-bedrock",
+        resource: "input_tokens",
+        model_id: "apac.amazon.nova-pro-v1:0",
+      });
+
+      expect(response).toEqual({
+        unit_cost_minor: "0.00008",
+        currency: "USD",
+        confidence: "fixed_table",
+      });
+    });
+
+    it("falls back to the provider-wide rate for a model with no row of its own", async () => {
+      await seedModelPricing(adminStore, "aws-bedrock", "input_tokens", "0.5");
+
+      const response = await service.resolveUnitPrice({
+        provider: "aws-bedrock",
+        resource: "input_tokens",
+        model_id: "apac.amazon.nova-micro-v1:0",
+      });
+
+      expect(response).toEqual({
+        unit_cost_minor: "0.5",
+        currency: "INR",
+        confidence: "fixed_table",
+      });
+    });
+
+    it("never answers a request without a model from a model's row", async () => {
+      // A caller that has not been taught about models must keep getting what
+      // it got before 0006, not whichever model happens to sort first.
+      await seedModelPricing(adminStore, "aws-bedrock", "input_tokens", "0.00008", {
+        modelId: "apac.amazon.nova-pro-v1:0",
+        currency: "USD",
+      });
+
+      const response = await service.resolveUnitPrice({
+        provider: "aws-bedrock",
+        resource: "input_tokens",
+        model_id: "",
+      });
+
+      expect(response.confidence).toBe("no_data");
+    });
+
+    it("keeps a price smaller than one minor unit instead of rounding it to zero", async () => {
+      // Nova Micro's input rate in US cents per token. The column was bigint,
+      // which stored this as 0 -- every real per-token model price was free.
+      await seedModelPricing(adminStore, "aws-bedrock", "input_tokens", "0.0000035", {
+        modelId: "apac.amazon.nova-micro-v1:0",
+        currency: "USD",
+      });
+
+      const response = await service.resolveUnitPrice({
+        provider: "aws-bedrock",
+        resource: "input_tokens",
+        model_id: "apac.amazon.nova-micro-v1:0",
+      });
+
+      expect(response.unit_cost_minor).toBe("0.0000035");
     });
   });
 });

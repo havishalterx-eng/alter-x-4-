@@ -54,6 +54,12 @@ export interface QueryRollupsResponse {
 export interface ResolveUnitPriceRequest {
   provider: string;
   resource: string;
+  /**
+   * The model the price is for. Empty asks for the provider-wide price, which
+   * is all this request could express before #168; a model with no row of its
+   * own falls back to that too.
+   */
+  model_id: string;
 }
 
 export interface ResolveUnitPriceResponse {

@@ -109,6 +109,7 @@ function classificationInvoke(
     usage_json: JSON.stringify({ input_tokens: 10, output_tokens: 5 }),
     resolved_capability: "FAST:mock",
     cache_hit: false,
+    estimated_cost_usd: "",
   });
 }
 
@@ -118,6 +119,7 @@ function modelResponse(outputJson: string): ModelgwInvokeResponse {
     usage_json: JSON.stringify({ input_tokens: 10, output_tokens: 5 }),
     resolved_capability: "FAST:mock",
     cache_hit: false,
+    estimated_cost_usd: "",
   };
 }
 

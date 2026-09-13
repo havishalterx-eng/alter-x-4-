@@ -143,6 +143,7 @@ export class AnthropicModelProvider implements ModelProvider {
       outputJson: JSON.stringify(result),
       usageJson: JSON.stringify(usage),
       servedBy: this.metadata.providerId,
+      servedModelId: request.modelId,
     };
   }
 
@@ -189,6 +190,7 @@ export class AnthropicModelProvider implements ModelProvider {
         output_tokens: outputTokens,
       }),
       servedBy: this.metadata.providerId,
+      servedModelId: request.modelId,
     };
   }
 

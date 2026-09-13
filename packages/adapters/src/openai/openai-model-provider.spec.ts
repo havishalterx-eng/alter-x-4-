@@ -59,15 +59,16 @@ function equivalentMockProvider(): ModelProvider {
       latencyMs: 0,
       details: { configured: true },
     },
-    invoke: async () => ({
+    invoke: async (request) => ({
       outputJson: JSON.stringify({
         message: { role: "assistant", content: "hi there" },
         stop_reason: "stop",
       }),
       usageJson: JSON.stringify({ input_tokens: 3, output_tokens: 4 }),
       servedBy: "openai-secondary",
+      servedModelId: request.modelId,
     }),
-    stream: async function* () {
+    stream: async function* (request) {
       yield { sequence: 1, delta: "hi ", final: false, servedBy: "openai-secondary" };
       yield { sequence: 2, delta: "there", final: false, servedBy: "openai-secondary" };
       yield {
@@ -76,6 +77,7 @@ function equivalentMockProvider(): ModelProvider {
         final: true,
         usageJson: JSON.stringify({ input_tokens: 3, output_tokens: 4 }),
         servedBy: "openai-secondary",
+        servedModelId: request.modelId,
       };
     },
   });

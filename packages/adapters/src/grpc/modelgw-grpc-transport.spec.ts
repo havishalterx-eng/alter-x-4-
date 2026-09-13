@@ -91,6 +91,7 @@ const handler: ModelgwHandler = {
       usage_json: JSON.stringify({ input_tokens: 1, output_tokens: 1 }),
       resolved_capability: request.model_alias,
       cache_hit: false,
+      estimated_cost_usd: "",
     } satisfies ModelgwInvokeResponse;
   }),
   stream: async function* (request: ModelgwStreamRequest) {
@@ -103,9 +104,9 @@ const handler: ModelgwHandler = {
     if (request.model_alias === "ADVANCED") {
       throw new Error("aws credential and internals");
     }
-    yield { sequence: 1, delta: "hello", final: false, usage_json: "" };
-    yield { sequence: 2, delta: " world", final: false, usage_json: "" };
-    yield { sequence: 3, delta: "", final: true, usage_json: STREAM_USAGE_JSON };
+    yield { sequence: 1, delta: "hello", final: false, usage_json: "", estimated_cost_usd: "" };
+    yield { sequence: 2, delta: " world", final: false, usage_json: "", estimated_cost_usd: "" };
+    yield { sequence: 3, delta: "", final: true, usage_json: STREAM_USAGE_JSON, estimated_cost_usd: "0.0000035" };
   },
   redact: vi.fn(async (request: ModelgwRedactRequest) => {
     return {
@@ -250,14 +251,15 @@ describe("modelgw gRPC transport adapter", () => {
       usage_json: JSON.stringify({ input_tokens: 1, output_tokens: 1 }),
       resolved_capability: "STANDARD",
       cache_hit: false,
+      estimated_cost_usd: "",
     });
   });
 
   it("streams incremental responses through the declared server-streaming RPC", async () => {
     await expect(stream(client, request())).resolves.toEqual([
-      { sequence: 1, delta: "hello", final: false, usage_json: "" },
-      { sequence: 2, delta: " world", final: false, usage_json: "" },
-      { sequence: 3, delta: "", final: true, usage_json: STREAM_USAGE_JSON },
+      { sequence: 1, delta: "hello", final: false, usage_json: "", estimated_cost_usd: "" },
+      { sequence: 2, delta: " world", final: false, usage_json: "", estimated_cost_usd: "" },
+      { sequence: 3, delta: "", final: true, usage_json: STREAM_USAGE_JSON, estimated_cost_usd: "0.0000035" },
     ]);
   });
 

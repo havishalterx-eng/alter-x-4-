@@ -27,6 +27,12 @@ message InvokeResponse {
   string usage_json = 2;
   string resolved_capability = 3;
   bool cache_hit = 4; // true when this response came from the semantic cache, not a live model call
+  // What the call cost in US dollars, as a decimal string so a sub-cent amount
+  // survives the wire -- the convention ResolveUnitPriceResponse.unit_cost_minor
+  // already uses. Priced per token direction at the rate of the model that
+  // served it. Empty when that model has no price on record: an unpriced call
+  // is unknown, never free (#168).
+  string estimated_cost_usd = 5;
 }
 
 message StreamRequest {
@@ -51,6 +57,9 @@ message StreamResponse {
   // at all, which is why every real LLMTask node recorded a NULL token_count
   // (#163).
   string usage_json = 4;
+  // As InvokeResponse.estimated_cost_usd, and like usage_json set on the final
+  // chunk only.
+  string estimated_cost_usd = 5;
 }
 
 message RedactRequest {
