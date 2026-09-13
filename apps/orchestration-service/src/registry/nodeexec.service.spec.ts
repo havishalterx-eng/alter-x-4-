@@ -1,3 +1,4 @@
+import { ModelGatewayInvalidResponseError } from "@alterx/shared-clients";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,7 +13,7 @@ import type { GeneratedFileMaterializer } from "./generated-file-materializer";
 import { NodeExecutionLedgerService } from "../runs/node-execution-ledger.service";
 import { RunStreamEventService } from "../runs/run-stream-event.service";
 import type { RecoveryTriggerService } from "../recovery/recovery-trigger.service";
-import { VerifyGateService } from "./verify-gate.service";
+import { VerifyGateError, VerifyGateService } from "./verify-gate.service";
 
 const TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const RUN_ID = "run_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
@@ -602,7 +603,12 @@ describe("NodeexecService.executeNode", () => {
     const handler: NodeHandler = {
       nodeType: "LLMTask",
       async execute() {
-        throw new NodeHandlerValidationError("model gateway rejected the request");
+        // MODEL_OUTPUT_INVALID: the model's own answer failed validation, so
+        // the failure is the agent's and belongs on its record. This used to
+        // throw NodeHandlerValidationError, which is a verdict on the node's
+        // config rather than on the agent -- no longer recorded (#164), and
+        // asserted as such two tests below.
+        throw new ModelGatewayInvalidResponseError("answered in prose, not JSON");
       },
     };
     const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef") };
@@ -630,7 +636,95 @@ describe("NodeexecService.executeNode", () => {
       tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
       node_key: "node_task", node_type: "LLMTask",
       config_json: JSON.stringify({ prompt: "Do it", model_alias: "STANDARD" }), inputs_json: "{}",
-    })).rejects.toThrow(NodeHandlerValidationError);
+    })).rejects.toThrow(ModelGatewayInvalidResponseError);
+
+    expect(performanceRecorder.recordObservation).toHaveBeenCalledWith(
+      "agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+      expect.objectContaining({ verdict: "failure" }),
+    );
+  });
+
+  it.each([
+    ["VERIFY_SERVICE_UNAVAILABLE", new VerifyGateError("VERIFY_SERVICE_UNAVAILABLE", "upstream")],
+    ["NODE_HANDLER_VALIDATION_FAILED", new NodeHandlerValidationError("no model_alias in config")],
+    ["a bare transport failure", Object.assign(new Error("socket closed"), { code: 14 })],
+  ])("does not blame the bound agent for %s", async (_label, thrown) => {
+    // A performance record asserts that this agent did badly, and Selection &
+    // Binding routes away from an agent that has one. None of these say
+    // anything about the agent: an outage, a node config that never named a
+    // model, a dropped socket. Recording them punished whichever agent
+    // happened to be bound while the platform had a bad minute (#164).
+    const handler: NodeHandler = {
+      nodeType: "LLMTask",
+      async execute() {
+        throw thrown;
+      },
+    };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef") };
+    const capabilityResolver = {
+      resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
+    };
+    const selectionBinding = {
+      bindAgentModelTool: vi.fn().mockResolvedValue({
+        matched: true,
+        agent_id: "agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+        agent_version: 1,
+        model_alias: "ADVANCED",
+        tool_names: [],
+      }),
+    };
+    const performanceRecorder = { recordObservation: vi.fn().mockResolvedValue(undefined) };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), fakeLedger(), undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      runWorkspaceLookup as never, capabilityResolver as never, selectionBinding as never,
+      performanceRecorder as never,
+    );
+
+    await expect(nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_task", node_type: "LLMTask",
+      config_json: JSON.stringify({ prompt: "Do it", model_alias: "STANDARD" }), inputs_json: "{}",
+    })).rejects.toThrow();
+
+    expect(performanceRecorder.recordObservation).not.toHaveBeenCalled();
+  });
+
+  it("blames the bound agent when Verify Gate rejects its output", async () => {
+    // The other half of the same rule: VERIFICATION_GATE_FAILED is a verdict
+    // on the output, which is the agent's, unlike the service being down.
+    const handler: NodeHandler = {
+      nodeType: "LLMTask",
+      async execute() {
+        throw new VerifyGateError("VERIFICATION_GATE_FAILED", "Verify Gate rejected node output");
+      },
+    };
+    const runWorkspaceLookup = { getWorkspaceId: vi.fn().mockResolvedValue("018f4d6e-2b4a-7a3e-8c1a-abcdefabcdef") };
+    const capabilityResolver = {
+      resolveNodeRequirements: vi.fn().mockResolvedValue({ node_requirements_json: "{}", schema_version: "1" }),
+    };
+    const selectionBinding = {
+      bindAgentModelTool: vi.fn().mockResolvedValue({
+        matched: true,
+        agent_id: "agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+        agent_version: 1,
+        model_alias: "ADVANCED",
+        tool_names: [],
+      }),
+    };
+    const performanceRecorder = { recordObservation: vi.fn().mockResolvedValue(undefined) };
+    const nodeexec = new NodeexecService(
+      new NodeHandlerRegistry([handler]), fakeLedger(), undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      runWorkspaceLookup as never, capabilityResolver as never, selectionBinding as never,
+      performanceRecorder as never,
+    );
+
+    await expect(nodeexec.executeNode({
+      tenant_id: TENANT_ID, run_id: RUN_ID, node_execution_id: NODE_EXECUTION_ID,
+      node_key: "node_task", node_type: "LLMTask",
+      config_json: JSON.stringify({ prompt: "Do it", model_alias: "STANDARD" }), inputs_json: "{}",
+    })).rejects.toThrow(VerifyGateError);
 
     expect(performanceRecorder.recordObservation).toHaveBeenCalledWith(
       "agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
