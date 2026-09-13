@@ -86,6 +86,16 @@ export class LlmTaskHandler implements NodeHandler {
       outputJson = "";
       for await (const chunk of streaming.stream(modelRequest)) {
         outputJson += chunk.delta;
+        // Usage arrives on the final chunk only. Reading it is what gives the
+        // performance record a token_count: this branch is the one every real
+        // deployment takes, because the gRPC client implements stream(), so
+        // while usage was dropped here no real run ever recorded a token
+        // count and half of the binding efficiency score was a constant
+        // (#163). Same fail-open parse as the invoke branch below -- usage is
+        // metadata, and a malformed blob must not lose a valid output.
+        if (chunk.final && chunk.usage_json !== "") {
+          try { usage = JSON.parse(chunk.usage_json); } catch { usage = {}; }
+        }
         await context.on_model_delta?.(chunk.delta, chunk.sequence - 1, chunk.final);
       }
     } else {

@@ -73,6 +73,9 @@ interface ModelgwPackageDefinition {
   };
 }
 
+// Usage totals ride the final stream chunk only (#163).
+const STREAM_USAGE_JSON = JSON.stringify({ input_tokens: 12, output_tokens: 34 });
+
 const protoPath = resolve(
   process.cwd(),
   "packages/contracts/proto/alter/modelgw/v1/modelgw.proto",
@@ -100,9 +103,9 @@ const handler: ModelgwHandler = {
     if (request.model_alias === "ADVANCED") {
       throw new Error("aws credential and internals");
     }
-    yield { sequence: 1, delta: "hello", final: false };
-    yield { sequence: 2, delta: " world", final: false };
-    yield { sequence: 3, delta: "", final: true };
+    yield { sequence: 1, delta: "hello", final: false, usage_json: "" };
+    yield { sequence: 2, delta: " world", final: false, usage_json: "" };
+    yield { sequence: 3, delta: "", final: true, usage_json: STREAM_USAGE_JSON };
   },
   redact: vi.fn(async (request: ModelgwRedactRequest) => {
     return {
@@ -252,9 +255,9 @@ describe("modelgw gRPC transport adapter", () => {
 
   it("streams incremental responses through the declared server-streaming RPC", async () => {
     await expect(stream(client, request())).resolves.toEqual([
-      { sequence: 1, delta: "hello", final: false },
-      { sequence: 2, delta: " world", final: false },
-      { sequence: 3, delta: "", final: true },
+      { sequence: 1, delta: "hello", final: false, usage_json: "" },
+      { sequence: 2, delta: " world", final: false, usage_json: "" },
+      { sequence: 3, delta: "", final: true, usage_json: STREAM_USAGE_JSON },
     ]);
   });
 

@@ -312,7 +312,7 @@ describe("ModelGatewayService", () => {
 
     await expect(iterator.next()).resolves.toEqual({
       done: false,
-      value: { sequence: 1, delta: "first", final: false },
+      value: { sequence: 1, delta: "first", final: false, usage_json: "" },
     });
     const second = iterator.next();
     let secondSettled = false;
@@ -1107,12 +1107,48 @@ describe("ModelGatewayService", () => {
       "hello world",
     );
     // A cache hit is delivered as a single chunk carrying the full cached
-    // content -- ModelgwStreamResponse's wire contract ({sequence, delta,
-    // final}) has no field to reconstruct a cached value's original
-    // multi-chunk shape from, so there is nothing to synthesize beyond one
-    // final chunk.
+    // content -- ModelgwStreamResponse's wire contract has no field to
+    // reconstruct a cached value's original multi-chunk shape from, so there
+    // is nothing to synthesize beyond one final chunk. Its usage is the usage
+    // the original call reported: a replay is not free to whoever accounts
+    // for it downstream.
     expect(secondChunks).toEqual([
-      { sequence: 1, delta: "hello world", final: true },
+      {
+        sequence: 1,
+        delta: "hello world",
+        final: true,
+        usage_json: JSON.stringify({ input_tokens: 4, output_tokens: 4 }),
+      },
+    ]);
+  });
+
+  // #163: usage never reached the wire on a stream at all, so every consumer
+  // of a streamed call saw no tokens -- which is how every real LLMTask node
+  // came to record a NULL token_count.
+  it("carries the terminal chunk's usage on the wire, and nothing on the others", async () => {
+    const service = buildService({
+      modelProvider: createMockModelProvider({
+        stream: async function* () {
+          yield { sequence: 1, delta: "hello ", final: false, servedBy: "mock.model" };
+          yield {
+            sequence: 2,
+            delta: "world",
+            final: true,
+            usageJson: JSON.stringify({ input_tokens: 4, output_tokens: 9 }),
+            servedBy: "mock.model",
+          };
+        },
+      }),
+    });
+
+    const chunks = [];
+    for await (const chunk of service.stream(request())) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.map((chunk) => chunk.usage_json)).toEqual([
+      "",
+      JSON.stringify({ input_tokens: 4, output_tokens: 9 }),
     ]);
   });
 
