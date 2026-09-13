@@ -219,7 +219,6 @@ WITH performance AS (
       ) / 2.0
     ) AS efficiency_score
   FROM candidate_similarity
-  WHERE capability_similarity >= :minimum_capability_similarity
 )
 SELECT
   agent_id,
@@ -230,11 +229,36 @@ SELECT
   combined_score,
   efficiency_score
 FROM ranked
--- The floor stays on combined_score alone. Efficiency moves the ranking, not
--- eligibility: folding it into the gated number would drop agents below
--- minimum_combined_score for being slow, which is a different decision from
--- the one this change is making.
-WHERE combined_score >= :minimum_combined_score
+-- No score floor. Containment above decides eligibility; every score here
+-- decides order.
+--
+-- Two floors used to sit here. Measured against real Titan embeddings, one
+-- was unreachable and the other was rejecting agents that declare exactly
+-- what was asked for:
+--
+--   * minimum_capability_similarity = 0.6 could never fire. Clearing
+--     combined_score >= 0.7 at similarity_weight 0.8 needs capability
+--     similarity >= (0.7 - 0.2 * performance_score) / 0.8, which is 0.625
+--     even at a perfect performance_score of 1.0 -- above 0.6 for every
+--     input. A filter that cannot reject a row the next filter keeps is dead
+--     weight, and re-tuning it could only have moved it between doing
+--     nothing and doing the next filter's job.
+--
+--   * minimum_combined_score = 0.7 did fire, on the wrong rows. A requirement
+--     embeds the join of its capabilities, while an agent stores one
+--     embedding row per capability, so MAX(similarity) compares a joined
+--     query against a single part and falls as the requirement grows:
+--     measured 0.77 for two capabilities, 0.75 for three, 0.51 for four. A
+--     four-capability requirement therefore could not bind an agent
+--     declaring all four, and fell through to auto-creation, minting a
+--     duplicate every attempt -- the sprawl #125 and #157 closed, through a
+--     different door.
+--
+-- What the floors were guarding is now guarded by containment: an agent that
+-- does not declare the capability is not a candidate at all. One that
+-- declares it but carries a stale embedding still binds, and ranks below
+-- agents whose embeddings agree with it -- the right answer, because the
+-- published capability list, not the vector, is what the agent promised.
 ORDER BY
   combined_score + :efficiency_weight * efficiency_score DESC,
   combined_score DESC,
@@ -267,8 +291,6 @@ class SelectionBindingEngine:
         # routing policy yet, so unlike similarity_weight it is not read from
         # there -- see #159 for making drift able to move it.
         efficiency_weight: float = 0.25,
-        minimum_capability_similarity: float = 0.6,
-        minimum_combined_score: float = 0.7,
         policy_client: RoutingPolicyClient | None = None,
         persona_creation_engine: PersonaCreationEngine | None = None,
     ) -> None:
@@ -276,18 +298,12 @@ class SelectionBindingEngine:
             raise ValueError("similarity_weight must be between 0 and 1")
         if not 0.0 <= efficiency_weight <= 1.0:
             raise ValueError("efficiency_weight must be between 0 and 1")
-        if not 0.0 <= minimum_capability_similarity <= 1.0:
-            raise ValueError("minimum_capability_similarity must be between 0 and 1")
-        if not 0.0 <= minimum_combined_score <= 1.0:
-            raise ValueError("minimum_combined_score must be between 0 and 1")
 
         self._session = session
         self._embedding_client = embedding_client
         self._similarity_weight = similarity_weight
         self._efficiency_weight = efficiency_weight
         self._performance_weight = 1.0 - similarity_weight
-        self._minimum_capability_similarity = minimum_capability_similarity
-        self._minimum_combined_score = minimum_combined_score
         self._policy_client = policy_client
         self._persona_creation_engine = persona_creation_engine
 
@@ -341,8 +357,6 @@ class SelectionBindingEngine:
             "similarity_weight": similarity_weight,
             "performance_weight": 1.0 - similarity_weight,
             "efficiency_weight": self._efficiency_weight,
-            "minimum_capability_similarity": self._minimum_capability_similarity,
-            "minimum_combined_score": self._minimum_combined_score,
         }
         result = await self._session.execute(_RANKED_AGENT_QUERY, query_parameters)
         candidate = result.mappings().first()
