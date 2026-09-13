@@ -27,6 +27,7 @@ from src.selection_binding import (
     NoAgentMatch,
     SelectionBindingEngine,
 )
+from src.selection_binding.policy_client import RoutingWeights
 
 SERVICE_ROOT = Path(__file__).parent.parent
 PGVECTOR_IMAGE = "pgvector/pgvector:pg16"
@@ -55,12 +56,32 @@ class FakeEmbeddingClient:
 
 
 class MutableRoutingPolicyClient:
-    def __init__(self, weight: float | None) -> None:
+    def __init__(
+        self,
+        weight: float | None,
+        efficiency_weight: float | None = None,
+        *,
+        found: bool = True,
+    ) -> None:
         self.weight = weight
+        self.efficiency_weight = efficiency_weight
+        self.found = found
+        self.calls = 0
 
-    async def similarity_weight(self, tenant_id: str) -> float | None:
+    async def routing_weights(self, tenant_id: str) -> RoutingWeights | None:
         assert tenant_id == TENANT_A
-        return self.weight
+        self.calls += 1
+        if not self.found:
+            return None
+        return RoutingWeights(
+            similarity_weight=self.weight,
+            efficiency_weight=self.efficiency_weight,
+        )
+
+
+class UnreachableRoutingPolicyClient:
+    async def routing_weights(self, tenant_id: str) -> RoutingWeights | None:
+        raise RuntimeError("policy store unreachable")
 
 
 def vector(first: float, second: float = 0.0) -> list[float]:
@@ -1167,3 +1188,132 @@ class TestSelectionBindingIntegration:
         cheap_agent_wins_again = await engine.bind(request, context())
         assert isinstance(cheap_agent_wins_again, BindAgentModelToolResponse)
         assert cheap_agent_wins_again.agent_id == AGENT_B
+
+    async def test_active_policy_efficiency_weight_changes_the_next_selection(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """The tenant decides how much cost is allowed to matter (#159).
+
+        Two agents tie on similarity and verdicts, so only the efficiency term
+        separates them, and the slower one sorts first by id. At an efficiency
+        weight of zero the term cannot break the tie and the id decides; raise
+        it and the cheap agent wins. The weight is the only thing that changes
+        between the two binds.
+        """
+        await seed_agent(db_session, agent_id=AGENT_A, embedding=vector(1.0))
+        await seed_agent(db_session, agent_id=AGENT_B, embedding=vector(1.0))
+        await seed_performance(
+            db_session,
+            agent_id=AGENT_A,
+            verdicts=["success", "success"],
+            latency_ms=9_000,
+            token_count=5_000,
+        )
+        await seed_performance(
+            db_session,
+            agent_id=AGENT_B,
+            verdicts=["success", "success"],
+            latency_ms=150,
+            token_count=120,
+        )
+        policy = MutableRoutingPolicyClient(0.8, efficiency_weight=0.0)
+        engine = SelectionBindingEngine(
+            db_session,
+            FakeEmbeddingClient(vector(1.0)),
+            policy_client=policy,
+        )
+        request = request_for(NodeRequirement(capabilities=["text.generation"]))
+
+        cost_ignored = await engine.bind(request, context())
+        policy.efficiency_weight = 0.9
+        cost_decisive = await engine.bind(request, context())
+
+        assert isinstance(cost_ignored, BindAgentModelToolResponse)
+        assert isinstance(cost_decisive, BindAgentModelToolResponse)
+        assert cost_ignored.agent_id == AGENT_A
+        assert cost_decisive.agent_id == AGENT_B
+
+    async def test_a_policy_setting_only_similarity_keeps_the_default_efficiency(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Policy bodies predate `efficiency_weight` and must keep working.
+
+        Such a body sets `similarity_weight` alone. The unset weight falls
+        back to the engine's own default rather than to zero, so the cheap
+        agent still wins -- an older policy must not silently turn cost
+        blindness back on.
+        """
+        await seed_agent(db_session, agent_id=AGENT_A, embedding=vector(1.0))
+        await seed_agent(db_session, agent_id=AGENT_B, embedding=vector(1.0))
+        await seed_performance(
+            db_session,
+            agent_id=AGENT_A,
+            verdicts=["success", "success"],
+            latency_ms=9_000,
+            token_count=5_000,
+        )
+        await seed_performance(
+            db_session,
+            agent_id=AGENT_B,
+            verdicts=["success", "success"],
+            latency_ms=150,
+            token_count=120,
+        )
+        policy = MutableRoutingPolicyClient(0.8, efficiency_weight=None)
+        engine = SelectionBindingEngine(
+            db_session,
+            FakeEmbeddingClient(vector(1.0)),
+            policy_client=policy,
+        )
+
+        outcome = await engine.bind(
+            request_for(NodeRequirement(capabilities=["text.generation"])), context()
+        )
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.agent_id == AGENT_B
+
+    async def test_an_unreachable_policy_store_still_binds_on_the_defaults(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Routing on the configured defaults beats refusing to route."""
+        await seed_agent(db_session, agent_id=AGENT_A, embedding=vector(1.0))
+        await seed_performance(db_session, agent_id=AGENT_A, verdicts=["success"])
+        engine = SelectionBindingEngine(
+            db_session,
+            FakeEmbeddingClient(vector(1.0)),
+            policy_client=UnreachableRoutingPolicyClient(),
+        )
+
+        outcome = await engine.bind(
+            request_for(NodeRequirement(capabilities=["text.generation"])), context()
+        )
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert outcome.agent_id == AGENT_A
+
+    async def test_one_policy_read_serves_both_weights(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Both weights come out of one document, so one request reads them.
+
+        Asking per weight would put a second HTTP round trip on the per-node
+        binding path for a field of a body already in hand.
+        """
+        await seed_agent(db_session, agent_id=AGENT_A, embedding=vector(1.0))
+        policy = MutableRoutingPolicyClient(0.8, efficiency_weight=0.25)
+        engine = SelectionBindingEngine(
+            db_session,
+            FakeEmbeddingClient(vector(1.0)),
+            policy_client=policy,
+        )
+
+        await engine.bind(
+            request_for(NodeRequirement(capabilities=["text.generation"])), context()
+        )
+
+        assert policy.calls == 1

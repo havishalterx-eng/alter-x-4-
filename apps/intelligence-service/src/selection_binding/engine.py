@@ -287,9 +287,11 @@ class SelectionBindingEngine:
         similarity_weight: float = 0.8,
         # How far measured latency and token cost may move the ranking. Small
         # on purpose: a cheap agent should win between comparable candidates,
-        # not beat a clearly better-matched one. Nothing writes this to the
-        # routing policy yet, so unlike similarity_weight it is not read from
-        # there -- see #159 for making drift able to move it.
+        # not beat a clearly better-matched one. The default only applies
+        # where the tenant's routing policy does not set one -- like
+        # similarity_weight, it is read from the active routing_weights policy
+        # per request, so an operator can retune it and drift carries it
+        # forward (#159).
         efficiency_weight: float = 0.25,
         policy_client: RoutingPolicyClient | None = None,
         persona_creation_engine: PersonaCreationEngine | None = None,
@@ -340,7 +342,7 @@ class SelectionBindingEngine:
             text="\n".join(requirement.capabilities),
         )
         query_embedding = embedding_vector_literal(raw_embedding)
-        similarity_weight = await self._load_similarity_weight(request.tenant_id)
+        similarity_weight, efficiency_weight = await self._load_weights(request.tenant_id)
         query_parameters: dict[str, object] = {
             "tenant_id": tenant_uuid,
             "workspace_id": workspace_uuid,
@@ -356,7 +358,7 @@ class SelectionBindingEngine:
             "query_embedding": query_embedding,
             "similarity_weight": similarity_weight,
             "performance_weight": 1.0 - similarity_weight,
-            "efficiency_weight": self._efficiency_weight,
+            "efficiency_weight": efficiency_weight,
         }
         result = await self._session.execute(_RANKED_AGENT_QUERY, query_parameters)
         candidate = result.mappings().first()
@@ -438,14 +440,36 @@ class SelectionBindingEngine:
             tool_names=[tool.name for tool in requirement.tools or []],
         )
 
-    async def _load_similarity_weight(self, tenant_id: str) -> float:
+    async def _load_weights(self, tenant_id: str) -> tuple[float, float]:
+        """The tenant's routing weights, each falling back on its own.
+
+        A policy that sets one weight and not the other leaves the unset one
+        at this engine's default, rather than the whole lookup counting as a
+        miss -- bodies written before `efficiency_weight` existed carry only
+        `similarity_weight`, and they must keep meaning what they meant.
+
+        Any failure reaching the policy store falls back to both defaults:
+        routing on stale weights is a worse answer than routing on the
+        configured ones, but refusing to bind because a policy read failed is
+        worse than either.
+        """
+        defaults = (self._similarity_weight, self._efficiency_weight)
         if self._policy_client is None:
-            return self._similarity_weight
+            return defaults
         try:
-            weight = await self._policy_client.similarity_weight(tenant_id)
+            weights = await self._policy_client.routing_weights(tenant_id)
         except Exception:
-            return self._similarity_weight
-        return self._similarity_weight if weight is None else weight
+            return defaults
+        if weights is None:
+            return defaults
+        return (
+            self._similarity_weight
+            if weights.similarity_weight is None
+            else weights.similarity_weight,
+            self._efficiency_weight
+            if weights.efficiency_weight is None
+            else weights.efficiency_weight,
+        )
 
     async def _bind_preferred(
         self,
