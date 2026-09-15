@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from src.db.architecture_golden_set import ARCHITECTURE_GOLDEN_SET
 from src.db.chaos_scenarios import CHAOS_GOLDEN_SET
 from src.db.launch_golden_sets import LAUNCH_GOLDEN_SETS, PLANNER_CASES, case_id
 from src.db.planner_golden_set_v2 import (
@@ -376,6 +377,36 @@ def test_live_planner_v1_is_retired_and_v2_serves_the_name(pg_url: str) -> None:
         ]
         assert str(rows[0][0]) == str(V1_GOLDEN_SET_ID)
         assert str(rows[1][0]) == str(PLANNER_GOLDEN_SET_V2.id)
+
+
+def test_live_architecture_golden_set_is_seeded_active(pg_url: str) -> None:
+    engine = sa.create_engine(pg_url)
+    with engine.connect() as conn:
+        _service_context(conn)
+        rows = conn.execute(
+            sa.text(
+                "SELECT golden_sets.id, golden_sets.domain, golden_sets.status, "
+                "count(eval_cases.id) FROM golden_sets LEFT JOIN eval_cases "
+                "ON eval_cases.golden_set_id = golden_sets.id "
+                "WHERE golden_sets.name = 'architecture' "
+                "GROUP BY golden_sets.id, golden_sets.domain, golden_sets.status"
+            )
+        ).all()
+        assert [(str(id_), domain, status, int(count)) for id_, domain, status, count in rows] == [
+            (str(ARCHITECTURE_GOLDEN_SET.id), "architecture", "active", 24)
+        ]
+
+        first = (
+            conn.execute(
+                sa.text("SELECT input, expected, scoring FROM eval_cases WHERE id = :id"),
+                {"id": str(case_id(ARCHITECTURE_GOLDEN_SET, 1))},
+            )
+            .mappings()
+            .one()
+        )
+        assert first["input"]["operation"] == "synthesize"
+        assert first["expected"]["topology"] == "single"
+        assert first["scoring"]["matcher"] == "architecture_facts"
 
 
 def test_live_redteam_suites_v2_are_seeded_and_readable_by_eval_service(pg_url: str) -> None:

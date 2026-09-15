@@ -12,6 +12,7 @@ from alter.eval.v1 import eval_pb2_grpc
 from src.config import Settings, get_settings
 from src.eval_grpc_service import EvalGrpcService
 from src.execution.agent_binding_client import AgentBindingEvalClient
+from src.execution.architecture_client import ArchitectureClient
 from src.execution.audit_client import AuditEvalClient
 from src.execution.credential_client import CredentialEvalClient
 from src.execution.idempotency_client import IdempotencyReplayClient
@@ -132,9 +133,15 @@ def _build_service(settings: Settings) -> tuple[EvalGrpcService, Engine, tuple[C
         settings.agent_binding_base_url, settings.intelligence_db_url
     )
     project_client = ProjectEvalClient(settings.project_base_url, settings.orchestration_db_url)
+    # The Architecture Synthesizer is served by intelligence-service, the same
+    # service and base URL as the planner.
+    architecture_client = ArchitectureClient(
+        settings.planner_base_url, service_token=settings.internal_service_token
+    )
 
     clients: tuple[Closable, ...] = (
         verification_client,
+        architecture_client,
         planner_client,
         retrieval_client,
         intent_client,
@@ -183,6 +190,7 @@ def _build_service(settings: Settings) -> tuple[EvalGrpcService, Engine, tuple[C
         workflow_client,
         agent_binding_client,
         project_client,
+        architecture_client,
     )
     service = EvalGrpcService(
         orchestrator, ReleaseGateRecorder(sessions), PromotionGateRecorder(sessions)
