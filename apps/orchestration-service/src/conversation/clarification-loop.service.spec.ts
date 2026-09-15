@@ -192,6 +192,21 @@ describe("ClarificationLoopService.requestPlan", () => {
     );
   });
 
+  it("attributes strategy selection to the run being planned", async () => {
+    const { store } = createFakeStore();
+    const selectStrategy = vi.fn(async () => ({ strategy: "direct", reason: "single step" }));
+    const service = new ClarificationLoopService(store, fakePlanner({ selectStrategy }));
+
+    await service.requestPlan(BASE_REQUEST);
+
+    expect(selectStrategy).toHaveBeenCalledWith({
+      tenant_id: BASE_REQUEST.tenantId,
+      run_id: BASE_REQUEST.runId,
+      objective: BASE_REQUEST.objective,
+      mode: BASE_REQUEST.mode,
+    });
+  });
+
   it("uses the same tenant, workspace, and run IDs for understanding and decompose", async () => {
     const { store } = createFakeStore();
     const understand = vi.fn(async (request) => ({

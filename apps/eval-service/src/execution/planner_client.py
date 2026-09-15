@@ -44,10 +44,12 @@ class PlannerClient:
         headers = {"Authorization": f"Bearer {service_token}"} if service_token else None
         self._client = httpx.Client(base_url=base_url, timeout=timeout_seconds, headers=headers)
 
-    def select_strategy(self, *, tenant_id: str, objective: str, mode: str) -> SelectStrategyResult:
+    def select_strategy(
+        self, *, tenant_id: str, run_id: str, objective: str, mode: str
+    ) -> SelectStrategyResult:
         response = self._client.post(
             "/planner/select-strategy",
-            json={"tenant_id": tenant_id, "objective": objective, "mode": mode},
+            json={"tenant_id": tenant_id, "run_id": run_id, "objective": objective, "mode": mode},
         )
         response.raise_for_status()
         body = response.json()

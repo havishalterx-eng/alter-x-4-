@@ -67,6 +67,11 @@ export interface SelectStrategyRequest {
   tenant_id: string;
   objective: string;
   mode: string;
+  /**
+   * run_ prefixed UUIDv7 of the run being planned. Optional: attributes the
+   * strategy classification model call to that run for cost accounting.
+   */
+  run_id: string;
 }
 
 export interface SelectStrategyResponse {

@@ -89,14 +89,16 @@ class ReplanResponse(_message.Message):
     def __init__(self, revised_skeleton_json: _Optional[str] = ..., reason: _Optional[str] = ...) -> None: ...
 
 class SelectStrategyRequest(_message.Message):
-    __slots__ = ("tenant_id", "objective", "mode")
+    __slots__ = ("tenant_id", "objective", "mode", "run_id")
     TENANT_ID_FIELD_NUMBER: _ClassVar[int]
     OBJECTIVE_FIELD_NUMBER: _ClassVar[int]
     MODE_FIELD_NUMBER: _ClassVar[int]
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
     tenant_id: str
     objective: str
     mode: str
-    def __init__(self, tenant_id: _Optional[str] = ..., objective: _Optional[str] = ..., mode: _Optional[str] = ...) -> None: ...
+    run_id: str
+    def __init__(self, tenant_id: _Optional[str] = ..., objective: _Optional[str] = ..., mode: _Optional[str] = ..., run_id: _Optional[str] = ...) -> None: ...
 
 class SelectStrategyResponse(_message.Message):
     __slots__ = ("strategy", "reason")

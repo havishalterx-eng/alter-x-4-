@@ -12,6 +12,7 @@ time without touching kernel.py.
 from typing import Protocol, runtime_checkable
 
 from .manager_worker import ManagerWorkerPlan, WorkerTaskSpec
+from .strategies import select_strategy
 from .task_skeleton import TaskNode, TaskSkeleton
 
 # Alter LLM alias vocabulary (doc 13 sec 2) -- components never name a model,
@@ -76,6 +77,21 @@ class LlmClient(Protocol):
         """
         ...
 
+    async def classify_workflow_strategy(
+        self,
+        *,
+        tenant_id: str,
+        run_id: str,
+        objective: str,
+    ) -> tuple[str, str]:
+        """Choose direct, iterative or manager_worker for a workflow objective.
+
+        Returns (strategy, reason). Raises on any failure, including a model
+        answer outside those three; the kernel then falls back to the keyword
+        heuristic in strategies.py.
+        """
+        ...
+
 
 class StubLlmClient:
     """Contract-complete stub. Returns deterministic minimal skeletons.
@@ -125,3 +141,12 @@ class StubLlmClient:
                 WorkerTaskSpec(key="b", objective=f"{objective} -- part B", config={}),
             ],
         )
+
+    async def classify_workflow_strategy(
+        self,
+        *,
+        tenant_id: str,
+        run_id: str,
+        objective: str,
+    ) -> tuple[str, str]:
+        return select_strategy(objective, "workflow")

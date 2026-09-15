@@ -320,3 +320,74 @@ class TestSelectStrategy:
                 objective="do something",
                 mode="workflow",
             )
+
+
+class _ClassifyingLlm(StubLlmClient):
+    def __init__(self, answer: tuple[str, str] | Exception) -> None:
+        self.answer = answer
+        self.calls: list[dict[str, str]] = []
+
+    async def classify_workflow_strategy(
+        self, *, tenant_id: str, run_id: str, objective: str
+    ) -> tuple[str, str]:
+        self.calls.append({"tenant_id": tenant_id, "run_id": run_id, "objective": objective})
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+class TestSelectStrategyModelBacked:
+    async def test_workflow_uses_the_model_choice_over_the_keyword_heuristic(self) -> None:
+        # The heuristic calls a comma-free objective "direct"; the model's
+        # answer must win.
+        llm = _ClassifyingLlm((STRATEGY_MANAGER_WORKER, "Independent workstreams."))
+        kernel = PlannerKernel(ads_client=StubAdsClient(), llm_client=llm)
+
+        response = await kernel.select_strategy(
+            SelectStrategyRequest(
+                tenant_id=TENANT_ID,
+                run_id=RUN_ID,
+                objective="Localize the app into four languages",
+                mode="workflow",
+            )
+        )
+
+        assert response.strategy == STRATEGY_MANAGER_WORKER
+        assert response.reason == "Independent workstreams."
+        assert llm.calls == [
+            {
+                "tenant_id": TENANT_ID,
+                "run_id": RUN_ID,
+                "objective": "Localize the app into four languages",
+            }
+        ]
+
+    async def test_workflow_falls_back_to_the_heuristic_when_the_model_fails(self) -> None:
+        llm = _ClassifyingLlm(ValueError("model chose unknown workflow strategy 'x'"))
+        kernel = PlannerKernel(ads_client=StubAdsClient(), llm_client=llm)
+
+        response = await kernel.select_strategy(
+            SelectStrategyRequest(tenant_id=TENANT_ID, objective="run test", mode="workflow")
+        )
+
+        assert response.strategy == STRATEGY_DIRECT
+        assert response.reason.endswith("(keyword fallback: model classification failed)")
+
+    @pytest.mark.parametrize("mode", ["project", "banana"])
+    async def test_non_workflow_modes_never_ask_the_model(self, mode: str) -> None:
+        llm = _ClassifyingLlm(AssertionError("must not be called"))
+        kernel = PlannerKernel(ads_client=StubAdsClient(), llm_client=llm)
+
+        response = await kernel.select_strategy(
+            SelectStrategyRequest(tenant_id=TENANT_ID, objective="do something", mode=mode)
+        )
+
+        assert llm.calls == []
+        assert response.strategy in {STRATEGY_PLAN_THEN_EXECUTE, STRATEGY_ITERATIVE}
+        assert "fallback" not in response.reason
+
+    async def test_rejects_malformed_run_id(self) -> None:
+        with pytest.raises(ValidationError):
+            SelectStrategyRequest(
+                tenant_id=TENANT_ID, run_id="bad", objective="do something", mode="workflow"
+            )

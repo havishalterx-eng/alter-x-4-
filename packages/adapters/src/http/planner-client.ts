@@ -73,6 +73,8 @@ export interface SelectStrategyRequest {
   readonly tenant_id: string;
   readonly objective: string;
   readonly mode: string;
+  // Attributes the strategy classification model call to the run being planned.
+  readonly run_id?: string;
 }
 
 export interface SelectStrategyResponse {

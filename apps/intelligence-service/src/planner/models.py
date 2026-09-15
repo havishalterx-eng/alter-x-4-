@@ -140,11 +140,17 @@ class SelectStrategyRequest(BaseModel):
     tenant_id: str
     objective: str
     mode: str
+    run_id: str = ""
 
     @field_validator("tenant_id")
     @classmethod
     def _validate_tenant_id(cls, v: str) -> str:
         return _validate_pattern(_TENANT_ID_RE, v, "tenant_id")
+
+    @field_validator("run_id")
+    @classmethod
+    def _validate_run_id(cls, v: str) -> str:
+        return v and _validate_pattern(_RUN_ID_RE, v, "run_id")
 
     @field_validator("objective")
     @classmethod

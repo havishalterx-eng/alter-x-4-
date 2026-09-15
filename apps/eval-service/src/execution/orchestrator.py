@@ -1209,7 +1209,7 @@ class EvalRunOrchestrator:
 
         try:
             result = self._planner_client.select_strategy(
-                tenant_id=_EVAL_TENANT_ID, objective=objective, mode=mode
+                tenant_id=_EVAL_TENANT_ID, run_id=_EVAL_RUN_ID, objective=objective, mode=mode
             )
         except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
             return _CaseVerdict(
