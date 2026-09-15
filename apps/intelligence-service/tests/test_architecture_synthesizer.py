@@ -7,6 +7,7 @@ from src.architecture_synthesizer.models import (
     ArchitectureBlocked,
     ArchitectureBoundary,
     ArchitectureSpec,
+    ArchitectureSynthesisError,
     SynthesisConstraints,
     SynthesizeArchitectureRequest,
 )
@@ -325,3 +326,37 @@ def test_registry_eligibility_filters_availability_capacity_and_constraints() ->
     smaller = requirement.model_copy(update={"maximum_input_bytes": 10})
     assert not _eligible(available, smaller, SynthesisConstraints(allowed_regions=["eu"]))
     assert _eligible(available, smaller, SynthesisConstraints(allowed_regions=["us"]))
+
+
+@pytest.mark.asyncio
+async def test_carries_the_skeleton_node_type_so_branch_and_join_stay_distinct() -> None:
+    result = await ArchitectureSynthesizer(Registry()).synthesize(
+        request(
+            [
+                TaskNode(key="classify", type="llm"),
+                TaskNode(key="route", type="branch", depends_on=["classify"]),
+                TaskNode(key="answer", type="llm", depends_on=["route"]),
+                TaskNode(key="collect", type="join", depends_on=["answer"]),
+            ]
+        )
+    )
+
+    assert isinstance(result, ArchitectureSpec)
+    by_key = {node.source_node_key: node for node in result.nodes}
+    # Both are execution_kind "control"; only source_node_type tells them apart.
+    assert (by_key["route"].execution_kind, by_key["route"].source_node_type) == (
+        "control",
+        "branch",
+    )
+    assert (by_key["collect"].execution_kind, by_key["collect"].source_node_type) == (
+        "control",
+        "join",
+    )
+
+
+@pytest.mark.asyncio
+async def test_rejects_an_unknown_skeleton_node_type() -> None:
+    with pytest.raises(ArchitectureSynthesisError, match="unknown type 'loop'"):
+        await ArchitectureSynthesizer(Registry()).synthesize(
+            request([TaskNode(key="spin", type="loop")])
+        )

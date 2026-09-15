@@ -167,6 +167,63 @@ function gateActivities(
   };
 }
 
+/**
+ * classify -> route (branch) -> verification gate -> issue_refund (action).
+ *
+ * "routed_through_gate" is the shape the architecture compiler emits when a
+ * branch feeds an action that has a verification gate before it: the branch's
+ * condition moves onto the gate, and its edge into the action is plain input.
+ * "branch_and_gate_both_conditional" is the naive shape, where the action has
+ * two conditional predecessors.
+ */
+function branchIntoGatedActionDag(shape: "routed_through_gate" | "branch_and_gate_both_conditional"): CompiledDag {
+  const routed = shape === "routed_through_gate";
+  return {
+    schema_version: "v1",
+    entry_node_keys: ["classify"],
+    nodes: [
+      { key: "classify", type: "LLMTask", config: {}, metadata: { ui: {} } },
+      { key: "route", type: "Gate", config: {}, metadata: { ui: {} } },
+      { key: "verify", type: "Gate", config: {}, metadata: { ui: {} } },
+      { key: "issue_refund", type: "ToolCall", config: {}, metadata: { ui: {} } },
+    ],
+    edges: [
+      { key: "classify-to-route", from: "classify", to: "route", kind: "sequential" },
+      routed
+        ? { key: "route-to-verify", from: "route", to: "verify", kind: "conditional", condition: { expression: "false", language: "cel" } }
+        : { key: "route-to-verify", from: "route", to: "verify", kind: "sequential" },
+      routed
+        ? { key: "route-to-issue_refund", from: "route", to: "issue_refund", kind: "sequential" }
+        : { key: "route-to-issue_refund", from: "route", to: "issue_refund", kind: "conditional", condition: { expression: "false", language: "cel" } },
+      { key: "verify-to-issue_refund", from: "verify", to: "issue_refund", kind: "conditional", condition: { expression: "true", language: "cel" } },
+    ],
+    waves: [
+      { key: "wave_0", order: 0, node_keys: ["classify"], depends_on: [] },
+      { key: "wave_1", order: 1, node_keys: ["route"], depends_on: ["wave_0"] },
+      { key: "wave_2", order: 2, node_keys: ["verify"], depends_on: ["wave_1"] },
+      { key: "wave_3", order: 3, node_keys: ["issue_refund"], depends_on: ["wave_2"] },
+    ],
+  };
+}
+
+/** route activates nothing (the branch routed away); verify always passes. */
+function routedAwayActivities(callOrder: string[]): ExecutorActivities {
+  return {
+    async executeNode(input) {
+      callOrder.push(input.nodeKey);
+      const output =
+        input.nodeKey === "route"
+          ? { activeSuccessors: [], evaluations: { issue_refund: false, verify: false } }
+          : input.nodeKey === "verify"
+            ? { activeSuccessors: ["issue_refund"], verification_status: "passed" }
+            : { from: input.nodeKey };
+      return { outputJson: JSON.stringify(output), metadataJson: "{}" };
+    },
+    async finalizeRun() {},
+    async recordApprovalDecision() {},
+  };
+}
+
 function humanApprovalDag(): CompiledDag {
   return {
     schema_version: "v1",
@@ -857,6 +914,35 @@ describe.sequential("executorWorkflow", () => {
 
       expect(callOrder).toEqual(["node_gate", "node_protected"]);
       expect(result.outputs["node_protected"]).toEqual({ from: "node_protected" });
+    } finally {
+      await stopWorker(running);
+    }
+  });
+
+  it.each([
+    ["routed_through_gate", false],
+    ["branch_and_gate_both_conditional", true],
+  ] as const)("a branch that routes away from a gated action: %s -> action runs=%s", async (shape, actionRuns) => {
+    // Why the architecture compiler moves a branch's condition onto the gate:
+    // the Executor unlocks a node when ANY conditional predecessor allows it,
+    // so with both edges conditional a passing verification gate runs the
+    // action the branch routed away from.
+    const taskQueue = `executor-branch-gated-action-${shape}`;
+    const callOrder: string[] = [];
+    const running = startWorker(
+      await createExecutorWorker(config(taskQueue), environment.nativeConnection, routedAwayActivities(callOrder)),
+    );
+
+    try {
+      const handle = await environment.client.workflow.start(WORKFLOW_TYPE, {
+        taskQueue,
+        workflowId: `executor-branch-gated-action-${shape}-workflow`,
+        args: [{ tenantId: "ten_test", runId: "run_test", compiledDagJson: JSON.stringify(branchIntoGatedActionDag(shape)) }],
+      });
+      await handle.result();
+
+      expect(callOrder.includes("issue_refund")).toBe(actionRuns);
+      if (!actionRuns) expect(callOrder).toEqual(["classify", "route"]);
     } finally {
       await stopWorker(running);
     }

@@ -19,6 +19,8 @@ ArchitectureTopology = Literal[
 ArchitectureRole = Literal["direct", "manager", "worker", "deterministic", "control"]
 ExecutionKind = Literal["llm", "deterministic", "control"]
 BoundaryKind = Literal["verification", "human_approval"]
+SourceNodeType = Literal["llm", "tool", "branch", "join"]
+SOURCE_NODE_TYPES: frozenset[str] = frozenset({"llm", "tool", "branch", "join"})
 
 
 class StrictModel(BaseModel):
@@ -58,6 +60,12 @@ class ArchitectureNode(StrictModel):
     source_node_key: NonEmpty
     role: ArchitectureRole
     execution_kind: ExecutionKind
+    # The skeleton node type. execution_kind "control" covers both branch and
+    # join, and the compiler lowers those to different node types (Gate and
+    # Merge), so it needs the original. Optional so an architecture produced
+    # before this field still validates; the compiler rejects a control node
+    # without it rather than guessing.
+    source_node_type: SourceNodeType | None = None
     depends_on: list[NonEmpty]
     capability_role: EligibleCapabilityRole | None = None
     # The skeleton node's own configuration -- a prompt for an llm node, a
@@ -134,5 +142,7 @@ def validate_request_shape(request: SynthesizeArchitectureRequest) -> None:
             "node requirements must contain exactly every task skeleton node"
         )
     for node in request.task_skeleton.nodes:
+        if node.type not in SOURCE_NODE_TYPES:
+            raise ArchitectureSynthesisError(f"node {node.key!r} has unknown type {node.type!r}")
         if any(dependency not in node_keys for dependency in node.depends_on):
             raise ArchitectureSynthesisError(f"node {node.key!r} depends on unknown source node")

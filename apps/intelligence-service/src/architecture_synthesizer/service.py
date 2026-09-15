@@ -19,6 +19,7 @@ apps/eval-service/src/db/architecture_golden_set.py. In short:
 """
 
 from collections.abc import Sequence
+from typing import cast
 
 from src.planner.task_skeleton import TaskNode
 
@@ -35,6 +36,7 @@ from .models import (
     EligibleCapabilityRole,
     ExecutionKind,
     ExecutionWave,
+    SourceNodeType,
     SynthesisConstraints,
     SynthesizeArchitectureRequest,
     validate_request_shape,
@@ -81,6 +83,8 @@ class ArchitectureSynthesizer:
                 source_node_key=node.key,
                 role=_role(node.key, node.type, skeleton.entry_point, topology),
                 execution_kind=_execution_kind(node.type),
+                # validate_request_shape rejected any other type above.
+                source_node_type=cast(SourceNodeType, node.type),
                 depends_on=sorted(node.depends_on),
                 capability_role=eligible_roles.get(node.key),
                 config=dict(node.config),
