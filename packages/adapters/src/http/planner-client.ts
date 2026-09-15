@@ -94,6 +94,25 @@ export interface ReplanResponse {
   readonly reason: string;
 }
 
+/** Mirrors SynthesisConstraints in apps/intelligence-service/src/architecture_synthesizer/models.py. */
+export interface SynthesisConstraints {
+  readonly coordination_required?: boolean;
+  readonly verification_required?: boolean;
+  readonly human_approval_required?: boolean;
+  readonly customer_visible?: boolean;
+  readonly contains_pii?: boolean;
+  readonly allowed_regions?: readonly string[];
+  readonly allowed_data_residency?: readonly string[];
+  readonly allowed_permissions?: readonly string[];
+}
+
+export interface PrepareCompilerInputRequest {
+  readonly tenant_id: string;
+  readonly workspace_id: string;
+  readonly task_skeleton: unknown;
+  readonly constraints?: SynthesisConstraints;
+}
+
 export interface PreparedCompilerInput {
   readonly status: "ready" | "blocked";
   readonly architecture?: unknown;
@@ -105,7 +124,7 @@ export interface PlannerHandler {
   decompose(request: DecomposeRequest): Promise<DecomposeResponse>;
   selectStrategy(request: SelectStrategyRequest): Promise<SelectStrategyResponse>;
   replan(request: ReplanRequest): Promise<ReplanResponse>;
-  prepareCompilerInput?(request: { readonly tenant_id: string; readonly workspace_id: string; readonly task_skeleton: unknown }): Promise<PreparedCompilerInput>;
+  prepareCompilerInput?(request: PrepareCompilerInputRequest): Promise<PreparedCompilerInput>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -221,7 +240,7 @@ export class PlannerClient implements PlannerHandler {
     return parseReplanResponse(raw);
   }
 
-  async prepareCompilerInput(request: { readonly tenant_id: string; readonly workspace_id: string; readonly task_skeleton: unknown }): Promise<PreparedCompilerInput> {
+  async prepareCompilerInput(request: PrepareCompilerInputRequest): Promise<PreparedCompilerInput> {
     const raw = await this.httpClient.postJson(`${this.config.baseUrl}/internal/architecture-synthesis/prepare-compiler-input`, request);
     if (!isRecord(raw) || (raw.status !== "ready" && raw.status !== "blocked")) throw new PlannerResponseValidationError("prepare_compiler_input", "invalid response");
     if (raw.status === "ready" && (raw.architecture === undefined || raw.binding_decision === undefined)) throw new PlannerResponseValidationError("prepare_compiler_input", "missing architecture binding");

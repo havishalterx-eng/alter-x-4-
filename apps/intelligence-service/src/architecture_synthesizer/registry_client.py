@@ -80,12 +80,13 @@ def _eligible(
     )
     if not required_permissions.issubset(declared_permissions):
         return False
-    if not _within(record.constraints.regions, constraints.allowed_regions):
+    if not within_allowed(record.constraints.regions, constraints.allowed_regions):
         return False
-    return _within(record.constraints.data_residency, constraints.allowed_data_residency)
+    return within_allowed(record.constraints.data_residency, constraints.allowed_data_residency)
 
 
-def _within(candidate_values: Sequence[str], allowed_values: Sequence[str]) -> bool:
+def within_allowed(candidate_values: Sequence[str], allowed_values: Sequence[str]) -> bool:
+    """Region and residency fit, shared by synthesis and binding so they cannot disagree."""
     # An unrestricted record fits any constraint, and a restricted record fits a
     # tenant that sets none. Only two non-empty lists have to intersect.
     if not candidate_values or not allowed_values:
