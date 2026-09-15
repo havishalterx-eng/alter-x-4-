@@ -1265,13 +1265,78 @@ def test_planner_select_strategy_cases_execute_for_real(
         )
 
 
+@pytest.fixture(scope="module")
+def architecture_server_target(
+    local_m2m_issuer: LocalM2mIssuer,
+) -> Generator[str, None, None]:
+    """Real intelligence-service (src.main:app) on its own pgvector database.
+
+    The Architecture Synthesizer needs the Capability Registry, so a database,
+    but no model call -- unlike agent_binding_server_target, this does not wait
+    on a model-gateway build, so it runs wherever intelligence-service's venv
+    exists.
+    """
+    intelligence_root = REPO_ROOT / "apps" / "intelligence-service"
+    intelligence_python = intelligence_root / ".venv" / "bin" / "python"
+    if not intelligence_python.exists():
+        pytest.skip(
+            "apps/intelligence-service/.venv not present -- run `uv sync` there first"
+        )
+    with PostgresContainer(
+        image="pgvector/pgvector:pg16",
+        dbname="intelligence_db",
+        username="intelligence_service",
+        password="testpass",
+    ) as postgres:
+        sync_url = postgres.get_connection_url()
+        async_url = sync_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+        subprocess.run(  # noqa: S603 -- fixed argv, no shell, test-only
+            [str(intelligence_python), "-m", "alembic", "upgrade", "head"],
+            cwd=str(intelligence_root),
+            env={"PATH": os.environ.get("PATH", ""), "INTELLIGENCE_DB_URL_SYNC": sync_url},
+            check=True,
+        )
+        port = _free_port()
+        process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell, test-only
+            [
+                str(intelligence_python),
+                "-m",
+                "uvicorn",
+                "src.main:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+            ],
+            cwd=str(intelligence_root),
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "INTELLIGENCE_DB_URL": async_url,
+                "INTELLIGENCE_DB_URL_SYNC": sync_url,
+                "ADSQ_GRPC_TARGET": "127.0.0.1:1",
+                "MODEL_GATEWAY_GRPC_TARGET": "127.0.0.1:1",
+                # Ephemeral for the same reason as the fixtures above (#148).
+                "CAPABILITY_GRPC_BIND_ADDRESS": f"127.0.0.1:{_free_port()}",
+                "INTERNAL_SERVICE_TOKEN_SHA256": _EVAL_INTERNAL_SERVICE_TOKEN_SHA256,
+                **local_m2m_issuer.environment(),
+            },
+        )
+        try:
+            _wait_for_port(port, timeout_seconds=40.0)
+            yield f"http://127.0.0.1:{port}"
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
 def test_architecture_golden_set_executes_for_real(
     sessions: sessionmaker[Session],
-    agent_binding_server_target: tuple[str, str],
+    architecture_server_target: str,
 ) -> None:
-    # The only intelligence-service fixture here with a database, which the
-    # residency cases need for the Capability Registry.
-    intelligence_http_target, _ = agent_binding_server_target
+    intelligence_http_target = architecture_server_target
     architecture_client = ArchitectureClient(
         intelligence_http_target, service_token=_EVAL_INTERNAL_SERVICE_TOKEN
     )
