@@ -259,14 +259,22 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from src.db.architecture_golden_set import (
+    ARCHITECTURE_EVAL_TENANT_ID,
+    ARCHITECTURE_EVAL_WORKSPACE_ID,
+    ARCHITECTURE_REGISTRY_FIXTURE,
+)
 from src.db.models import EvalCase, EvalResult, EvalRun, GoldenSet
 
 from .agent_binding_client import AgentBindingEvalClient
+from .architecture_client import ArchitectureClient
+from .architecture_scoring import compare_facts, extract_facts
 from .audit_client import AuditEvalClient
 from .credential_client import CredentialEvalClient
 from .idempotency_client import IdempotencyReplayClient
@@ -334,6 +342,7 @@ SUPPORTED_DOMAINS = frozenset(
         "project",
         "recovery",
         "workflow",
+        "architecture",
     }
 )
 
@@ -347,6 +356,7 @@ _SUBJECT_BY_DOMAIN = {
     "project": "intelligence-service",
     "recovery": "orchestration-service",
     "workflow": "orchestration-service",
+    "architecture": "intelligence-service",
 }
 
 
@@ -395,6 +405,7 @@ class EvalRunOrchestrator:
         workflow_client: WorkflowEvalClient,
         agent_binding_client: AgentBindingEvalClient,
         project_client: ProjectEvalClient,
+        architecture_client: ArchitectureClient | None = None,
     ) -> None:
         self._sessions = sessions
         self._verification_client = verification_client
@@ -427,6 +438,8 @@ class EvalRunOrchestrator:
         self._workflow_client = workflow_client
         self._agent_binding_client = agent_binding_client
         self._project_client = project_client
+        self._architecture_client = architecture_client
+        self._architecture_registry_ready = False
 
     def run(self, golden_set_name: str, trigger: str = "manual") -> EvalRunSummary:
         with self._sessions.begin() as session:
@@ -519,7 +532,50 @@ class EvalRunOrchestrator:
             return self._score_recovery_case(case)
         if domain == "workflow":
             return self._score_workflow_case(case)
+        if domain == "architecture":
+            return self._score_architecture_case(case)
         return self._score_verification_case(case)
+
+    def _score_architecture_case(self, case: EvalCase) -> _CaseVerdict:
+        operation = case.input_json.get("operation")
+        if self._architecture_client is None or operation != "synthesize":
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={
+                    "error": "architecture client not configured"
+                    if self._architecture_client is None
+                    else f"unsupported operation {operation!r} for domain=architecture"
+                },
+            )
+
+        try:
+            if not self._architecture_registry_ready:
+                self._architecture_client.ensure_registered(
+                    ARCHITECTURE_EVAL_TENANT_ID, ARCHITECTURE_REGISTRY_FIXTURE
+                )
+                self._architecture_registry_ready = True
+            response = self._architecture_client.synthesize(
+                tenant_id=ARCHITECTURE_EVAL_TENANT_ID,
+                workspace_id=ARCHITECTURE_EVAL_WORKSPACE_ID,
+                task_skeleton=cast(dict[str, Any], case.input_json["task_skeleton"]),
+                node_requirements=cast(dict[str, Any], case.input_json["node_requirements"]),
+                constraints=cast(dict[str, Any], case.input_json["constraints"]),
+            )
+        except Exception as error:  # noqa: BLE001 -- real per-case isolation, see module doc
+            return _CaseVerdict(
+                verdict="fail",
+                score=0.0,
+                details={"error": f"Synthesize call failed: {error}"},
+            )
+
+        observed = extract_facts(response)
+        mismatches = compare_facts(case.expected_json, observed)
+        return _CaseVerdict(
+            verdict="fail" if mismatches else "pass",
+            score=0.0 if mismatches else 1.0,
+            details={"observed": observed, "mismatches": mismatches},
+        )
 
     def _score_verification_case(self, case: EvalCase) -> _CaseVerdict:
         operation = case.input_json.get("operation")

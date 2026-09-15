@@ -36,6 +36,7 @@ from alembic import command
 from alter.modelgw.v1 import modelgw_pb2, modelgw_pb2_grpc
 from alter.toolgw.v1 import toolgw_pb2, toolgw_pb2_grpc
 from src.execution.agent_binding_client import AgentBindingEvalClient
+from src.execution.architecture_client import ArchitectureClient
 from src.execution.audit_client import AuditEvalClient
 from src.execution.credential_client import CredentialEvalClient
 from src.execution.idempotency_client import IdempotencyReplayClient
@@ -1262,6 +1263,167 @@ def test_planner_select_strategy_cases_execute_for_real(
             sum("(keyword fallback: model classification failed)" in r for r in strategy_reasons)
             == 28
         )
+
+
+def test_architecture_golden_set_executes_for_real(
+    sessions: sessionmaker[Session],
+    agent_binding_server_target: tuple[str, str],
+) -> None:
+    # The only intelligence-service fixture here with a database, which the
+    # residency cases need for the Capability Registry.
+    intelligence_http_target, _ = agent_binding_server_target
+    architecture_client = ArchitectureClient(
+        intelligence_http_target, service_token=_EVAL_INTERNAL_SERVICE_TOKEN
+    )
+    verification_client = VerificationClient(_UNUSED_VERIFICATION_TARGET)
+    planner_client = PlannerClient(_UNUSED_PLANNER_TARGET)
+    retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    intent_client = IntentClient(_UNUSED_INTENT_TARGET)
+    security_client = SecurityEvalClient(_UNUSED_SECURITY_TARGET)
+    upload_client = UploadEvalClient(_UNUSED_UPLOAD_TARGET)
+    tenant_isolation_retrieval_client = RetrievalClient(_UNUSED_RETRIEVAL_TARGET)
+    toolgw_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    tool_consume_client = ToolgwClient(_UNUSED_TOOLGW_TARGET)
+    idempotency_replay_client = IdempotencyReplayClient(
+        tenant_a_base_url=_UNUSED_IDEMPOTENCY_TARGET_A,
+        tenant_b_base_url=_UNUSED_IDEMPOTENCY_TARGET_B,
+        db_url=_UNUSED_IDEMPOTENCY_DB_URL,
+    )
+    ingestion_client = IngestionEvalClient(_UNUSED_INGESTION_TARGET, _UNUSED_INGESTION_DB_URL)
+    policy_client = PolicyEvalClient(_UNUSED_POLICY_TARGET, _UNUSED_POLICY_DB_URL)
+    run_visibility_client = RunVisibilityEvalClient(
+        _UNUSED_RUN_VISIBILITY_TARGET, _UNUSED_RUN_VISIBILITY_DB_URL
+    )
+    model_cache_client = ModelGatewayCacheClient(_UNUSED_MODEL_CACHE_TARGET)
+    verification_severity_client = VerificationSeverityEvalClient(
+        _UNUSED_VERIFICATION_SEVERITY_TARGET, _UNUSED_VERIFICATION_SEVERITY_DB_URL
+    )
+    audit_client = AuditEvalClient(_UNUSED_AUDIT_TARGET)
+    memory_drift_client = MemoryDriftEvalClient(
+        _UNUSED_MEMORY_DRIFT_TARGET, _UNUSED_MEMORY_DRIFT_DB_URL
+    )
+    workflow_client = WorkflowEvalClient(_UNUSED_WORKFLOW_TARGET, _UNUSED_WORKFLOW_DB_URL)
+    agent_binding_client = AgentBindingEvalClient(
+        _UNUSED_AGENT_BINDING_TARGET, _UNUSED_AGENT_BINDING_DB_URL
+    )
+    project_client = ProjectEvalClient(_UNUSED_PROJECT_TARGET, _UNUSED_PROJECT_DB_URL)
+    recovery_client = RecoveryClient(_UNUSED_RECOVERY_GRPC_TARGET, _UNUSED_RECOVERY_DB_URL)
+    trigger_registry_client = TriggerRegistryClient(
+        _UNUSED_TRIGGER_REGISTRY_TARGET, _UNUSED_TRIGGER_REGISTRY_DB_URL
+    )
+    credential_client = CredentialEvalClient(
+        _UNUSED_CREDENTIAL_TARGET, _UNUSED_CREDENTIAL_DB_URL
+    )
+    orchestrator = EvalRunOrchestrator(
+        sessions,
+        verification_client,
+        planner_client,
+        retrieval_client,
+        intent_client,
+        security_client,
+        upload_client,
+        tenant_isolation_retrieval_client,
+        toolgw_client,
+        recovery_client,
+        trigger_registry_client,
+        credential_client,
+        tool_consume_client,
+        idempotency_replay_client,
+        ingestion_client,
+        policy_client,
+        run_visibility_client,
+        model_cache_client,
+        verification_severity_client,
+        audit_client,
+        memory_drift_client,
+        workflow_client,
+        agent_binding_client,
+        project_client,
+        architecture_client,
+    )
+
+    try:
+        summary = orchestrator.run("architecture", trigger="manual")
+    finally:
+        for client in (
+            architecture_client,
+            verification_client,
+            planner_client,
+            retrieval_client,
+            intent_client,
+            security_client,
+            upload_client,
+            tenant_isolation_retrieval_client,
+            toolgw_client,
+            recovery_client,
+            trigger_registry_client,
+            credential_client,
+            tool_consume_client,
+            idempotency_replay_client,
+            ingestion_client,
+            policy_client,
+            run_visibility_client,
+            model_cache_client,
+            verification_severity_client,
+            audit_client,
+            memory_drift_client,
+            workflow_client,
+            agent_binding_client,
+            project_client,
+        ):
+            client.close()
+
+    # Architecture golden set v1 is the target for the Synthesizer rewrite and
+    # was written before it, so today's synthesizer is expected to miss it.
+    # Pinned to the real, observed baseline -- 13 of 24 -- so the number
+    # cannot drift silently in either direction. Every failure is a rule the
+    # current synthesizer does not implement:
+    #
+    #   * 6 gate mismatches: no verification (or approval) BEFORE a tool node,
+    #     because ArchitectureBoundary has no before_node_key.
+    #   * 4 call failures: SynthesisConstraints has no contains_pii field and
+    #     forbids extras, so every PII case, and the all-constraints case, is
+    #     rejected with 422.
+    #   * 1 residency mismatch: a residency-restricted capability is treated
+    #     as ineligible when the tenant sets no residency constraint.
+    assert summary.total_cases == 24
+    assert summary.passed == 13
+    assert summary.failed == 11
+
+    with sessions() as session:
+        rows = session.execute(
+            sa.text(
+                "SELECT eval_cases.tags, eval_results.verdict, eval_results.details "
+                "FROM eval_results JOIN eval_cases ON eval_cases.id = eval_results.eval_case_id "
+                "WHERE eval_results.eval_run_id = :id"
+            ),
+            {"id": str(summary.eval_run_id)},
+        ).all()
+    failures = {row.tags[-1]: row.details for row in rows if row.verdict == "fail"}
+
+    assert sorted(tag for tag, details in failures.items() if "error" in details) == [
+        "gates-all-constraints",
+        "pii-and-customer-visible",
+        "pii-delivered-output",
+        "pii-leaves-through-action",
+    ]
+    assert all(
+        str(details["error"]).startswith("Synthesize call failed:")
+        for details in failures.values()
+        if "error" in details
+    )
+    assert sorted(tag for tag, details in failures.items() if "error" not in details) == [
+        "external-action-mid-run",
+        "external-deterministic-only",
+        "external-parallel-actions",
+        "external-send-after-draft",
+        "gates-approval-before-mid-action",
+        "gates-customer-visible-action",
+        "residency-unconstrained-tenant-ready",
+    ]
+    assert failures["residency-unconstrained-tenant-ready"]["mismatches"][0].startswith(
+        "outcome: expected 'ready', observed 'blocked'"
+    )
 
 
 def test_retrieval_golden_set_executes_for_real(
