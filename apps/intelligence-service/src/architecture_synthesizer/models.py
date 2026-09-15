@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from src.capability_registry.models import CapabilityKind
 from src.capability_resolver.models import NodeRequirements
@@ -32,6 +32,9 @@ class SynthesisConstraints(StrictModel):
     verification_required: bool = False
     human_approval_required: bool = False
     customer_visible: bool = False
+    # The run handles personal data: its delivered output is verified before it
+    # leaves, even when no one outside the tenant will see it.
+    contains_pii: bool = False
     allowed_regions: list[NonEmpty] = Field(default_factory=list, max_length=32)
     allowed_data_residency: list[NonEmpty] = Field(default_factory=list, max_length=32)
     allowed_permissions: list[NonEmpty] = Field(default_factory=list, max_length=64)
@@ -73,9 +76,23 @@ class ExecutionWave(StrictModel):
 
 
 class ArchitectureBoundary(StrictModel):
+    """A verification or approval step at one side of a source node.
+
+    before_node_key gates entry to the node -- the only placement that can stop
+    an external action, since a gate after it runs once the action is done.
+    after_node_key gates the node's output on its way out of the run.
+    """
+
     kind: BoundaryKind
-    after_node_key: NonEmpty
+    after_node_key: NonEmpty | None = None
+    before_node_key: NonEmpty | None = None
     reason: NonEmpty
+
+    @model_validator(mode="after")
+    def _exactly_one_placement(self) -> "ArchitectureBoundary":
+        if (self.after_node_key is None) == (self.before_node_key is None):
+            raise ValueError("a boundary needs exactly one of before_node_key or after_node_key")
+        return self
 
 
 class ArchitectureSpec(StrictModel):

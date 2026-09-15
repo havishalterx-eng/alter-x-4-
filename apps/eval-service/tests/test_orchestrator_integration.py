@@ -1373,23 +1373,11 @@ def test_architecture_golden_set_executes_for_real(
         ):
             client.close()
 
-    # Architecture golden set v1 is the target for the Synthesizer rewrite and
-    # was written before it, so today's synthesizer is expected to miss it.
-    # Pinned to the real, observed baseline -- 13 of 24 -- so the number
-    # cannot drift silently in either direction. Every failure is a rule the
-    # current synthesizer does not implement:
-    #
-    #   * 6 gate mismatches: no verification (or approval) BEFORE a tool node,
-    #     because ArchitectureBoundary has no before_node_key.
-    #   * 4 call failures: SynthesisConstraints has no contains_pii field and
-    #     forbids extras, so every PII case, and the all-constraints case, is
-    #     rejected with 422.
-    #   * 1 residency mismatch: a residency-restricted capability is treated
-    #     as ineligible when the tenant sets no residency constraint.
-    assert summary.total_cases == 24
-    assert summary.passed == 13
-    assert summary.failed == 11
-
+    # Architecture golden set v1 was written before the Synthesizer rewrite as
+    # its fixed target (#175), when the old synthesizer scored 13 of 24. The
+    # rewrite meets every case: gates before external actions, contains_pii,
+    # and residency eligibility for tenants that set no residency constraint.
+    # Pinned at 24 so a regression in any rule fails here by name.
     with sessions() as session:
         rows = session.execute(
             sa.text(
@@ -1401,29 +1389,10 @@ def test_architecture_golden_set_executes_for_real(
         ).all()
     failures = {row.tags[-1]: row.details for row in rows if row.verdict == "fail"}
 
-    assert sorted(tag for tag, details in failures.items() if "error" in details) == [
-        "gates-all-constraints",
-        "pii-and-customer-visible",
-        "pii-delivered-output",
-        "pii-leaves-through-action",
-    ]
-    assert all(
-        str(details["error"]).startswith("Synthesize call failed:")
-        for details in failures.values()
-        if "error" in details
-    )
-    assert sorted(tag for tag, details in failures.items() if "error" not in details) == [
-        "external-action-mid-run",
-        "external-deterministic-only",
-        "external-parallel-actions",
-        "external-send-after-draft",
-        "gates-approval-before-mid-action",
-        "gates-customer-visible-action",
-        "residency-unconstrained-tenant-ready",
-    ]
-    assert failures["residency-unconstrained-tenant-ready"]["mismatches"][0].startswith(
-        "outcome: expected 'ready', observed 'blocked'"
-    )
+    assert failures == {}
+    assert summary.total_cases == 24
+    assert summary.passed == 24
+    assert summary.failed == 0
 
 
 def test_retrieval_golden_set_executes_for_real(

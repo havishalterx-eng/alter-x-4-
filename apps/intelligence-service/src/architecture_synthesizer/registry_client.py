@@ -86,4 +86,8 @@ def _eligible(
 
 
 def _within(candidate_values: Sequence[str], allowed_values: Sequence[str]) -> bool:
-    return not candidate_values or bool(set(candidate_values) & set(allowed_values))
+    # An unrestricted record fits any constraint, and a restricted record fits a
+    # tenant that sets none. Only two non-empty lists have to intersect.
+    if not candidate_values or not allowed_values:
+        return True
+    return bool(set(candidate_values) & set(allowed_values))
