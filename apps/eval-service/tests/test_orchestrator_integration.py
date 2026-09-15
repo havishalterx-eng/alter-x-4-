@@ -1196,38 +1196,32 @@ def test_planner_select_strategy_cases_execute_for_real(
         agent_binding_client.close()
         project_client.close()
 
-    # 16 of the 20 seeded planner cases are select_strategy; the remaining 4
-    # are decompose/ambiguity cases. Both operations execute for real now --
-    # decompose was refused outright until #138, on the grounds that it needed
-    # ADS+LLM wiring that _score_project_case in this same file already used.
+    # Planner golden set v2 (#172): 40 cases. 36 are select_strategy -- 28
+    # workflow, 8 project -- and 4 are decompose/ambiguity cases.
     #
-    # 13 pass. The 7 failures are two separate things, and neither is a bug in
-    # this test or in the orchestrator:
+    # Workflow strategy selection is model-backed (#173) with the keyword
+    # heuristic as its fallback. The deterministic test Model Gateway in this
+    # fixture only answers Problem Understanding payloads, so every workflow
+    # classification call fails there and all 28 take the fallback. What this
+    # test measures is therefore the fallback path, end to end, against v2:
     #
-    #   * 3 select_strategy cases. "summarize" is in strategies.py's
-    #     _COMPLEX_KEYWORDS, so "Summarize this incident report" classifies as
-    #     iterative rather than direct; "investigate" and "resolve" are not in
-    #     it, so two open-ended objectives classify as direct rather than
-    #     iterative. Deliberately not fixed: tuning a fixed keyword list
-    #     against the 20 cases that measure it would raise this number and
-    #     establish nothing. Whether select_strategy should be model-backed at
-    #     all is the open question in #138.
-    #
-    #     The manager_worker half of this used to be here too -- all 4 of the
-    #     golden set's manager_worker objectives failed a >= 40-word threshold
-    #     that no realistic objective reaches. That was a dead branch rather
-    #     than a product judgement, and #138 replaced it with a count of
-    #     enumerated workstreams; all 4 pass now.
+    #   * 17 select_strategy cases pass -- the 8 project cases, which are
+    #     rule-decided and never reach the model, and 9 workflow cases the
+    #     heuristic happens to get right. The other 19 are the surface-form
+    #     failures v2 was written to expose. The model-backed path scores
+    #     35/36 on the same cases against real Bedrock (see #173); that needs
+    #     a live model and is not reproducible here.
     #
     #   * 4 decompose cases, which fail downstream in Problem Understanding
     #     (#139) rather than being refused here. Real-failing, never silently
     #     skipped.
     #
     # Asserting the real, observed numbers so this stays honest and fails
-    # loudly if it drifts.
-    assert summary.total_cases == 20
-    assert summary.passed == 13
-    assert summary.failed == 7
+    # loudly if it drifts -- including if the fixture ever starts answering
+    # strategy calls, which would change the fallback count.
+    assert summary.total_cases == 40
+    assert summary.passed == 17
+    assert summary.failed == 23
 
     with sessions() as session:
         results = session.execute(
@@ -1236,9 +1230,9 @@ def test_planner_select_strategy_cases_execute_for_real(
             ),
             {"id": str(summary.eval_run_id)},
         ).all()
-        assert len(results) == 20
-        # The 4 decompose cases now reach the real planner and fail there,
-        # rather than being turned away by _score_planner_case. The message is
+        assert len(results) == 40
+        # The 4 decompose cases reach the real planner and fail there, rather
+        # than being turned away by _score_planner_case. The message is
         # whatever the call actually failed with -- what matters is that it
         # names the call, not that the harness declined to make it.
         call_errors = [
@@ -1254,10 +1248,19 @@ def test_planner_select_strategy_cases_execute_for_real(
             for row in results
             if row.verdict == "fail" and "error" not in row.details
         ]
-        assert len(mismatched_strategy_results) == 3
+        assert len(mismatched_strategy_results) == 19
         assert all(
             "observed" in details and "expected" in details
             for details in mismatched_strategy_results
+        )
+
+        strategy_reasons = [
+            str(row.details["reason"]) for row in results if "reason" in row.details
+        ]
+        assert len(strategy_reasons) == 36
+        assert (
+            sum("(keyword fallback: model classification failed)" in r for r in strategy_reasons)
+            == 28
         )
 
 
