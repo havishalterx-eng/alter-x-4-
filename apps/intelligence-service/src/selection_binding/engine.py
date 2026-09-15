@@ -57,10 +57,11 @@ _PREFERRED_AGENT_QUERY = text(
 SELECT
   a.id AS agent_id,
   a.tier AS agent_tier,
-  latest_version.version_number AS agent_version
+  latest_version.version_number AS agent_version,
+  COALESCE(latest_version.persona_description, '') AS agent_instructions
 FROM agents AS a
 JOIN LATERAL (
-  SELECT av.version_number
+  SELECT av.version_number, av.persona_description
   FROM agent_versions AS av
   WHERE av.tenant_id = a.tenant_id
     AND av.agent_id = a.id
@@ -125,6 +126,7 @@ WITH performance AS (
     a.id AS agent_id,
     a.tier AS agent_tier,
     latest_version.version_number AS agent_version,
+    COALESCE(latest_version.persona_description, '') AS agent_instructions,
     MAX(
       1.0 - (ce.embedding <=> CAST(:query_embedding AS vector(512)))
     )::double precision AS capability_similarity,
@@ -136,7 +138,7 @@ WITH performance AS (
     ON ce.tenant_id = a.tenant_id
    AND ce.agent_id = a.id
   JOIN LATERAL (
-    SELECT av.version_number, av.capabilities
+    SELECT av.version_number, av.capabilities, av.persona_description
     FROM agent_versions AS av
     WHERE av.tenant_id = a.tenant_id
       AND av.agent_id = a.id
@@ -187,6 +189,7 @@ WITH performance AS (
     a.id,
     a.tier,
     latest_version.version_number,
+    latest_version.persona_description,
     performance.performance_score,
     performance.mean_latency_ms,
     performance.mean_token_count
@@ -195,6 +198,7 @@ WITH performance AS (
     agent_id,
     agent_tier,
     agent_version,
+    agent_instructions,
     capability_similarity,
     performance_score,
     (
@@ -224,6 +228,7 @@ SELECT
   agent_id,
   agent_tier,
   agent_version,
+  agent_instructions,
   capability_similarity,
   performance_score,
   combined_score,
@@ -436,6 +441,8 @@ class SelectionBindingEngine:
         return BindAgentModelToolResponse(
             agent_id=outcome.agent_id,
             agent_version=outcome.agent_version,
+            # The version just created carries these, same as a ranked match.
+            instructions=str(json.loads(outcome.persona_json).get("persona_description", "")),
             model_alias=requirement.model_alias or "STANDARD",
             tool_names=[tool.name for tool in requirement.tools or []],
         )
@@ -553,6 +560,7 @@ def _response(
             "agent_id": candidate["agent_id"],
             "agent_version": candidate["agent_version"],
             "model_alias": requirement.model_alias or candidate["agent_tier"],
+            "instructions": candidate["agent_instructions"],
             "tool_names": [tool.name for tool in requirement.tools or []],
         }
     )

@@ -58,6 +58,8 @@ export type BindAgentModelToolOutcome =
       readonly agent_version: number;
       readonly model_alias: string;
       readonly tool_names: readonly string[];
+      /** The bound agent version's instructions; empty when it has none. */
+      readonly instructions: string;
     }
   | { readonly matched: false; readonly reason: string };
 
@@ -98,6 +100,8 @@ function parseBindResponse(raw: unknown): BindAgentModelToolOutcome {
       agent_version: raw.agent_version,
       model_alias: raw.model_alias,
       tool_names: raw.tool_names,
+      // Optional on the wire: an older intelligence-service does not send it.
+      instructions: typeof raw.instructions === "string" ? raw.instructions : "",
     };
   }
   throw new SelectionBindingResponseValidationError(

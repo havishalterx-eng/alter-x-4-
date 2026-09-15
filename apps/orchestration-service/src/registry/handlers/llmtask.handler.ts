@@ -9,6 +9,34 @@ import {
   type NodeHandler,
 } from "../handler";
 
+// Every LLMTask result is parsed as a JSON object, and planner prompts tell
+// each step's author "the model executing this step will be told to respond
+// with JSON only". Nothing told it: models wrapped answers in markdown fences
+// and the node failed on its own output.
+const OUTPUT_CONTRACT =
+  "Respond with a single JSON object only: no prose before or after it, and no markdown code fences.";
+
+/**
+ * The system message for one LLMTask call: the bound agent's own instructions,
+ * when an agent is bound and has any, then the engine's output contract, which
+ * no agent instruction can remove.
+ */
+export function llmTaskSystemMessage(agentInstructions: string | undefined): string {
+  const instructions = agentInstructions?.trim() ?? "";
+  return instructions === "" ? OUTPUT_CONTRACT : `${instructions}\n\n${OUTPUT_CONTRACT}`;
+}
+
+/**
+ * The text inside one markdown code fence, when that fence is the entire
+ * answer. Models still wrap JSON in ```json fences despite the output contract
+ * (seen live on Bedrock); anything else passes through untouched and is parsed,
+ * or rejected, exactly as before.
+ */
+export function unwrapFencedJson(text: string): string {
+  const match = /^\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n?```\s*$/i.exec(text);
+  return match === null ? text : match[1]!;
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -75,7 +103,13 @@ export class LlmTaskHandler implements NodeHandler {
       node_execution_id: context.node_execution_id,
       model_alias: aliasResult.data,
       input_json: JSON.stringify({
-        messages: [{ role: "user", content }],
+        // The bound agent's instructions travel as the system message, so
+        // binding a different agent changes how the node behaves -- not only
+        // which record its cost and performance are attributed to.
+        messages: [
+          { role: "system", content: llmTaskSystemMessage(context.bound_agent_instructions) },
+          { role: "user", content },
+        ],
       }),
     };
     const streaming = this.modelGateway as ModelGatewayHandler & Partial<ModelGatewayStreamHandler>;
@@ -114,7 +148,7 @@ export class LlmTaskHandler implements NodeHandler {
     // never guess or pass through garbage.
     let parsedOutput: unknown;
     try {
-      parsedOutput = JSON.parse(outputJson);
+      parsedOutput = JSON.parse(unwrapFencedJson(outputJson));
     } catch (error: unknown) {
       throw new ModelGatewayInvalidResponseError(
         `output_json is not valid JSON: ${(error as Error).message}`,

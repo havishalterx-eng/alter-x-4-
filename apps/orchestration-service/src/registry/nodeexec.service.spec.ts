@@ -320,6 +320,7 @@ describe("NodeexecService.executeNode", () => {
         agent_version: 3,
         model_alias: "ADVANCED",
         tool_names: ["search_web"],
+        instructions: "You review code for security issues first.",
       }),
     };
     const nodeexec = new NodeexecService(
@@ -347,6 +348,9 @@ describe("NodeexecService.executeNode", () => {
     expect(received?.agent_id).toBe("agt_018f4d6e-2b4a-7a3e-8c1a-1234567890ab");
     expect(received?.bound_model_alias).toBe("ADVANCED");
     expect(received?.bound_tool_names).toEqual(["search_web"]);
+    // The bound agent's instructions reach the handler, which sends them as the
+    // model's system message.
+    expect(received?.bound_agent_instructions).toBe("You review code for security issues first.");
   });
 
   it("leaves binding fields absent when Selection & Binding finds no eligible agent", async () => {

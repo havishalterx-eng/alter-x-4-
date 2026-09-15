@@ -356,6 +356,7 @@ export class NodeexecService {
     readonly agent_id?: string;
     readonly bound_model_alias?: string;
     readonly bound_tool_names?: readonly string[];
+    readonly bound_agent_instructions?: string;
   }> {
     if (
       request.node_type !== "LLMTask" ||
@@ -419,6 +420,7 @@ export class NodeexecService {
       agent_id: bound.agent_id,
       bound_model_alias: bound.model_alias,
       bound_tool_names: bound.tool_names,
+      bound_agent_instructions: bound.instructions,
     };
   }
 

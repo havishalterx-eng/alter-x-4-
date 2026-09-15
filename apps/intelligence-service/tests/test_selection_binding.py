@@ -366,6 +366,7 @@ class TestBindingContractModels:
             "agent_version": 1,
             "model_alias": "STANDARD",
             "tool_names": ["search.web"],
+            "instructions": "",
         }
 
     def test_contract_models_reject_extra_fields_and_bad_uint32(self) -> None:
@@ -725,6 +726,47 @@ class TestSelectionBindingIntegration:
             node_key="node.one",
             reason="no_eligible_agent",
         )
+
+    @pytest.mark.parametrize("preferred", [False, True])
+    async def test_bind_returns_the_bound_versions_own_instructions(
+        self,
+        db_session: AsyncSession,
+        preferred: bool,
+    ) -> None:
+        """Instructions come from the version that was bound, not the agent row.
+
+        They are what LLMTask sends as the system message, so an agent whose
+        instructions changed in a newer published version must bind with the
+        newer text -- through the ranked match and a preferred agent alike.
+        """
+        await seed_agent(
+            db_session,
+            agent_id=AGENT_A,
+            embedding=vector(1.0),
+            published_versions=(1, 2),
+            capabilities=["text.generation"],
+        )
+        for version, instructions in ((1, "Answer in French."), (2, "Answer in Spanish.")):
+            await db_session.execute(
+                text(
+                    "UPDATE agent_versions SET persona_description = :instructions "
+                    "WHERE agent_id = :agent_id AND version_number = :version"
+                ),
+                {"instructions": instructions, "agent_id": AGENT_A, "version": version},
+            )
+        engine = SelectionBindingEngine(db_session, FakeEmbeddingClient(vector(1.0)))
+
+        outcome = await engine.bind(
+            request_for(
+                NodeRequirement(capabilities=[], preferred_agent_id=AGENT_A)
+                if preferred
+                else NodeRequirement(capabilities=["text.generation"])
+            ),
+            context(),
+        )
+
+        assert isinstance(outcome, BindAgentModelToolResponse)
+        assert (outcome.agent_version, outcome.instructions) == (2, "Answer in Spanish.")
 
     async def test_ranked_match_includes_a_draft_agent(
         self,

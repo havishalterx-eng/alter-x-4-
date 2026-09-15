@@ -4,7 +4,7 @@ import { ModelGatewayInvalidResponseError } from "@alterx/shared-clients";
 import { describe, expect, it, vi } from "vitest";
 
 import { NodeHandlerValidationError } from "../handler";
-import { LlmTaskHandler } from "./llmtask.handler";
+import { LlmTaskHandler, llmTaskSystemMessage, unwrapFencedJson } from "./llmtask.handler";
 
 const TENANT_ID = "ten_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
 const RUN_ID = "run_018f4d6e-2b4a-7a3e-8c1a-1234567890ab";
@@ -39,6 +39,58 @@ function streamingGateway(
   };
 }
 
+describe("LlmTaskHandler agent instructions and output contract", () => {
+  const run = async (extra: Record<string, unknown>, outputJson = JSON.stringify({ text: "hello" })) => {
+    const invoke = vi.fn().mockResolvedValue({ output_json: outputJson, usage_json: "{}", resolved_capability: "" });
+    const result = await new LlmTaskHandler(fakeGateway(invoke)).execute({
+      config: { model_alias: "STANDARD", prompt: "Name the tool." },
+      inputs: {},
+      tenant_id: TENANT_ID,
+      run_id: RUN_ID,
+      node_execution_id: NODE_EXECUTION_ID,
+      ...extra,
+    });
+    const messages = JSON.parse(invoke.mock.calls[0]![0].input_json).messages as { role: string; content: string }[];
+    return { result, messages };
+  };
+
+  it("sends the bound agent's instructions as the system message, ahead of the output contract", async () => {
+    const { messages } = await run({ agent_id: "agt_x", bound_agent_instructions: "Write every name in capitals." });
+
+    expect(messages[0]).toEqual({ role: "system", content: "Write every name in capitals.\n\n" + llmTaskSystemMessage(undefined) });
+    expect(messages[1]).toEqual({ role: "user", content: "Name the tool." });
+  });
+
+  it.each([["no agent bound", {}], ["an agent with no instructions", { bound_agent_instructions: "   " }]])(
+    "still states the output contract with %s",
+    async (_name, extra) => {
+      const { messages } = await run(extra);
+      expect(messages[0]).toEqual({ role: "system", content: llmTaskSystemMessage(undefined) });
+      expect(messages[0]!.content).toMatch(/single JSON object only/);
+    },
+  );
+
+  it("accepts a JSON answer wrapped in one markdown fence", async () => {
+    const { result } = await run({}, "```json\n{\"name\": \"LOANDESK\"}\n```");
+    expect(result.output).toEqual({ name: "LOANDESK" });
+  });
+
+  it("still rejects prose around a fenced answer", async () => {
+    await expect(run({}, "Here you go:\n```json\n{\"name\": \"x\"}\n```")).rejects.toThrow(/not valid JSON/);
+  });
+});
+
+describe("unwrapFencedJson", () => {
+  it.each([
+    ["```json\n{\"a\":1}\n```", "{\"a\":1}"],
+    ["```\n{\"a\":1}\n```\n", "{\"a\":1}"],
+    ["{\"a\":1}", "{\"a\":1}"],
+    ["{\"code\":\"```\"}", "{\"code\":\"```\"}"],
+  ])("%j -> %j", (input, expected) => {
+    expect(unwrapFencedJson(input)).toBe(expected);
+  });
+});
+
 describe("LlmTaskHandler", () => {
   it("has nodeType LLMTask", () => {
     const handler = new LlmTaskHandler(fakeGateway(vi.fn()));
@@ -68,6 +120,7 @@ describe("LlmTaskHandler", () => {
       model_alias: "ADVANCED",
       input_json: JSON.stringify({
         messages: [
+          { role: "system", content: llmTaskSystemMessage(undefined) },
           {
             role: "user",
             content:
