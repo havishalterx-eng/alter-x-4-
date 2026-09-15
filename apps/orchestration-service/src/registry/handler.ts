@@ -45,6 +45,8 @@ export interface NodeExecutionContext {
   readonly agent_id?: string;
   readonly bound_model_alias?: string;
   readonly bound_tool_names?: readonly string[];
+  /** The bound agent version's instructions (agent_versions.persona_description). */
+  readonly bound_agent_instructions?: string;
   /** Durable SSE publisher injected by Nodeexec; never exposed to workflow code. */
   readonly on_model_delta?: (delta: string, index: number, final: boolean) => Promise<void>;
 }

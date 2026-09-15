@@ -55,6 +55,11 @@ class BindAgentModelToolResponse(_StrictFrozenModel):
     agent_version: Uint32
     model_alias: ModelAlias
     tool_names: list[NonEmptyString]
+    # The bound agent version's instructions (agent_versions.persona_description).
+    # LLMTask sends them as the model's system message, which is what makes
+    # binding a different agent change how a node behaves. Empty when the
+    # version has none.
+    instructions: str = ""
 
 
 NoMatchReason = Literal[

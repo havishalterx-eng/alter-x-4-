@@ -27,6 +27,8 @@ message BindAgentModelToolResponse {
   uint32 agent_version = 2;
   string model_alias = 3;
   repeated string tool_names = 4;
+  // The bound agent version's instructions; the executing model's system message.
+  string instructions = 5;
 }
 
 message CreatePersonaRequest {

@@ -470,6 +470,11 @@ WHERE a.id = :agent_id
             agent_version=1,
             model_alias="STANDARD",
             tool_names=["search.web"],
+            # Read back from the created agent version by the ranked query: the
+            # instructions LLMTask will send as the system message.
+            instructions=(
+                "Specialist agent for capabilities: analysis.reasoning, document.synthesis."
+            ),
         )
         assert embedding_client.calls == [
             (TENANT_A, "analysis.reasoning\ndocument.synthesis"),
