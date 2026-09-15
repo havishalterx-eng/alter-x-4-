@@ -11,7 +11,12 @@ from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
 from src.db.chaos_scenarios import CHAOS_GOLDEN_SET
-from src.db.launch_golden_sets import LAUNCH_GOLDEN_SETS, case_id
+from src.db.launch_golden_sets import LAUNCH_GOLDEN_SETS, PLANNER_CASES, case_id
+from src.db.planner_golden_set_v2 import (
+    PLANNER_GOLDEN_SET_V2,
+    V1_GOLDEN_SET_ID,
+    V2_ADDED_CASES,
+)
 from src.db.redteam_suites import REDTEAM_GOLDEN_SETS
 from src.db.redteam_suites_v2 import REDTEAM_GOLDEN_SETS_V2
 from src.db.remaining_golden_sets import REMAINING_GOLDEN_SETS
@@ -44,6 +49,10 @@ LAUNCH_FLOOR_COUNTS = {
 
 ALL_LAUNCH_GOLDEN_SETS = (*LAUNCH_GOLDEN_SETS, *REMAINING_GOLDEN_SETS)
 
+# What is active after head. Planner v1 (20 cases) is retired by 0009 and v2
+# (40) serves under the same name; the v1 catalog above is unchanged.
+ACTIVE_FLOOR_COUNTS = {**LAUNCH_FLOOR_COUNTS, "planner": 40}
+
 
 def test_migration_declares_all_eval_tables_and_forced_rls() -> None:
     sql = MIGRATION.read_text()
@@ -74,6 +83,57 @@ def test_launch_floor_catalog_has_exact_counts_and_repeatable_ids() -> None:
             assert case.expected_json
             assert case.scoring["matcher"]
             assert "launch-floor" in case.tags
+
+
+def test_planner_golden_set_v2_keeps_v1_and_breaks_surface_form() -> None:
+    # v2 is the fixed target for Phase 4's strategy rewrite. It must contain
+    # every v1 case unchanged, so no existing expectation is quietly dropped,
+    # and its added cases must not share the surface feature v1's hard cases
+    # all share -- see planner_golden_set_v2.py.
+    golden_set = PLANNER_GOLDEN_SET_V2
+    assert golden_set.name == "planner"
+    assert golden_set.version == 2
+    assert golden_set.id != V1_GOLDEN_SET_ID
+    assert len(golden_set.cases) == 40
+    assert golden_set.cases[: len(PLANNER_CASES)] == PLANNER_CASES
+    assert len(V2_ADDED_CASES) == 20
+
+    ids = {case_id(golden_set, position) for position in range(1, len(golden_set.cases) + 1)}
+    assert len(ids) == 40
+    v1_set = LAUNCH_GOLDEN_SETS[0]
+    v1_ids = {case_id(v1_set, position) for position in range(1, len(v1_set.cases) + 1)}
+    assert not ids & v1_ids
+
+    expected_by_strategy: dict[str, list[dict[str, object]]] = {}
+    for case in V2_ADDED_CASES:
+        assert case.input_json["operation"] == "select_strategy"
+        assert case.scoring["matcher"] == "exact_json"
+        assert case.tags[-1].startswith("v2-")
+        expected_by_strategy.setdefault(str(case.expected_json["strategy"]), []).append(
+            case.input_json
+        )
+
+    # Every strategy is exercised, and the definitions hold: project mode is
+    # always plan_then_execute, and manager_worker is reachable from workflow
+    # mode only.
+    assert set(expected_by_strategy) == {
+        "direct",
+        "iterative",
+        "plan_then_execute",
+        "manager_worker",
+    }
+    assert all(entry["mode"] == "project" for entry in expected_by_strategy["plan_then_execute"])
+    assert all(entry["mode"] == "workflow" for entry in expected_by_strategy["manager_worker"])
+
+    # The correlation v1 rewarded is broken in both directions: some
+    # manager_worker cases enumerate nothing, and some comma lists of four or
+    # more items are one sequential workstream.
+    assert any(
+        str(entry["objective"]).count(",") == 0 for entry in expected_by_strategy["manager_worker"]
+    )
+    assert any(
+        str(entry["objective"]).count(",") >= 3 for entry in expected_by_strategy["iterative"]
+    )
 
 
 @pytest.fixture(scope="module")
@@ -194,13 +254,13 @@ def test_live_launch_floor_sets_are_seeded_and_readable_by_eval_service(pg_url: 
                 "SELECT golden_sets.name, count(eval_cases.id) "
                 "FROM golden_sets LEFT JOIN eval_cases "
                 "ON eval_cases.golden_set_id = golden_sets.id "
-                "WHERE golden_sets.name IN ("
+                "WHERE golden_sets.status = 'active' AND golden_sets.name IN ("
                 "'planner', 'intent', 'retrieval', 'verification', 'recovery', 'injection', "
                 "'tenant-isolation', 'workflow E2E', 'project E2E') "
                 "GROUP BY golden_sets.name"
             )
         ).all()
-        assert {str(name): int(count) for name, count in rows} == LAUNCH_FLOOR_COUNTS
+        assert {str(name): int(count) for name, count in rows} == ACTIVE_FLOOR_COUNTS
 
         seed_case = (
             conn.execute(
@@ -209,7 +269,7 @@ def test_live_launch_floor_sets_are_seeded_and_readable_by_eval_service(pg_url: 
                     "JOIN golden_sets ON golden_sets.id = eval_cases.golden_set_id "
                     "WHERE golden_sets.name = 'planner' AND eval_cases.id = :case_id"
                 ),
-                {"case_id": case_id(LAUNCH_GOLDEN_SETS[0], 1)},
+                {"case_id": case_id(PLANNER_GOLDEN_SET_V2, 1)},
             )
             .mappings()
             .one()
@@ -288,6 +348,34 @@ def test_live_redteam_suites_v1_are_retired(pg_url: str) -> None:
         ).all()
         assert len(rows) == len(REDTEAM_GOLDEN_SETS)
         assert all(status == "retired" for (status,) in rows)
+
+
+def test_live_planner_v1_is_retired_and_v2_serves_the_name(pg_url: str) -> None:
+    # The release gate and the runner both resolve a golden set by name among
+    # active rows, so exactly one active "planner" set must exist, and it has
+    # to be v2 -- otherwise Phase 4 would be scored against the set its own
+    # heuristic was fitted to.
+    engine = sa.create_engine(pg_url)
+    with engine.connect() as conn:
+        _service_context(conn)
+        rows = conn.execute(
+            sa.text(
+                "SELECT golden_sets.id, golden_sets.version, golden_sets.status, "
+                "count(eval_cases.id) FROM golden_sets LEFT JOIN eval_cases "
+                "ON eval_cases.golden_set_id = golden_sets.id "
+                "WHERE golden_sets.name = 'planner' "
+                "GROUP BY golden_sets.id, golden_sets.version, golden_sets.status "
+                "ORDER BY golden_sets.version"
+            )
+        ).all()
+        assert [
+            (int(version), str(status), int(count)) for _id, version, status, count in rows
+        ] == [
+            (1, "retired", 20),
+            (2, "active", 40),
+        ]
+        assert str(rows[0][0]) == str(V1_GOLDEN_SET_ID)
+        assert str(rows[1][0]) == str(PLANNER_GOLDEN_SET_V2.id)
 
 
 def test_live_redteam_suites_v2_are_seeded_and_readable_by_eval_service(pg_url: str) -> None:
