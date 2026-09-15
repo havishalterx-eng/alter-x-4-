@@ -157,3 +157,72 @@ describe("compileArchitectureToDag boundaries", () => {
     expect(() => compileArchitectureToDag(actionInput([boundary]))).toThrow(CompilerValidationError);
   });
 });
+
+describe("compileArchitectureToDag control nodes", () => {
+  type Node = ArchitectureCompileInput["architecture"]["nodes"][number];
+  const llm = (key: string, depends_on: string[] = []): Node => ({ source_node_key: key, role: "direct", execution_kind: "llm", source_node_type: "llm", depends_on, config: { model_alias: "STANDARD", prompt: key } });
+  const tool = (key: string, depends_on: string[]): Node => ({ source_node_key: key, role: "deterministic", execution_kind: "deterministic", source_node_type: "tool", depends_on, config: { tool_name: key, arguments: {} } });
+  const control = (key: string, type: "branch" | "join", depends_on: string[], config: Record<string, unknown> = {}): Node => ({ source_node_key: key, role: "control", execution_kind: "control", source_node_type: type, depends_on, config });
+  const compile = (nodes: Node[], boundaries: ArchitectureCompileInput["architecture"]["boundaries"] = []) => compileArchitectureToDag({
+    ...input(),
+    architecture: { status: "ready", version: "1", topology: "parallel", boundaries, nodes, execution_waves: [{ order: 0, node_keys: [nodes[0]!.source_node_key], depends_on_wave_orders: [] }] },
+    binding_decision: { status: "ready", bindings: [] },
+  });
+  const edge = (dag: ReturnType<typeof compileArchitectureToDag>, from: string, to: string) => dag.edges.find((candidate) => candidate.from === from && candidate.to === to);
+
+  it("lowers a join to Merge with merge edges, not to a Gate without conditions", () => {
+    const dag = compile([llm("plan"), llm("worker_a", ["plan"]), llm("worker_b", ["plan"]), control("collect", "join", ["worker_a", "worker_b"])]);
+
+    expect(dag.nodes.find((node) => node.key === "collect")?.type).toBe("Merge");
+    expect(edge(dag, "worker_a", "collect")?.kind).toBe("merge");
+    expect(edge(dag, "worker_b", "collect")?.kind).toBe("merge");
+  });
+
+  it("lowers a branch to a Gate carrying its conditions, with a conditional edge per successor", () => {
+    const dag = compile([
+      llm("classify"),
+      control("route", "branch", ["classify"], { conditions: { answer_billing: "inputs.classify.topic == 'billing'", answer_other: "inputs.classify.topic != 'billing'" } }),
+      llm("answer_billing", ["route"]),
+      llm("answer_other", ["route"]),
+    ]);
+
+    expect(dag.nodes.find((node) => node.key === "route")).toMatchObject({ type: "Gate", config: { conditions: { answer_billing: "inputs.classify.topic == 'billing'" } } });
+    expect(edge(dag, "route", "answer_billing")).toMatchObject({ kind: "conditional", condition: { expression: "inputs.classify.topic == 'billing'", language: "cel" } });
+    expect(edge(dag, "route", "answer_other")?.kind).toBe("conditional");
+  });
+
+  it.each([
+    ["a successor without a condition", { conditions: { answer_billing: "true" } }],
+    ["a condition for a node that is not a successor", { conditions: { answer_billing: "true", answer_other: "true", ghost: "true" } }],
+  ])("rejects a branch with %s", (_name, config) => {
+    expect(() => compile([llm("classify"), control("route", "branch", ["classify"], config), llm("answer_billing", ["route"]), llm("answer_other", ["route"])])).toThrow(CompilerValidationError);
+  });
+
+  it("rejects a control node that does not say whether it is a branch or a join", () => {
+    const collect = control("collect", "join", ["plan"]);
+    delete (collect as { source_node_type?: string }).source_node_type;
+    expect(() => compile([llm("plan"), collect])).toThrow(/cannot be told apart/);
+  });
+
+  it("lets a branch decide whether the gates before an action run at all", () => {
+    const dag = compile(
+      [llm("classify"), control("route", "branch", ["classify"], { conditions: { issue_refund: "inputs.classify.refund" } }), tool("issue_refund", ["route"])],
+      [
+        { kind: "verification", before_node_key: "issue_refund", reason: "verification precedes every external action" },
+        { kind: "human_approval", before_node_key: "issue_refund", reason: "customer-visible output" },
+      ],
+    );
+
+    // The branch now routes to the approval and the first verification gate...
+    expect(edge(dag, "route", "human_approval_before_issue_refund")).toMatchObject({ kind: "conditional", condition: { expression: "inputs.classify.refund" } });
+    expect(edge(dag, "route", "verification_before_issue_refund_0")).toMatchObject({ kind: "conditional", condition: { expression: "inputs.classify.refund" } });
+    expect((dag.nodes.find((node) => node.key === "route")?.config as { conditions: Record<string, string> }).conditions).toMatchObject({
+      human_approval_before_issue_refund: "inputs.classify.refund",
+      verification_before_issue_refund_0: "inputs.classify.refund",
+    });
+    // ...and its edge into the action is plain input, so the only conditional
+    // edge into the action is the last gate's.
+    expect(edge(dag, "route", "issue_refund")?.kind).toBe("sequential");
+    expect(dag.edges.filter((candidate) => candidate.to === "issue_refund" && candidate.kind === "conditional").map((candidate) => candidate.from)).toEqual(["verification_before_issue_refund_0"]);
+  });
+});
