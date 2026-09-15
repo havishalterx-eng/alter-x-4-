@@ -10,6 +10,7 @@ has no side effects beyond calling those injected collaborators.
 """
 
 import json
+import logging
 
 from ..ads_client.client import AdsClient
 from .llm_client import MODEL_ALIAS_CEILING, LlmClient
@@ -25,6 +26,8 @@ from .models import (
 from .project_strategy import build_project_skeleton
 from .strategies import STRATEGY_MANAGER_WORKER, STRATEGY_PLAN_THEN_EXECUTE, select_strategy
 from .task_skeleton import TaskSkeleton
+
+_log = logging.getLogger(__name__)
 
 
 class PlannerValidationError(ValueError):
@@ -121,5 +124,23 @@ class PlannerKernel:
     # ------------------------------------------------------------------
 
     async def select_strategy(self, request: SelectStrategyRequest) -> SelectStrategyResponse:
-        strategy, reason = select_strategy(request.objective, request.mode)
+        # Project mode and unrecognised modes are decided by rule, not by
+        # reading the objective, so they never need the model.
+        if request.mode != "workflow":
+            strategy, reason = select_strategy(request.objective, request.mode)
+            return SelectStrategyResponse(strategy=strategy, reason=reason)
+
+        try:
+            strategy, reason = await self._llm.classify_workflow_strategy(
+                tenant_id=request.tenant_id,
+                run_id=request.run_id,
+                objective=request.objective,
+            )
+        except Exception as exc:  # noqa: BLE001 -- any model failure takes the fallback
+            strategy, reason = select_strategy(request.objective, request.mode)
+            _log.warning(
+                "planner.select_strategy model classification failed, using keyword fallback",
+                extra={"tenant_id": request.tenant_id, "error_type": type(exc).__name__},
+            )
+            reason = f"{reason} (keyword fallback: model classification failed)"
         return SelectStrategyResponse(strategy=strategy, reason=reason)

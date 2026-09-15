@@ -168,6 +168,7 @@ export class ClarificationLoopService {
 
     const { strategy } = await this.planner.selectStrategy({
       tenant_id: request.tenantId,
+      run_id: request.runId,
       objective: request.objective,
       mode: request.mode,
     });

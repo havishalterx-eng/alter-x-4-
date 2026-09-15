@@ -69,6 +69,9 @@ message SelectStrategyRequest {
   string tenant_id = 1; // ten_ prefixed UUIDv7
   string objective = 2;
   string mode = 3;
+  // run_ prefixed UUIDv7 of the run being planned. Optional: attributes the
+  // strategy classification model call to that run for cost accounting.
+  string run_id = 4;
 }
 
 message SelectStrategyResponse {

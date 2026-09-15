@@ -12,9 +12,13 @@ Four strategies exist on the planner:
                        fixed build pipeline regardless of scale, so it is
                        never overridden by this escalation.
 
-SelectStrategy is a deterministic heuristic; it never calls the LLM.  The
-heuristic is intentionally conservative: when in doubt, choose a more
-deliberate strategy to avoid silent failures during execution.
+select_strategy below is a deterministic heuristic; it never calls the LLM.
+It decides project and unrecognised modes outright. For workflow mode it is
+the fallback only: PlannerKernel.select_strategy asks the model first (see
+ModelGatewayLlmClient.classify_workflow_strategy) and uses this when that call
+fails or answers outside the workflow strategies. The heuristic is
+intentionally conservative: when in doubt, choose a more deliberate strategy
+to avoid silent failures during execution.
 """
 
 STRATEGY_DIRECT = "direct"
