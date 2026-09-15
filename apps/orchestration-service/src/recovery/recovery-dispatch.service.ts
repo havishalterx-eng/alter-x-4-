@@ -423,6 +423,9 @@ export class RecoveryDispatchService {
         current_dag_json: taskSkeletonJson,
         failure_context_json: JSON.stringify({
           node_execution_id: context.nodeExecutionId,
+          // The skeleton names nodes by key, not by execution id; without it
+          // the planner cannot tell which step to repair.
+          node_key: context.nodeKey,
           failure_class: context.failureClass,
           root_cause: context.estimate,
         }),
