@@ -330,6 +330,12 @@ describe("RecoveryDispatchService", () => {
         current_dag_json: taskSkeletonJson,
       }),
     );
+    expect(JSON.parse(replan.mock.calls[0]?.[0].failure_context_json)).toEqual(
+      expect.objectContaining({
+        node_execution_id: CONTEXT.nodeExecutionId,
+        node_key: CONTEXT.nodeKey,
+      }),
+    );
     expect(compileWorkflow).toHaveBeenCalledWith(
       expect.objectContaining({
         workflow_id: "wf_real",
