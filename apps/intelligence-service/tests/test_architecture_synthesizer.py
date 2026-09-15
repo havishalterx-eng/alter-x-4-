@@ -1,9 +1,11 @@
 from collections.abc import Sequence
 
 import pytest
+from pydantic import ValidationError
 
 from src.architecture_synthesizer.models import (
     ArchitectureBlocked,
+    ArchitectureBoundary,
     ArchitectureSpec,
     SynthesisConstraints,
     SynthesizeArchitectureRequest,
@@ -115,50 +117,171 @@ async def test_adds_explicit_verification_and_approval_boundaries() -> None:
 
 
 @pytest.mark.asyncio
-async def test_topology_and_confidence_are_identical_under_wildly_different_stakes() -> None:
-    """Batch 5 probe (rebuild plan, "Synthesizer identical-output-under-
-    different-constraints" -- the moat decision).
+async def test_constraints_shape_gates_while_topology_follows_the_skeleton() -> None:
+    """Replaces the Batch 5 probe that pinned identical output under wildly
+    different stakes (rebuild plan, "Synthesizer identical-output-under-
+    different-constraints").
 
-    _topology reads only node types, the dependency graph, and the single
-    boolean coordination_required. Nothing in SynthesisConstraints or
-    anywhere else in the request carries a notion of risk, ambition, or
-    judgment required -- so two requests that describe wildly different real
-    stakes, but share the same task-skeleton shape, must produce the exact
-    same topology and the same hardcoded confidence=1.0. This test is
-    written to fail if that diagnosis is wrong: a synthesizer that actually
-    weighed the stakes would be expected to treat these differently.
+    Constraints now decide where verification and approval sit, including
+    PII, which the contract could not express before. Topology, waves and
+    roles still follow the skeleton's shape and coordination_required -- a
+    deliberate product rule of architecture golden set v1, not an oversight.
     """
-    low_stakes = request(
-        [TaskNode(key="one", type="llm"), TaskNode(key="two", type="llm", depends_on=["one"])],
-        SynthesisConstraints(),
+    nodes = [
+        TaskNode(key="draft", type="llm"),
+        TaskNode(key="send", type="tool", depends_on=["draft"]),
+        TaskNode(key="log", type="llm", depends_on=["send"]),
+    ]
+    low = await ArchitectureSynthesizer(Registry()).synthesize(request(nodes))
+    high = await ArchitectureSynthesizer(Registry()).synthesize(
+        request(
+            nodes,
+            SynthesisConstraints(
+                human_approval_required=True,
+                contains_pii=True,
+                allowed_data_residency=["eu"],
+            ),
+        )
     )
-    high_stakes = request(
-        [TaskNode(key="one", type="llm"), TaskNode(key="two", type="llm", depends_on=["one"])],
-        SynthesisConstraints(
-            verification_required=True,
-            human_approval_required=True,
-            customer_visible=True,
-            allowed_regions=["eu-west-1"],
-            allowed_data_residency=["eu"],
-            allowed_permissions=["finance:write", "pii:read"],
-        ),
-    )
-
-    low = await ArchitectureSynthesizer(Registry()).synthesize(low_stakes)
-    high = await ArchitectureSynthesizer(Registry()).synthesize(high_stakes)
 
     assert isinstance(low, ArchitectureSpec)
     assert isinstance(high, ArchitectureSpec)
-    # Everything that could reflect a real judgment about the two very
-    # different situations comes out identical.
     assert low.topology == high.topology == "sequential"
-    assert low.execution_waves == high.execution_waves
-    assert low.confidence == high.confidence == 1.0
-    assert [n.role for n in low.nodes] == [n.role for n in high.nodes]
-    # Only the boundaries list -- a direct, mechanical echo of which
-    # boolean constraint flags were set -- actually differs.
-    assert low.boundaries == []
-    assert len(high.boundaries) == 2
+    assert _gates(low) == [("verification", "before", "send")]
+    assert _gates(high) == [
+        ("verification", "before", "send"),
+        ("human_approval", "before", "send"),
+        ("verification", "after", "log"),
+        ("human_approval", "after", "log"),
+    ]
+
+
+def _gates(spec: ArchitectureSpec) -> list[tuple[str, str, str]]:
+    return [
+        (b.kind, "before", b.before_node_key)
+        if b.before_node_key is not None
+        else (b.kind, "after", str(b.after_node_key))
+        for b in spec.boundaries
+    ]
+
+
+@pytest.mark.asyncio
+async def test_every_external_action_is_verified_before_it_runs_without_any_constraint() -> None:
+    result = await ArchitectureSynthesizer(Registry()).synthesize(
+        request(
+            [
+                TaskNode(key="prepare", type="llm"),
+                TaskNode(key="post_a", type="tool", depends_on=["prepare"]),
+                TaskNode(key="post_b", type="tool", depends_on=["prepare"]),
+            ]
+        )
+    )
+
+    assert isinstance(result, ArchitectureSpec)
+    assert _gates(result) == [
+        ("verification", "before", "post_a"),
+        ("verification", "before", "post_b"),
+    ]
+    assert all(b.reason == "verification precedes every external action" for b in result.boundaries)
+
+
+@pytest.mark.asyncio
+async def test_customer_visible_action_is_approved_before_it_and_nothing_gates_after() -> None:
+    result = await ArchitectureSynthesizer(Registry()).synthesize(
+        request(
+            [
+                TaskNode(key="write", type="llm"),
+                TaskNode(key="send", type="tool", depends_on=["write"]),
+            ],
+            SynthesisConstraints(customer_visible=True),
+        )
+    )
+
+    assert isinstance(result, ArchitectureSpec)
+    assert _gates(result) == [
+        ("verification", "before", "send"),
+        ("human_approval", "before", "send"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pii_verifies_delivered_output_and_reasons_combine() -> None:
+    result = await ArchitectureSynthesizer(Registry()).synthesize(
+        request(
+            [TaskNode(key="summarize", type="llm")],
+            SynthesisConstraints(contains_pii=True, customer_visible=True),
+        )
+    )
+
+    assert isinstance(result, ArchitectureSpec)
+    assert _gates(result) == [
+        ("verification", "after", "summarize"),
+        ("human_approval", "after", "summarize"),
+    ]
+    assert result.boundaries[0].reason == "customer-visible output; output contains personal data"
+
+
+def test_boundary_needs_exactly_one_placement() -> None:
+    with pytest.raises(ValidationError, match="exactly one"):
+        ArchitectureBoundary(kind="verification", reason="x")
+    with pytest.raises(ValidationError, match="exactly one"):
+        ArchitectureBoundary(
+            kind="verification", before_node_key="a", after_node_key="a", reason="x"
+        )
+
+
+@pytest.mark.asyncio
+async def test_confidence_is_the_share_of_executable_nodes_the_registry_confirmed() -> None:
+    nodes = [
+        TaskNode(key="draft", type="llm"),
+        TaskNode(key="send", type="tool", depends_on=["draft"]),
+        TaskNode(key="merge", type="join", depends_on=["send"]),
+    ]
+    value = request(nodes)
+    # The resolver declares no capability for tool nodes, so nothing checks
+    # that the tool exists; the join runs inside the engine and is not counted.
+    unchecked = value.model_copy(
+        update={
+            "node_requirements": NodeRequirements(
+                root={
+                    "draft": NodeRequirement(capabilities=["text.generation"]),
+                    "send": NodeRequirement(capabilities=[]),
+                    "merge": NodeRequirement(capabilities=[]),
+                }
+            )
+        }
+    )
+
+    all_checked = await ArchitectureSynthesizer(Registry()).synthesize(value)
+    half_checked = await ArchitectureSynthesizer(Registry()).synthesize(unchecked)
+
+    assert isinstance(all_checked, ArchitectureSpec)
+    assert isinstance(half_checked, ArchitectureSpec)
+    assert all_checked.confidence == 1.0
+    assert half_checked.confidence == 0.5
+    assert "capability eligibility confirmed for 1 of 2 executable nodes" in half_checked.rationale
+
+
+def test_residency_restricted_record_is_eligible_when_the_tenant_sets_no_residency() -> None:
+    record = CapabilityRecord.model_validate(
+        {
+            "capability_id": "model",
+            "version": 1,
+            "owner_tenant_id": "aaaaaaaa-0000-7000-8000-aaaaaaaaaaaa",
+            "kind": "model",
+            "scope": "tenant",
+            "supported_capabilities": ["text.generation"],
+            "constraints": {"data_residency": ["eu"], "regions": ["eu-west-1"]},
+            "provenance": {"source": "test"},
+            "status": "active",
+        }
+    )
+    requirement = NodeRequirement(capabilities=["text.generation"])
+
+    assert _eligible(record, requirement, SynthesisConstraints())
+    assert _eligible(record, requirement, SynthesisConstraints(allowed_data_residency=["eu"]))
+    assert not _eligible(record, requirement, SynthesisConstraints(allowed_data_residency=["us"]))
+    assert not _eligible(record, requirement, SynthesisConstraints(allowed_regions=["us-east-1"]))
 
 
 @pytest.mark.asyncio
