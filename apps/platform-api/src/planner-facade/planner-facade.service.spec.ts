@@ -2,6 +2,7 @@ import { PlannerClient, type PlannerHttpClient } from "@alterx/adapters";
 import { describe, expect, it, vi } from "vitest";
 
 import { PlannerFacadeService } from "./planner-facade.service";
+import { TenantDataResidencyError, type TenantResidencyRepository } from "./tenant-residency.repository";
 import { CompilerServiceClient } from "./compiler-client";
 import type {
   CompilerCompileArchitectureWorkflowRequest,
@@ -89,6 +90,7 @@ class FakeCompilerGrpcClient {
 function service(
   http: FakePlannerHttpClient,
   grpc: FakeCompilerGrpcClient,
+  allowedDataResidency: TenantResidencyRepository["allowedDataResidency"] = vi.fn().mockResolvedValue([]),
 ): PlannerFacadeService {
   const plannerClient = new PlannerClient({ baseUrl: "http://intelligence.internal" }, http);
   const compilerClient = new CompilerServiceClient(
@@ -97,10 +99,92 @@ function service(
   );
   return new PlannerFacadeService(
     { getAccessToken: vi.fn().mockResolvedValue("m2m-token") },
+    { allowedDataResidency } as TenantResidencyRepository,
     plannerClient,
     compilerClient,
   );
 }
+
+function readyHttp(): FakePlannerHttpClient {
+  const http = new FakePlannerHttpClient();
+  http.understandResponse = realProblemSpec("Email the customers");
+  http.decomposeResponse = {
+    task_skeleton_json: JSON.stringify({ nodes: [], entry_point: "n1", version: "v1" }),
+    ambiguity_detected: false,
+    clarification_questions: [],
+  };
+  http.prepareCompilerInputResponse = { status: "ready", architecture: {}, binding_decision: {} };
+  return http;
+}
+
+function prepareBody(http: FakePlannerHttpClient): { constraints?: Record<string, unknown> } {
+  const call = http.calls.find((candidate) =>
+    candidate.url.endsWith("/internal/architecture-synthesis/prepare-compiler-input"),
+  );
+  return call!.body as { constraints?: Record<string, unknown> };
+}
+
+describe("PlannerFacadeService.planWorkflow constraints", () => {
+  it("sends the declared run constraints and the tenant's own residency to synthesis", async () => {
+    const http = readyHttp();
+    const residency = vi.fn().mockResolvedValue(["eu"]);
+
+    await service(http, new FakeCompilerGrpcClient(), residency).planWorkflow({
+      tenantId: TENANT_ID,
+      workspaceId: WORKSPACE_ID,
+      workflowId: WORKFLOW_ID,
+      objective: "Email the customers",
+      constraints: { customer_visible: true, contains_pii: true },
+    });
+
+    // Before this, prepare-compiler-input carried no constraints at all and
+    // every production architecture was synthesized on defaults.
+    expect(residency).toHaveBeenCalledWith(TENANT_ID);
+    expect(prepareBody(http).constraints).toEqual({
+      customer_visible: true,
+      human_approval_required: false,
+      verification_required: false,
+      contains_pii: true,
+      allowed_data_residency: ["eu"],
+    });
+  });
+
+  it("sends explicit defaults when the request declares nothing and the tenant pins nothing", async () => {
+    const http = readyHttp();
+
+    await service(http, new FakeCompilerGrpcClient()).planWorkflow({
+      tenantId: TENANT_ID,
+      workspaceId: WORKSPACE_ID,
+      workflowId: WORKFLOW_ID,
+      objective: "Email the customers",
+    });
+
+    expect(prepareBody(http).constraints).toEqual({
+      customer_visible: false,
+      human_approval_required: false,
+      verification_required: false,
+      contains_pii: false,
+      allowed_data_residency: [],
+    });
+  });
+
+  it("does not plan when the tenant's residency cannot be read", async () => {
+    const http = readyHttp();
+    const grpc = new FakeCompilerGrpcClient();
+    const residency = vi.fn().mockRejectedValue(new TenantDataResidencyError("tenant data_residency is malformed"));
+
+    await expect(
+      service(http, grpc, residency).planWorkflow({
+        tenantId: TENANT_ID,
+        workspaceId: WORKSPACE_ID,
+        workflowId: WORKFLOW_ID,
+        objective: "Email the customers",
+      }),
+    ).rejects.toBeInstanceOf(TenantDataResidencyError);
+    expect(http.calls.some((call) => call.url.endsWith("/prepare-compiler-input"))).toBe(false);
+    expect(grpc.compileArchitectureWorkflowCalls).toHaveLength(0);
+  });
+});
 
 describe("PlannerFacadeService.planWorkflow", () => {
   it("real happy path: understand -> decompose -> prepare-compiler-input -> compile", async () => {

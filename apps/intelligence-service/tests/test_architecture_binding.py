@@ -84,6 +84,38 @@ async def test_binding_is_policy_filtered_and_version_pinned() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("allowed_data_residency", "binds"),
+    [([], True), (["eu"], True), (["us"], False)],
+)
+async def test_binding_applies_the_same_residency_rule_as_synthesis(
+    allowed_data_residency: list[str], binds: bool
+) -> None:
+    # Found live through prepare-compiler-input: synthesis called an EU-only
+    # record usable by a tenant with no residency constraint, and binding then
+    # blocked the same architecture with its own stricter copy of the check.
+    eu_only = CapabilityRecord.model_validate(
+        record("eu-only").model_dump() | {"constraints": {"data_residency": ["eu"]}}
+    )
+    value = request()
+    constrained = value.model_copy(
+        update={
+            "architecture": value.architecture.model_copy(
+                update={
+                    "constraints": SynthesisConstraints(
+                        allowed_data_residency=allowed_data_residency
+                    )
+                }
+            )
+        }
+    )
+
+    outcome = await ArchitectureBinder(Registry([eu_only])).bind(constrained)  # type: ignore[arg-type]
+
+    assert (outcome.status == "ready") is binds
+
+
+@pytest.mark.asyncio
 async def test_no_policy_eligible_candidate_blocks() -> None:
     binder = ArchitectureBinder(Registry([record("inactive", available=False)]))  # type: ignore[arg-type]
     outcome = await binder.bind(request(BindingPolicy(allowed_kinds=["tool"])))

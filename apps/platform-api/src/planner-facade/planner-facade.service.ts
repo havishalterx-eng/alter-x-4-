@@ -4,6 +4,7 @@ import { CompilerServiceClient } from "./compiler-client";
 import { randomUUID } from "node:crypto";
 import { getCompilerProtoPath } from "./compiler-client";
 import { ENGINE_M2M_TOKEN_PROVIDER, type EngineM2mTokenProvider } from "../engine/auth";
+import { TenantResidencyRepository } from "./tenant-residency.repository";
 
 export function createFetchPlannerHttpClient(tokenProvider: () => Promise<string>): PlannerHttpClient {
   return {
@@ -38,6 +39,12 @@ export interface PlanWorkflowInput {
   readonly workspaceId: string;
   readonly workflowId: string;
   readonly objective: string;
+  readonly constraints?: {
+    readonly customer_visible?: boolean | undefined;
+    readonly human_approval_required?: boolean | undefined;
+    readonly verification_required?: boolean | undefined;
+    readonly contains_pii?: boolean | undefined;
+  };
 }
 
 export type PlanWorkflowResult = 
@@ -51,6 +58,9 @@ export class PlannerFacadeService {
 
   constructor(
     @Inject(ENGINE_M2M_TOKEN_PROVIDER) private readonly m2mTokenProvider: EngineM2mTokenProvider,
+    // Required, not @Optional: a missing reader must not quietly plan every
+    // tenant as if it pinned no residency.
+    private readonly tenantResidency: TenantResidencyRepository,
     // Both real clients already support an injectable transport
     // (PlannerClient's httpClient param, CompilerServiceClient's raw gRPC
     // client param) -- @Optional() here just lets a test construct this
@@ -109,6 +119,15 @@ export class PlannerFacadeService {
       tenant_id: tenantId,
       workspace_id: workspaceId,
       task_skeleton: JSON.parse(decomposeResponse.task_skeleton_json),
+      // Until this was sent the synthesizer always ran on defaults, so no
+      // declared constraint and no tenant residency ever reached an architecture.
+      constraints: {
+        customer_visible: input.constraints?.customer_visible ?? false,
+        human_approval_required: input.constraints?.human_approval_required ?? false,
+        verification_required: input.constraints?.verification_required ?? false,
+        contains_pii: input.constraints?.contains_pii ?? false,
+        allowed_data_residency: await this.tenantResidency.allowedDataResidency(input.tenantId),
+      },
     });
     if (prepared.status !== "ready") throw new Error("Architecture pipeline blocked compilation");
     const compileResponse = await this.compilerClient.compileArchitectureWorkflow({

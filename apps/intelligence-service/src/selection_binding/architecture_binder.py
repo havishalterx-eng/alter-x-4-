@@ -1,5 +1,6 @@
 """Registry- and ArchitectureSpec-driven concrete capability binding."""
 
+from src.architecture_synthesizer.registry_client import within_allowed
 from src.capability_registry.models import CapabilityRecord, CapabilitySearch
 from src.capability_registry.repository import CapabilityRegistryRepository
 
@@ -72,15 +73,12 @@ def _eligible(candidate: CapabilityRecord, request: BindingRequest) -> bool:
         candidate.constraints.required_permissions
     ).issubset(constraints.allowed_permissions):
         return False
-    if candidate.constraints.regions and not set(candidate.constraints.regions) & set(
-        constraints.allowed_regions
-    ):
+    # Same rule synthesis applied. Binding kept its own copy, which still treated
+    # a residency-restricted record as unusable by a tenant that sets no
+    # residency, so an architecture synthesis called ready was then blocked here.
+    if not within_allowed(candidate.constraints.regions, constraints.allowed_regions):
         return False
-    if candidate.constraints.data_residency and not set(candidate.constraints.data_residency) & set(
-        constraints.allowed_data_residency
-    ):
-        return False
-    return True
+    return within_allowed(candidate.constraints.data_residency, constraints.allowed_data_residency)
 
 
 def _score(candidate: CapabilityRecord, request: BindingRequest) -> tuple[float, dict[str, float]]:

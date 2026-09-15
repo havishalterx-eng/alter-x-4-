@@ -16,9 +16,22 @@ import { z } from "zod";
 
 const writeRoles = ["admin", "editor"] as const;
 
+// What the caller knows about this run. Every flag can only add verification or
+// approval to the architecture; none removes the gate before external actions.
+// Residency is not here on purpose: it is tenant-owned and read from the tenant.
+export const PlanRunConstraintsSchema = z
+  .object({
+    customer_visible: z.boolean().optional(),
+    human_approval_required: z.boolean().optional(),
+    verification_required: z.boolean().optional(),
+    contains_pii: z.boolean().optional(),
+  })
+  .strict();
+
 export const PlanWorkflowBodySchema = z.object({
   goal: z.string().min(1),
   answers: z.record(z.string(), z.string()).optional(),
+  constraints: PlanRunConstraintsSchema.optional(),
 });
 
 @Controller("/api/v1/workflows/:workflowId/actions")
@@ -52,6 +65,7 @@ export class PlannerFacadeController {
       workspaceId: actor.workspace_id ?? "",
       workflowId,
       objective,
+      constraints: parsed.constraints ?? {},
     });
   }
 }

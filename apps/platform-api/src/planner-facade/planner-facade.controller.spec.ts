@@ -17,6 +17,7 @@ import { RbacModule, type ActorContextType, type RbacRequest } from "../rbac";
 import { CompilerServiceClient } from "./compiler-client";
 import { PlannerFacadeController } from "./planner-facade.controller";
 import { PlannerFacadeService } from "./planner-facade.service";
+import type { TenantResidencyRepository } from "./tenant-residency.repository";
 import { ENGINE_M2M_TOKEN_PROVIDER } from "../engine/auth";
 import type {
   CompilerCompileArchitectureWorkflowRequest,
@@ -170,6 +171,7 @@ describe("PlannerFacadeController routes", () => {
   const http = new FakePlannerHttpClient();
   const grpc = new FakeCompilerGrpcClient();
   const store = new MemoryIdempotencyStore();
+  const residency = { allowedDataResidency: vi.fn().mockResolvedValue(["eu"]) };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -181,6 +183,7 @@ describe("PlannerFacadeController routes", () => {
           useFactory: () =>
             new PlannerFacadeService(
               { getAccessToken: vi.fn().mockResolvedValue("m2m-token") },
+              residency as unknown as TenantResidencyRepository,
               new PlannerClient({ baseUrl: "http://intelligence.internal" }, http),
               new CompilerServiceClient(
                 { address: "orchestration.internal:50071", protoPath: "/dev/null" },
@@ -295,6 +298,36 @@ describe("PlannerFacadeController routes", () => {
     expect(first.json()).toEqual(replay.json());
     expect(grpc.compileArchitectureWorkflowCalls).toHaveLength(1);
     expect(http.calls.filter((call) => call.url.endsWith("/planner/decompose"))).toHaveLength(1);
+  });
+
+  it("passes declared run constraints and the tenant's residency through to synthesis", async () => {
+    const response = await request("POST", `/api/v1/workflows/${workflowId}/actions/plan`, actor, {
+      key: "plan-constraints",
+      body: { goal: "Email the customers", constraints: { human_approval_required: true } },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const prepare = http.calls.filter((call) => call.url.endsWith("/prepare-compiler-input")).at(-1);
+    expect((prepare!.body as { constraints: unknown }).constraints).toEqual({
+      customer_visible: false,
+      human_approval_required: true,
+      verification_required: false,
+      contains_pii: false,
+      allowed_data_residency: ["eu"],
+    });
+  });
+
+  it("rejects residency in the request body: it is tenant-owned", async () => {
+    const before = http.calls.length;
+    const response = await request("POST", `/api/v1/workflows/${workflowId}/actions/plan`, actor, {
+      key: "plan-residency-in-body",
+      body: { goal: "Email the customers", constraints: { allowed_data_residency: ["us"] } },
+    });
+
+    // Same undecorated 500 as the blank-goal case below; what matters is that
+    // no Planner call is made with a caller-chosen residency.
+    expect(response.statusCode).toBe(500);
+    expect(http.calls).toHaveLength(before);
   });
 
   it("real body validation: a blank goal is rejected before any Planner call", async () => {
