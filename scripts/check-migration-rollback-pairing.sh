@@ -14,8 +14,25 @@ set -euo pipefail
 
 failures=0
 
-for drizzle_dir in apps/*/drizzle; do
-  [ -d "$drizzle_dir" ] || continue
+# Every directory of SQL migrations that keeps its rollbacks in a rollback/
+# subdirectory. apps/*/drizzle was the whole list until issue #171:
+# platform-api keeps its migrations under src/db/ instead, so its marketplace
+# set was never scanned -- and marketplace-migrations/0003_search_indexes.sql
+# duly shipped with no rollback file, with nothing anywhere to catch it.
+#
+# platform-api's main src/db/migrations is deliberately NOT listed: it has no
+# rollback/ directory at all, for any of its 24 migrations. That is a real gap,
+# but writing those rollbacks is its own change -- listing it here would just
+# mean a permanently red build.
+migration_dirs() {
+  local dir
+  for dir in apps/*/drizzle apps/platform-api/src/db/marketplace-migrations; do
+    [ -d "$dir" ] && printf '%s\n' "$dir"
+  done
+  return 0
+}
+
+while IFS= read -r drizzle_dir; do
   rollback_dir="$drizzle_dir/rollback"
   if [ ! -d "$rollback_dir" ]; then
     echo "missing rollback directory: $rollback_dir" >&2
@@ -30,7 +47,7 @@ for drizzle_dir in apps/*/drizzle; do
       failures=$((failures + 1))
     fi
   done
-done
+done < <(migration_dirs)
 
 for versions_dir in apps/*/alembic/versions; do
   [ -d "$versions_dir" ] || continue

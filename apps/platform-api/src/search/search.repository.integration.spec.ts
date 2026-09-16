@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
+import { applyMarketplaceMigrations } from "../db/marketplace-migrator";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { MarketplaceSearchRepository } from "./search.repository";
 
@@ -35,7 +34,7 @@ describe("MarketplaceSearchRepository PostgreSQL integration", () => {
     // it. Pinning the migration to SCHEMA public (0003_search_indexes.sql)
     // and keeping public on every test's search_path here makes that
     // deterministic instead of only ever working for the first test.
-    await admin.query(`SET search_path TO "${schemaName}", public`); await migrations(admin);
+    await admin.query(`SET search_path TO "${schemaName}", public`); await applyMarketplaceMigrations(admin);
     const password = randomUUID(); await admin.query(`CREATE ROLE "${roleName}" LOGIN PASSWORD '${password}'`); await admin.query(`GRANT USAGE ON SCHEMA "${schemaName}" TO "${roleName}"`); await admin.query(`GRANT USAGE ON SCHEMA public TO "${roleName}"`); await admin.query(`GRANT SELECT ON ALL TABLES IN SCHEMA "${schemaName}" TO "${roleName}"`);
     const url = new URL(container.getConnectionUri()); url.username = roleName; url.password = password; url.searchParams.set("options", `-c search_path=${schemaName},public`);
     pool = new pg.Pool({ connectionString: url.toString() }); repository = new MarketplaceSearchRepository(pool);
@@ -78,4 +77,3 @@ describe("MarketplaceSearchRepository PostgreSQL integration", () => {
   async function tool(id: string, tenantId: string, name: string, trustLevel: string, status: string) { await admin.query("INSERT INTO tool_manifests (id, tenant_id, name, ecosystem, trust_level, status) VALUES ($1,$2,$3,'npm',$4,$5)", [id, tenantId, name, trustLevel, status]); }
 });
 
-async function migrations(client: pg.Client): Promise<void> { const directory = join(__dirname, "../db/marketplace-migrations"); for (const file of readdirSync(directory).filter((name) => name.endsWith(".sql")).sort()) for (const statement of readFileSync(join(directory, file), "utf8").split("--> statement-breakpoint").map((value) => value.trim()).filter(Boolean)) await client.query(statement); }

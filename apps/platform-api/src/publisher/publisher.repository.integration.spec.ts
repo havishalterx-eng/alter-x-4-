@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import pg from "pg";
+import { applyMarketplaceMigrations } from "../db/marketplace-migrator";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PublisherRepository } from "./publisher.repository";
 
@@ -24,18 +23,9 @@ describe.skipIf(!databaseUrl)("PublisherRepository PostgreSQL", () => {
     // (see 0003_search_indexes.sql), so gin_trgm_ops needs to resolve from
     // there regardless of which spec's migration run actually created it.
     await admin.query(`SET search_path TO "${schemaName}", public`);
-    // CREATE EXTENSION IF NOT EXISTS is not safe under true concurrent
-    // execution -- multiple integration-spec files run in parallel vitest
-    // workers against the same physical database and can race on the
-    // shared pg_extension catalog row for pg_trgm. Serialize with a fixed
-    // advisory lock key shared by every caller of applyMigrations/
-    // migrations() across marketplace/publisher/registry/search specs.
-    await admin.query("SELECT pg_advisory_lock(729312)");
-    try {
-      await applyMigrations(admin);
-    } finally {
-      await admin.query("SELECT pg_advisory_unlock(729312)");
-    }
+    // The advisory lock and the copied apply loop that used to sit here both
+    // live in applyMarketplaceMigrations now, so every caller gets them.
+    await applyMarketplaceMigrations(admin);
     const url = new URL(databaseUrl);
     url.searchParams.set("options", `-c search_path=${schemaName},public`);
     pool = new pg.Pool({ connectionString: url.toString() });
@@ -83,8 +73,3 @@ describe.skipIf(!databaseUrl)("PublisherRepository PostgreSQL", () => {
   });
 });
 
-async function applyMigrations(client: pg.Client): Promise<void> {
-  const directory = join(__dirname, "../db/marketplace-migrations");
-  const sql = readdirSync(directory).filter((file) => file.endsWith(".sql")).sort().map((file) => readFileSync(join(directory, file), "utf8")).join("\n--> statement-breakpoint\n");
-  for (const statement of sql.split("--> statement-breakpoint").map((value) => value.trim()).filter(Boolean)) await client.query(statement);
-}
