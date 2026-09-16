@@ -136,9 +136,9 @@ export function parseAdsId(
 // ENGINE-FIX-B5-2: replaceSourcePermissions/updateDocumentPermissions used
 // to hardcode `ifMatch: "*"` regardless of what the caller actually sent,
 // which disables optimistic-concurrency protection the same way every
-// sibling resource (workflows, triggers, voice, onboarding) requires a real
-// caller-supplied If-Match. Mirrors voice's requireIfMatch (channels/voice
-// /validation.ts) with an Ads-branded error instead of a cross-module one.
+// sibling resource (workflows, triggers, onboarding) requires a real
+// caller-supplied If-Match, with an Ads-branded error instead of a
+// cross-module one.
 export function requireIfMatch(value: string | undefined, instance: string): string {
   if (!value) {
     throw new AdsHttpError(

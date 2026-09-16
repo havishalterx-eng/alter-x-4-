@@ -55,16 +55,6 @@ import {
   WorkflowDagCompiledSchema,
   WorkflowDagDraftSchema,
 } from "./workflow-dag";
-import {
-  CreateVoiceNumberBindingRequestSchema,
-  InitiateVoiceCallRequestSchema,
-  UpdateVoiceCallHandlingRequestSchema,
-  VoiceAccountHealthSchema,
-  VoiceCapabilitiesSchema,
-  VoiceCallSchema,
-  VoiceNumberBindingListSchema,
-  VoiceNumberBindingSchema,
-} from "./voice";
 import { z } from "./zod";
 
 type HttpMethod = "get" | "post" | "put" | "patch" | "delete";
@@ -310,61 +300,6 @@ export const V1_ROUTE_SPECS: readonly V1RouteSpec[] = [
   { method: "get", path: "/integrations", summary: "List integrations", tag: "Resources", collection: true },
   { method: "post", path: "/integrations", summary: "Create integration", tag: "Resources", successStatus: 201 },
   { method: "post", path: "/integrations/{id}/actions/test", summary: "Test integration", tag: "Resources" },
-  {
-    method: "post",
-    path: "/channels/voice/numbers",
-    summary: "Bind voice number",
-    tag: "Voice channels",
-    successStatus: 201,
-    requestBodySchema: CreateVoiceNumberBindingRequestSchema,
-    responseSchema: VoiceNumberBindingSchema,
-  },
-  {
-    method: "get",
-    path: "/channels/voice/numbers",
-    summary: "List voice number bindings",
-    tag: "Voice channels",
-    collection: true,
-    responseSchema: VoiceNumberBindingListSchema,
-  },
-  {
-    method: "get",
-    path: "/channels/voice/numbers/{id}",
-    summary: "Get voice number binding",
-    tag: "Voice channels",
-    responseSchema: VoiceNumberBindingSchema,
-  },
-  {
-    method: "patch",
-    path: "/channels/voice/numbers/{id}/call-handling",
-    summary: "Configure voice call handling",
-    tag: "Voice channels",
-    requestBodySchema: UpdateVoiceCallHandlingRequestSchema,
-    responseSchema: VoiceNumberBindingSchema,
-  },
-  {
-    method: "post",
-    path: "/channels/voice/calls",
-    summary: "Initiate voice call",
-    tag: "Voice channels",
-    successStatus: 202,
-    requestBodySchema: InitiateVoiceCallRequestSchema,
-    responseSchema: VoiceCallSchema,
-  },
-  {
-    method: "get",
-    path: "/channels/voice/numbers/{id}/health",
-    summary: "Get voice number health",
-    tag: "Voice channels",
-    responseSchema: VoiceAccountHealthSchema,
-  },
-  {
-    method: "get",
-    path: "/channels/voice/numbers/{id}/capabilities",
-    summary: "Get voice number capabilities",
-    tag: "Voice channels",
-    responseSchema: VoiceCapabilitiesSchema,
-  },
   { method: "get", path: "/artifacts/{id}", summary: "Get artifact metadata", tag: "Resources" },
   { method: "get", path: "/artifacts/{id}/download", summary: "Get artifact download URL", tag: "Resources" },
   { method: "get", path: "/deployments/{id}", summary: "Get deployment", tag: "Resources" },
@@ -584,23 +519,6 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
     ],
     [SignedReferenceSchema, registry.register("SignedReference", SignedReferenceSchema)],
     [
-      VoiceNumberBindingSchema,
-      registry.register("VoiceNumberBinding", VoiceNumberBindingSchema),
-    ],
-    [
-      VoiceNumberBindingListSchema,
-      registry.register("VoiceNumberBindingList", VoiceNumberBindingListSchema),
-    ],
-    [VoiceCallSchema, registry.register("VoiceCall", VoiceCallSchema)],
-    [
-      VoiceAccountHealthSchema,
-      registry.register("VoiceAccountHealth", VoiceAccountHealthSchema),
-    ],
-    [
-      VoiceCapabilitiesSchema,
-      registry.register("VoiceCapabilities", VoiceCapabilitiesSchema),
-    ],
-    [
       AdsRetrievalResponseSchema,
       registry.register("AdsRetrievalResponse", AdsRetrievalResponseSchema),
     ],
@@ -628,24 +546,6 @@ export function createOpenApiDocument(): AlterOpenApiDocument {
     [
       TestVersionRequestSchema,
       registry.register("TestVersionRequest", TestVersionRequestSchema),
-    ],
-    [
-      CreateVoiceNumberBindingRequestSchema,
-      registry.register(
-        "CreateVoiceNumberBindingRequest",
-        CreateVoiceNumberBindingRequestSchema,
-      ),
-    ],
-    [
-      UpdateVoiceCallHandlingRequestSchema,
-      registry.register(
-        "UpdateVoiceCallHandlingRequest",
-        UpdateVoiceCallHandlingRequestSchema,
-      ),
-    ],
-    [
-      InitiateVoiceCallRequestSchema,
-      registry.register("InitiateVoiceCallRequest", InitiateVoiceCallRequestSchema),
     ],
     [
       AdsRetrievalRequestSchema,

@@ -309,38 +309,6 @@ const methods = `
     if (idx > -1) mockWhatsAppChannels.splice(idx, 1)
   }
 
-  async getVoiceChannels(): Promise<VoiceChannel[]> {
-    await delay(MOCK_DELAY)
-    return mockVoiceChannels
-  }
-
-  async createVoiceChannel(data: Partial<VoiceChannel>): Promise<VoiceChannel> {
-    await delay(MOCK_DELAY * 2)
-    const ch: VoiceChannel = {
-      id: \`vc_\${Date.now()}\`,
-      name: data.name || "New Channel",
-      phoneNumber: data.phoneNumber,
-      provider: data.provider || "mock",
-      status: "connected",
-      connectionId: data.connectionId,
-      voice: data.voice,
-      language: data.language,
-      createdAt: new Date().toISOString(),
-    }
-    mockVoiceChannels.push(ch)
-    return ch
-  }
-
-  async testVoiceChannel(_id: string): Promise<{ success: boolean; message: string }> {
-    await delay(MOCK_DELAY)
-    return { success: true, message: "Test call initiated successfully." }
-  }
-
-  async deleteVoiceChannel(id: string): Promise<void> {
-    await delay(MOCK_DELAY)
-    const idx = mockVoiceChannels.findIndex(c => c.id === id)
-    if (idx > -1) mockVoiceChannels.splice(idx, 1)
-  }
 `;
 
 content = content.replace(/}\s*export const api = new ApiClient\(\)\s*$/, methods + '\\n}\\n\\nexport const api = new ApiClient()\\n');

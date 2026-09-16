@@ -15,7 +15,7 @@ export type ConversationLifecycleStatus = "active" | "idle" | "closed";
 
 export interface IncomingConversationMessage {
   readonly messageId: string;
-  readonly channel: "web" | "whatsapp" | "voice" | "api";
+  readonly channel: "web" | "whatsapp" | "api";
   readonly payload: JsonValue;
   readonly receivedAt: string;
 }

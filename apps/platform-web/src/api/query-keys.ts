@@ -108,10 +108,6 @@ export const queryKeys = {
       list: ["channels", "whatsapp", "list"] as const,
       detail: (id: string) => ["channels", "whatsapp", "detail", id] as const,
     },
-    voice: {
-      list: ["channels", "voice", "list"] as const,
-      detail: (id: string) => ["channels", "voice", "detail", id] as const,
-    },
   },
 
   // Phase 8

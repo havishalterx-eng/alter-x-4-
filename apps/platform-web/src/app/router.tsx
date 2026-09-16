@@ -46,7 +46,6 @@ import { IntegrationCatalogPage } from "@/features/connections/pages/catalog"
 import { ConnectionDetailPage } from "@/features/connections/pages/connection-detail"
 import { CredentialsVaultPage } from "@/features/connections/pages/credentials-vault"
 import { WhatsAppChannelPage } from "@/features/connections/pages/whatsapp-channel"
-import { VoiceChannelPage } from "@/features/connections/pages/voice-channel"
 import { MoneyLayout } from "@/features/money/layout/money-layout"
 import { UsageOverviewPage } from "@/features/money/pages/usage-overview"
 import { UsageCostsPage } from "@/features/money/pages/usage-costs"
@@ -294,10 +293,6 @@ export const router = createBrowserRouter([
       {
         path: "connections/whatsapp",
         element: <RequirePermission permission="channel.read"><WhatsAppChannelPage /></RequirePermission>
-      },
-      {
-        path: "connections/voice",
-        element: <RequirePermission permission="channel.read"><VoiceChannelPage /></RequirePermission>
       },
       {
         path: "connections/:id",
