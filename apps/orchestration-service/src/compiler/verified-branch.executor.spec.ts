@@ -1,5 +1,5 @@
-import { TestWorkflowEnvironment } from "@temporalio/testing";
-import { createExecutorWorker, type ExecutorActivities } from "@alterx/adapters";
+import type { ExecutorActivities } from "@alterx/adapters";
+import { createExecutorTestHarness, type ExecutorTestHarness } from "@alterx/adapters/testing";
 import type { CompiledDag } from "@alterx/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -14,32 +14,33 @@ import { compileTaskSkeletonToDag } from "./dag-builder";
  *
  * Activities stand in for handlers: a branch activates the successors whose
  * condition is the literal "true"; a verification gate passes and activates
- * its protected node; everything else returns its own key.
+ * its protected node; everything else returns its own key. Calls are recorded
+ * per run, so one harness serves every case.
  */
-function activities(called: string[]): ExecutorActivities {
-  return {
-    async executeNode(input) {
-      called.push(input.nodeKey);
-      const config = JSON.parse(input.configJson) as {
-        conditions?: Record<string, string>;
-        verification?: { protected_node_key: string };
-      };
-      const output =
-        config.verification !== undefined
-          ? { activeSuccessors: [config.verification.protected_node_key], verification_status: "passed" }
-          : config.conditions !== undefined
-            ? {
-                activeSuccessors: Object.entries(config.conditions)
-                  .filter(([, expression]) => expression === "true")
-                  .map(([key]) => key),
-              }
-            : { from: input.nodeKey };
-      return { outputJson: JSON.stringify(output), metadataJson: "{}" };
-    },
-    async finalizeRun() {},
-    async recordApprovalDecision() {},
-  };
-}
+const calledByRun = new Map<string, string[]>();
+
+const activities: ExecutorActivities = {
+  async executeNode(input) {
+    calledByRun.set(input.runId, [...(calledByRun.get(input.runId) ?? []), input.nodeKey]);
+    const config = JSON.parse(input.configJson) as {
+      conditions?: Record<string, string>;
+      verification?: { protected_node_key: string };
+    };
+    const output =
+      config.verification !== undefined
+        ? { activeSuccessors: [config.verification.protected_node_key], verification_status: "passed" }
+        : config.conditions !== undefined
+          ? {
+              activeSuccessors: Object.entries(config.conditions)
+                .filter(([, expression]) => expression === "true")
+                .map(([key]) => key),
+            }
+          : { from: input.nodeKey };
+    return { outputJson: JSON.stringify(output), metadataJson: "{}" };
+  },
+  async finalizeRun() {},
+  async recordApprovalDecision() {},
+};
 
 function skeletonDag(routeTo: string, withDataInput: boolean): CompiledDag {
   return compileTaskSkeletonToDag(
@@ -83,14 +84,14 @@ function architectureDag(routeTo: string): CompiledDag {
 }
 
 describe.sequential("verified branch routing on a real executor", () => {
-  let environment: TestWorkflowEnvironment;
+  let harness: ExecutorTestHarness;
 
   beforeAll(async () => {
-    environment = await TestWorkflowEnvironment.createLocal();
+    harness = await createExecutorTestHarness("verified-branch-routing", activities);
   }, 180_000);
 
   afterAll(async () => {
-    await environment?.teardown();
+    await harness?.teardown();
   });
 
   it.each([
@@ -101,25 +102,8 @@ describe.sequential("verified branch routing on a real executor", () => {
     ["architecture: branch routes to the action", () => architectureDag("true"), true],
     ["architecture: branch routes away", () => architectureDag("false"), false],
   ] as const)("%s", { timeout: 120_000 }, async (name, build, actionRuns) => {
-    const taskQueue = `verified-branch-${name.replaceAll(/[^a-z]+/g, "-")}`;
-    const called: string[] = [];
-    const worker = await createExecutorWorker(
-      { address: environment.address, namespace: environment.namespace ?? "default", taskQueue },
-      environment.nativeConnection,
-      activities(called),
-    );
-    const running = worker.run();
-    try {
-      const handle = await environment.client.workflow.start("executorWorkflow", {
-        taskQueue,
-        workflowId: `${taskQueue}-workflow`,
-        args: [{ tenantId: "ten_test", runId: "run_test", compiledDagJson: JSON.stringify(build()) }],
-      });
-      await handle.result();
-      expect(called.includes("send")).toBe(actionRuns);
-    } finally {
-      worker.shutdown();
-      await running;
-    }
+    const runId = `run_${name.replaceAll(/[^a-z]+/g, "_")}`;
+    await harness.run(`verified-branch-${runId}`, { tenantId: "ten_test", runId, compiledDagJson: JSON.stringify(build()) });
+    expect((calledByRun.get(runId) ?? []).includes("send")).toBe(actionRuns);
   });
 });
