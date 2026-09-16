@@ -172,7 +172,7 @@ describe("defaultWorkspaceResolutionRules dispatch", () => {
 
   it("keeps unrelated generic :id routes unbound (documented legacy path)", async () => {
     await expect(
-      resolver.resolveWorkspaceId(request({ id: triggerId }, "/api/v1/channels/voice/id")),
+      resolver.resolveWorkspaceId(request({ id: triggerId }, "/api/v1/unrelated-resource/id")),
     ).resolves.toBeUndefined();
   });
 });

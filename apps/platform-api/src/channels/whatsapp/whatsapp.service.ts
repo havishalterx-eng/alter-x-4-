@@ -95,12 +95,10 @@ export class WhatsappService {
   }
 
   // Confirms accountId belongs to the caller's own workspace before any
-  // by-id operation touches it -- defense in depth mirroring Voice's
-  // requireOwnBinding (see voice.service.ts). list() already asks Engine
+  // by-id operation touches it -- defense in depth. list() already asks Engine
   // with the caller's own tenantId/workspaceId, but that alone means
   // trusting Engine's list endpoint to have actually scoped by workspace
-  // (not just tenant) -- the same blind-trust gap Voice's own comment
-  // warns against. Re-checking the resolved account's workspaceId locally
+  // (not just tenant), a blind-trust gap. Re-checking the resolved account's workspaceId locally
   // means a Engine list that only scopes by tenant (or regresses to that)
   // can't leak a cross-workspace account through this path either.
   private async account(accountId: string, context: EngineCallerContext): Promise<WhatsappAccount> {

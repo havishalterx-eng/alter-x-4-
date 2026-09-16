@@ -31,7 +31,6 @@ import {
   type SpeechToTextProvider,
   type TextToSpeechProvider,
   type VectorStoreProvider,
-  type VoiceProvider,
 } from "./provider-types";
 
 type MarkerProviders =
@@ -62,11 +61,10 @@ type MarkerProviders =
   | SearchProvider
   | SpeechToTextProvider
   | TextToSpeechProvider
-  | VectorStoreProvider
-  | VoiceProvider;
+  | VectorStoreProvider;
 
 describe("canonical provider interface surface", () => {
-  it("locks all 36 provider interface names exactly once", () => {
+  it("locks all 35 provider interface names exactly once", () => {
     expect(CANONICAL_PROVIDER_INTERFACES).toEqual([
       "DurableExecutionProvider",
       "ComputeProvider",
@@ -100,12 +98,11 @@ describe("canonical provider interface surface", () => {
       "GPUComputeProvider",
       "NetworkConnectivityProvider",
       "AuditStoreProvider",
-      "VoiceProvider",
       "NotificationProvider",
       "EmailProvider",
       "StatusPageProvider",
     ]);
-    expect(new Set(CANONICAL_PROVIDER_INTERFACES)).toHaveLength(36);
+    expect(new Set(CANONICAL_PROVIDER_INTERFACES)).toHaveLength(35);
     expectTypeOf<MarkerProviders>().toMatchTypeOf<BaseProvider>();
   });
 

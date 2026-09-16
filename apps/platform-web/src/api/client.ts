@@ -28,7 +28,7 @@ import {
   mockHumanActions, mockHumanAnnotations, mockRecoveryEvents, mockWorkflowHealth,
   mockConversations, mockConversationMessages, mockTriggers, mockWebhooks, mockEvents, mockDashboardOverview,
   mockKnowledgeSources, mockKnowledgeDocuments, mockIntegrationDefinitions, mockConnections,
-  mockCredentials, mockWhatsAppChannels, mockVoiceChannels, mockMemoryConfig
+  mockCredentials, mockWhatsAppChannels, mockMemoryConfig
 } from "./mock/data"
 import { 
   type Workflow, type Run, type DashboardSummary, 
@@ -39,7 +39,7 @@ import {
   type HumanAction, type HumanActionType, type HumanAnnotation, type RecoveryEvent, type WorkflowHealth, type NodeVerification,
   type Conversation, type ConversationMessage, type Trigger, type WebhookEndpoint, type IncomingEvent, type DashboardOverview,
   type KnowledgeSource, type KnowledgeDocument, type IntegrationDefinition, type Connection,
-  type Credential, type WhatsAppChannel, type VoiceChannel, type MemoryConfiguration, type RetrievalResult
+  type Credential, type WhatsAppChannel, type MemoryConfiguration, type RetrievalResult
 } from "./types"
 
 const MOCK_DELAY = 600
@@ -1152,48 +1152,6 @@ class ApiClient {
     if (idx > -1) mockWhatsAppChannels.splice(idx, 1)
   }
 
-  async getVoiceChannels(): Promise<VoiceChannel[]> {
-    if (isLiveApi) return live.getVoiceChannels()
-    await delay(MOCK_DELAY)
-    return mockVoiceChannels
-  }
-
-  async createVoiceChannel(data: Partial<VoiceChannel>): Promise<VoiceChannel> {
-    if (isLiveApi) return live.createVoiceChannel(data)
-    await delay(MOCK_DELAY * 2)
-    const ch: VoiceChannel = {
-      id: `vc_${Date.now()}`,
-      name: data.name || "New Channel",
-      phoneNumber: data.phoneNumber,
-      provider: data.provider || "mock",
-      status: "connected",
-      connectionId: data.connectionId,
-      voice: data.voice,
-      language: data.language,
-      createdAt: new Date().toISOString(),
-    }
-    mockVoiceChannels.push(ch)
-    return ch
-  }
-
-  async testVoiceChannel(_id: string): Promise<{ success: boolean; message: string }> {
-    // Not wired -- "Test call initiated successfully." is the language
-    // of a real outbound call (POST /api/v1/channels/voice/calls,
-    // 202 Accepted, needs a real to_phone_number), not the separate
-    // lightweight GET .../numbers/:id/health config check. Needs a real
-    // "place a test call to" form first. See PR description.
-    await delay(MOCK_DELAY)
-    return { success: true, message: "Test call initiated successfully." }
-  }
-
-  async deleteVoiceChannel(id: string): Promise<void> {
-    // Not wired -- no delete/release/deactivate route exists for a bound
-    // voice number at all. See PR description for what real release
-    // would need.
-    await delay(MOCK_DELAY)
-    const idx = mockVoiceChannels.findIndex(c => c.id === id)
-    if (idx > -1) mockVoiceChannels.splice(idx, 1)
-  }
 }
 
 

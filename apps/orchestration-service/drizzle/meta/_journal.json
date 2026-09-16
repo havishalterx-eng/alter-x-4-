@@ -267,6 +267,13 @@
       "when": 1786904003000,
       "tag": "0037_drop_workflow_version_requirements_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786904004000,
+      "tag": "0038_remove_voice_conversation_channel",
+      "breakpoints": true
     }
   ]
 }

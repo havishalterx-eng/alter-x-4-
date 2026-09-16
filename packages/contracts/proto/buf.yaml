@@ -7,3 +7,7 @@ lint:
 breaking:
   use:
     - FILE
+  # Voice was removed from the build on purpose (#183); VoiceService never had
+  # a server or a client, so deleting its contract breaks no caller.
+  ignore:
+    - alter/voice

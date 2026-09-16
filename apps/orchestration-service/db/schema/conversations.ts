@@ -31,7 +31,7 @@ export const conversations = pgTable(
   (table) => [
     check(
       "conversations_channel_check",
-      sql`${table.channel} IN ('web', 'whatsapp', 'voice', 'api')`,
+      sql`${table.channel} IN ('web', 'whatsapp', 'api')`,
     ),
     check(
       "conversations_status_check",

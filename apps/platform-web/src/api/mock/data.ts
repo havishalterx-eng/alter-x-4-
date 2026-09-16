@@ -675,7 +675,6 @@ import type {
   Connection,
   Credential,
   WhatsAppChannel,
-  VoiceChannel,
   MemoryConfiguration
 } from "../types"
 
@@ -929,18 +928,5 @@ export const mockWhatsAppChannels: WhatsAppChannel[] = [
     status: "connected",
     provider: "meta",
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 15).toISOString(),
-  }
-]
-
-export const mockVoiceChannels: VoiceChannel[] = [
-  {
-    id: "vc_01",
-    name: "Inbound Triage Line",
-    provider: "twilio",
-    phoneNumber: "+1 (555) 987-6543",
-    status: "connected",
-    voice: "Alice",
-    language: "en-US",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 20).toISOString(),
   }
 ]

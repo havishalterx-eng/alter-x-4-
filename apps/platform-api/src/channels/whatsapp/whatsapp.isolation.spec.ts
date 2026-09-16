@@ -146,8 +146,7 @@ describe("WhatsApp cross-tenant isolation (CONN-ISO)", () => {
 // resolve another workspace's account by id. This worst-case Engine
 // deliberately does NOT scope by workspace (only by tenant, unlike
 // FakeEngineClient above) to prove the local re-check in account() is what
-// actually enforces the boundary, mirroring Voice's own "worst-case Engine"
-// test in voice.isolation.spec.ts.
+// actually enforces the boundary.
 const workspaceAAccount = {
   id: "wac_workspace_a",
   workspaceId: "ws_workspace_a",
