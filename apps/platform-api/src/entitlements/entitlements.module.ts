@@ -7,6 +7,7 @@ import { LocalFileConfigProvider } from "./adapters/local-file/local-file-config
 import { ENTITLEMENT_PROVIDER } from "./entitlement-provider.interface";
 import { PostgresEntitlementStore } from "./entitlement-store";
 import { PlanDefinitionConfigProvider } from "./plan-definition-config-provider";
+import { platformApiConfigSource } from "../config/env.schema";
 import {
   PLAN_DEFINITION_STORE,
   PostgresPlanDefinitionStore,
@@ -30,7 +31,7 @@ const ENTITLEMENT_STORE = Symbol("ENTITLEMENT_STORE");
       inject: [PLAN_DEFINITION_STORE],
       useFactory: (planDefinitions: PlanDefinitionStore): ConfigProvider => {
         const baseline =
-          process.env.ALTER_CONFIG_SOURCE === "appconfig"
+          platformApiConfigSource() === "appconfig"
             ? new AppConfigConfigProvider({
                 applicationIdentifier: process.env.APPCONFIG_APP_ID!,
                 environmentIdentifier: process.env.APPCONFIG_ENV_ID!,

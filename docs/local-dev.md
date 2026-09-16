@@ -413,8 +413,13 @@ Requires platform-db (Postgres, port 5432). `IDENTITY_PROVIDER` and
 (`apps/platform-api/src/identity/identity.module.ts`,
 `packages/adapters/src/ses/resolve-email-provider.ts`) â€” leave them unset
 and Auth0/Google OAuth and SES are already replaced by mock
-implementations, no `.env.local` entry needed. `ALTER_CONFIG_SOURCE=local-file`
-*is* set in `.env.local` and is what replaces AppConfig with the mock.
+implementations, no `.env.local` entry needed. AppConfig is replaced by
+`local-file`, which platform-api reads from `PLATFORM_API_CONFIG_SOURCE` --
+the scoped variable, set in `.env.local.example`. The shared
+`ALTER_CONFIG_SOURCE=mock` there is for the Engine services and is not a value
+platform-api accepts; an `.env.local` predating that entry fails every
+platform-api invocation, `db:migrate` included, with
+`Invalid platform-api environment: ALTER_CONFIG_SOURCE`.
 Marketplace still needs a real Postgres-backed `MARKETPLACE_DATABASE_URL`
 for entitlement and credential-guard specs.
 

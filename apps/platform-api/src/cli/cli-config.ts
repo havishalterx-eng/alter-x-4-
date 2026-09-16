@@ -4,6 +4,7 @@ import {
   StartConfigurationSessionCommand,
   type AppConfigDataClientConfig,
 } from "@aws-sdk/client-appconfigdata";
+import { platformApiConfigSource } from "../config/env.schema";
 
 export const CLI_CONFIG_PROVIDER = Symbol("CLI_CONFIG_PROVIDER");
 
@@ -64,7 +65,7 @@ export class AppConfigCliConfigProvider implements CliConfigProvider {
 }
 
 export function cliConfigProviderFromEnvironment(): CliConfigProvider {
-  if (process.env.ALTER_CONFIG_SOURCE !== "appconfig") {
+  if (platformApiConfigSource() !== "appconfig") {
     return { getCliPolicy: async () => { throw new Error("CLI policy requires AppConfig"); } };
   }
   const applicationIdentifier = process.env.APPCONFIG_APP_ID;
