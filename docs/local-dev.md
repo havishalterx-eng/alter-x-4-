@@ -382,6 +382,27 @@ pnpm --filter @alterx/platform-api db:migrate
 NODE_ENV=development pnpm nx run platform-api:serve
 ```
 
+`db:migrate` applies **two** schemas: the drizzle-generated platform schema in
+`src/db/migrations`, then the hand-written marketplace schema in
+`src/db/marketplace-migrations` (the marketplace, publisher & payout, tool
+registry and marketplace-search tables). The second set runs against
+`MARKETPLACE_DATABASE_URL`, which points at the same `platform_db` by default
+but is its own variable and may point elsewhere.
+
+Until they were composed, nothing outside the integration specs applied the
+marketplace set, so `/api/v1/registry/tools` and every marketplace, publisher
+and search route answered 500 on a missing relation (issue #171). To run or
+reverse just that set:
+
+```bash
+pnpm --filter @alterx/platform-api db:migrate:marketplace
+pnpm --filter @alterx/platform-api db:rollback:marketplace     # all of it
+pnpm --filter @alterx/platform-api db:rollback:marketplace 1   # the last one
+```
+
+Both are idempotent: applied migrations are recorded in a
+`marketplace_migrations` table, so re-running applies nothing.
+
 Health check (HTTP, default port 3000):
 ```bash
 curl --fail --silent http://127.0.0.1:3000/health

@@ -13,7 +13,15 @@ export default defineConfig({
       "apps/platform-api/src/marketplace/**/*.integration.spec.ts",
       "apps/platform-api/src/publisher/**/*.integration.spec.ts",
       "apps/platform-api/src/registry/**/*.integration.spec.ts",
+      // search's was the one marketplace-schema integration spec missing from
+      // this list and from the test-db-integration target -- so it ran here,
+      // against a real database, alongside the unit specs. It is in that
+      // target now, like its three siblings above.
+      "apps/platform-api/src/search/**/*.integration.spec.ts",
       "apps/platform-api/src/db/db.migration.spec.ts",
+      // Runs in test-db-integration, not here: several DB-backed specs in
+      // parallel vitest workers exhaust platform-db and time each other out.
+      "apps/platform-api/src/db/marketplace-migrator.integration.spec.ts",
       "apps/platform-api/src/db/platform-db-schema-completeness.spec.ts",
       "apps/platform-api/src/identity/**/*.integration.spec.ts",
       "apps/platform-api/src/signup/**/*.integration.spec.ts",

@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import pg from "pg";
+import { applyMarketplaceMigrations } from "../db/marketplace-migrator";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RegistryRepository } from "./registry.repository";
 
@@ -26,8 +25,10 @@ describe.skipIf(!databaseUrl)("RegistryRepository integration", () => {
     await admin.query(`SET search_path TO "${schemaName}", public`);
     // Advisory lock shared with marketplace/publisher/search specs -- CREATE
     // EXTENSION IF NOT EXISTS races on pg_extension under concurrent workers.
-    await admin.query("SELECT pg_advisory_lock(729312)");
-    try { await migrations(admin); } finally { await admin.query("SELECT pg_advisory_unlock(729312)"); }
+    // The advisory lock that used to sit here now lives inside
+    // applyMarketplaceMigrations, so every caller gets it -- this spec's
+    // search-side sibling never took it and was racing.
+    await applyMarketplaceMigrations(admin);
     const password = randomUUID(); await admin.query(`CREATE ROLE "${roleName}" LOGIN PASSWORD '${password}'`); await admin.query(`GRANT USAGE ON SCHEMA "${schemaName}" TO "${roleName}"`); await admin.query(`GRANT USAGE ON SCHEMA public TO "${roleName}"`); await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "${schemaName}" TO "${roleName}"`);
     const url = new URL(databaseUrl!); url.username = roleName; url.password = password; url.searchParams.set("options", `-c search_path=${schemaName},public`); pool = new pg.Pool({ connectionString: url.toString() }); repository = new RegistryRepository(pool);
   });
@@ -64,4 +65,3 @@ describe.skipIf(!databaseUrl)("RegistryRepository integration", () => {
     expect((await repository.list(tenantB)).map((item) => item.id)).not.toContain(manifest.id);
   });
 });
-async function migrations(client: pg.Client): Promise<void> { const directory = join(__dirname, "../db/marketplace-migrations"); for (const file of readdirSync(directory).filter((name) => name.endsWith(".sql")).sort()) for (const statement of readFileSync(join(directory, file), "utf8").split("--> statement-breakpoint").map((value) => value.trim()).filter(Boolean)) await client.query(statement); }

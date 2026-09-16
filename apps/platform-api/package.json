@@ -26,9 +26,12 @@
   "devDependencies": {
     "@testcontainers/postgresql": "12.0.4",
     "@types/pg": "^8.15.6",
-    "drizzle-kit": "^0.31.8"
+    "drizzle-kit": "^0.31.8",
+    "tsx": "^4.20.6"
   },
   "scripts": {
-    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts"
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts && pnpm db:migrate:marketplace",
+    "db:migrate:marketplace": "tsx scripts/marketplace-migrate.ts up",
+    "db:rollback:marketplace": "tsx scripts/marketplace-migrate.ts down"
   }
 }
