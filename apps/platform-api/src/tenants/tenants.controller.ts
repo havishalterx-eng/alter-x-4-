@@ -1,4 +1,5 @@
-import { Controller, Get, Param } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Param, Put, UseFilters, UseInterceptors } from "@nestjs/common";
+import { ConcurrencyExceptionFilter, EtagResponseInterceptor } from "../concurrency";
 import { ActorContext, RequireTenantRole } from "../rbac/decorators";
 import type { ActorContext as Actor } from "../rbac/types";
 import { PlatformHttpError } from "../signup/problem";
@@ -17,6 +18,25 @@ export class TenantsController {
   @Get(":tenantId")
   get(@ActorContext() actor: Actor | undefined, @Param("tenantId") tenantId: string) {
     return this.tenants.get(requireActor(actor), tenantId);
+  }
+
+  @Get(":tenantId/data-residency")
+  @UseInterceptors(EtagResponseInterceptor)
+  getDataResidency(@ActorContext() actor: Actor | undefined, @Param("tenantId") tenantId: string) {
+    return this.tenants.getDataResidency(requireActor(actor), tenantId);
+  }
+
+  @Put(":tenantId/data-residency")
+  @RequireTenantRole("owner")
+  @UseInterceptors(EtagResponseInterceptor)
+  @UseFilters(ConcurrencyExceptionFilter)
+  setDataResidency(
+    @ActorContext() actor: Actor | undefined,
+    @Param("tenantId") tenantId: string,
+    @Body() body: unknown,
+    @Headers("if-match") ifMatch: string | undefined,
+  ) {
+    return this.tenants.setDataResidency(requireActor(actor), tenantId, body, ifMatch);
   }
 }
 
