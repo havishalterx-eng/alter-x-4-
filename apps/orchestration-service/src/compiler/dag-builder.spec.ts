@@ -544,3 +544,52 @@ describe("compileTaskSkeletonToDag", () => {
     });
   });
 });
+
+describe("compileTaskSkeletonToDag branch into a verified action", () => {
+  const classify: TaskSkeleton["nodes"][number] = { key: "classify", type: "llm", config: {}, depends_on: [] };
+  const route = (conditions: Record<string, string>): TaskSkeleton["nodes"][number] => ({
+    key: "route", type: "branch", config: { conditions }, depends_on: ["classify"],
+  });
+
+  it("routes the branch to the action's verification gate, keyed by the gate", () => {
+    const dag = compileTaskSkeletonToDag({
+      version: "1",
+      entry_point: "classify",
+      nodes: [classify, route({ issue_refund: "inputs.classify.refund" }), { key: "issue_refund", type: "tool", config: {}, depends_on: ["route"] }],
+    }, "v1");
+
+    // GateHandler names active successors by condition key. Keyed only by the
+    // action, the branch never activated the gate in between, so the action
+    // could never run.
+    const routeConfig = dag.nodes.find((node) => node.key === "route")?.config as { conditions: Record<string, string> };
+    expect(routeConfig.conditions).toEqual({ issue_refund: "inputs.classify.refund", verify_step_0: "inputs.classify.refund" });
+    expect(dag.edges.find((edge) => edge.from === "route" && edge.to === "verify_step_0")).toMatchObject({
+      kind: "conditional", condition: { expression: "inputs.classify.refund" },
+    });
+    expect(dag.edges.filter((edge) => edge.to === "issue_refund")).toEqual([
+      { key: "verify_step_0-to-issue_refund", from: "verify_step_0", to: "issue_refund", kind: "conditional", condition: { expression: "true", language: "cel" } },
+    ]);
+  });
+
+  it("chains one gate per input so only the last one enters the action", () => {
+    const dag = compileTaskSkeletonToDag({
+      version: "1",
+      entry_point: "classify",
+      nodes: [
+        classify,
+        route({ send: "inputs.classify.ok" }),
+        { key: "draft", type: "llm", config: {}, depends_on: ["classify"] },
+        { key: "send", type: "tool", config: {}, depends_on: ["route", "draft"] },
+      ],
+    }, "v1");
+
+    expect(dag.nodes.find((node) => node.key === "verify_step_0")?.config).toMatchObject({ verification: { source_node_key: "route", protected_node_key: "verify_step_1" } });
+    expect(dag.nodes.find((node) => node.key === "verify_step_1")?.config).toMatchObject({ verification: { source_node_key: "draft", protected_node_key: "send" } });
+    expect(dag.edges.filter((edge) => edge.to === "verify_step_0").map((edge) => [edge.from, edge.kind])).toEqual([["route", "conditional"], ["draft", "sequential"]]);
+    expect(dag.edges.filter((edge) => edge.to === "verify_step_1").map((edge) => [edge.from, edge.kind])).toEqual([["verify_step_0", "conditional"]]);
+    expect(dag.edges.filter((edge) => edge.to === "send").map((edge) => edge.from)).toEqual(["verify_step_1"]);
+    const waveOf = (key: string) => dag.waves.find((wave) => wave.node_keys.includes(key))!.order;
+    expect(waveOf("verify_step_0")).toBeGreaterThan(Math.max(waveOf("route"), waveOf("draft")));
+    expect(waveOf("send")).toBeGreaterThan(waveOf("verify_step_1"));
+  });
+});
