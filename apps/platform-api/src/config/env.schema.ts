@@ -25,6 +25,9 @@ export const platformApiEnvSchema = z
     SES_CREDENTIALS_SECRET_REF: z.string().min(1).optional(),
     SIGNING_KEY_PROVIDER: z.enum(["secrets", "mock"]).default("secrets"),
     ACTOR_TOKEN_SIGNING_KEY_REF: z.string().min(1).optional(),
+    // PLATFORM_API_CONFIG_SOURCE wins over the shared ALTER_CONFIG_SOURCE; see
+    // resolveConfigSource below for why platform-api needs a scoped one.
+    PLATFORM_API_CONFIG_SOURCE: z.enum(["appconfig", "local-file"]).optional(),
     ALTER_CONFIG_SOURCE: z.enum(["appconfig", "local-file"]).default("local-file"),
     APPCONFIG_APP_ID: z.string().min(1).optional(),
     APPCONFIG_ENV_ID: z.string().min(1).optional(),
@@ -174,8 +177,40 @@ function requireFields<
 
 export type PlatformApiEnv = z.infer<typeof platformApiEnvSchema>;
 
+// The Engine services accept appconfig|mock and .env.local.example sets the
+// shared ALTER_CONFIG_SOURCE=mock for them, but platform-api reads local-file
+// and has no mock, so one shared value cannot satisfy both -- the same split
+// audit-service resolves with AUDIT_CONFIG_SOURCE. Prefer the scoped variable
+// and ignore a shared value platform-api cannot use, rather than failing every
+// invocation (db:migrate included) on a value meant for other services.
+export function platformApiConfigSource(
+  env: NodeJS.ProcessEnv = process.env,
+): "appconfig" | "local-file" {
+  const scoped = env.PLATFORM_API_CONFIG_SOURCE?.trim();
+  if (scoped === "appconfig" || scoped === "local-file") {
+    return scoped;
+  }
+  return env.ALTER_CONFIG_SOURCE?.trim() === "appconfig" ? "appconfig" : "local-file";
+}
+
+function resolveConfigSource(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const scoped = env.PLATFORM_API_CONFIG_SOURCE?.trim();
+  if (scoped !== undefined && scoped.length > 0) {
+    return { ...env, ALTER_CONFIG_SOURCE: scoped };
+  }
+  const shared = env.ALTER_CONFIG_SOURCE?.trim();
+  if (shared === "appconfig" || shared === "local-file") {
+    return env;
+  }
+  // Unset, or set to a value only the Engine services understand: drop it and
+  // fall through to the schema default.
+  const rest = { ...env };
+  delete rest.ALTER_CONFIG_SOURCE;
+  return rest;
+}
+
 export function validatePlatformApiEnv(env: NodeJS.ProcessEnv): PlatformApiEnv {
-  const parsed = platformApiEnvSchema.safeParse(env);
+  const parsed = platformApiEnvSchema.safeParse(resolveConfigSource(env));
 
   if (!parsed.success) {
     const formatted = parsed.error.issues
