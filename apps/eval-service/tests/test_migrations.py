@@ -397,7 +397,7 @@ def test_live_architecture_golden_set_is_seeded_active(pg_url: str) -> None:
         # makes v2 the active set under the same name.
         assert [(str(id_), domain, status, int(count)) for id_, domain, status, count in rows] == [
             (str(ARCHITECTURE_GOLDEN_SET.id), "architecture", "retired", 24),
-            (str(ARCHITECTURE_GOLDEN_SET_V2.id), "architecture", "active", 28),
+            (str(ARCHITECTURE_GOLDEN_SET_V2.id), "architecture", "active", 30),
         ]
 
         first = (

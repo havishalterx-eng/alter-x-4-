@@ -22,6 +22,7 @@ class ArchitectureBinder:
         architecture = request.architecture
         approval_policy = (
             architecture.constraints.human_approval_required
+            or architecture.constraints.external_action_approval_required
             or architecture.constraints.customer_visible
         )
         approved_before = {

@@ -16,7 +16,8 @@ apps/eval-service/src/db/architecture_golden_set.py. In short:
         output is customer-visible. A tool node is free of side effects only
         when it names capabilities and every eligible Registry record for them
         says side_effects=false; a node naming none, or any record that is
-        unlabelled or true, keeps the gate;
+        unlabelled or true, keeps the gate. external_action_approval_required
+        asks for the before-action gates only, never the after-output ones;
 - confidence is the share of executable nodes whose capability eligibility
   was confirmed against the Capability Registry.
 """
@@ -199,6 +200,15 @@ def _boundaries(
         if flag
     ]
 
+    action_approve_reasons = [
+        *approve_reasons,
+        *(
+            ["approval before external actions"]
+            if constraints.external_action_approval_required
+            else []
+        ),
+    ]
+
     boundaries: list[ArchitectureBoundary] = []
 
     def add(
@@ -217,8 +227,8 @@ def _boundaries(
         # G1: an external action is verified first, whatever the constraints.
         add("verification", ["verification precedes every external action"], before=key)
         # G3: a person approves only what can change something outside Alter.
-        if approve_reasons and key not in side_effect_free:
-            add("human_approval", approve_reasons, before=key)
+        if action_approve_reasons and key not in side_effect_free:
+            add("human_approval", action_approve_reasons, before=key)
     for key in delivered:
         if verify_reasons:
             add("verification", verify_reasons, after=key)

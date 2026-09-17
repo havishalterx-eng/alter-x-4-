@@ -244,6 +244,38 @@ async def test_approval_skips_side_effect_free_actions_but_verification_does_not
 
 
 @pytest.mark.asyncio
+async def test_external_action_approval_gates_side_effect_actions_and_never_output() -> None:
+    nodes = [
+        TaskNode(key="lookup", type="tool"),
+        TaskNode(key="send", type="tool", depends_on=["lookup"]),
+        TaskNode(key="summary", type="llm", depends_on=["send"]),
+    ]
+    value = request(nodes, SynthesisConstraints(external_action_approval_required=True))
+    requirements = NodeRequirements(
+        root={
+            "lookup": NodeRequirement(capabilities=["crm.read"]),
+            "send": NodeRequirement(capabilities=["email.send"]),
+            "summary": NodeRequirement(capabilities=["text.generation"]),
+        }
+    )
+    value = value.model_copy(update={"node_requirements": requirements})
+
+    result = await ArchitectureSynthesizer(Registry(side_effect_free=["crm.read"])).synthesize(
+        value
+    )
+
+    assert isinstance(result, ArchitectureSpec)
+    # Unlike human_approval_required, nothing is approved after "summary".
+    assert _gates(result) == [
+        ("verification", "before", "lookup"),
+        ("verification", "before", "send"),
+        ("human_approval", "before", "send"),
+    ]
+    approval = next(b for b in result.boundaries if b.kind == "human_approval")
+    assert approval.reason == "approval before external actions"
+
+
+@pytest.mark.asyncio
 async def test_a_tool_naming_no_capability_is_still_approved() -> None:
     value = request(
         [TaskNode(key="lookup", type="tool")], SynthesisConstraints(customer_visible=True)

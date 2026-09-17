@@ -48,6 +48,10 @@ delivers the run's result.
       synthesizer: approving every lookup buried the approvals that matter.
       Every v1 case names no capability, so its expected gates are unchanged;
       v2 adds group F for the new condition.
+- G3a external_action_approval_required: human approval BEFORE every tool node
+      that may have side effects (the same condition as G3), and never after
+      a terminal non-tool node. The workspace "approve external actions"
+      safeguard; human_approval_required also holds delivered output.
 - Gates are a set: two rules asking for the same gate yield one gate, and a
   gate no rule asks for is a failure, not a harmless extra.
 
@@ -601,6 +605,40 @@ _SIDE_EFFECTS: tuple[EvalCaseSeed, ...] = (
             "gates": [_before("verification", "lookup_order")],
         },
         capabilities={"lookup_order": ["arch_eval.order_lookup_read_only"]},
+    ),
+    _case(
+        "effects-external-approval-before-actions-only",
+        # G3a: the send is approved, the read-only lookup is not, and the
+        # summary is delivered without approval.
+        [
+            _tool("lookup_order", (), "order_lookup"),
+            _tool("send_reply", ("lookup_order",), "email_send"),
+            _llm("summarize_case", ("send_reply",)),
+        ],
+        {
+            "outcome": "ready",
+            "topology": "sequential",
+            "gates": [
+                _before("verification", "lookup_order"),
+                _before("verification", "send_reply"),
+                _before("human_approval", "send_reply"),
+            ],
+        },
+        constraints={"external_action_approval_required": True},
+        capabilities={"lookup_order": ["arch_eval.order_lookup_read_only"]},
+    ),
+    _case(
+        "effects-external-approval-any-record-acts",
+        [_tool("update_contact", (), "crm_update")],
+        {
+            "outcome": "ready",
+            "gates": [
+                _before("verification", "update_contact"),
+                _before("human_approval", "update_contact"),
+            ],
+        },
+        constraints={"external_action_approval_required": True},
+        capabilities={"update_contact": ["arch_eval.crm_read_or_write"]},
     ),
 )
 

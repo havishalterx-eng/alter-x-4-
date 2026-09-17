@@ -44,14 +44,14 @@ def test_catalog_shape_and_ids() -> None:
     assert (v2.name, v2.domain, v2.version) == ("architecture", "architecture", 2)
     # v1 is frozen as migration 0010 seeded it; v2 appends and never reorders.
     assert len(ARCHITECTURE_CASES) == 24
-    assert len(ARCHITECTURE_CASES_V2) == 28
+    assert len(ARCHITECTURE_CASES_V2) == 30
     assert ARCHITECTURE_CASES_V2[:24] == ARCHITECTURE_CASES
-    assert len(_by_tag()) == 28
+    assert len(_by_tag()) == 30
 
     v1_ids = {case_id(v1, position) for position in range(1, 25)}
-    v2_ids = {case_id(v2, position) for position in range(1, 29)}
+    v2_ids = {case_id(v2, position) for position in range(1, 31)}
     assert len(v1_ids) == 24
-    assert len(v2_ids) == 28
+    assert len(v2_ids) == 30
     other_ids = {
         case_id(seed, position)
         for seed in LAUNCH_GOLDEN_SETS
@@ -106,6 +106,8 @@ def test_expected_gates_follow_the_gate_rules() -> None:
         if constraints.get("human_approval_required") or constraints.get("customer_visible"):
             want |= {("human_approval", "before", key) for key in acting_tools}
             want |= {("human_approval", "after", key) for key in terminal_outputs}
+        if constraints.get("external_action_approval_required"):
+            want |= {("human_approval", "before", key) for key in acting_tools}
 
         written = {_gate_tuple(gate) for gate in expected["gates"]}
         assert written == want, case.tags[-1]

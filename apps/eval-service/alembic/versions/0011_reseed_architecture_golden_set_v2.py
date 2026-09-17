@@ -1,9 +1,10 @@
 """Retire architecture golden set v1 and seed v2 in its place.
 
 G3 now places human approval only before actions that may have side effects
-(see src/db/architecture_golden_set.py). v2 keeps every v1 case unchanged --
-none names a capability, so none is affected -- and adds four cases for the
-new condition. v1 is retired rather than deleted, because eval_results
+(see src/db/architecture_golden_set.py), and external_action_approval_required
+asks for those before-action approvals alone (G3a). v2 keeps every v1 case
+unchanged -- none names a capability, so none is affected -- and adds six
+cases for the two rules. v1 is retired rather than deleted, because eval_results
 reference its cases; runs read the active set by name, so they move to v2 on
 upgrade and back to v1 on downgrade.
 """

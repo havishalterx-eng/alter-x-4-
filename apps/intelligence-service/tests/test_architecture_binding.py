@@ -121,7 +121,9 @@ async def test_binding_applies_the_same_residency_rule_as_synthesis(
     assert (outcome.status == "ready") is binds
 
 
-def _tool_request(*, approval_gate: bool) -> BindingRequest:
+def _tool_request(
+    *, approval_gate: bool, constraints: SynthesisConstraints | None = None
+) -> BindingRequest:
     boundaries = [
         ArchitectureBoundary(kind="verification", before_node_key="lookup", reason="x"),
     ]
@@ -133,7 +135,7 @@ def _tool_request(*, approval_gate: bool) -> BindingRequest:
     architecture = value.architecture.model_copy(
         update={
             "topology": "deterministic",
-            "constraints": SynthesisConstraints(human_approval_required=True),
+            "constraints": constraints or SynthesisConstraints(human_approval_required=True),
             "nodes": [
                 ArchitectureNode(
                     source_node_key="lookup", role="deterministic",
@@ -171,6 +173,22 @@ async def test_an_action_synthesized_without_approval_never_binds_a_record_with_
 
     assert isinstance(outcome, BindingDecision)
     assert outcome.bindings[0].record_id == bound
+
+
+@pytest.mark.asyncio
+async def test_external_action_approval_keeps_side_effect_records_off_ungated_actions() -> None:
+    reads = CapabilityRecord.model_validate(
+        record("reads", reliability=0.6).model_dump() | {"side_effects": False}
+    )
+    binder = ArchitectureBinder(Registry([reads, record("acts", reliability=0.9)]))  # type: ignore[arg-type]
+    outcome = await binder.bind(
+        _tool_request(
+            approval_gate=False,
+            constraints=SynthesisConstraints(external_action_approval_required=True),
+        )
+    )
+    assert isinstance(outcome, BindingDecision)
+    assert outcome.bindings[0].record_id == "reads"
 
 
 @pytest.mark.asyncio
