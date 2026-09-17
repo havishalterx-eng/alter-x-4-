@@ -41,6 +41,7 @@ class TestMigrationFileStructure:
             "0004_split_agent_version_config.py",
             "0005_global_agents.py",
             "0006_agent_auto_creation_key.py",
+            "0007_capability_side_effects.py",
         ]
 
     def test_all_tables_defined(self) -> None:

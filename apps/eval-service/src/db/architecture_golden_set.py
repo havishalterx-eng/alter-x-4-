@@ -38,7 +38,16 @@ delivers the run's result.
 - G2  verification_required, customer_visible or contains_pii: verification
       AFTER every terminal non-tool node.
 - G3  human_approval_required or customer_visible: human approval BEFORE every
-      tool node and AFTER every terminal non-tool node.
+      tool node that may have side effects, and AFTER every terminal non-tool
+      node. A tool node is free of side effects only when it names
+      capabilities and every eligible Registry record for them says
+      side_effects=false. A node naming no capability, or one where any
+      eligible record is unlabelled or true, keeps the gate.
+
+      Amended 2026-09-17, a product decision rather than a fit to the
+      synthesizer: approving every lookup buried the approvals that matter.
+      Every v1 case names no capability, so its expected gates are unchanged;
+      v2 adds group F for the new condition.
 - Gates are a set: two rules asking for the same gate yield one gate, and a
   gate no rule asks for is a failure, not a harmless extra.
 
@@ -75,8 +84,9 @@ ARCHITECTURE_EVAL_WORKSPACE_ID = "ws_018f4d6e-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
 _SCORING = {"matcher": "architecture_facts", "minimum_score": 1.0}
 
 # Registered once per eval run in the architecture eval tenant before any case
-# runs. Only residency cases name these capabilities; every other case's nodes
-# require no capability, so no other case depends on registry contents.
+# runs. Only residency and side-effect cases name these capabilities; every
+# other case's nodes require no capability, so no other case depends on
+# registry contents.
 ARCHITECTURE_REGISTRY_FIXTURE: tuple[dict[str, Any], ...] = (
     {
         "capability_id": "arch-eval.summarize.eu",
@@ -99,6 +109,30 @@ ARCHITECTURE_REGISTRY_FIXTURE: tuple[dict[str, Any], ...] = (
         "kind": "model",
         "scope": "tenant",
         "supported_capabilities": ["arch_eval.translate_unrestricted"],
+        "provenance": {"source": "architecture-golden-set-v1"},
+    },
+    {
+        "capability_id": "arch-eval.orders.lookup",
+        "kind": "tool",
+        "scope": "tenant",
+        "supported_capabilities": ["arch_eval.order_lookup_read_only"],
+        "side_effects": False,
+        "provenance": {"source": "architecture-golden-set-v1"},
+    },
+    # Two records for one capability that disagree: binding may pick either.
+    {
+        "capability_id": "arch-eval.crm.read",
+        "kind": "tool",
+        "scope": "tenant",
+        "supported_capabilities": ["arch_eval.crm_read_or_write"],
+        "side_effects": False,
+        "provenance": {"source": "architecture-golden-set-v1"},
+    },
+    {
+        "capability_id": "arch-eval.crm.write",
+        "kind": "tool",
+        "scope": "tenant",
+        "supported_capabilities": ["arch_eval.crm_read_or_write"],
         "provenance": {"source": "architecture-golden-set-v1"},
     },
 )
@@ -508,6 +542,71 @@ _RESIDENCY: tuple[EvalCaseSeed, ...] = (
     ),
 )
 
+# ---------------------------------------------------------------------------
+# F. Side effects: G3 skips only actions every eligible record says only read.
+# ---------------------------------------------------------------------------
+
+_SIDE_EFFECTS: tuple[EvalCaseSeed, ...] = (
+    _case(
+        "effects-read-only-action-not-approved",
+        [_tool("lookup_order", (), "order_lookup"), _llm("draft_reply", ("lookup_order",))],
+        {
+            "outcome": "ready",
+            "topology": "sequential",
+            "gates": [
+                _before("verification", "lookup_order"),
+                _after("human_approval", "draft_reply"),
+            ],
+        },
+        constraints={"human_approval_required": True},
+        capabilities={"lookup_order": ["arch_eval.order_lookup_read_only"]},
+    ),
+    _case(
+        "effects-read-only-action-customer-visible",
+        # Same skeleton: the reply is still verified and approved on its way
+        # out; only the lookup loses its approval.
+        [_tool("lookup_order", (), "order_lookup"), _llm("draft_reply", ("lookup_order",))],
+        {
+            "outcome": "ready",
+            "gates": [
+                _before("verification", "lookup_order"),
+                _after("verification", "draft_reply"),
+                _after("human_approval", "draft_reply"),
+            ],
+        },
+        constraints={"customer_visible": True},
+        capabilities={"lookup_order": ["arch_eval.order_lookup_read_only"]},
+    ),
+    _case(
+        "effects-any-eligible-record-acts",
+        [_tool("update_contact", (), "crm_update")],
+        {
+            "outcome": "ready",
+            "topology": "deterministic",
+            "gates": [
+                _before("verification", "update_contact"),
+                _before("human_approval", "update_contact"),
+            ],
+        },
+        constraints={"human_approval_required": True},
+        capabilities={"update_contact": ["arch_eval.crm_read_or_write"]},
+    ),
+    _case(
+        "effects-read-only-action-still-verified",
+        # G1 does not look at side effects.
+        [_tool("lookup_order", (), "order_lookup")],
+        {
+            "outcome": "ready",
+            "topology": "deterministic",
+            "gates": [_before("verification", "lookup_order")],
+        },
+        capabilities={"lookup_order": ["arch_eval.order_lookup_read_only"]},
+    ),
+)
+
+# v1 is frozen: migration 0010 seeded exactly these cases, and eval_results
+# reference them. Its expectations still hold under the amended G3, because no
+# v1 case names a capability.
 ARCHITECTURE_CASES: tuple[EvalCaseSeed, ...] = (
     *_SHAPE,
     *_EXTERNAL_ACTIONS,
@@ -518,4 +617,12 @@ ARCHITECTURE_CASES: tuple[EvalCaseSeed, ...] = (
 
 ARCHITECTURE_GOLDEN_SET = GoldenSetSeed(
     _id("golden-set/architecture/v1"), "architecture", "architecture", 1, ARCHITECTURE_CASES
+)
+
+# v2 keeps every v1 case in place and appends the side-effect cases; migration
+# 0011 retires v1 and makes v2 the active "architecture" set.
+ARCHITECTURE_CASES_V2: tuple[EvalCaseSeed, ...] = (*ARCHITECTURE_CASES, *_SIDE_EFFECTS)
+
+ARCHITECTURE_GOLDEN_SET_V2 = GoldenSetSeed(
+    _id("golden-set/architecture/v2"), "architecture", "architecture", 2, ARCHITECTURE_CASES_V2
 )

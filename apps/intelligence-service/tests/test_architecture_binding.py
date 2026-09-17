@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.architecture_synthesizer.models import (
+    ArchitectureBoundary,
     ArchitectureNode,
     ArchitectureSpec,
     EligibleCapabilityRole,
@@ -11,7 +12,12 @@ from src.architecture_synthesizer.models import (
 )
 from src.capability_registry.models import CapabilityRecord
 from src.selection_binding.architecture_binder import ArchitectureBinder
-from src.selection_binding.models import BindingBlocked, BindingPolicy, BindingRequest
+from src.selection_binding.models import (
+    BindingBlocked,
+    BindingDecision,
+    BindingPolicy,
+    BindingRequest,
+)
 from src.selection_binding.router import router
 
 TENANT = "ten_aaaaaaaa-0000-7000-8000-aaaaaaaaaaaa"
@@ -113,6 +119,65 @@ async def test_binding_applies_the_same_residency_rule_as_synthesis(
     outcome = await ArchitectureBinder(Registry([eu_only])).bind(constrained)  # type: ignore[arg-type]
 
     assert (outcome.status == "ready") is binds
+
+
+def _tool_request(*, approval_gate: bool) -> BindingRequest:
+    boundaries = [
+        ArchitectureBoundary(kind="verification", before_node_key="lookup", reason="x"),
+    ]
+    if approval_gate:
+        boundaries.append(
+            ArchitectureBoundary(kind="human_approval", before_node_key="lookup", reason="x")
+        )
+    value = request()
+    architecture = value.architecture.model_copy(
+        update={
+            "topology": "deterministic",
+            "constraints": SynthesisConstraints(human_approval_required=True),
+            "nodes": [
+                ArchitectureNode(
+                    source_node_key="lookup", role="deterministic",
+                    execution_kind="deterministic", source_node_type="tool", depends_on=[],
+                    capability_role=EligibleCapabilityRole(
+                        source_node_key="lookup", required_capabilities=["text.generation"],
+                        eligible_kinds=["model"],
+                    ),
+                )
+            ],
+            "execution_waves": [ExecutionWave(order=0, node_keys=["lookup"])],
+            "boundaries": boundaries,
+        }
+    )
+    return value.model_copy(update={"architecture": architecture})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("approval_gate", "bound"),
+    # Without the gate only the side-effect-free record may run; the more
+    # reliable record that acts would be an unapproved external action.
+    [(False, "reads"), (True, "acts")],
+)
+async def test_an_action_synthesized_without_approval_never_binds_a_record_with_side_effects(
+    approval_gate: bool, bound: str
+) -> None:
+    reads = CapabilityRecord.model_validate(
+        record("reads", reliability=0.6).model_dump() | {"side_effects": False}
+    )
+    acts = record("acts", reliability=0.9)
+    binder = ArchitectureBinder(Registry([reads, acts]))  # type: ignore[arg-type]
+
+    outcome = await binder.bind(_tool_request(approval_gate=approval_gate))
+
+    assert isinstance(outcome, BindingDecision)
+    assert outcome.bindings[0].record_id == bound
+
+
+@pytest.mark.asyncio
+async def test_an_ungated_action_with_only_side_effect_records_blocks() -> None:
+    binder = ArchitectureBinder(Registry([record("acts")]))  # type: ignore[arg-type]
+    outcome = await binder.bind(_tool_request(approval_gate=False))
+    assert isinstance(outcome, BindingBlocked)
 
 
 @pytest.mark.asyncio

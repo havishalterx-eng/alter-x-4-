@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
-from src.db.architecture_golden_set import ARCHITECTURE_GOLDEN_SET
+from src.db.architecture_golden_set import ARCHITECTURE_GOLDEN_SET, ARCHITECTURE_GOLDEN_SET_V2
 from src.db.chaos_scenarios import CHAOS_GOLDEN_SET
 from src.db.launch_golden_sets import LAUNCH_GOLDEN_SETS, PLANNER_CASES, case_id
 from src.db.planner_golden_set_v2 import (
@@ -389,17 +389,21 @@ def test_live_architecture_golden_set_is_seeded_active(pg_url: str) -> None:
                 "count(eval_cases.id) FROM golden_sets LEFT JOIN eval_cases "
                 "ON eval_cases.golden_set_id = golden_sets.id "
                 "WHERE golden_sets.name = 'architecture' "
-                "GROUP BY golden_sets.id, golden_sets.domain, golden_sets.status"
+                "GROUP BY golden_sets.id, golden_sets.domain, golden_sets.status "
+                "ORDER BY golden_sets.version"
             )
         ).all()
+        # 0011 retires v1 (kept, since eval_results reference its cases) and
+        # makes v2 the active set under the same name.
         assert [(str(id_), domain, status, int(count)) for id_, domain, status, count in rows] == [
-            (str(ARCHITECTURE_GOLDEN_SET.id), "architecture", "active", 24)
+            (str(ARCHITECTURE_GOLDEN_SET.id), "architecture", "retired", 24),
+            (str(ARCHITECTURE_GOLDEN_SET_V2.id), "architecture", "active", 28),
         ]
 
         first = (
             conn.execute(
                 sa.text("SELECT input, expected, scoring FROM eval_cases WHERE id = :id"),
-                {"id": str(case_id(ARCHITECTURE_GOLDEN_SET, 1))},
+                {"id": str(case_id(ARCHITECTURE_GOLDEN_SET_V2, 1))},
             )
             .mappings()
             .one()

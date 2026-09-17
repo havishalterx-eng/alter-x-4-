@@ -11,9 +11,12 @@ apps/eval-service/src/db/architecture_golden_set.py. In short:
     G1  verification before every tool node, always;
     G2  verification after every terminal non-tool node when verification is
         required, the output is customer-visible, or the run holds PII;
-    G3  human approval before every tool node and after every terminal
-        non-tool node when approval is required or the output is
-        customer-visible;
+    G3  human approval before every tool node that may have side effects and
+        after every terminal non-tool node when approval is required or the
+        output is customer-visible. A tool node is free of side effects only
+        when it names capabilities and every eligible Registry record for them
+        says side_effects=false; a node naming none, or any record that is
+        unlabelled or true, keeps the gate;
 - confidence is the share of executable nodes whose capability eligibility
   was confirmed against the Capability Registry.
 """
@@ -53,18 +56,19 @@ class ArchitectureSynthesizer:
         skeleton = request.task_skeleton
         nodes = sorted(skeleton.nodes, key=lambda node: node.key)
         eligible_roles: dict[str, EligibleCapabilityRole] = {}
+        side_effect_free: set[str] = set()
         for node in nodes:
             requirement = request.node_requirements.root[node.key]
             if not requirement.capabilities:
                 continue
-            kinds = await self._registry.eligible_kinds(
+            eligibility = await self._registry.eligibility(
                 tenant_id=request.tenant_id,
                 workspace_id=request.workspace_id,
                 source_node_type=node.type,
                 requirement=requirement,
                 constraints=request.constraints,
             )
-            if not kinds:
+            if not eligibility.kinds:
                 return ArchitectureBlocked(
                     source_node_key=node.key,
                     required_capabilities=sorted(requirement.capabilities),
@@ -73,8 +77,10 @@ class ArchitectureSynthesizer:
             eligible_roles[node.key] = EligibleCapabilityRole(
                 source_node_key=node.key,
                 required_capabilities=sorted(requirement.capabilities),
-                eligible_kinds=sorted(kinds),
+                eligible_kinds=sorted(eligibility.kinds),
             )
+            if not eligibility.side_effects:
+                side_effect_free.add(node.key)
 
         waves = _waves(nodes)
         topology = _topology(nodes, waves, request.constraints.coordination_required)
@@ -91,7 +97,7 @@ class ArchitectureSynthesizer:
             )
             for node in nodes
         ]
-        boundaries = _boundaries(nodes, request.constraints)
+        boundaries = _boundaries(nodes, request.constraints, side_effect_free)
         confidence, verified, executable = _confidence(nodes, eligible_roles)
         return ArchitectureSpec(
             source_task_skeleton_version=skeleton.version,
@@ -165,7 +171,9 @@ def _execution_kind(node_type: str) -> ExecutionKind:
 
 
 def _boundaries(
-    nodes: Sequence[TaskNode], constraints: SynthesisConstraints
+    nodes: Sequence[TaskNode],
+    constraints: SynthesisConstraints,
+    side_effect_free: set[str],
 ) -> list[ArchitectureBoundary]:
     depended_on = {dependency for node in nodes for dependency in node.depends_on}
     actions = [node.key for node in nodes if node.type == "tool"]
@@ -208,7 +216,8 @@ def _boundaries(
     for key in actions:
         # G1: an external action is verified first, whatever the constraints.
         add("verification", ["verification precedes every external action"], before=key)
-        if approve_reasons:
+        # G3: a person approves only what can change something outside Alter.
+        if approve_reasons and key not in side_effect_free:
             add("human_approval", approve_reasons, before=key)
     for key in delivered:
         if verify_reasons:

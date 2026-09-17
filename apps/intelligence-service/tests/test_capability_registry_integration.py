@@ -184,3 +184,81 @@ def test_rls_hides_private_registry_records(postgres_url: str) -> None:
         assert connection.execute(count_sql).scalar() == 1
         connection.execute(sa.text("RESET ROLE"))
         connection.rollback()
+
+
+def test_side_effects_default_to_true_and_an_explicit_false_round_trips(
+    client: TestClient,
+) -> None:
+    base = f"/internal/capability-registry/{TENANT_A}"
+    probe = {"supported_capabilities": ["effects.probe"]}
+    unlabelled = client.post(f"{base}/records", json=body("effects-unlabelled", **probe))
+    reads = client.post(
+        f"{base}/records", json=body("effects-reads", side_effects=False, **probe)
+    )
+    assert unlabelled.status_code == reads.status_code == 200
+    assert unlabelled.json()["side_effects"] is True
+    assert reads.json()["side_effects"] is False
+
+    assert client.get(f"{base}/records/effects-reads/1").json()["side_effects"] is False
+    found = {
+        row["capability_id"]: row["side_effects"]
+        for row in client.post(f"{base}/search", json={"capabilities": ["effects.probe"]}).json()
+    }
+    assert found == {"effects-reads": False, "effects-unlabelled": True}
+
+    # A new version states its own label; it does not inherit the old one.
+    replaced = client.post(
+        f"{base}/records/effects-reads/supersede", json=body("effects-reads", **probe)
+    )
+    assert replaced.json()["side_effects"] is True
+    assert client.get(f"{base}/records/effects-reads/2").json()["side_effects"] is True
+
+
+def test_migration_0007_marks_existing_records_as_having_side_effects() -> None:
+    tenant = TENANT_A.removeprefix("ten_")
+    with PostgresContainer(
+        image=PGVECTOR_IMAGE,
+        dbname="intelligence_db",
+        username="intelligence_service",
+        password="testpass",
+    ) as postgres:
+        url = postgres.get_connection_url()
+        config = AlembicConfig(str(SERVICE_ROOT / "alembic.ini"))
+        config.set_main_option("script_location", str(SERVICE_ROOT / "alembic"))
+        config.set_main_option("sqlalchemy.url", url)
+        command.upgrade(config, "0006")
+
+        engine = sa.create_engine(url)
+        with engine.begin() as connection:
+            connection.execute(
+                sa.text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
+                {"tenant": tenant},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO capability_registry_versions "
+                    "(capability_id, version, owner_tenant_id, scope, kind, "
+                    "supported_capabilities, constraints, availability, provenance, status) "
+                    "VALUES ('before-0007', 1, CAST(:tenant AS uuid), 'tenant', 'tool', "
+                    "'[]'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'active')"
+                ),
+                {"tenant": tenant},
+            )
+
+        command.upgrade(config, "head")
+        with engine.begin() as connection:
+            connection.execute(
+                sa.text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
+                {"tenant": tenant},
+            )
+            assert connection.execute(
+                sa.text(
+                    "SELECT side_effects FROM capability_registry_versions "
+                    "WHERE capability_id = 'before-0007'"
+                )
+            ).scalar_one() is True
+
+        command.downgrade(config, "0006")
+        columns = sa.inspect(engine).get_columns("capability_registry_versions")
+        assert "side_effects" not in {column["name"] for column in columns}
+        engine.dispose()

@@ -1,6 +1,7 @@
 """Typed adapter over Capability Registry facts; never returns provider bindings."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Protocol
 
 from src.capability_registry.models import CapabilityKind, CapabilityRecord, CapabilitySearch
@@ -10,8 +11,19 @@ from src.capability_resolver.models import NodeRequirement
 from .models import SynthesisConstraints
 
 
+@dataclass(frozen=True)
+class CapabilityEligibility:
+    """What the Registry can offer one node: the kinds that fit, and whether
+    any record that fits acts on the outside world."""
+
+    kinds: list[CapabilityKind]
+    # True when any eligible record has side effects. Binding may pick any of
+    # them, so a node is only side-effect free when every candidate is.
+    side_effects: bool
+
+
 class CapabilityRegistryClient(Protocol):
-    async def eligible_kinds(
+    async def eligibility(
         self,
         *,
         tenant_id: str,
@@ -19,7 +31,7 @@ class CapabilityRegistryClient(Protocol):
         source_node_type: str,
         requirement: NodeRequirement,
         constraints: SynthesisConstraints,
-    ) -> list[CapabilityKind]: ...
+    ) -> CapabilityEligibility: ...
 
 
 class RepositoryCapabilityRegistryClient:
@@ -28,7 +40,7 @@ class RepositoryCapabilityRegistryClient:
     def __init__(self, repository: CapabilityRegistryRepository) -> None:
         self._repository = repository
 
-    async def eligible_kinds(
+    async def eligibility(
         self,
         *,
         tenant_id: str,
@@ -36,10 +48,10 @@ class RepositoryCapabilityRegistryClient:
         source_node_type: str,
         requirement: NodeRequirement,
         constraints: SynthesisConstraints,
-    ) -> list[CapabilityKind]:
-        kinds = _candidate_kinds(source_node_type)
+    ) -> CapabilityEligibility:
         found: list[CapabilityKind] = []
-        for kind in kinds:
+        side_effects = False
+        for kind in _candidate_kinds(source_node_type):
             records = await self._repository.search(
                 tenant_id,
                 CapabilitySearch(
@@ -49,9 +61,11 @@ class RepositoryCapabilityRegistryClient:
                     limit=100,
                 ),
             )
-            if any(_eligible(record, requirement, constraints) for record in records):
+            eligible = [record for record in records if _eligible(record, requirement, constraints)]
+            if eligible:
                 found.append(kind)
-        return found
+                side_effects = side_effects or any(record.side_effects for record in eligible)
+        return CapabilityEligibility(kinds=found, side_effects=side_effects)
 
 
 def _candidate_kinds(source_node_type: str) -> tuple[CapabilityKind, ...]:
