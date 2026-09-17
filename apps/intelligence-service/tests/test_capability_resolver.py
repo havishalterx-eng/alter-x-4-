@@ -154,7 +154,7 @@ class TestResolution:
                 "model_alias": "ADVANCED",
             },
             "tool": {
-                "capabilities": [],
+                "capabilities": ["tool.search.web"],
                 "tools": [
                     {
                         "name": "search.web",
@@ -253,6 +253,35 @@ class TestResolution:
     def test_empty_input_fails_instead_of_returning_non_dag_shape(self) -> None:
         with pytest.raises(CapabilityResolutionError, match="at least one node"):
             resolve_node_requirements([])
+
+    @pytest.mark.parametrize(
+        ("config", "capabilities"),
+        [
+            ({"tool_name": "email.send"}, ["tool.email.send"]),
+            # A name the gateway cannot dispatch has no Registry record; naming
+            # one would block synthesis, so it names none and keeps approval.
+            ({"tool_name": "youtube_upload"}, []),
+            # No single record supports two tools.
+            (
+                {
+                    "tools": [
+                        {"name": "search.web", "permissions": []},
+                        {"name": "email.send", "permissions": []},
+                    ]
+                },
+                [],
+            ),
+            (
+                {"tool_name": "search.web", "capabilities": ["web.research"]},
+                ["web.research", "tool.search.web"],
+            ),
+        ],
+    )
+    def test_tool_call_names_the_capability_of_its_one_canonical_tool(
+        self, config: dict[str, Any], capabilities: list[str]
+    ) -> None:
+        result = dumped(resolve_node_requirements([node("tool", "ToolCall", config)]))
+        assert result["tool"]["capabilities"] == capabilities
 
     @pytest.mark.parametrize(
         "config",
