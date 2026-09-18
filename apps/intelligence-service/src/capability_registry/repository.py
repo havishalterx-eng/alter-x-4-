@@ -68,10 +68,11 @@ class CapabilityRegistryRepository:
         await self._session.execute(
             text("""INSERT INTO capability_registry_versions
               (capability_id, version, owner_tenant_id, scope, workspace_id, kind,
-               supported_capabilities, constraints, availability, provenance, metadata, status)
+               supported_capabilities, side_effects, constraints, availability, provenance,
+               metadata, status)
               VALUES (:capability_id, :version, CAST(:owner AS uuid), :scope,
                CAST(:workspace_id AS uuid), :kind, CAST(:capabilities AS jsonb),
-               CAST(:constraints AS jsonb), CAST(:availability AS jsonb),
+               :side_effects, CAST(:constraints AS jsonb), CAST(:availability AS jsonb),
                CAST(:provenance AS jsonb), CAST(:metadata AS jsonb), 'active')"""),
             {
                 "capability_id": request.capability_id,
@@ -81,6 +82,7 @@ class CapabilityRegistryRepository:
                 "workspace_id": _uuid(request.workspace_id, "ws") if request.workspace_id else None,
                 "kind": request.kind,
                 "capabilities": json.dumps(request.supported_capabilities),
+                "side_effects": request.side_effects,
                 "constraints": request.constraints.model_dump_json(),
                 "availability": request.availability.model_dump_json(),
                 "provenance": json.dumps(request.provenance),
@@ -96,7 +98,7 @@ class CapabilityRegistryRepository:
         await self._session.execute(_SET_TENANT, {"tenant_id": tenant})
         result = await self._session.execute(
             text("""SELECT capability_id, version, owner_tenant_id::text, scope,
-                 workspace_id::text, kind, supported_capabilities, constraints,
+                 workspace_id::text, kind, supported_capabilities, side_effects, constraints,
                  availability, provenance, metadata, status
           FROM capability_registry_versions
           WHERE (owner_tenant_id = CAST(:tenant AS uuid) OR scope = 'global')
@@ -127,7 +129,7 @@ class CapabilityRegistryRepository:
         result = await self._session.execute(
             text(
                 "SELECT capability_id, version, owner_tenant_id::text, scope, "
-                "workspace_id::text, kind, supported_capabilities, constraints, "
+                "workspace_id::text, kind, supported_capabilities, side_effects, constraints, "
                 "availability, provenance, metadata, status "
                 "FROM capability_registry_versions "
                 "WHERE capability_id = :capability_id AND version = :version "
@@ -196,6 +198,7 @@ def _record(row: RowMapping) -> CapabilityRecord:
         scope=value["scope"],
         workspace_id=value["workspace_id"],
         supported_capabilities=value["supported_capabilities"],
+        side_effects=value["side_effects"],
         constraints=value["constraints"],
         availability=value["availability"],
         provenance=value["provenance"],

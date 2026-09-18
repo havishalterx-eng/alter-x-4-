@@ -74,7 +74,7 @@ async def test_resolver_grpc_rejects_invalid_input_and_keeps_ids_out_of_inferenc
         )
         assert first.node_requirements_json == second.node_requirements_json
         assert json.loads(first.node_requirements_json) == {
-            "capabilities": [],
+            "capabilities": ["tool.search.web"],
             "tools": [
                 {
                     "name": "search.web",

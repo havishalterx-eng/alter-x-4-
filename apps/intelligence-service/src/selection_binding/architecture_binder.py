@@ -19,7 +19,18 @@ class ArchitectureBinder:
 
     async def bind(self, request: BindingRequest) -> ArchitectureBindingOutcome:
         bindings: list[BoundCapability] = []
-        for node in sorted(request.architecture.nodes, key=lambda value: value.source_node_key):
+        architecture = request.architecture
+        approval_policy = (
+            architecture.constraints.human_approval_required
+            or architecture.constraints.external_action_approval_required
+            or architecture.constraints.customer_visible
+        )
+        approved_before = {
+            boundary.before_node_key
+            for boundary in architecture.boundaries
+            if boundary.kind == "human_approval" and boundary.before_node_key is not None
+        }
+        for node in sorted(architecture.nodes, key=lambda value: value.source_node_key):
             role = node.capability_role
             if role is None:
                 continue
@@ -37,6 +48,16 @@ class ArchitectureBinder:
                     )
                 )
             eligible = [candidate for candidate in candidates if _eligible(candidate, request)]
+            # Synthesis left out the approval gate before this action because
+            # every record it saw was free of side effects. A record registered
+            # since then may not be, and binding it would run an unapproved
+            # external action, so only side-effect-free records stay eligible.
+            if (
+                approval_policy
+                and node.execution_kind == "deterministic"
+                and node.source_node_key not in approved_before
+            ):
+                eligible = [candidate for candidate in eligible if not candidate.side_effects]
             if not eligible:
                 return BindingBlocked(
                     source_node_key=node.source_node_key,

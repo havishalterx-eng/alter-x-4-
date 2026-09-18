@@ -11,9 +11,13 @@ from src.architecture_synthesizer.models import (
     SynthesisConstraints,
     SynthesizeArchitectureRequest,
 )
-from src.architecture_synthesizer.registry_client import _eligible
+from src.architecture_synthesizer.registry_client import (
+    CapabilityEligibility,
+    RepositoryCapabilityRegistryClient,
+    _eligible,
+)
 from src.architecture_synthesizer.service import ArchitectureSynthesizer
-from src.capability_registry.models import CapabilityKind, CapabilityRecord
+from src.capability_registry.models import CapabilityRecord, CapabilitySearch
 from src.capability_resolver.models import NodeRequirement, NodeRequirements
 from src.planner.task_skeleton import TaskNode, TaskSkeleton
 
@@ -22,10 +26,13 @@ WORKSPACE = "ws_bbbbbbbb-0000-7000-8000-bbbbbbbbbbbb"
 
 
 class Registry:
-    def __init__(self, unavailable: Sequence[str] = ()) -> None:
+    def __init__(
+        self, unavailable: Sequence[str] = (), side_effect_free: Sequence[str] = ()
+    ) -> None:
         self._unavailable = set(unavailable)
+        self._side_effect_free = set(side_effect_free)
 
-    async def eligible_kinds(
+    async def eligibility(
         self,
         *,
         tenant_id: str,
@@ -33,11 +40,15 @@ class Registry:
         source_node_type: str,
         requirement: NodeRequirement,
         constraints: SynthesisConstraints,
-    ) -> list[CapabilityKind]:
+    ) -> CapabilityEligibility:
         del tenant_id, workspace_id, constraints
-        if set(requirement.capabilities) & self._unavailable:
-            return []
-        return ["tool"] if source_node_type == "tool" else ["model"]
+        capabilities = set(requirement.capabilities)
+        if capabilities & self._unavailable:
+            return CapabilityEligibility(kinds=[], side_effects=True)
+        return CapabilityEligibility(
+            kinds=["tool"] if source_node_type == "tool" else ["model"],
+            side_effects=not capabilities <= self._side_effect_free,
+        )
 
 
 def request(
@@ -203,6 +214,138 @@ async def test_customer_visible_action_is_approved_before_it_and_nothing_gates_a
         ("verification", "before", "send"),
         ("human_approval", "before", "send"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_approval_skips_side_effect_free_actions_but_verification_does_not() -> None:
+    nodes = [
+        TaskNode(key="lookup", type="tool"),
+        TaskNode(key="send", type="tool", depends_on=["lookup"]),
+    ]
+    value = request(nodes, SynthesisConstraints(human_approval_required=True))
+    requirements = NodeRequirements(
+        root={
+            "lookup": NodeRequirement(capabilities=["crm.read"]),
+            "send": NodeRequirement(capabilities=["email.send"]),
+        }
+    )
+    value = value.model_copy(update={"node_requirements": requirements})
+
+    result = await ArchitectureSynthesizer(Registry(side_effect_free=["crm.read"])).synthesize(
+        value
+    )
+
+    assert isinstance(result, ArchitectureSpec)
+    assert _gates(result) == [
+        ("verification", "before", "lookup"),
+        ("verification", "before", "send"),
+        ("human_approval", "before", "send"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_external_action_approval_gates_side_effect_actions_and_never_output() -> None:
+    nodes = [
+        TaskNode(key="lookup", type="tool"),
+        TaskNode(key="send", type="tool", depends_on=["lookup"]),
+        TaskNode(key="summary", type="llm", depends_on=["send"]),
+    ]
+    value = request(nodes, SynthesisConstraints(external_action_approval_required=True))
+    requirements = NodeRequirements(
+        root={
+            "lookup": NodeRequirement(capabilities=["crm.read"]),
+            "send": NodeRequirement(capabilities=["email.send"]),
+            "summary": NodeRequirement(capabilities=["text.generation"]),
+        }
+    )
+    value = value.model_copy(update={"node_requirements": requirements})
+
+    result = await ArchitectureSynthesizer(Registry(side_effect_free=["crm.read"])).synthesize(
+        value
+    )
+
+    assert isinstance(result, ArchitectureSpec)
+    # Unlike human_approval_required, nothing is approved after "summary".
+    assert _gates(result) == [
+        ("verification", "before", "lookup"),
+        ("verification", "before", "send"),
+        ("human_approval", "before", "send"),
+    ]
+    approval = next(b for b in result.boundaries if b.kind == "human_approval")
+    assert approval.reason == "approval before external actions"
+
+
+@pytest.mark.asyncio
+async def test_a_tool_naming_no_capability_is_still_approved() -> None:
+    value = request(
+        [TaskNode(key="lookup", type="tool")], SynthesisConstraints(customer_visible=True)
+    )
+    unchecked = NodeRequirements(root={"lookup": NodeRequirement(capabilities=[])})
+    value = value.model_copy(update={"node_requirements": unchecked})
+    registry = Registry(side_effect_free=["code.execution"])
+
+    result = await ArchitectureSynthesizer(registry).synthesize(value)
+
+    assert isinstance(result, ArchitectureSpec)
+    assert ("human_approval", "before", "lookup") in _gates(result)
+
+
+class SearchOnly:
+    def __init__(self, records: list[CapabilityRecord]) -> None:
+        self.records = records
+
+    async def search(self, tenant_id: str, query: CapabilitySearch) -> list[CapabilityRecord]:
+        del tenant_id
+        return [record for record in self.records if record.kind == query.kind]
+
+
+def _tool_record(identifier: str, **fields: object) -> CapabilityRecord:
+    return CapabilityRecord.model_validate(
+        {
+            "capability_id": identifier,
+            "version": 1,
+            "owner_tenant_id": "aaaaaaaa-0000-7000-8000-aaaaaaaaaaaa",
+            "kind": "tool",
+            "scope": "tenant",
+            "supported_capabilities": ["crm.read"],
+            "provenance": {"source": "test"},
+            "status": "active",
+        }
+        | fields
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("records", "side_effects"),
+    [
+        ([_tool_record("a", side_effects=False), _tool_record("b", side_effects=False)], False),
+        # Binding may choose either record, so one that acts is enough.
+        ([_tool_record("a", side_effects=False), _tool_record("b", side_effects=True)], True),
+        # Unlabelled means it acts.
+        ([_tool_record("a")], True),
+        # An ineligible record cannot be bound, so it does not count.
+        (
+            [
+                _tool_record("a", side_effects=False),
+                _tool_record("b", availability={"available": False}),
+            ],
+            False,
+        ),
+    ],
+)
+async def test_registry_eligibility_reports_side_effects_across_every_eligible_record(
+    records: list[CapabilityRecord], side_effects: bool
+) -> None:
+    client = RepositoryCapabilityRegistryClient(SearchOnly(records))  # type: ignore[arg-type]
+    result = await client.eligibility(
+        tenant_id=TENANT,
+        workspace_id=WORKSPACE,
+        source_node_type="tool",
+        requirement=NodeRequirement(capabilities=["crm.read"]),
+        constraints=SynthesisConstraints(),
+    )
+    assert result == CapabilityEligibility(kinds=["tool"], side_effects=side_effects)
 
 
 @pytest.mark.asyncio

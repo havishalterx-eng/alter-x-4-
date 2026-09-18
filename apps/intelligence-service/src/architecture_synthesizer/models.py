@@ -33,6 +33,10 @@ class SynthesisConstraints(StrictModel):
     coordination_required: bool = False
     verification_required: bool = False
     human_approval_required: bool = False
+    # A person approves every action that may change something outside Alter,
+    # and nothing else: unlike human_approval_required, delivered output is not
+    # held for approval. The workspace "approve external actions" safeguard.
+    external_action_approval_required: bool = False
     customer_visible: bool = False
     # The run handles personal data: its delivered output is verified before it
     # leaves, even when no one outside the tenant will see it.

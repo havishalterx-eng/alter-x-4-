@@ -99,6 +99,7 @@ export interface SynthesisConstraints {
   readonly coordination_required?: boolean;
   readonly verification_required?: boolean;
   readonly human_approval_required?: boolean;
+  readonly external_action_approval_required?: boolean;
   readonly customer_visible?: boolean;
   readonly contains_pii?: boolean;
   readonly allowed_regions?: readonly string[];

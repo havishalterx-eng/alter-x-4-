@@ -45,6 +45,9 @@ class RegisterCapability(StrictModel):
     scope: CapabilityScope
     workspace_id: str | None = None
     supported_capabilities: list[NonEmpty] = Field(min_length=1, max_length=128)
+    # Whether using this capability sends or changes anything outside Alter.
+    # Only an explicit false excuses a tool from approval; unlabelled means true.
+    side_effects: bool = True
     constraints: CapabilityConstraints = Field(default_factory=CapabilityConstraints)
     availability: CapabilityAvailability = Field(default_factory=CapabilityAvailability)
     provenance: dict[NonEmpty, NonEmpty] = Field(min_length=1, max_length=16)

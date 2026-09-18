@@ -1442,7 +1442,10 @@ def test_architecture_golden_set_executes_for_real(
     # its fixed target (#175), when the old synthesizer scored 13 of 24. The
     # rewrite meets every case: gates before external actions, contains_pii,
     # and residency eligibility for tenants that set no residency constraint.
-    # Pinned at 24 so a regression in any rule fails here by name.
+    # v2 adds six side-effect cases: the amended G3 (approval only before
+    # actions that may change something outside Alter) and G3a
+    # (external_action_approval_required, which never holds delivered output).
+    # Pinned at 30 so a regression in any rule fails here by name.
     with sessions() as session:
         rows = session.execute(
             sa.text(
@@ -1455,8 +1458,8 @@ def test_architecture_golden_set_executes_for_real(
     failures = {row.tags[-1]: row.details for row in rows if row.verdict == "fail"}
 
     assert failures == {}
-    assert summary.total_cases == 24
-    assert summary.passed == 24
+    assert summary.total_cases == 30
+    assert summary.passed == 30
     assert summary.failed == 0
 
 

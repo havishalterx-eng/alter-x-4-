@@ -168,3 +168,61 @@ def test_router_uses_tenant_workspace_visible_registry_facts(
         "/internal/architecture-synthesis/synthesize", json=wrong_workspace
     )
     assert workspace_blocked.json()["status"] == "blocked"
+
+
+def test_canonical_tools_take_approval_off_reads_and_keep_it_on_everything_else(
+    client: TestClient,
+) -> None:
+    # Only migration 0008's global records: no test registration at all.
+    skeleton = {
+        "nodes": [
+            {
+                "key": "find",
+                "type": "tool",
+                "config": {"tool_name": "search.web"},
+                "depends_on": [],
+            },
+            {
+                "key": "notify",
+                "type": "tool",
+                "config": {"tool_name": "email.send"},
+                "depends_on": ["find"],
+            },
+            {
+                "key": "upload",
+                "type": "tool",
+                "config": {"tool_name": "youtube_upload"},
+                "depends_on": ["find"],
+            },
+        ],
+        "entry_point": "find",
+    }
+    response = client.post(
+        "/internal/architecture-synthesis/prepare-compiler-input",
+        json={
+            "tenant_id": TENANT_B,
+            "workspace_id": WORKSPACE_B,
+            "task_skeleton": skeleton,
+            "constraints": {"external_action_approval_required": True},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    approvals = sorted(
+        boundary["before_node_key"]
+        for boundary in body["architecture"]["boundaries"]
+        if boundary["kind"] == "human_approval"
+    )
+    # search.web is labelled read-only; email.send acts; youtube_upload is no
+    # canonical tool, names no capability, and keeps its approval unblocked.
+    assert approvals == ["notify", "upload"]
+    bound = {
+        binding["source_node_key"]: (binding["record_id"], binding["kind"])
+        for binding in body["binding_decision"]["bindings"]
+    }
+    assert bound == {
+        "find": ("tool.search.web", "tool"),
+        "notify": ("tool.email.send", "tool"),
+    }

@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 
+from src.capability_registry.canonical_tools import tool_capability
 from src.capability_resolver.models import (
     AgentId,
     ModelAlias,
@@ -151,6 +152,7 @@ def _resolve_node(node: WorkflowDagNode) -> NodeRequirement:
 
     model_alias = _model_alias(node, description)
     tools = _tool_requirements(node)
+    capabilities = _merge_unique(capabilities, _tool_capabilities(tools))
     preferred_agent_id = _optional_config_value(node, "preferred_agent_id", _AGENT_ID_ADAPTER)
     maximum_input_bytes = _optional_config_value(
         node, "maximum_input_bytes", _POSITIVE_INTEGER_ADAPTER
@@ -167,6 +169,20 @@ def _resolve_node(node: WorkflowDagNode) -> NodeRequirement:
         values["maximum_input_bytes"] = maximum_input_bytes
 
     return NodeRequirement.model_validate(values)
+
+
+def _tool_capabilities(tools: list[ToolRequirement] | None) -> list[str]:
+    """``tool.<name>`` for a node calling exactly one canonical tool.
+
+    A Registry record supports one tool, so a node naming several would match
+    no single record and be blocked; it names none instead and keeps every
+    safeguard, as does a tool name outside the canonical list.
+    """
+
+    if tools is None or len(tools) != 1:
+        return []
+    capability = tool_capability(tools[0].name)
+    return [] if capability is None else [capability]
 
 
 def _description(config: Mapping[str, Any]) -> str:
