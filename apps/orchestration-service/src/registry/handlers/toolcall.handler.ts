@@ -157,9 +157,16 @@ function validateExecution(
     };
   }
 
+  const resolved = resolveArgumentReferences(
+    config.data.arguments,
+    context.inputs,
+    "config.arguments",
+  );
+  if (resolved instanceof ReferenceProblem) return resolved;
+
   let inputJson: string;
   try {
-    inputJson = JSON.stringify(config.data.arguments);
+    inputJson = JSON.stringify(resolved);
   } catch {
     return {
       field: "config.arguments",
@@ -175,6 +182,95 @@ function validateExecution(
     inputJson,
     credentialReference: config.data.credential_ref,
   };
+}
+
+/** A class, so a failure can never be mistaken for a resolved upstream value. */
+class ReferenceProblem implements ValidationFailure {
+  constructor(
+    readonly field: string,
+    readonly detail: string,
+  ) {}
+}
+
+/**
+ * Replaces every argument reference with the upstream output it names.
+ *
+ * A reference is an object of exactly {"$from": "<node key>"} or
+ * {"$from": "<node key>", "path": "<field>.<field>"}: it stands for that
+ * node's output, or the value at the dot-separated path inside it (a numeric
+ * segment indexes an array). It is resolved against context.inputs, so it can
+ * only name a node whose output reaches this one. A reference is a whole
+ * value, never spliced into a string, so every argument is either written in
+ * the plan or copied verbatim from one upstream output.
+ */
+function resolveArgumentReferences(
+  value: unknown,
+  inputs: NodeExecutionContext["inputs"],
+  field: string,
+): unknown {
+  if (Array.isArray(value)) {
+    const resolved: unknown[] = [];
+    for (const [index, item] of value.entries()) {
+      const next = resolveArgumentReferences(item, inputs, `${field}.${index}`);
+      if (next instanceof ReferenceProblem) return next;
+      resolved.push(next);
+    }
+    return resolved;
+  }
+  if (!isPlainObject(value)) return value;
+  if (Object.hasOwn(value, "$from")) return resolveReference(value, inputs, field);
+
+  const resolved: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    const next = resolveArgumentReferences(item, inputs, `${field}.${key}`);
+    if (next instanceof ReferenceProblem) return next;
+    resolved[key] = next;
+  }
+  return resolved;
+}
+
+function resolveReference(
+  reference: Record<string, unknown>,
+  inputs: NodeExecutionContext["inputs"],
+  field: string,
+): unknown {
+  const { $from: from, path, ...rest } = reference;
+  if (
+    typeof from !== "string" ||
+    from.length === 0 ||
+    (path !== undefined && (typeof path !== "string" || path.length === 0)) ||
+    Object.keys(rest).length > 0
+  ) {
+    return new ReferenceProblem(
+      field,
+      'ToolCall argument reference must be {"$from": "<node key>"} with an optional non-empty "path" string and no other fields',
+    );
+  }
+  if (!Object.hasOwn(inputs, from)) {
+    return new ReferenceProblem(
+      field,
+      `ToolCall argument references node "${from}", whose output is not an input of this node`,
+    );
+  }
+
+  let current: unknown = inputs[from];
+  for (const segment of path === undefined ? [] : path.split(".")) {
+    if (Array.isArray(current)) {
+      current = /^\d+$/.test(segment) ? current[Number(segment)] : undefined;
+    } else {
+      current =
+        isPlainObject(current) && Object.hasOwn(current, segment)
+          ? current[segment]
+          : undefined;
+    }
+    if (current === undefined) {
+      return new ReferenceProblem(
+        field,
+        `ToolCall argument references "${path}" in the output of node "${from}", which has no value there`,
+      );
+    }
+  }
+  return current;
 }
 
 function credentialReferenceTenant(reference: string): string | undefined {

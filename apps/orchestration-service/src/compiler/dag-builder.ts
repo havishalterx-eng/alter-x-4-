@@ -303,11 +303,11 @@ export function compileTaskSkeletonToDag(
  * external action therefore has no safe edge and is rejected rather than
  * silently bypassing the verification law.
  *
- * One verification gate per incoming edge, chained, with only the last gate's
- * conditional edge entering the action. The Executor unlocks a node when ANY
- * conditional predecessor allows it, so gates side by side would let one
- * verified input release an action another input failed, and a branch that
- * routed away would be overruled by a passing gate.
+ * One verification gate per incoming edge, chained, with the last gate's
+ * conditional edge the only condition on the action. The Executor unlocks a
+ * node when ANY conditional predecessor allows it, so gates side by side would
+ * let one verified input release an action another input failed, and a branch
+ * that routed away would be overruled by a passing gate.
  *
  * A branch feeding the action decides whether the chain runs at all: its
  * condition for the action is copied onto the first gate, under that gate's
@@ -366,6 +366,11 @@ function injectVerificationGates(
         condition: { expression: "true", language: "cel" },
       });
     });
+    // Plain inputs also stay wired into the action, as the architecture
+    // compiler does, so its handler still receives their outputs (a ToolCall
+    // argument can reference them). Being sequential, they never unlock it:
+    // the Executor gates a node only on its conditional predecessors.
+    replacement.push(...incoming.filter((edge) => edge.kind !== "conditional"));
     // Replace the action's incoming edges in place, keeping edge order stable.
     const first = edges.indexOf(incoming[0]!);
     for (const edge of incoming.slice(1)) edges.splice(edges.indexOf(edge), 1);
