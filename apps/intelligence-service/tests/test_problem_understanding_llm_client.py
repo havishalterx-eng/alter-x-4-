@@ -42,9 +42,7 @@ class _ReplyStub:
 
     async def Invoke(self, request: object, **_kwargs: object) -> object:
         self.request = request
-        return SimpleNamespace(
-            output_json=json.dumps({"message": {"content": self.content}})
-        )
+        return SimpleNamespace(output_json=json.dumps({"message": {"content": self.content}}))
 
 
 def _client(stub: object) -> Any:
@@ -70,6 +68,23 @@ async def test_parses_a_bare_json_reply() -> None:
 
     assert spec.objective == "summarize customer feedback"
     assert spec.risk == "unknown"
+
+
+async def test_marks_only_the_fixed_system_prompt_as_alter_authored() -> None:
+    # The gateway leaves an alter_authored system message unredacted, so only
+    # the constant prompt may carry it; the user's objective must not.
+    stub = _ReplyStub(json.dumps(_VALID_SPEC))
+    await _client(stub).generate_problem_spec(
+        tenant_id=TENANT_ID,
+        run_id=RUN_ID,
+        objective="summarize customer feedback",
+        actor_context={},
+        kb_context="",
+    )
+
+    assert stub.request is not None
+    messages = json.loads(stub.request.input_json)["messages"]
+    assert [message.get("alter_authored") for message in messages] == [True, None]
 
 
 async def test_recovers_a_reply_wrapped_in_a_markdown_fence() -> None:
