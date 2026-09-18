@@ -44,6 +44,9 @@ export const workspaces = pgTable(
     defaultModelPolicy: jsonb("default_model_policy"),
     defaultToolPolicy: jsonb("default_tool_policy"),
     budget: jsonb("budget"),
+    safeguards: jsonb("safeguards")
+      .notNull()
+      .default({ contains_pii: true, approve_external_actions: true }),
     adsScopeId: uuid("ads_scope_id"),
     createdAt,
     updatedAt,

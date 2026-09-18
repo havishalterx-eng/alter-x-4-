@@ -1,8 +1,10 @@
 import type { FastifyReply } from "fastify";
 import { describe, expect, it, vi } from "vitest";
+import { tenantRolesMetadataKey } from "../rbac/rbac.metadata";
 import type { ActorContext } from "../rbac/types";
 import { PlatformHttpError } from "../signup/problem";
 import { WorkspacesController } from "./workspaces.controller";
+import type { WorkspaceSafeguardsService } from "./workspace-safeguards.service";
 import type { WorkspacesService } from "./workspaces.service";
 
 const actor: ActorContext = {
@@ -20,6 +22,8 @@ const workspace = {
   updatedAt: new Date("2026-07-23T00:00:00.000Z"),
 };
 
+const noSafeguards = {} as WorkspaceSafeguardsService;
+
 function reply() {
   const send = vi.fn();
   const header = vi.fn(() => ({ send }));
@@ -30,7 +34,7 @@ describe("WorkspacesController", () => {
   it("forwards list and create including default name", async () => {
     const list = vi.fn().mockResolvedValue([workspace]);
     const create = vi.fn().mockResolvedValue(workspace);
-    const controller = new WorkspacesController({ list, create } as unknown as WorkspacesService);
+    const controller = new WorkspacesController({ list, create } as unknown as WorkspacesService, noSafeguards);
     await expect(controller.list(actor)).resolves.toEqual([workspace]);
     await controller.create(actor, { name: "New" });
     await controller.create(actor, {});
@@ -41,7 +45,7 @@ describe("WorkspacesController", () => {
   it("writes ETags for get and update", async () => {
     const get = vi.fn().mockResolvedValue(workspace);
     const update = vi.fn().mockResolvedValue({ ...workspace, name: "Renamed" });
-    const controller = new WorkspacesController({ get, update } as unknown as WorkspacesService);
+    const controller = new WorkspacesController({ get, update } as unknown as WorkspacesService, noSafeguards);
     const getReply = reply();
     await controller.get(actor, "workspace", getReply.value);
     expect(getReply.header).toHaveBeenCalledWith("ETag", expect.stringMatching(/^".+"$/));
@@ -53,8 +57,28 @@ describe("WorkspacesController", () => {
     expect(updateReply.send).toHaveBeenCalledWith(expect.objectContaining({ name: "Renamed" }));
   });
 
+  it("forwards safeguard reads and owner-only writes with the If-Match header", async () => {
+    const view = { safeguards: { contains_pii: true, approve_external_actions: true } };
+    const get = vi.fn().mockResolvedValue(view);
+    const set = vi.fn().mockResolvedValue(view);
+    const controller = new WorkspacesController(
+      {} as WorkspacesService,
+      { get, set } as unknown as WorkspaceSafeguardsService,
+    );
+
+    await expect(controller.getSafeguards(actor, "workspace")).resolves.toEqual(view);
+    await controller.setSafeguards(actor, "workspace", view, '"etag"');
+
+    expect(get).toHaveBeenCalledWith(actor, "workspace");
+    expect(set).toHaveBeenCalledWith(actor, "workspace", view, '"etag"');
+    expect(Reflect.getMetadata(tenantRolesMetadataKey, WorkspacesController)).toEqual(["member"]);
+    expect(
+      Reflect.getMetadata(tenantRolesMetadataKey, WorkspacesController.prototype.setSafeguards),
+    ).toEqual(["owner"]);
+  });
+
   it("rejects missing actor", () => {
-    expect(() => new WorkspacesController({} as WorkspacesService).list()).toThrow(
+    expect(() => new WorkspacesController({} as WorkspacesService, noSafeguards).list()).toThrow(
       PlatformHttpError,
     );
   });

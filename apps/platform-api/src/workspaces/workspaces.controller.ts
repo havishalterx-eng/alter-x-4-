@@ -7,18 +7,26 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Res,
+  UseFilters,
+  UseInterceptors,
 } from "@nestjs/common";
 import type { FastifyReply } from "fastify";
+import { ConcurrencyExceptionFilter, EtagResponseInterceptor } from "../concurrency";
 import { ActorContext, RequireTenantRole } from "../rbac/decorators";
 import type { ActorContext as Actor } from "../rbac/types";
 import { PlatformHttpError } from "../signup/problem";
+import { WorkspaceSafeguardsService } from "./workspace-safeguards.service";
 import { WorkspacesService, workspaceEtag } from "./workspaces.service";
 
 @Controller("/api/v1/workspaces")
 @RequireTenantRole("member")
 export class WorkspacesController {
-  constructor(private readonly workspaces: WorkspacesService) {}
+  constructor(
+    private readonly workspaces: WorkspacesService,
+    private readonly safeguards: WorkspaceSafeguardsService,
+  ) {}
 
   @Get()
   list(@ActorContext() actor?: Actor) {
@@ -58,6 +66,27 @@ export class WorkspacesController {
       ifMatch,
     );
     reply.header("ETag", workspaceEtag(workspace)).send(workspace);
+  }
+
+  @Get(":workspaceId/safeguards")
+  @UseInterceptors(EtagResponseInterceptor)
+  getSafeguards(@ActorContext() actor: Actor | undefined, @Param("workspaceId") workspaceId: string) {
+    return this.safeguards.get(requireActor(actor), workspaceId);
+  }
+
+  // Organisational rules, so only a tenant owner changes them, as with
+  // tenant data residency.
+  @Put(":workspaceId/safeguards")
+  @RequireTenantRole("owner")
+  @UseInterceptors(EtagResponseInterceptor)
+  @UseFilters(ConcurrencyExceptionFilter)
+  setSafeguards(
+    @ActorContext() actor: Actor | undefined,
+    @Param("workspaceId") workspaceId: string,
+    @Body() body: unknown,
+    @Headers("if-match") ifMatch: string | undefined,
+  ) {
+    return this.safeguards.set(requireActor(actor), workspaceId, body, ifMatch);
   }
 }
 
