@@ -127,7 +127,9 @@ describe.sequential("Capability Resolver gRPC", () => {
 
     expect(resolved).toEqual({
       summarize: { capabilities: ["text.generation", "text.summarization"], model_alias: "FAST" },
-      search: { capabilities: [], tools: [{ name: "search.web", version: "v1", permissions: ["web:read"] }] },
+      // A ToolCall naming one canonical tool requires that tool's capability,
+      // which is how synthesis learns whether the call has side effects.
+      search: { capabilities: ["tool.search.web"], tools: [{ name: "search.web", version: "v1", permissions: ["web:read"] }] },
       verify_step_0: { capabilities: [] },
     });
   });
