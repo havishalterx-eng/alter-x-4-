@@ -1,0 +1,80 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("./http", () => ({
+  apiGet: vi.fn(),
+  apiPost: vi.fn(),
+  apiPatch: vi.fn(),
+  apiDelete: vi.fn(),
+  mutationKey: (prefix: string) => `${prefix}-test-key`,
+}))
+
+import { apiGet } from "./http"
+import { getHumanActions } from "./live"
+
+// One page per source lifecycle, shaped as /api/v1/action-centre returns it.
+const firstPage = {
+  data: [
+    { source_type: "approval", item: { id: "apr_pending", status: "pending" } },
+    { source_type: "escalation", item: { id: "esc_open", status: "open" } },
+    { source_type: "clarification", item: { id: "clr_open", status: "open" } },
+    { source_type: "escalation", item: { id: "esc_claimed", status: "claimed" } },
+  ],
+  page: { next_cursor: "next-1", has_more: true, limit: 200 },
+}
+const secondPage = {
+  data: [
+    { source_type: "approval", item: { id: "apr_approved", status: "approved" } },
+    { source_type: "approval", item: { id: "apr_expired", status: "expired" } },
+    { source_type: "escalation", item: { id: "esc_resolved", status: "resolved" } },
+    { source_type: "clarification", item: { id: "clr_answered", status: "answered" } },
+  ],
+  page: { next_cursor: null, has_more: false, limit: 200 },
+}
+
+beforeEach(() => {
+  vi.mocked(apiGet).mockReset()
+  vi.mocked(apiGet).mockImplementation(async (path: string) =>
+    path.includes("cursor=next-1") ? secondPage : firstPage,
+  )
+})
+
+async function ids(filters?: { status?: string; type?: string }) {
+  return (await getHumanActions(filters)).map((action) => action.id)
+}
+
+describe("Human Actions tabs over approvals, escalations and clarifications", () => {
+  it("never sends the tab to the action centre, whose status filter is approvals-only", async () => {
+    await ids({ status: "open" })
+
+    expect(vi.mocked(apiGet).mock.calls.map(([path]) => path)).toEqual([
+      "/api/v1/action-centre?limit=200",
+      "/api/v1/action-centre?limit=200&cursor=next-1",
+    ])
+  })
+
+  it("shows pending approvals with open escalations and clarifications under Open", async () => {
+    expect(await ids({ status: "open" })).toEqual(["apr_pending", "esc_open", "clr_open"])
+  })
+
+  it("shows claimed escalations under Claimed", async () => {
+    expect(await ids({ status: "claimed" })).toEqual(["esc_claimed"])
+  })
+
+  it("shows decided, expired, resolved and answered items under Resolved", async () => {
+    expect(await ids({ status: "resolved" })).toEqual([
+      "apr_approved",
+      "apr_expired",
+      "esc_resolved",
+      "clr_answered",
+    ])
+  })
+
+  it("shows everything under All, and still filters by type", async () => {
+    expect(await ids({ status: "all" })).toHaveLength(8)
+    expect(await ids({ status: "all", type: "approval" })).toEqual([
+      "apr_pending",
+      "apr_approved",
+      "apr_expired",
+    ])
+  })
+})

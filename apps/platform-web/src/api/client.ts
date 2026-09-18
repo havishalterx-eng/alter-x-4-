@@ -426,7 +426,7 @@ class ApiClient {
     if (isLiveApi) return live.getHumanActions(filters)
     await delay(MOCK_DELAY)
     let actions = [...mockHumanActions]
-    if (filters?.status) actions = actions.filter(a => a.status === filters.status)
+    actions = actions.filter(a => live.humanActionInTab(a.status, filters?.status))
     if (filters?.type) actions = actions.filter(a => a.type === filters.type)
     return actions
   }
