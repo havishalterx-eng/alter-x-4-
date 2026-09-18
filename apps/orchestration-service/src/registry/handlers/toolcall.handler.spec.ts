@@ -165,4 +165,110 @@ describe("ToolCallHandler", () => {
       error_code: "TOOL_GATEWAY_INVALID_RESPONSE",
     });
   });
+
+  describe("argument references", () => {
+    const EMAIL_REF = `/alter/prod/tenant/${TENANT_ID}/integration/email/access-token`;
+    const inputs = {
+      draft: { subject: "Weekly report", body: "All green.", tags: ["a", "b"] },
+      open: { sessionId: "bb_123", expiresAt: "2099-01-01T00:00:00.000Z" },
+    };
+
+    function referencing(
+      toolArguments: Record<string, unknown>,
+    ): Parameters<ToolCallHandler["execute"]>[0] {
+      return {
+        ...context({ tool_name: "email.send", arguments: toolArguments, credential_ref: EMAIL_REF }),
+        inputs,
+      };
+    }
+
+    function okGateway() {
+      return vi.fn().mockResolvedValue({
+        output_json: "{}",
+        audit_id: "aud_018f4d6e-2b4a-7a3e-8c1a-1234567890ab",
+      });
+    }
+
+    it("replaces each reference with the upstream value it names", async () => {
+      const invoke = okGateway();
+      const handler = new ToolCallHandler(gateway(invoke));
+
+      const result = await handler.execute(
+        referencing({
+          to: "ops@example.com",
+          subject: { $from: "draft", path: "subject" },
+          body: { $from: "draft", path: "body" },
+          first_tag: { $from: "draft", path: "tags.1" },
+          nested: [{ session: { $from: "open", path: "sessionId" } }],
+          whole: { $from: "open" },
+        }),
+      );
+
+      expect(result.metadata).toEqual({ audit_id: "aud_018f4d6e-2b4a-7a3e-8c1a-1234567890ab" });
+      expect(JSON.parse(invoke.mock.calls[0]![0].input_json)).toEqual({
+        to: "ops@example.com",
+        subject: "Weekly report",
+        body: "All green.",
+        first_tag: "b",
+        nested: [{ session: "bb_123" }],
+        whole: inputs.open,
+      });
+    });
+
+    it.each([
+      [
+        "a node that is not an input",
+        { subject: { $from: "research", path: "subject" } },
+        "config.arguments.subject",
+        'node "research", whose output is not an input',
+      ],
+      [
+        "a path with no value",
+        { body: { $from: "draft", path: "content.text" } },
+        "config.arguments.body",
+        '"content.text" in the output of node "draft", which has no value there',
+      ],
+      [
+        "an array index out of range",
+        { tags: [{ $from: "draft", path: "tags.5" }] },
+        "config.arguments.tags.0",
+        "which has no value there",
+      ],
+      [
+        "a reference with extra fields",
+        { body: { $from: "draft", path: "body", fallback: "hi" } },
+        "config.arguments.body",
+        "no other fields",
+      ],
+      [
+        "a reference whose $from is not a string",
+        { body: { $from: 3 } },
+        "config.arguments.body",
+        "no other fields",
+      ],
+    ])("fails the node on %s, before calling the gateway", async (_name, toolArguments, field, detail) => {
+      const invoke = okGateway();
+      const handler = new ToolCallHandler(gateway(invoke));
+
+      const result = await handler.execute(referencing(toolArguments));
+
+      expect(invoke).not.toHaveBeenCalled();
+      const details = ProblemDetailsSchema.parse(result.output);
+      expect(details.error_code).toBe("TOOL_CALL_VALIDATION_FAILED");
+      expect(details.field_errors).toEqual([{ field, message: expect.stringContaining(detail) }]);
+      expect(result.metadata).toMatchObject({ execution_status: "failed" });
+    });
+
+    it("does not resolve a reference-shaped value that arrives from upstream", async () => {
+      const invoke = okGateway();
+      const handler = new ToolCallHandler(gateway(invoke));
+
+      await handler.execute({
+        ...referencing({ to: "ops@example.com", body: { $from: "draft", path: "body" } }),
+        inputs: { draft: { body: { $from: "open", path: "sessionId" } }, open: inputs.open },
+      });
+
+      expect(JSON.parse(invoke.mock.calls[0]![0].input_json).body).toEqual({ $from: "open", path: "sessionId" });
+    });
+  });
 });

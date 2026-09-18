@@ -142,6 +142,7 @@ describe("compileTaskSkeletonToDag", () => {
     expect(dag.edges).toEqual([
       { key: "node_a-to-verify_step_0", from: "node_a", to: "verify_step_0", kind: "sequential" },
       { key: "verify_step_0-to-node_b", from: "verify_step_0", to: "node_b", kind: "conditional", condition: { expression: "true", language: "cel" } },
+      { key: "node_a-to-node_b", from: "node_a", to: "node_b", kind: "sequential" },
       { key: "node_b-to-node_c", from: "node_b", to: "node_c", kind: "sequential" },
     ]);
   });
@@ -162,7 +163,7 @@ describe("compileTaskSkeletonToDag", () => {
     expect(dag.waves).toEqual([
       { key: "wave_0", order: 0, node_keys: ["node_a"], depends_on: [] },
       { key: "wave_1", order: 1, node_keys: ["verify_step_0"], depends_on: ["wave_0"] },
-      { key: "wave_2", order: 2, node_keys: ["node_b"], depends_on: ["wave_1"] },
+      { key: "wave_2", order: 2, node_keys: ["node_b"], depends_on: ["wave_0", "wave_1"] },
       { key: "wave_3", order: 3, node_keys: ["node_c"], depends_on: ["wave_2"] },
     ]);
   });
@@ -587,7 +588,7 @@ describe("compileTaskSkeletonToDag branch into a verified action", () => {
     expect(dag.nodes.find((node) => node.key === "verify_step_1")?.config).toMatchObject({ verification: { source_node_key: "draft", protected_node_key: "send" } });
     expect(dag.edges.filter((edge) => edge.to === "verify_step_0").map((edge) => [edge.from, edge.kind])).toEqual([["route", "conditional"], ["draft", "sequential"]]);
     expect(dag.edges.filter((edge) => edge.to === "verify_step_1").map((edge) => [edge.from, edge.kind])).toEqual([["verify_step_0", "conditional"]]);
-    expect(dag.edges.filter((edge) => edge.to === "send").map((edge) => edge.from)).toEqual(["verify_step_1"]);
+    expect(dag.edges.filter((edge) => edge.to === "send").map((edge) => [edge.from, edge.kind])).toEqual([["verify_step_1", "conditional"], ["draft", "sequential"]]);
     const waveOf = (key: string) => dag.waves.find((wave) => wave.node_keys.includes(key))!.order;
     expect(waveOf("verify_step_0")).toBeGreaterThan(Math.max(waveOf("route"), waveOf("draft")));
     expect(waveOf("send")).toBeGreaterThan(waveOf("verify_step_1"));

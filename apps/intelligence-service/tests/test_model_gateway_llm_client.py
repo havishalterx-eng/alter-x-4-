@@ -326,6 +326,74 @@ def test_a_tool_name_outside_the_canonical_list_cannot_run() -> None:
     ]
 
 
+def _email(key: str, depends_on: list[str], arguments: dict[str, object]) -> dict[str, object]:
+    return {
+        "key": key,
+        "type": "tool",
+        "config": {"tool_name": "email.send", "arguments": arguments},
+        "depends_on": depends_on,
+    }
+
+
+def test_a_tool_argument_can_reference_a_step_it_depends_on() -> None:
+    skeleton = TaskSkeleton.from_json(
+        _skeleton_json(
+            [
+                _llm("a", []),
+                _email(
+                    "b",
+                    ["a"],
+                    {
+                        "to": "ops@example.com",
+                        "subject": {"$from": "a", "path": "subject"},
+                        "body": {"$from": "a"},
+                    },
+                ),
+            ]
+        )
+    )
+
+    assert _executable_problems(skeleton) == []
+
+
+def test_a_tool_argument_cannot_reference_what_the_tool_does_not_receive() -> None:
+    skeleton = TaskSkeleton.from_json(
+        _skeleton_json(
+            [
+                _llm("a", []),
+                _llm("b", ["a"]),
+                {
+                    "key": "route",
+                    "type": "branch",
+                    "config": {"conditions": {"c": "true"}},
+                    "depends_on": ["b"],
+                },
+                _email(
+                    "c",
+                    ["b", "route"],
+                    {
+                        "to": {"$from": "a", "path": "to"},
+                        "subject": {"$from": "route"},
+                        "body": [{"$from": "b", "path": "body", "default": "x"}],
+                    },
+                ),
+            ]
+        )
+    )
+
+    assert _executable_problems(skeleton) == [
+        "tool node 'c' arguments.to references 'a', which is not in its depends_on",
+        "tool node 'c' arguments.subject references branch 'route', which has no output to pass on",
+        "tool node 'c' arguments.body.0 is not a reference of the form "
+        '{"$from": "<node key>", "path": "<field>.<field>"}',
+    ]
+
+
+def test_the_planner_is_told_how_to_reference_an_earlier_step() -> None:
+    assert '{"$from": "<key of that step>", "path": "<field>.<field>"}' in _SKELETON_SYSTEM_PROMPT
+    assert '"browser_session_id": {"$from"' in _TOOL_REFERENCE
+
+
 async def test_generate_skeleton_returns_an_executable_plan_in_one_call() -> None:
     plan = _skeleton_json([_llm("a", []), _tool("b", ["a"], "search.web")])
     stub = _SequenceStub(plan)

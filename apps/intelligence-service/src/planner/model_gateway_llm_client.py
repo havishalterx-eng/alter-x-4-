@@ -34,7 +34,7 @@ from ..capability_registry.canonical_tools import CANONICAL_TOOL_SIDE_EFFECTS
 from ..m2m_auth import AccessTokenProvider
 from .llm_client import StubLlmClient
 from .manager_worker import ManagerWorkerPlan, WorkerTaskSpec
-from .task_skeleton import TaskSkeleton
+from .task_skeleton import TaskNode, TaskSkeleton
 
 # CEILING is reserved (per llm_client.py) for the manager_worker path's
 # "hardest decomposition"; the default single-shot skeleton call uses
@@ -49,9 +49,10 @@ _TOOL_REFERENCE = """\
 - "database.select", "database.insert", "database.update", "database.delete": \
 {"databaseId": "<id of the tenant database>", "statement": "<one SQL statement>", \
 "parameters": [<optional statement parameters>]}
-- "browser.session.create": {"session_id": "<correlation id>"}
-- "browser.navigate": {"session_id": "...", "browser_session_id": "<id returned by \
-browser.session.create>", "url": "<url>"}
+- "browser.session.create": {"session_id": "<correlation id>"}, and its output is \
+{"sessionId": "<browser session id>", "expiresAt": "..."}
+- "browser.navigate": {"session_id": "...", "browser_session_id": {"$from": "<key of the \
+browser.session.create step>", "path": "sessionId"}, "url": "<url>"}
 - "browser.click": {"session_id": "...", "browser_session_id": "...", "selector": \
 "<CSS selector>"}
 - "browser.extract": {"session_id": "...", "browser_session_id": "...", "selector": \
@@ -81,7 +82,15 @@ contained instruction for that step). The model executing this step will be told
 respond with JSON only, so the prompt should describe what fields the JSON output needs.
 - "tool": config must have "tool_name" and "arguments". "tool_name" must be exactly one \
 of the tools listed below -- these are the only tools that exist, and a step naming any \
-other tool cannot run. "arguments" is an object with that tool's fields.
+other tool cannot run. "arguments" is an object with that tool's fields. An argument \
+value that an earlier step produces is written as a reference instead of a literal: \
+{"$from": "<key of that step>", "path": "<field>.<field>"} stands for the value at that \
+path in the step's JSON output (a number in the path picks an array item; leave out \
+"path" for the whole output). The referenced step must be listed in this node's \
+depends_on, and cannot be a "branch" step. A reference is the whole argument value -- it \
+cannot be embedded inside a longer string -- so when an argument combines several values, \
+add an "llm" step that outputs the finished value and reference that. Never put \
+passwords, API keys, tokens or other secrets in arguments.
 - "branch" and "join": config can be an empty object {}.
 
 Tools (tool_name: arguments):
@@ -502,8 +511,11 @@ def _executable_problems(skeleton: TaskSkeleton) -> list[str]:
                     f"tool node {node.key!r} names {tool_name!r}, which is not a tool; "
                     "use one of the listed tools or an llm node"
                 )
-            if not isinstance(node.config.get("arguments"), dict):
+            arguments = node.config.get("arguments")
+            if not isinstance(arguments, dict):
                 problems.append(f"tool node {node.key!r} has no arguments object")
+            else:
+                problems.extend(_reference_problems(node, arguments, "arguments", nodes))
 
     entry = nodes.get(skeleton.entry_point)
     if entry is None:
@@ -521,3 +533,50 @@ def _executable_problems(skeleton: TaskSkeleton) -> list[str]:
     if remaining:
         problems.append(f"dependency cycle among {sorted(remaining)}")
     return problems
+
+
+def _reference_problems(
+    node: TaskNode, value: object, field: str, nodes: dict[str, TaskNode]
+) -> list[str]:
+    """Argument references ToolCallHandler could not resolve.
+
+    ToolCallHandler resolves {"$from": key, "path": ...} against the outputs
+    of the node's own inputs, which the compiler wires from its depends_on --
+    except a branch, whose edge only decides whether the node runs.
+    """
+    if isinstance(value, list):
+        return [
+            problem
+            for index, item in enumerate(value)
+            for problem in _reference_problems(node, item, f"{field}.{index}", nodes)
+        ]
+    if not isinstance(value, dict):
+        return []
+    if "$from" not in value:
+        return [
+            problem
+            for key, item in value.items()
+            for problem in _reference_problems(node, item, f"{field}.{key}", nodes)
+        ]
+
+    source, path = value["$from"], value.get("path")
+    if (
+        not isinstance(source, str)
+        or not source
+        or (path is not None and (not isinstance(path, str) or not path))
+        or set(value) - {"$from", "path"}
+    ):
+        return [
+            f"tool node {node.key!r} {field} is not a reference of the form "
+            '{"$from": "<node key>", "path": "<field>.<field>"}'
+        ]
+    if source not in node.depends_on:
+        return [
+            f"tool node {node.key!r} {field} references {source!r}, which is not in its depends_on"
+        ]
+    if (source_node := nodes.get(source)) is not None and source_node.type == "branch":
+        return [
+            f"tool node {node.key!r} {field} references branch {source!r}, "
+            "which has no output to pass on"
+        ]
+    return []
