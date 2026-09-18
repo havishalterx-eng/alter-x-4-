@@ -1,7 +1,8 @@
+import { randomBytes } from "node:crypto";
 import { EngineClient } from "../engine/engine-client";
 import type { EngineCallerContext } from "../engine/types";
 import type { PlatformDb } from "../signup/platform-db";
-import type { RbacRequest } from "./types";
+import type { ActorContext, RbacRequest } from "./types";
 
 /**
  * Resolves the workspace that owns the resource a request addresses, so
@@ -33,8 +34,9 @@ export interface ResourceWorkspaceLookup {
   /** The resource's owning workspace, or undefined when no such resource
    * exists for the tenant ("doesn't exist" and "isn't yours" collapse).
    * Throws WorkspaceLookupUnavailableError when the backing system cannot
-   * be consulted -- callers must fail closed on it. */
-  getWorkspaceId(tenantId: string, resourceId: string): Promise<string | undefined>;
+   * be consulted -- callers must fail closed on it. The lookup is made as
+   * `actor`, the caller the guard is authorizing. */
+  getWorkspaceId(actor: ActorContext, resourceId: string): Promise<string | undefined>;
 }
 
 const DEFAULT_POSITIVE_TTL_MS = 60 * 1000;
@@ -71,7 +73,8 @@ export class CachedEngineResourceLookup implements ResourceWorkspaceLookup {
     this.#now = now;
   }
 
-  async getWorkspaceId(tenantId: string, resourceId: string): Promise<string | undefined> {
+  async getWorkspaceId(actor: ActorContext, resourceId: string): Promise<string | undefined> {
+    const tenantId = actor.tenant_id;
     const cacheKey = `${tenantId}:${this.#pathFor(resourceId)}`;
     const cached = this.#cache.get(cacheKey);
     const currentTime = this.#now();
@@ -79,21 +82,28 @@ export class CachedEngineResourceLookup implements ResourceWorkspaceLookup {
       return cached.workspaceId;
     }
 
+    // The engine authenticates every call with an actor token, and its
+    // claims schema requires a real user, workspace and session. The lookup
+    // used to send empty strings for them, which the engine rejected as
+    // AUTH_INVALID_ACTOR_TOKEN, so every route whose workspace is resolved
+    // through the engine was denied. It now reads as the caller. An actor
+    // with no workspace at all cannot hold the workspace role these routes
+    // require, so that case fails closed rather than calling the engine.
+    if (!actor.workspace_id) {
+      throw new WorkspaceLookupUnavailableError();
+    }
     let status: number;
     let body: Record<string, unknown> | undefined;
     try {
-      // Context fields beyond tenant identity are unused by these internal
-      // read paths' authorization; empty strings keep the caller contract
-      // satisfied without inventing session state.
       const context: EngineCallerContext = {
-        userId: "",
+        userId: actor.user_id,
         tenantId,
-        workspaceId: "",
-        sessionId: "",
-        authTime: 0,
-        roles: [],
-        permissions: [],
-        traceparent: "",
+        workspaceId: actor.workspace_id,
+        sessionId: actor.session_id,
+        authTime: actor.auth_time ?? Math.floor(currentTime / 1000),
+        roles: actor.roles,
+        permissions: actor.permissions,
+        traceparent: `00-${randomBytes(16).toString("hex")}-${randomBytes(8).toString("hex")}-01`,
       };
       const response = await this.#engineClient.get<Record<string, unknown>>(
         this.#pathFor(encodeURIComponent(resourceId)) as `/api/v1/${string}`,
@@ -136,7 +146,8 @@ function snakeField(field: string) {
 export class ConnectionWorkspaceLookup implements ResourceWorkspaceLookup {
   constructor(private readonly db: PlatformDb) {}
 
-  async getWorkspaceId(tenantId: string, connectionId: string): Promise<string | undefined> {
+  async getWorkspaceId(actor: ActorContext, connectionId: string): Promise<string | undefined> {
+    const tenantId = actor.tenant_id;
     if (!UUID_LIKE.test(connectionId)) {
       // Malformed ids can never be real connections; treat like missing.
       return undefined;
@@ -186,7 +197,7 @@ export class ParamWorkspaceResolver implements ResourceWorkspaceResolver {
   async resolveWorkspaceId(request: RbacRequest): Promise<string | undefined> {
     const params = request.params ?? {};
     const url = request.url ?? "";
-    const actorTenantId = request.actorContext?.tenant_id;
+    const actor = request.actorContext;
 
     for (const rule of this.#rules) {
       if (rule.pathMarkers && !rule.pathMarkers.some((marker) => url.includes(marker))) {
@@ -204,17 +215,17 @@ export class ParamWorkspaceResolver implements ResourceWorkspaceResolver {
       if (rule.typeParamMapping) {
         const type = typeof params.type === "string" ? params.type.toLowerCase() : "";
         const lookup = rule.typeParamMapping[type];
-        if (!lookup || !actorTenantId) return undefined;
-        return lookup.getWorkspaceId(actorTenantId, rawValue);
+        if (!lookup || !actor) return undefined;
+        return lookup.getWorkspaceId(actor, rawValue);
       }
       if (rule.lookup === undefined) {
         // Direct pass-through: the addressed resource IS a workspace.
         return rawValue;
       }
-      if (!actorTenantId) {
+      if (!actor) {
         return undefined;
       }
-      return rule.lookup.getWorkspaceId(actorTenantId, rawValue);
+      return rule.lookup.getWorkspaceId(actor, rawValue);
     }
     return undefined;
   }
