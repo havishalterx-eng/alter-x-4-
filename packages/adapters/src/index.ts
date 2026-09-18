@@ -364,6 +364,7 @@ export {
   type ReplanResponse,
   type SelectStrategyRequest,
   type SelectStrategyResponse,
+  type SynthesisConstraints,
 } from "./http/planner-client";
 export {
   createEnvironmentValidators,

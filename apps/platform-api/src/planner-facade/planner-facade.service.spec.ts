@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { PlannerFacadeService } from "./planner-facade.service";
 import { TenantDataResidencyError, type TenantResidencyRepository } from "./tenant-residency.repository";
+import { WorkflowSafeguardsError, type WorkflowSafeguardsService } from "./workflow-safeguards.service";
 import { CompilerServiceClient } from "./compiler-client";
 import type {
   CompilerCompileArchitectureWorkflowRequest,
@@ -87,10 +88,13 @@ class FakeCompilerGrpcClient {
   }
 }
 
+const NO_SAFEGUARDS = { customer_visible: false, contains_pii: false, approve_external_actions: false };
+
 function service(
   http: FakePlannerHttpClient,
   grpc: FakeCompilerGrpcClient,
   allowedDataResidency: TenantResidencyRepository["allowedDataResidency"] = vi.fn().mockResolvedValue([]),
+  effectiveFor: WorkflowSafeguardsService["effectiveFor"] = vi.fn().mockResolvedValue(NO_SAFEGUARDS),
 ): PlannerFacadeService {
   const plannerClient = new PlannerClient({ baseUrl: "http://intelligence.internal" }, http);
   const compilerClient = new CompilerServiceClient(
@@ -100,6 +104,7 @@ function service(
   return new PlannerFacadeService(
     { getAccessToken: vi.fn().mockResolvedValue("m2m-token") },
     { allowedDataResidency } as TenantResidencyRepository,
+    { effectiveFor } as unknown as WorkflowSafeguardsService,
     plannerClient,
     compilerClient,
   );
@@ -125,31 +130,33 @@ function prepareBody(http: FakePlannerHttpClient): { constraints?: Record<string
 }
 
 describe("PlannerFacadeService.planWorkflow constraints", () => {
-  it("sends the declared run constraints and the tenant's own residency to synthesis", async () => {
+  it("sends the effective safeguards and the tenant's own residency to synthesis", async () => {
     const http = readyHttp();
     const residency = vi.fn().mockResolvedValue(["eu"]);
+    const effectiveFor = vi
+      .fn()
+      .mockResolvedValue({ customer_visible: true, contains_pii: true, approve_external_actions: true });
 
-    await service(http, new FakeCompilerGrpcClient(), residency).planWorkflow({
+    await service(http, new FakeCompilerGrpcClient(), residency, effectiveFor).planWorkflow({
       tenantId: TENANT_ID,
       workspaceId: WORKSPACE_ID,
       workflowId: WORKFLOW_ID,
       objective: "Email the customers",
-      constraints: { customer_visible: true, contains_pii: true },
     });
 
-    // Before this, prepare-compiler-input carried no constraints at all and
-    // every production architecture was synthesized on defaults.
     expect(residency).toHaveBeenCalledWith(TENANT_ID);
+    expect(effectiveFor).toHaveBeenCalledWith(TENANT_ID, WORKSPACE_ID, WORKFLOW_ID);
+    // "Approve external actions" is external_action_approval_required, never
+    // human_approval_required, which would also hold delivered output.
     expect(prepareBody(http).constraints).toEqual({
       customer_visible: true,
-      human_approval_required: false,
-      verification_required: false,
       contains_pii: true,
+      external_action_approval_required: true,
       allowed_data_residency: ["eu"],
     });
   });
 
-  it("sends explicit defaults when the request declares nothing and the tenant pins nothing", async () => {
+  it("sends every safeguard off only when the workspace and workflow ask for none", async () => {
     const http = readyHttp();
 
     await service(http, new FakeCompilerGrpcClient()).planWorkflow({
@@ -161,11 +168,27 @@ describe("PlannerFacadeService.planWorkflow constraints", () => {
 
     expect(prepareBody(http).constraints).toEqual({
       customer_visible: false,
-      human_approval_required: false,
-      verification_required: false,
       contains_pii: false,
+      external_action_approval_required: false,
       allowed_data_residency: [],
     });
+  });
+
+  it("does not plan when the safeguards cannot be read", async () => {
+    const http = readyHttp();
+    const grpc = new FakeCompilerGrpcClient();
+    const effectiveFor = vi.fn().mockRejectedValue(new WorkflowSafeguardsError("workspace not found"));
+
+    await expect(
+      service(http, grpc, undefined, effectiveFor).planWorkflow({
+        tenantId: TENANT_ID,
+        workspaceId: WORKSPACE_ID,
+        workflowId: WORKFLOW_ID,
+        objective: "Email the customers",
+      }),
+    ).rejects.toBeInstanceOf(WorkflowSafeguardsError);
+    expect(http.calls.some((call) => call.url.endsWith("/prepare-compiler-input"))).toBe(false);
+    expect(grpc.compileArchitectureWorkflowCalls).toHaveLength(0);
   });
 
   it("does not plan when the tenant's residency cannot be read", async () => {
