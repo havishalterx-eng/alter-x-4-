@@ -30,6 +30,7 @@ import grpc
 
 from alter.modelgw.v1 import modelgw_pb2, modelgw_pb2_grpc
 
+from ..capability_registry.canonical_tools import CANONICAL_TOOL_SIDE_EFFECTS
 from ..m2m_auth import AccessTokenProvider
 from .llm_client import StubLlmClient
 from .manager_worker import ManagerWorkerPlan, WorkerTaskSpec
@@ -40,7 +41,27 @@ from .task_skeleton import TaskSkeleton
 # STANDARD.
 _MODEL_ALIAS_SKELETON = "STANDARD"
 
-_SKELETON_SHAPE = """{
+# The Tool Gateway dispatches exactly the canonical tools
+# (capability_registry/canonical_tools.py), and these are the fields its input
+# parsers require. A test fails if a canonical tool is missing here.
+_TOOL_REFERENCE = """\
+- "search.web": {"query": "<search query>", "maxResults": <optional positive integer>}
+- "database.select", "database.insert", "database.update", "database.delete": \
+{"databaseId": "<id of the tenant database>", "statement": "<one SQL statement>", \
+"parameters": [<optional statement parameters>]}
+- "browser.session.create": {"session_id": "<correlation id>"}
+- "browser.navigate": {"session_id": "...", "browser_session_id": "<id returned by \
+browser.session.create>", "url": "<url>"}
+- "browser.click": {"session_id": "...", "browser_session_id": "...", "selector": \
+"<CSS selector>"}
+- "browser.extract": {"session_id": "...", "browser_session_id": "...", "selector": \
+"<optional CSS selector>"}
+- "browser.session.close": {"session_id": "...", "browser_session_id": "..."}
+- "email.send": {"to": "<one email address>", "subject": "<subject>", "body": "<body \
+text>", "html": <optional boolean>}"""
+
+_SKELETON_SHAPE = (
+    """{
   "version": "1",
   "nodes": [
     {
@@ -58,10 +79,25 @@ Rules for config, by node type:
 STANDARD unless the step clearly needs more reasoning) and "prompt" (a specific, self-\
 contained instruction for that step). The model executing this step will be told to \
 respond with JSON only, so the prompt should describe what fields the JSON output needs.
-- "tool": config must have "tool_name" (a short, descriptive snake_case name for the \
-external action, e.g. "youtube_upload", "video_render") and "arguments" (an object of \
-whatever parameters that tool call needs).
-- "branch" and "join": config can be an empty object {}."""
+- "tool": config must have "tool_name" and "arguments". "tool_name" must be exactly one \
+of the tools listed below -- these are the only tools that exist, and a step naming any \
+other tool cannot run. "arguments" is an object with that tool's fields.
+- "branch" and "join": config can be an empty object {}.
+
+Tools (tool_name: arguments):
+"""
+    + _TOOL_REFERENCE
+    + """
+
+Never invent a tool. When the objective needs an action none of these tools performs \
+(for example posting to a chat app, uploading a video, creating a ticket or sending a \
+text message), do not add a tool node for it: use an "llm" node that prepares exactly \
+what a person needs to complete that action themselves.
+
+An "llm" step only reasons over its prompt and the outputs of the steps it depends on. \
+It cannot search the web, open pages, read or change a database, or send anything, so a \
+step that needs current information from outside or acts outside must be a tool step."""
+)
 
 _SKELETON_SYSTEM_PROMPT = f"""You are a task planner. Decompose the validated ProblemSpec JSON
 into a task skeleton: a small DAG of steps needed to accomplish it.
@@ -219,7 +255,22 @@ class ModelGatewayLlmClient(StubLlmClient):
             model_alias=_MODEL_ALIAS_SKELETON,
             payload=_payload(_SKELETON_SYSTEM_PROMPT, problem_spec_json, temperature=0.2),
         )
-        return TaskSkeleton.from_json(content)
+        skeleton, problems = _parsed_skeleton(content)
+        if skeleton is not None and not problems:
+            return skeleton
+        # One repair turn: the model sees its own plan and exactly what stops
+        # it running (most often a tool name that does not exist) and fixes it.
+        content = await self._invoke(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            node_execution_id=f"planner_skeleton_repair_{run_id}",
+            model_alias=_MODEL_ALIAS_SKELETON,
+            payload=_repair_payload(problem_spec_json, content, problems),
+        )
+        repaired, problems = _parsed_skeleton(content)
+        if repaired is None or problems:
+            raise ValueError(f"skeleton is not executable: {'; '.join(problems)}")
+        return repaired
 
     async def revise_skeleton(
         self,
@@ -332,6 +383,36 @@ def _payload(system_prompt: str, user_content: str, *, temperature: float) -> st
     )
 
 
+def _parsed_skeleton(content: str) -> tuple[TaskSkeleton | None, list[str]]:
+    """The model's skeleton and what stops it running; a skeleton that does not
+    parse is one more problem for the repair turn rather than an exception."""
+    try:
+        skeleton = TaskSkeleton.model_validate(json.loads(content, strict=False))
+    except ValueError as error:
+        return None, [f"the answer is not a valid skeleton ({error})"]
+    return skeleton, _executable_problems(skeleton)
+
+
+def _repair_payload(problem_spec_json: str, plan: str, problems: list[str]) -> str:
+    return json.dumps(
+        {
+            "messages": [
+                {"role": "system", "content": _SKELETON_SYSTEM_PROMPT},
+                {"role": "user", "content": problem_spec_json},
+                {"role": "assistant", "content": plan},
+                {
+                    "role": "user",
+                    "content": "That plan cannot run: "
+                    + "; ".join(problems)
+                    + ". Return the corrected plan in the same JSON shape.",
+                },
+            ],
+            "temperature": 0.2,
+        },
+        separators=(",", ":"),
+    )
+
+
 def _llm_step_config(step: object, label: str) -> dict[str, object]:
     if not isinstance(step, dict):
         raise ValueError(f"{label} must be an object")
@@ -413,8 +494,14 @@ def _executable_problems(skeleton: TaskSkeleton) -> list[str]:
             if not isinstance(prompt, str) or not prompt.strip():
                 problems.append(f"llm node {node.key!r} has no prompt")
         if node.type == "tool":
-            if not isinstance(node.config.get("tool_name"), str):
+            tool_name = node.config.get("tool_name")
+            if not isinstance(tool_name, str):
                 problems.append(f"tool node {node.key!r} has no tool_name")
+            elif tool_name not in CANONICAL_TOOL_SIDE_EFFECTS:
+                problems.append(
+                    f"tool node {node.key!r} names {tool_name!r}, which is not a tool; "
+                    "use one of the listed tools or an llm node"
+                )
             if not isinstance(node.config.get("arguments"), dict):
                 problems.append(f"tool node {node.key!r} has no arguments object")
 
