@@ -6,8 +6,14 @@ from typing import Any
 
 import pytest
 
+from src.capability_registry.canonical_tools import CANONICAL_TOOL_SIDE_EFFECTS
 from src.planner.manager_worker import ManagerWorkerPlan, build_manager_worker_skeleton
-from src.planner.model_gateway_llm_client import ModelGatewayLlmClient, _executable_problems
+from src.planner.model_gateway_llm_client import (
+    _SKELETON_SYSTEM_PROMPT,
+    _TOOL_REFERENCE,
+    ModelGatewayLlmClient,
+    _executable_problems,
+)
 from src.planner.task_skeleton import TaskNode, TaskSkeleton
 
 
@@ -19,7 +25,14 @@ class _RecordingStub:
         self.request = request
         skeleton = TaskSkeleton(
             version="1",
-            nodes=[TaskNode(key="plan", type="llm", config={}, depends_on=[])],
+            nodes=[
+                TaskNode(
+                    key="plan",
+                    type="llm",
+                    config={"model_alias": "STANDARD", "prompt": "Plan it."},
+                    depends_on=[],
+                )
+            ],
             entry_point="plan",
         )
         return SimpleNamespace(output_json=json.dumps({"message": {"content": skeleton.to_json()}}))
@@ -255,6 +268,106 @@ async def test_revise_skeleton_rejects_a_plan_that_cannot_compile_or_run(
         await _revise(answer)
 
     assert problem in str(error.value)
+
+
+# ---------------------------------------------------------------------------
+# generate_skeleton: canonical tool names
+# ---------------------------------------------------------------------------
+
+
+def _tool(key: str, depends_on: list[str], tool_name: str) -> dict[str, object]:
+    return {
+        "key": key,
+        "type": "tool",
+        "config": {"tool_name": tool_name, "arguments": {"query": "x"}},
+        "depends_on": depends_on,
+    }
+
+
+def _skeleton_json(nodes: list[dict[str, object]], entry_point: str = "a") -> str:
+    return json.dumps({"version": "1", "nodes": nodes, "entry_point": entry_point})
+
+
+class _SequenceStub:
+    def __init__(self, *contents: str) -> None:
+        self.contents = list(contents)
+        self.requests: list[Any] = []
+
+    async def Invoke(self, request: object, **_kwargs: object) -> object:
+        self.requests.append(request)
+        return SimpleNamespace(
+            output_json=json.dumps({"message": {"content": self.contents.pop(0)}})
+        )
+
+
+async def _generate(stub: _SequenceStub) -> TaskSkeleton:
+    skeleton: TaskSkeleton = await _client(stub).generate_skeleton(
+        tenant_id=_TENANT, run_id=_RUN, strategy="iterative", problem_spec_json='{"objective":"x"}'
+    )
+    return skeleton
+
+
+def test_every_canonical_tool_is_offered_to_the_planner() -> None:
+    for name in CANONICAL_TOOL_SIDE_EFFECTS:
+        assert f'"{name}"' in _TOOL_REFERENCE
+    assert _TOOL_REFERENCE in _SKELETON_SYSTEM_PROMPT
+
+
+def test_a_tool_name_outside_the_canonical_list_cannot_run() -> None:
+    skeleton = TaskSkeleton.from_json(
+        _skeleton_json([_llm("a", []), _tool("b", ["a"], "youtube_upload")])
+    )
+
+    assert _executable_problems(skeleton) == [
+        "tool node 'b' names 'youtube_upload', which is not a tool; "
+        "use one of the listed tools or an llm node"
+    ]
+
+
+async def test_generate_skeleton_returns_an_executable_plan_in_one_call() -> None:
+    plan = _skeleton_json([_llm("a", []), _tool("b", ["a"], "search.web")])
+    stub = _SequenceStub(plan)
+
+    skeleton = await _generate(stub)
+
+    assert [node.config.get("tool_name") for node in skeleton.nodes] == [None, "search.web"]
+    assert len(stub.requests) == 1
+
+
+async def test_generate_skeleton_repairs_an_invented_tool_name_once() -> None:
+    invented = _skeleton_json([_llm("a", []), _tool("b", ["a"], "youtube_upload")])
+    repaired = _skeleton_json([_llm("a", []), _llm("b", ["a"])])
+    stub = _SequenceStub(invented, repaired)
+
+    skeleton = await _generate(stub)
+
+    assert [node.type for node in skeleton.nodes] == ["llm", "llm"]
+    repair = stub.requests[1]
+    assert repair.node_execution_id == f"planner_skeleton_repair_{_RUN}"
+    messages = json.loads(repair.input_json)["messages"]
+    assert [message["role"] for message in messages] == ["system", "user", "assistant", "user"]
+    assert messages[2]["content"] == invented
+    assert "'youtube_upload', which is not a tool" in messages[3]["content"]
+
+
+async def test_generate_skeleton_repairs_an_answer_that_is_not_json() -> None:
+    stub = _SequenceStub("Here is the plan:", _skeleton_json([_llm("a", [])]))
+
+    skeleton = await _generate(stub)
+
+    assert skeleton.entry_point == "a"
+    assert (
+        "not a valid skeleton" in json.loads(stub.requests[1].input_json)["messages"][3]["content"]
+    )
+
+
+async def test_generate_skeleton_fails_rather_than_return_a_plan_that_cannot_run() -> None:
+    invented = _skeleton_json([_llm("a", []), _tool("b", ["a"], "slack_post")])
+    stub = _SequenceStub(invented, invented)
+
+    with pytest.raises(ValueError, match="'slack_post', which is not a tool"):
+        await _generate(stub)
+    assert len(stub.requests) == 2
 
 
 # ---------------------------------------------------------------------------
