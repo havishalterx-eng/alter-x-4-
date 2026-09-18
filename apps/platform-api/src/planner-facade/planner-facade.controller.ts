@@ -11,28 +11,22 @@ import {
   RequireWorkspaceRole,
   type ActorContextType,
 } from "../rbac";
+import { PlatformHttpError } from "../signup/problem";
 import { PlannerFacadeService } from "./planner-facade.service";
 import { z } from "zod";
 
 const writeRoles = ["admin", "editor"] as const;
 
-// What the caller knows about this run. Every flag can only add verification or
-// approval to the architecture; none removes the gate before external actions.
-// Residency is not here on purpose: it is tenant-owned and read from the tenant.
-export const PlanRunConstraintsSchema = z
+// Strict: safeguards are not taken per request. Flags sent with one plan were
+// kept nowhere, so planning again quietly dropped them. They are read from the
+// workspace and the workflow (GET/PUT .../safeguards), and residency from the
+// tenant, on every plan; a body that still sends `constraints` is a 400.
+export const PlanWorkflowBodySchema = z
   .object({
-    customer_visible: z.boolean().optional(),
-    human_approval_required: z.boolean().optional(),
-    verification_required: z.boolean().optional(),
-    contains_pii: z.boolean().optional(),
+    goal: z.string().min(1),
+    answers: z.record(z.string(), z.string()).optional(),
   })
   .strict();
-
-export const PlanWorkflowBodySchema = z.object({
-  goal: z.string().min(1),
-  answers: z.record(z.string(), z.string()).optional(),
-  constraints: PlanRunConstraintsSchema.optional(),
-});
 
 @Controller("/api/v1/workflows/:workflowId/actions")
 export class PlannerFacadeController {
@@ -47,7 +41,20 @@ export class PlannerFacadeController {
     @Body() body: unknown,
     @ActorContext() actor: ActorContextType,
   ) {
-    const parsed = PlanWorkflowBodySchema.parse(body);
+    const result = PlanWorkflowBodySchema.safeParse(body);
+    if (!result.success) {
+      throw new PlatformHttpError(
+        400,
+        "INVALID_PLAN_REQUEST",
+        "Body must be { goal: string, answers?: Record<string, string> }",
+        `/api/v1/workflows/${workflowId}/actions/plan`,
+        result.error.issues.map((issue) => ({
+          field: issue.path.join(".") || "body",
+          message: issue.message,
+        })),
+      );
+    }
+    const parsed = result.data;
 
     // Reconstruct the objective including answers
     let objective = parsed.goal;
@@ -65,7 +72,6 @@ export class PlannerFacadeController {
       workspaceId: actor.workspace_id ?? "",
       workflowId,
       objective,
-      constraints: parsed.constraints ?? {},
     });
   }
 }

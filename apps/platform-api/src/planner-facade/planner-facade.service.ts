@@ -1,10 +1,11 @@
 import { Injectable, Inject, Optional } from "@nestjs/common";
-import { PlannerClient, type PlannerHttpClient } from "@alterx/adapters";
+import { PlannerClient, type PlannerHttpClient, type SynthesisConstraints } from "@alterx/adapters";
 import { CompilerServiceClient } from "./compiler-client";
 import { randomUUID } from "node:crypto";
 import { getCompilerProtoPath } from "./compiler-client";
 import { ENGINE_M2M_TOKEN_PROVIDER, type EngineM2mTokenProvider } from "../engine/auth";
 import { TenantResidencyRepository } from "./tenant-residency.repository";
+import { WorkflowSafeguardsService } from "./workflow-safeguards.service";
 
 export function createFetchPlannerHttpClient(tokenProvider: () => Promise<string>): PlannerHttpClient {
   return {
@@ -39,12 +40,6 @@ export interface PlanWorkflowInput {
   readonly workspaceId: string;
   readonly workflowId: string;
   readonly objective: string;
-  readonly constraints?: {
-    readonly customer_visible?: boolean | undefined;
-    readonly human_approval_required?: boolean | undefined;
-    readonly verification_required?: boolean | undefined;
-    readonly contains_pii?: boolean | undefined;
-  };
 }
 
 export type PlanWorkflowResult = 
@@ -61,6 +56,9 @@ export class PlannerFacadeService {
     // Required, not @Optional: a missing reader must not quietly plan every
     // tenant as if it pinned no residency.
     private readonly tenantResidency: TenantResidencyRepository,
+    // Required for the same reason: planning without it would drop every
+    // safeguard the workspace requires.
+    private readonly safeguards: WorkflowSafeguardsService,
     // Both real clients already support an injectable transport
     // (PlannerClient's httpClient param, CompilerServiceClient's raw gRPC
     // client param) -- @Optional() here just lets a test construct this
@@ -119,15 +117,7 @@ export class PlannerFacadeService {
       tenant_id: tenantId,
       workspace_id: workspaceId,
       task_skeleton: JSON.parse(decomposeResponse.task_skeleton_json),
-      // Until this was sent the synthesizer always ran on defaults, so no
-      // declared constraint and no tenant residency ever reached an architecture.
-      constraints: {
-        customer_visible: input.constraints?.customer_visible ?? false,
-        human_approval_required: input.constraints?.human_approval_required ?? false,
-        verification_required: input.constraints?.verification_required ?? false,
-        contains_pii: input.constraints?.contains_pii ?? false,
-        allowed_data_residency: await this.tenantResidency.allowedDataResidency(input.tenantId),
-      },
+      constraints: await this.constraints(input),
     });
     if (prepared.status !== "ready") throw new Error("Architecture pipeline blocked compilation");
     const compileResponse = await this.compilerClient.compileArchitectureWorkflow({
@@ -140,6 +130,25 @@ export class PlannerFacadeService {
     return {
       type: "compiled",
       versionId: compileResponse.workflow_version_id,
+    };
+  }
+
+  /**
+   * Read fresh on every plan, never taken from the request: the workspace's
+   * safeguards OR the workflow's additions, and the tenant's residency.
+   * "Approve external actions" maps to external_action_approval_required, not
+   * human_approval_required, which would also hold delivered output.
+   */
+  private async constraints(input: PlanWorkflowInput): Promise<SynthesisConstraints> {
+    const [effective, allowedDataResidency] = await Promise.all([
+      this.safeguards.effectiveFor(input.tenantId, input.workspaceId, input.workflowId),
+      this.tenantResidency.allowedDataResidency(input.tenantId),
+    ]);
+    return {
+      customer_visible: effective.customer_visible,
+      contains_pii: effective.contains_pii,
+      external_action_approval_required: effective.approve_external_actions,
+      allowed_data_residency: allowedDataResidency,
     };
   }
 }
