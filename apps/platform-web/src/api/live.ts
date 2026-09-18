@@ -1147,18 +1147,45 @@ function slugify(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
 }
 
+/**
+ * The Human Actions tabs span three sources with different lifecycles:
+ * approvals (pending/approved/rejected/expired), escalations
+ * (open/claimed/resolved) and clarifications (open/answered/expired).
+ * mapHumanActionStatus folds those into one vocabulary; a tab is a set of
+ * folded statuses, so Open is pending approvals plus open escalations and
+ * clarifications, and Resolved includes decisions that expired.
+ */
+export function humanActionInTab(status: HumanActionStatus, tab: string | undefined): boolean {
+  if (!tab || tab === "all") return true
+  if (tab === "resolved") return status === "resolved" || status === "expired" || status === "cancelled"
+  return status === tab
+}
+
+// ponytail: loads the whole queue and filters by tab here. Fine at today's
+// volumes; when it is not, give /api/v1/action-centre a status filter in
+// this folded vocabulary and page on the server.
+const HUMAN_ACTION_PAGE_LIMIT = 200
+const HUMAN_ACTION_MAX_PAGES = 10
+
 export async function getHumanActions(filters?: any): Promise<HumanAction[]> {
-  const query = new URLSearchParams()
-  if (filters?.status) query.set("status", filters.status)
-  // Action centre handles filtering by type implicitly via source_type, but here we just fetch everything and filter if needed, or rely on API.
-  // We'll hit the main action centre endpoint.
-  const body = await apiGet<unknown>(`/api/v1/action-centre?${query.toString()}`)
-  const items = asArray(body, "data")
-  let actions = items.map(mapHumanAction)
-  if (filters?.type) {
-    actions = actions.filter((a) => a.type === filters.type)
+  // The action centre's own status filter speaks approvals' vocabulary only
+  // and drops escalations and clarifications when it is set, so the tab is
+  // never sent to it.
+  const items: unknown[] = []
+  let cursor: string | undefined
+  for (let page = 0; page < HUMAN_ACTION_MAX_PAGES; page += 1) {
+    const query = new URLSearchParams({ limit: String(HUMAN_ACTION_PAGE_LIMIT) })
+    if (cursor) query.set("cursor", cursor)
+    const body = await apiGet<unknown>(`/api/v1/action-centre?${query.toString()}`)
+    items.push(...asArray(body, "data"))
+    const next = ((body as AnyRecord | undefined)?.page as AnyRecord | undefined)?.next_cursor
+    if (typeof next !== "string" || next.length === 0) break
+    cursor = next
   }
-  return actions
+  return items
+    .map(mapHumanAction)
+    .filter((action) => humanActionInTab(action.status, filters?.status))
+    .filter((action) => !filters?.type || action.type === filters.type)
 }
 
 export async function getHumanAction(id: string): Promise<HumanAction> {
