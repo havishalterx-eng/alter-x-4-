@@ -7,6 +7,17 @@ export const ModelMessageSchema = z
   .object({
     role: ModelMessageRoleSchema,
     content: NonEmptyStringSchema,
+    /**
+     * Set by a caller on a system message whose content is fixed text Alter
+     * wrote -- a constant prompt, never interpolated with tenant or user
+     * data. The Model Gateway does not PII-redact such a message (redaction
+     * reads identifiers like `email.send` as URLs and garbles the prompt)
+     * and strips this field before the payload reaches a model provider.
+     * Ignored on any other role: user and assistant content is always
+     * redacted. A system message that includes anything a tenant or user
+     * wrote must not carry it.
+     */
+    alter_authored: z.literal(true).optional(),
   })
   .strict();
 

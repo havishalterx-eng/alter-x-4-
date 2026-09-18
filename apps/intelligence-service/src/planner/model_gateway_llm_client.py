@@ -209,7 +209,7 @@ WORKFLOW_STRATEGIES = frozenset({"direct", "iterative", "manager_worker"})
 def strategy_payload(objective: str) -> dict[str, object]:
     return {
         "messages": [
-            {"role": "system", "content": _STRATEGY_SYSTEM_PROMPT},
+            {"role": "system", "content": _STRATEGY_SYSTEM_PROMPT, "alter_authored": True},
             {"role": "user", "content": objective},
         ],
         "temperature": 0,
@@ -374,7 +374,7 @@ def _payload(system_prompt: str, user_content: str, *, temperature: float) -> st
     return json.dumps(
         {
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": system_prompt, "alter_authored": True},
                 {"role": "user", "content": user_content},
             ],
             "temperature": temperature,
@@ -397,7 +397,7 @@ def _repair_payload(problem_spec_json: str, plan: str, problems: list[str]) -> s
     return json.dumps(
         {
             "messages": [
-                {"role": "system", "content": _SKELETON_SYSTEM_PROMPT},
+                {"role": "system", "content": _SKELETON_SYSTEM_PROMPT, "alter_authored": True},
                 {"role": "user", "content": problem_spec_json},
                 {"role": "assistant", "content": plan},
                 {

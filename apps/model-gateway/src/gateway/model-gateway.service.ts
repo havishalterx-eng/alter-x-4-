@@ -139,6 +139,11 @@ export class ModelGatewayService implements ModelgwHandler {
    * text while leaving the envelope intact. Behaviour is unchanged for any
    * payload this cannot parse: it falls back to redacting the whole string,
    * so a malformed envelope is never forwarded less-redacted than before.
+   *
+   * A system message marked `alter_authored: true` is fixed text Alter
+   * wrote (see ModelMessageSchema) and is forwarded unredacted; the marker
+   * is honoured on system messages only and removed from every message
+   * before the payload leaves the gateway.
    */
   async #redactInvocationPayload(
     tenantId: string,
@@ -160,13 +165,19 @@ export class ModelGatewayService implements ModelgwHandler {
 
     const messages = await Promise.all(
       payload.messages.map(async (message: unknown) => {
-        const record = message as { content?: unknown };
-        if (typeof record.content !== "string") return message;
+        if (typeof message !== "object" || message === null) return message;
+        const { alter_authored: alterAuthored, ...record } = message as {
+          alter_authored?: unknown;
+          role?: unknown;
+          content?: unknown;
+        };
+        if (typeof record.content !== "string") return record;
+        if (record.role === "system" && alterAuthored === true) return record;
         const result = await this.piiRedactionProvider.redact({
           tenantId,
           text: record.content,
         });
-        return { ...(message as object), content: result.redactedText };
+        return { ...record, content: result.redactedText };
       }),
     );
 

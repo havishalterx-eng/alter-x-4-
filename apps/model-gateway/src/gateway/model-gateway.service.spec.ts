@@ -196,6 +196,40 @@ describe("ModelGatewayService", () => {
     );
   });
 
+  it("forwards an Alter-authored system prompt unredacted and strips the marker", async () => {
+    const invoke = vi.fn(createMockModelProvider().invoke);
+    const service = buildService({
+      modelProvider: createMockModelProvider({ invoke }),
+      piiRedactionProvider: createMockPIIRedactionProvider(),
+    });
+
+    await service.invoke(
+      request({
+        input_json: JSON.stringify({
+          messages: [
+            { role: "system", content: "Tool list; PAN ABCDE1234F", alter_authored: true },
+            { role: "system", content: "Agent persona; PAN ABCDE1234F" },
+            { role: "user", content: "my PAN is ABCDE1234F", alter_authored: true },
+          ],
+          temperature: 0,
+        }),
+      }),
+    );
+
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputJson: JSON.stringify({
+          messages: [
+            { role: "system", content: "Tool list; PAN ABCDE1234F" },
+            { role: "system", content: "Agent persona; PAN <IN_PAN>" },
+            { role: "user", content: "my PAN is <IN_PAN>" },
+          ],
+          temperature: 0,
+        }),
+      }),
+    );
+  });
+
   it("redact() delegates to the PIIRedactionProvider and reports a redaction count", async () => {
     const service = buildService();
 

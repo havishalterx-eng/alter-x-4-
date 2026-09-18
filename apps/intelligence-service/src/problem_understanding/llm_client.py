@@ -95,7 +95,7 @@ class ModelGatewayProblemUnderstandingClient:
         payload = json.dumps(
             {
                 "messages": [
-                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "system", "content": _SYSTEM_PROMPT, "alter_authored": True},
                     {
                         "role": "user",
                         "content": json.dumps(
