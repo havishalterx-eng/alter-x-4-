@@ -12,7 +12,7 @@ import {
   type WorkspaceResolutionRule,
 } from "./param-workspace.resolver";
 import type { PlatformDb } from "../signup/platform-db";
-import type { RbacRequest } from "./types";
+import type { ActorContext, RbacRequest } from "./types";
 
 const tenantId = "018f47a5-7b2c-7d10-8f11-123456789abc";
 const workspaceA = "ws_018f47a5-7b2c-7d10-8f11-123456789aba";
@@ -37,15 +37,19 @@ function request(
   return {
     params,
     url,
-    actorContext: {
-      user_id: "usr_x",
-      tenant_id: tenantId,
-      roles: [],
-      permissions: [],
-      session_id: "sess_x",
-    },
+    actorContext: actor,
   };
 }
+
+const actorWithoutWorkspace: ActorContext = {
+  user_id: "usr_018f47a5-7b2c-7d10-8f11-123456789ab1",
+  tenant_id: tenantId,
+  roles: ["admin"],
+  permissions: ["approvals:decide"],
+  session_id: "sess_x",
+  auth_time: 1_789_000_000,
+};
+const actor = { ...actorWithoutWorkspace, workspace_id: "018f47a5-7b2c-7d10-8f11-123456789ab2" };
 
 function staticLookup(value: string | undefined): ResourceWorkspaceLookup {
   return { getWorkspaceId: async () => value };
@@ -186,8 +190,8 @@ describe("CachedEngineResourceLookup caching contract", () => {
       (body) => (typeof body.workspace_id === "string" ? body.workspace_id : undefined),
     );
 
-    await expect(lookup.getWorkspaceId(tenantId, workflowId)).resolves.toBe(workspaceA);
-    await expect(lookup.getWorkspaceId(tenantId, workflowId)).resolves.toBe(workspaceA);
+    await expect(lookup.getWorkspaceId(actor, workflowId)).resolves.toBe(workspaceA);
+    await expect(lookup.getWorkspaceId(actor, workflowId)).resolves.toBe(workspaceA);
     expect(get).toHaveBeenCalledTimes(1);
   });
 
@@ -199,8 +203,8 @@ describe("CachedEngineResourceLookup caching contract", () => {
       (body) => (typeof body.workspace_id === "string" ? body.workspace_id : undefined),
     );
 
-    await expect(lookup.getWorkspaceId(tenantId, workflowId)).resolves.toBeUndefined();
-    await expect(lookup.getWorkspaceId(tenantId, workflowId)).resolves.toBeUndefined();
+    await expect(lookup.getWorkspaceId(actor, workflowId)).resolves.toBeUndefined();
+    await expect(lookup.getWorkspaceId(actor, workflowId)).resolves.toBeUndefined();
     expect(get).toHaveBeenCalledTimes(1);
   });
 
@@ -216,11 +220,52 @@ describe("CachedEngineResourceLookup caching contract", () => {
       (body) => (typeof body.workspace_id === "string" ? body.workspace_id : undefined),
     );
 
-    await expect(lookup.getWorkspaceId(tenantId, workflowId)).rejects.toBeInstanceOf(
+    await expect(lookup.getWorkspaceId(actor, workflowId)).rejects.toBeInstanceOf(
       WorkspaceLookupUnavailableError,
     );
     status = 200;
-    await expect(lookup.getWorkspaceId(tenantId, workflowId)).resolves.toBe(workspaceA);
+    await expect(lookup.getWorkspaceId(actor, workflowId)).resolves.toBe(workspaceA);
+  });
+});
+
+describe("CachedEngineResourceLookup caller identity", () => {
+  it("asks the engine as the caller the guard is authorizing", async () => {
+    const get = vi.fn(async () => ({ status: 200, body: { workspace_id: workspaceA } }));
+    const lookup = new CachedEngineResourceLookup(
+      { get } as never,
+      (id) => `/api/v1/approvals/${id}`,
+      (body) => (typeof body.workspace_id === "string" ? body.workspace_id : undefined),
+    );
+
+    await lookup.getWorkspaceId(actor, approvalId);
+
+    expect(get).toHaveBeenCalledWith(
+      `/api/v1/approvals/${approvalId}`,
+      expect.objectContaining({
+        userId: actor.user_id,
+        tenantId: actor.tenant_id,
+        workspaceId: actor.workspace_id,
+        sessionId: actor.session_id,
+        authTime: actor.auth_time,
+        roles: actor.roles,
+        permissions: actor.permissions,
+        traceparent: expect.stringMatching(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/),
+      }),
+    );
+  });
+
+  it("fails closed without calling the engine for an actor with no workspace", async () => {
+    const get = vi.fn();
+    const lookup = new CachedEngineResourceLookup(
+      { get } as never,
+      (id) => `/api/v1/approvals/${id}`,
+      (body) => (typeof body.workspace_id === "string" ? body.workspace_id : undefined),
+    );
+
+    await expect(lookup.getWorkspaceId(actorWithoutWorkspace, approvalId)).rejects.toBeInstanceOf(
+      WorkspaceLookupUnavailableError,
+    );
+    expect(get).not.toHaveBeenCalled();
   });
 });
 
@@ -234,7 +279,7 @@ describe("ConnectionWorkspaceLookup fail-closed contract", () => {
     const lookup = new ConnectionWorkspaceLookup(db as never);
 
     await expect(
-      lookup.getWorkspaceId(tenantId, connectionId),
+      lookup.getWorkspaceId(actor, connectionId),
     ).rejects.toBeInstanceOf(WorkspaceLookupUnavailableError);
   });
 });
