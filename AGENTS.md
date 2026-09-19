@@ -137,6 +137,9 @@ Locally:
   package, run `pnpm exec nx run <package>:build` before testing an app that
   uses it, or you will test the old package.
 - Integration specs use Testcontainers, so they need Docker running.
+- If your environment cannot run something (no Docker, no AWS credentials, a
+  sandbox without network access), say which checks you could not run and let
+  CI run them. Never report a check as passed that you did not run.
 - Some specs fail locally for environment reasons only (for example
   platform-api specs without `DATABASE_URL` and the marketplace variables CI
   sets). Compare with `origin/main` before assuming you broke something, and
@@ -158,11 +161,15 @@ Known traps:
 Some behaviour can only be measured against a real model. The local recipe
 (details in `docs/local-dev.md`):
 
-1. Start the dependency containers: `docker compose --env-file .env.local up -d`.
+1. Create `.env.local` from `.env.local.example` (it is gitignored; every machine
+   keeps its own) and start the dependency containers:
+   `docker compose --env-file .env.local up -d`.
 2. Start the mock M2M issuer: `node scripts/local-mock-auth0/server.js` (port
    4999; without it the gateway answers UNAUTHENTICATED).
-3. Start the Model Gateway on Bedrock: `sh scripts/run-model-gateway-aws.sh`
-   (needs the AWS profile the script names and a built gateway).
+3. Start the Model Gateway on Bedrock: `sh scripts/run-model-gateway-aws.sh`.
+   It needs a built gateway and AWS credentials with Bedrock access on this
+   machine, in the named profile the script uses (`alter` unless
+   `MODEL_GATEWAY_AWS_PROFILE` says otherwise).
 4. Run the live test with `.env.local` loaded and `AWS_ENDPOINT_URL` unset.
 
 Live golden sets in the repository run only when their variable is set:
