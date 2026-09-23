@@ -73,8 +73,9 @@ const REDIS_CACHE_METADATA: ProviderMetadata<"CacheProvider"> = {
   },
 };
 
-function candidateKey(tenantId: string): string {
-  return `cache:semantic:${tenantId}:candidates`;
+function candidateKey(tenantId: string, scope: string | undefined): string {
+  // A scope is caller-supplied; encode it so it cannot inject key segments.
+  return `cache:semantic:${tenantId}:${encodeURIComponent(scope ?? "default")}:candidates`;
 }
 
 function requireKey(key: string): void {
@@ -178,7 +179,7 @@ export class RedisCacheProvider implements CacheProvider {
     const threshold =
       request.similarityThreshold ?? this.#defaultSimilarityThreshold;
     const raw = await this.#client.lrange(
-      candidateKey(request.tenantId),
+      candidateKey(request.tenantId, request.scope),
       0,
       this.#maxCandidatesPerTenant - 1,
     );
@@ -212,7 +213,7 @@ export class RedisCacheProvider implements CacheProvider {
     if (request.embedding.length === 0) {
       throw new Error("Semantic cache store embedding must not be empty");
     }
-    const key = candidateKey(request.tenantId);
+    const key = candidateKey(request.tenantId, request.scope);
     const payload: StoredCandidate = {
       embedding: request.embedding,
       valueJson: request.valueJson,

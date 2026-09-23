@@ -62,12 +62,19 @@ export function createMockCacheProvider(
     return stored.value;
   }
 
+  /** Candidates live per tenant and scope, as the real provider stores them. */
+  function candidateKey(
+    request: SemanticCacheLookupRequest | SemanticCacheStoreRequest,
+  ): string {
+    return `${request.tenantId} :: ${request.scope ?? "default"}`;
+  }
+
   function lookup(
     request: SemanticCacheLookupRequest,
   ): SemanticCacheLookupResult {
     const nowMs = now().getTime();
     const threshold = request.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD;
-    const entries = (entriesByTenant.get(request.tenantId) ?? []).filter(
+    const entries = (entriesByTenant.get(candidateKey(request)) ?? []).filter(
       (entry) => entry.expiresAtMs === undefined || entry.expiresAtMs > nowMs,
     );
     let best: { readonly entry: StoredEntry; readonly similarity: number } | undefined;
@@ -89,12 +96,12 @@ export function createMockCacheProvider(
 
   function store(request: SemanticCacheStoreRequest): void {
     stores.push({ ...request });
-    const existing = entriesByTenant.get(request.tenantId) ?? [];
+    const existing = entriesByTenant.get(candidateKey(request)) ?? [];
     const expiresAtMs =
       request.ttlSeconds === undefined
         ? undefined
         : now().getTime() + request.ttlSeconds * 1000;
-    entriesByTenant.set(request.tenantId, [
+    entriesByTenant.set(candidateKey(request), [
       ...existing,
       { embedding: request.embedding, valueJson: request.valueJson, ...(expiresAtMs === undefined ? {} : { expiresAtMs }) },
     ]);

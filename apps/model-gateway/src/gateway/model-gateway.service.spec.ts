@@ -15,7 +15,7 @@ import {
 import type { CostHandlerClient } from "@alterx/adapters";
 import { describe, expect, it, vi, type Mock } from "vitest";
 
-import { ModelGatewayService } from "./model-gateway.service";
+import { cacheKey, ModelGatewayService } from "./model-gateway.service";
 
 const COST_EVENTS_QUEUE_NAME = "alter-dev-cost-events";
 
@@ -1022,6 +1022,106 @@ describe("ModelGatewayService", () => {
     await expect(service.invoke(request())).rejects.toThrow(
       /usage_json does not conform/,
     );
+  });
+
+  it("never answers a call for one model with another model's cached answer", async () => {
+    const invoke = vi.fn(createMockModelProvider().invoke);
+    const service = buildService({
+      modelProvider: createMockModelProvider({ invoke }),
+      embeddingProvider: createMockEmbeddingProvider(),
+      cacheProvider: createMockCacheProvider(),
+    });
+
+    const fast = await service.invoke(request({ model_alias: "FAST" }));
+    const advanced = await service.invoke(request({ model_alias: "ADVANCED" }));
+
+    expect([fast.cache_hit, advanced.cache_hit]).toEqual([false, false]);
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache a payload whose content is all Alter's own fixed prompt", async () => {
+    const cacheProvider = createMockCacheProvider();
+    const service = buildService({
+      embeddingProvider: createMockEmbeddingProvider(),
+      cacheProvider,
+    });
+
+    await service.invoke(
+      request({
+        input_json: JSON.stringify({
+          messages: [{ role: "system", content: "Fixed prompt.", alter_authored: true }],
+        }),
+      }),
+    );
+
+    expect(cacheProvider.getStoredEntries()).toHaveLength(0);
+  });
+
+  it("compares only what the caller varied, so one objective cannot answer another", async () => {
+    // The fixed prompt is most of a planning payload. Embedding the whole
+    // payload made two objectives near-identical text, and one was answered
+    // with the other's cached response.
+    const embed = vi.fn(createMockEmbeddingProvider().embed);
+    const service = buildService({
+      embeddingProvider: createMockEmbeddingProvider({ embed }),
+      cacheProvider: createMockCacheProvider(),
+    });
+    const fixed = "You are a task planner. " + "x".repeat(400);
+    const plan = (objective: string) =>
+      request({
+        input_json: JSON.stringify({
+          messages: [
+            { role: "system", content: fixed, alter_authored: true },
+            { role: "user", content: objective },
+          ],
+        }),
+      });
+
+    await service.invoke(plan("count the pending orders"));
+    await service.invoke(plan("email the weekly status"));
+
+    const embedded = embed.mock.calls.map(([call]) => call.text);
+    expect(embedded).toEqual([
+      JSON.stringify([{ role: "user", content: "count the pending orders" }]),
+      JSON.stringify([{ role: "user", content: "email the weekly status" }]),
+    ]);
+    expect(embedded.every((text) => !text.includes(fixed))).toBe(true);
+  });
+
+  it("puts the model, the alias and the fixed prompt in the scope, not in the comparison", () => {
+    const payload = (objective: string, fixedPrompt = "Fixed prompt.") =>
+      JSON.stringify({
+        messages: [
+          { role: "system", content: fixedPrompt, alter_authored: true },
+          { role: "user", content: objective },
+        ],
+        temperature: 0,
+      });
+
+    const first = cacheKey("nova-lite", "STANDARD", payload("count the orders"));
+    const second = cacheKey("nova-lite", "STANDARD", payload("email the status"));
+    const otherModel = cacheKey("nova-pro", "STANDARD", payload("count the orders"));
+    const otherPrompt = cacheKey("nova-lite", "STANDARD", payload("count the orders", "Other."));
+
+    // Same model and prompt: one scope, and the objectives are what differs.
+    expect(second.scope).toBe(first.scope);
+    expect(second.text).not.toBe(first.text);
+    // A different model or a different fixed prompt can never serve this call.
+    expect(otherModel.scope).not.toBe(first.scope);
+    expect(otherPrompt.scope).not.toBe(first.scope);
+    expect(otherModel.text).toBe(first.text);
+  });
+
+  it("has nothing to compare when every message is Alter's own fixed prompt", () => {
+    const key = cacheKey(
+      "nova-lite",
+      "STANDARD",
+      JSON.stringify({
+        messages: [{ role: "system", content: "Fixed prompt.", alter_authored: true }],
+      }),
+    );
+
+    expect(key.text).toBe("");
   });
 
   it("misses the cache on the first call, invokes the real model, then stores the result", async () => {

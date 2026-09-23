@@ -144,9 +144,29 @@ describe("RedisCacheProvider", () => {
       valueJson: "three",
     });
 
-    expect(client.store.get("cache:semantic:ten_a:candidates")).toHaveLength(2);
+    expect(client.store.get("cache:semantic:ten_a:default:candidates")).toHaveLength(2);
     expect(client.expireCalls).toHaveLength(3);
     expect(client.expireCalls[0]?.seconds).toBe(24 * 60 * 60);
+  });
+
+  it("keeps each scope in its own candidate list, so one can never serve another", async () => {
+    const client = fakeRedisClient();
+    const provider = new RedisCacheProvider({ host: "localhost", port: 6379 }, client);
+
+    await provider.storeSemantic({
+      tenantId: "ten_a",
+      embedding: [1, 0],
+      valueJson: "planner answer",
+      scope: "planner/nova-lite",
+    });
+
+    expect(client.store.get("cache:semantic:ten_a:planner%2Fnova-lite:candidates")).toHaveLength(1);
+    await expect(
+      provider.lookupSemantic({ tenantId: "ten_a", embedding: [1, 0], scope: "planner/nova-pro" }),
+    ).resolves.toEqual({ hit: false });
+    await expect(
+      provider.lookupSemantic({ tenantId: "ten_a", embedding: [1, 0], scope: "planner/nova-lite" }),
+    ).resolves.toMatchObject({ hit: true, valueJson: "planner answer" });
   });
 
   it("returns the highest-similarity hit above threshold, not just the first match", async () => {
