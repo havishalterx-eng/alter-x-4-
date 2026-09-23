@@ -109,6 +109,7 @@ export interface CreateReviewInput {
 }
 
 export interface ListingQuery {
+  readonly owner?: "me";
   readonly type?: ListingType;
   readonly status?: ListingStatus;
   readonly cursor?: string;

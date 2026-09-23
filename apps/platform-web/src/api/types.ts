@@ -900,7 +900,7 @@ export interface MarketplaceListing {
   reviewCount?: number;
   installCount?: number;
   tags: string[];
-  status: "published" | "draft" | "review" | "rejected" | "archived";
+  status: "published" | "draft" | "private_testing" | "submitted" | "automated_review" | "human_review" | "suspended" | "deprecated" | "removed" | "review" | "rejected" | "archived";
   createdAt: string;
   updatedAt: string;
 }

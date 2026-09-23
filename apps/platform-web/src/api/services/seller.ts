@@ -1,5 +1,52 @@
 import { type SellerProfile, type MarketplaceListing, type MarketplacePayout, type SellerEarnings } from "../types"
-import { apiGet, isLiveApi } from "../http"
+import { apiGet, apiPost, isLiveApi } from "../http"
+
+interface SellerListingRow {
+  id: string
+  tenantId: string | null
+  type: MarketplaceListing["assetType"]
+  name: string
+  description: string | null
+  status: MarketplaceListing["status"]
+  priceMinor?: string
+  currency?: string
+  createdAt: string
+  updatedAt: string
+}
+
+interface VerificationStatus {
+  id: string
+  tenantId: string
+  status: "pending_review" | "approved" | "rejected"
+  rejectionReason: string | null
+  submittedAt: string
+}
+
+function mapSellerListing(row: SellerListingRow): MarketplaceListing {
+  const minor = Number(row.priceMinor ?? "0")
+  if (!Number.isSafeInteger(minor) || minor < 0) throw new Error("Invalid listing price")
+  return {
+    id: row.id,
+    slug: row.id,
+    title: row.name,
+    shortDescription: row.description ?? "",
+    description: row.description ?? "",
+    assetType: row.type,
+    category: row.type.replaceAll("_", " "),
+    seller: { id: row.tenantId ?? "", displayName: "" },
+    pricing: minor === 0 ? { type: "free" } : { type: "paid", price: minor / 100, currency: row.currency ?? "INR" },
+    tags: [],
+    status: row.status,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+async function ownListings(): Promise<MarketplaceListing[]> {
+  const actor = await apiGet<{ tenantId: string }>("/api/v1/auth/me")
+  const response = await apiGet<{ data: SellerListingRow[] }>("/api/v1/marketplace/listings?owner=me&limit=200")
+  return response.data.filter((row) => row.tenantId === actor.tenantId).map(mapSellerListing)
+}
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -35,19 +82,42 @@ const mockSellerListings: MarketplaceListing[] = [
 
 export const sellerService = {
   getProfile: async (): Promise<SellerProfile> => {
+    if (isLiveApi) {
+      const [actor, submission] = await Promise.all([
+        apiGet<{ tenantId: string }>("/api/v1/auth/me"),
+        apiGet<VerificationStatus | null>("/api/v1/publisher/verification/status"),
+      ])
+      return {
+        id: actor.tenantId,
+        displayName: "",
+        status: submission?.status === "approved" ? "verified" : submission?.status === "pending_review" ? "pending" : submission?.status === "rejected" ? "restricted" : "not_started",
+        joinedAt: submission?.submittedAt ?? "",
+      }
+    }
     await delay(300)
     return mockProfile
   },
   updateProfile: async (data: any): Promise<SellerProfile> => {
+    if (isLiveApi) throw new Error("Verification submission requires a secure document upload")
     await delay(500)
     return { ...mockProfile, ...data }
   },
   listings: {
     list: async (): Promise<MarketplaceListing[]> => {
+      if (isLiveApi) return ownListings()
       await delay(400)
       return mockSellerListings
     },
     create: async (data: any): Promise<MarketplaceListing> => {
+      if (isLiveApi) {
+        const row = await apiPost<SellerListingRow>("/api/v1/marketplace/listings", {
+          name: data.title,
+          description: data.description,
+          type: data.assetType,
+          license_type: data.licenseType ?? "single_workspace",
+        })
+        return mapSellerListing(row)
+      }
       await delay(600)
       return {
         id: "mkt_new_" + Date.now(),
@@ -66,18 +136,22 @@ export const sellerService = {
       }
     },
     update: async (_id: string, data: any) => {
+      if (isLiveApi) throw new Error("Listing edits are not available in this Seller Console yet")
       await delay(500)
       return { ...mockSellerListings[0], ...data }
     },
     submit: async (_id: string) => {
+      if (isLiveApi) return apiPost(`/api/v1/publisher/listings/${encodeURIComponent(_id)}/actions/submit`, {})
       await delay(800)
       return { success: true }
     },
     unpublish: async (_id: string) => {
+      if (isLiveApi) return apiPost(`/api/v1/publisher/listings/${encodeURIComponent(_id)}/actions/transition`, { status: "suspended" })
       await delay(500)
       return { success: true }
     },
     delete: async (_id: string) => {
+      if (isLiveApi) return apiPost(`/api/v1/publisher/listings/${encodeURIComponent(_id)}/actions/transition`, { status: "removed" })
       await delay(500)
       return { success: true }
     }

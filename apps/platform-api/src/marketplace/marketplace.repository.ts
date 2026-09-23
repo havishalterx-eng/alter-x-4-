@@ -91,6 +91,7 @@ export class MarketplaceRepository implements OnModuleDestroy {
         values.push(value);
         return `$${values.length}`;
       };
+      if (query.owner === "me") conditions.push(`tenant_id = ${add(tenantId)}`);
       if (query.type) conditions.push(`type = ${add(query.type)}`);
       if (query.status) conditions.push(`status = ${add(query.status)}`);
       if (cursor) {
