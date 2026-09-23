@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { PageHeader } from "@/components/common/page-header"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { api } from "@/api/client"
+import { isLiveApi } from "@/api/http"
 import { queryKeys } from "@/api/query-keys"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,7 +12,7 @@ import { CreditCard, Loader2 } from "lucide-react"
 
 export function PaymentMethodPage() {
   const queryClient = useQueryClient()
-  const { data: pm, isLoading } = useQuery({
+  const { data: pm, isLoading, isError } = useQuery({
     queryKey: queryKeys.billing.paymentMethod,
     queryFn: () => api.billing.getPaymentMethod()
   })
@@ -31,7 +32,21 @@ export function PaymentMethodPage() {
     }
   })
 
-  if (isLoading || !pm) return <div className="p-8 text-muted-foreground animate-pulse">Loading...</div>
+  if (isLoading) return <div className="p-8 text-muted-foreground animate-pulse">Loading...</div>
+
+  if (isLiveApi) return (
+    <div className="space-y-8">
+      <PageHeader title="Payment Method" description="Payment methods registered with the billing provider." />
+      <Card>
+        <CardHeader><CardTitle>Current Method</CardTitle></CardHeader>
+        <CardContent>
+          {isError && <p role="alert" className="text-destructive">Could not load payment methods.</p>}
+          {!isError && (pm ? <p>{pm.brand ?? pm.type} ending in {pm.last4 ?? "••••"}</p> : <p className="text-muted-foreground">No payment method is attached.</p>)}
+          <p className="text-sm text-muted-foreground mt-2">Tokenized payment method setup is not available in this screen.</p>
+        </CardContent>
+      </Card>
+    </div>
+  )
 
   return (
     <div className="space-y-8">
@@ -52,8 +67,7 @@ export function PaymentMethodPage() {
                 <CreditCard className="h-6 w-6 text-slate-800" />
               </div>
               <div>
-                <div className="font-medium">{pm.brand} ending in {pm.last4}</div>
-                <div className="text-sm text-muted-foreground">Expires {pm.expMonth}/{pm.expYear}</div>
+                <div className="font-medium">{pm?.brand ?? pm?.type ?? "No method"} ending in {pm?.last4 ?? "••••"}</div>
               </div>
             </div>
           </CardContent>
