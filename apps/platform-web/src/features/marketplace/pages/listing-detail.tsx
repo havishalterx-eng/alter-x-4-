@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom"
-import { useQuery, useMutation } from "@tanstack/react-query"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/api/client"
+import { isLiveApi } from "@/api/http"
 import { queryKeys } from "@/api/query-keys"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -10,14 +11,15 @@ import { Download, Star, ArrowLeft, CheckCircle2, Loader2, Store } from "lucide-
 export function ListingDetailPage() {
   const { listingId } = useParams()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
-  const { data: listing, isLoading } = useQuery({
+  const { data: listing, isLoading, error: listingError } = useQuery({
     queryKey: queryKeys.marketplace.detail(listingId!),
     queryFn: () => api.marketplace.listings.get(listingId!),
     enabled: !!listingId
   })
 
-  const { data: reviews } = useQuery({
+  const { data: reviews, error: reviewsError } = useQuery({
     queryKey: queryKeys.marketplace.reviews(listingId!),
     queryFn: () => api.marketplace.reviews.list(listingId!),
     enabled: !!listingId
@@ -26,12 +28,14 @@ export function ListingDetailPage() {
   const installMutation = useMutation({
     mutationFn: () => listing?.pricing.type === "free" ? api.marketplace.install(listingId!) : api.marketplace.purchase(listingId!),
     onSuccess: () => {
-      alert(listing?.pricing.type === "free" ? "Installed successfully (Mock)" : "Purchase complete. Template added to My Assets (Mock).")
+      void queryClient.invalidateQueries({ queryKey: queryKeys.marketplace.myAssets })
+      alert(isLiveApi ? "Installed successfully." : listing?.pricing.type === "free" ? "Installed successfully (Mock)" : "Purchase complete. Template added to My Assets (Mock).")
       navigate("/app/marketplace/my-assets")
     }
   })
 
-  if (isLoading || !listing) return <div className="animate-pulse">Loading listing...</div>
+  if (isLoading) return <div className="animate-pulse">Loading listing...</div>
+  if (listingError || !listing) return <div role="alert" className="text-destructive">Could not load this listing: {listingError?.message ?? "Listing unavailable"}</div>
 
   return (
     <div className="space-y-8 max-w-4xl">
@@ -44,14 +48,14 @@ export function ListingDetailPage() {
           <div>
             <div className="flex items-center gap-3 mb-4">
               <Badge variant="secondary" className="capitalize">{listing.assetType.replace("_", " ")}</Badge>
-              <Badge variant="outline" className="capitalize">{listing.category}</Badge>
+              {listing.category && <Badge variant="outline" className="capitalize">{listing.category}</Badge>}
             </div>
             <h1 className="text-3xl font-bold">{listing.title}</h1>
-            <p className="text-lg text-muted-foreground mt-2">{listing.shortDescription}</p>
+            {listing.shortDescription && <p className="text-lg text-muted-foreground mt-2">{listing.shortDescription}</p>}
           </div>
 
-          <div className="flex items-center gap-6 text-sm">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-6 text-sm">
+            {listing.seller.displayName && <div className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
                 <Store className="h-4 w-4 text-primary" />
               </div>
@@ -59,40 +63,41 @@ export function ListingDetailPage() {
                 <div className="font-medium">{listing.seller.displayName}</div>
                 <div className="text-muted-foreground text-xs">Seller</div>
               </div>
-            </div>
-            <div className="flex flex-col">
+            </div>}
+            {listing.rating !== undefined && <div className="flex flex-col">
               <span className="flex items-center gap-1 font-medium">
                 <Star className="h-4 w-4 fill-primary text-primary" />
                 {listing.rating}
               </span>
-              <span className="text-muted-foreground text-xs">{listing.reviewCount} reviews</span>
-            </div>
-            <div className="flex flex-col">
-              <span className="font-medium">{formatCompactNumber(listing.installCount || 0)}</span>
+              {listing.reviewCount !== undefined && <span className="text-muted-foreground text-xs">{listing.reviewCount} reviews</span>}
+            </div>}
+            {listing.installCount !== undefined && <div className="flex flex-col">
+              <span className="font-medium">{formatCompactNumber(listing.installCount)}</span>
               <span className="text-muted-foreground text-xs">Installs</span>
-            </div>
+            </div>}
           </div>
 
           <div className="prose dark:prose-invert max-w-none pt-4 border-t border-border">
             <h3>Overview</h3>
-            <p>{listing.description}</p>
+            <p>{listing.description || "No description has been provided."}</p>
           </div>
 
           <div className="pt-4 border-t border-border">
-            <h3 className="font-semibold mb-4">Reviews</h3>
+            <h3 className="font-semibold mb-4">{isLiveApi ? "Your review" : "Reviews"}</h3>
+            {reviewsError && <p role="alert" className="text-destructive text-sm">Could not load reviews: {reviewsError.message}</p>}
             <div className="space-y-4">
-              {reviews?.length === 0 ? <div className="text-muted-foreground text-sm">No reviews yet.</div> : (
+              {reviews?.length === 0 ? <div className="text-muted-foreground text-sm">{isLiveApi ? "You have not reviewed this listing." : "No reviews yet."}</div> : (
                 reviews?.map(r => (
                   <div key={r.id} className="p-4 rounded-lg bg-surface-hover">
                     <div className="flex items-center justify-between mb-2">
-                      <div className="font-medium text-sm">{r.author.name}</div>
+                      {r.author.name && <div className="font-medium text-sm">{r.author.name}</div>}
                       <div className="flex items-center gap-1 text-xs">
                         <Star className="h-3 w-3 fill-primary text-primary" />
                         {r.rating}
                       </div>
                     </div>
-                    <h4 className="font-semibold text-sm">{r.title}</h4>
-                    <p className="text-sm text-muted-foreground mt-1">{r.body}</p>
+                    {r.title && <h4 className="font-semibold text-sm">{r.title}</h4>}
+                    {r.body && <p className="text-sm text-muted-foreground mt-1">{r.body}</p>}
                   </div>
                 ))
               )}
@@ -108,31 +113,33 @@ export function ListingDetailPage() {
             <Button 
               className="w-full mb-4" 
               size="lg" 
-              disabled={installMutation.isPending}
+              disabled={installMutation.isPending || (isLiveApi && listing.pricing.type === "paid")}
               onClick={() => installMutation.mutate()}
             >
               {installMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
               {listing.pricing.type === "free" ? "Install Now" : "Purchase"}
             </Button>
             
-            <div className="space-y-3 text-sm">
+            {isLiveApi && listing.pricing.type === "paid" && <p className="text-sm text-muted-foreground mb-4">Paid checkout is coming soon.</p>}
+            {installMutation.error && <p role="alert" className="text-sm text-destructive mb-4">{installMutation.error.message}</p>}
+            {!isLiveApi && <div className="space-y-3 text-sm">
               <div className="flex items-center gap-2 text-muted-foreground">
                 <CheckCircle2 className="h-4 w-4 text-primary" /> verified publisher
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <CheckCircle2 className="h-4 w-4 text-primary" /> instantly available
               </div>
-            </div>
+            </div>}
 
             <div className="mt-6 pt-6 border-t border-border space-y-4">
-              <div>
+              {listing.tags.length > 0 && <div>
                 <div className="text-xs text-muted-foreground mb-1">Tags</div>
                 <div className="flex flex-wrap gap-2">
                   {listing.tags.map(tag => (
                     <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
                   ))}
                 </div>
-              </div>
+              </div>}
               <div>
                 <div className="text-xs text-muted-foreground mb-1">Last updated</div>
                 <div className="text-sm">{new Date(listing.updatedAt).toLocaleDateString()}</div>

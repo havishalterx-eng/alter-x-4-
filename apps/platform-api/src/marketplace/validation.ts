@@ -41,6 +41,7 @@ const updateListingSchema = z
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "At least one field required");
+const staffTransitionSchema = z.object({ status: z.enum(["automated_review", "human_review", "private_testing"]) }).strict();
 const createVersionSchema = z
   .object({
     version: z.string().regex(semverPattern, "Expected semantic version"),
@@ -67,6 +68,10 @@ export function parseCreateListing(input: unknown, instance: string): CreateList
 export function parseUpdateListing(input: unknown, instance: string): UpdateListingInput {
   const value = parse(updateListingSchema, input, instance);
   return { ...(value.name === undefined ? {} : { name: value.name }), ...(value.description === undefined ? {} : { description: value.description }), ...(value.license_type === undefined ? {} : { license_type: value.license_type }), ...(value.status === undefined ? {} : { status: value.status }) };
+}
+
+export function parseStaffTransition(input: unknown, instance: string) {
+  return parse(staffTransitionSchema, input, instance).status;
 }
 
 export function parseCreateListingVersion(
@@ -119,6 +124,13 @@ export function parseCreateReview(input: unknown, instance: string): CreateRevie
 export function parseListingId(value: string, instance: string): string {
   if (!/^lst_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
     throw invalid(instance, [{ field: "listingId", message: "Expected listing UUIDv7" }]);
+  }
+  return value;
+}
+
+export function parseMarketplaceTenantId(value: string, instance: string): string {
+  if (!/^ten_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw invalid(instance, [{ field: "tenantId", message: "Expected tenant UUIDv7" }]);
   }
   return value;
 }

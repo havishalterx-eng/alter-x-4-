@@ -28,6 +28,21 @@ export function formatCurrency(amount: number, forceCurrency?: string): string {
   }).format(convertedAmount)
 }
 
+/** Format the provider's minor-unit amount without applying the mock display FX rate. */
+export function formatMinorCurrency(amountMinor: string, currency: string): string {
+  if (!/^\d+$/.test(amountMinor)) throw new Error("Invalid minor-unit amount")
+  const minor = BigInt(amountMinor)
+  const whole = minor / 100n
+  const fraction = (minor % 100n).toString().padStart(2, "0")
+  const formatter = new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+  return formatter.formatToParts(whole).map(part => part.type === "fraction" ? fraction : part.value).join("")
+}
+
 export function formatCompactNumber(amount: number): string {
   return new Intl.NumberFormat("en-US", {
     notation: "compact",

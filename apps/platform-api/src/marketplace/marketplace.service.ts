@@ -9,8 +9,8 @@ import { parseInstalledPayloadRef } from "./validation";
 import type { StaffActorContext } from "../rbac/types";
 import type { CompatibilityRequirement, CompatibilityResult, CreateListingInput, CreateListingVersionInput, CreateReviewInput, InstallListingInput, ListingQuery, ListingRecord, ListingVersionRecord, UpdateListingInput } from "./types";
 
-// Only a staff actor may move a listing into the published state; tenants
-// reach human_review (submitted for review) but must not self-publish.
+// Sellers submit through the Publisher endpoint, which verifies them first.
+// Only staff can advance or publish listings after submission.
 const PUBLISH_ROLES: ReadonlyArray<StaffActorContext["roles"][number]> = [
   "staff_admin",
   "staff_security",
@@ -43,31 +43,30 @@ export class MarketplaceService {
   async update(tenantId: string, listingId: string, input: UpdateListingInput, staff?: StaffActorContext) {
     const current = await this.requireOwnedListing(tenantId, listingId);
     if (input.status && !transitions[current.status]!.includes(input.status)) throw new MarketplaceHttpError(409, "MARKETPLACE_INVALID_STATUS_TRANSITION", `Cannot transition listing from ${current.status} to ${input.status}.`, `/api/v1/marketplace/listings/${listingId}`);
-    // ENGINE-FIX-B1-SECURITY #5: publishing bypasses staff review only when
-    // a staff actor performs it. A tenant (the listing owner) calling update
-    // with status=published must be denied so listings cannot self-publish.
-    if (input.status === "published" && !this.isPublishAuthorized(staff)) {
+    if (input.status && ["submitted", "automated_review", "human_review", "published"].includes(input.status) && !this.isPublishAuthorized(staff)) {
       throw new MarketplaceHttpError(
         403,
         "MARKETPLACE_PUBLISH_REQUIRES_STAFF",
-        "Publishing a marketplace listing requires staff review.",
+        input.status === "published" ? "Publishing a marketplace listing requires staff review." : "Listing review transitions require staff review.",
         `/api/v1/marketplace/listings/${listingId}`,
       );
     }
-    const result = await this.repository.updateListing(tenantId, listingId, input);
+    if (input.status === "published" && !(await this.repository.findLatestVersion(tenantId, listingId))) {
+      throw new MarketplaceHttpError(409, "MARKETPLACE_VERSION_REQUIRED", "A listing version is required before publishing.", `/api/v1/marketplace/listings/${listingId}`);
+    }
+    const result = input.status === "published"
+      ? await this.repository.publishListing(tenantId, listingId)
+      : await this.repository.updateListing(tenantId, listingId, input);
     if (!result) throw this.notFound(listingId);
     return result;
   }
 
-  /**
-   * Staff-only publish path. Resolves the listing's owning tenant
-   * cross-tenant (no tenant actor is present on a staff request) and applies
-   * the published transition, which update() only permits for a staff actor.
-   */
-  async publish(staff: StaffActorContext, listingId: string) {
-    const listing = await this.repository.findListingById(listingId);
-    if (!listing || !listing.tenantId) throw this.notFound(listingId);
-    return this.update(listing.tenantId, listingId, { status: "published" }, staff);
+  async publish(staff: StaffActorContext, tenantId: string, listingId: string) {
+    return this.update(tenantId, listingId, { status: "published" }, staff);
+  }
+
+  async staffTransition(staff: StaffActorContext, tenantId: string, listingId: string, status: "automated_review" | "human_review" | "private_testing") {
+    return this.update(tenantId, listingId, { status }, staff);
   }
 
   private isPublishAuthorized(staff?: StaffActorContext): boolean {
