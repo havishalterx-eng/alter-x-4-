@@ -1,56 +1,66 @@
-import { type BillingPlan, type Invoice } from "../types"
+import { apiGet, apiGetWithEtag, apiPatch, isLiveApi, mutationKey } from "../http"
+import type { BillingPaymentMethod, BillingPlan, BillingSubscription, Invoice } from "../types"
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 const mockPlans: BillingPlan[] = [
-  { id: "plan_free", name: "Free", description: "For individuals and exploration", features: ["1 Workspace", "100 Runs/month", "Community support"], limits: { runs: 100, workspaces: 1 }, current: false },
-  { id: "plan_pro", name: "Pro", priceMonthly: 49, description: "For power users and small teams", features: ["Unlimited Workspaces", "5,000 Runs/month", "Email support", "Marketplace Access"], limits: { runs: 5000 }, current: true },
-  { id: "plan_business", name: "Business", priceMonthly: 199, description: "For scaling organizations", features: ["Unlimited Workspaces", "50,000 Runs/month", "Priority support", "SSO", "Custom integrations"], limits: { runs: 50000 }, current: false },
-  { id: "plan_ent", name: "Enterprise", description: "For large deployments", features: ["Unlimited everything", "Dedicated account manager", "On-premise deployment options", "SLA 99.99%"], limits: { runs: "unlimited" }, current: false },
+  { id: "plan_free", name: "Free", description: "Demo free plan", amount: 0, currency: "INR", interval: 1, period: "monthly", active: true },
+  { id: "plan_pro", name: "Pro", description: "Demo paid plan", amount: 4900, currency: "INR", interval: 1, period: "monthly", active: true },
 ]
-
+let mockPlanId = "plan_pro"
 const mockInvoices: Invoice[] = [
-  { id: "inv_1", number: "INV-2026-08-01", status: "paid", amount: 49.00, currency: "USD", issuedAt: "2026-08-01T00:00:00Z" },
-  { id: "inv_2", number: "INV-2026-07-01", status: "paid", amount: 49.00, currency: "USD", issuedAt: "2026-07-01T00:00:00Z" },
-  { id: "inv_3", number: "INV-2026-06-01", status: "paid", amount: 49.00, currency: "USD", issuedAt: "2026-06-01T00:00:00Z" },
+  { id: "inv_demo_1", subscriptionId: "sub_demo", status: "paid", amount: 4900, currency: "INR", issuedAt: "2026-08-01T00:00:00Z", paidAt: "2026-08-01T00:00:00Z" },
 ]
+const mockPaymentMethod: BillingPaymentMethod = { ref: "pm_demo", type: "card", brand: "Visa", last4: "4242" }
+
+interface InvoicePage { items: Invoice[]; nextCursor: string | null }
 
 export const billingService = {
-  getSubscription: async () => {
+  getSubscription: async (): Promise<BillingSubscription | null> => {
+    if (isLiveApi) return apiGet<BillingSubscription | null>("/api/v1/billing/subscription")
     await delay(300)
     return {
-      plan: mockPlans.find(p => p.current),
-      status: "active",
-      currentPeriodStart: "2026-08-01T00:00:00Z",
-      currentPeriodEnd: "2026-09-01T00:00:00Z",
-      currentSpend: 284.73
+      id: "sub_demo", tenantId: "ten_demo", planId: mockPlanId, status: "active",
+      currentPeriodStart: "2026-08-01T00:00:00Z", currentPeriodEnd: "2026-09-01T00:00:00Z",
+      providerCustomerRef: null, version: "demo",
     }
   },
   getPlans: async (): Promise<BillingPlan[]> => {
+    if (isLiveApi) return apiGet<BillingPlan[]>("/api/v1/billing/plans")
     await delay(300)
     return mockPlans
   },
-  changePlan: async (_planId: string) => {
+  changePlan: async (planId: string): Promise<BillingSubscription> => {
+    if (isLiveApi) {
+      const current = await apiGetWithEtag<BillingSubscription | null>("/api/v1/billing/subscription")
+      if (!current.data || !current.etag) throw new Error("An existing subscription with a server ETag is required to change plans")
+      return apiPatch<BillingSubscription>("/api/v1/billing/subscription", { plan_id: planId }, {
+        ifMatch: current.etag,
+        idempotencyKey: mutationKey("billing-plan-change"),
+      })
+    }
     await delay(600)
-    return true
+    mockPlanId = planId
+    return (await billingService.getSubscription())!
   },
   getInvoices: async (): Promise<Invoice[]> => {
+    if (isLiveApi) {
+      const page = await apiGet<InvoicePage>("/api/v1/billing/invoices?limit=50")
+      return page.items
+    }
     await delay(400)
     return mockInvoices
   },
-  getPaymentMethod: async () => {
-    await delay(300)
-    return {
-      type: "card",
-      brand: "Visa",
-      last4: "4242",
-      expMonth: 12,
-      expYear: 28,
-      name: "Jane Doe"
+  getPaymentMethod: async (): Promise<BillingPaymentMethod | null> => {
+    if (isLiveApi) {
+      const methods = await apiGet<BillingPaymentMethod[]>("/api/v1/billing/payment-methods")
+      return methods[0] ?? null
     }
+    await delay(300)
+    return mockPaymentMethod
   },
-  updatePaymentMethod: async (_data: any) => {
+  updatePaymentMethod: async (_data: unknown): Promise<void> => {
+    if (isLiveApi) throw new Error("Tokenized payment method setup is not available in this screen")
     await delay(1000)
-    return true
-  }
+  },
 }
