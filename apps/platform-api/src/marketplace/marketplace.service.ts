@@ -42,6 +42,9 @@ export class MarketplaceService {
   async create(tenantId: string, input: CreateListingInput) { return this.repository.createListing(tenantId, marketplaceId("lst"), input); }
   async update(tenantId: string, listingId: string, input: UpdateListingInput, staff?: StaffActorContext) {
     const current = await this.requireOwnedListing(tenantId, listingId);
+    if (input.price_minor !== undefined && !["draft", "private_testing"].includes(current.status)) {
+      throw new MarketplaceHttpError(409, "MARKETPLACE_PRICE_LOCKED", "Price can be changed only before submission.", `/api/v1/marketplace/listings/${listingId}`);
+    }
     if (input.status && !transitions[current.status]!.includes(input.status)) throw new MarketplaceHttpError(409, "MARKETPLACE_INVALID_STATUS_TRANSITION", `Cannot transition listing from ${current.status} to ${input.status}.`, `/api/v1/marketplace/listings/${listingId}`);
     // ENGINE-FIX-B1-SECURITY #5: publishing bypasses staff review only when
     // a staff actor performs it. A tenant (the listing owner) calling update
@@ -53,6 +56,9 @@ export class MarketplaceService {
         "Publishing a marketplace listing requires staff review.",
         `/api/v1/marketplace/listings/${listingId}`,
       );
+    }
+    if (input.status === "published" && BigInt(current.priceMinor) > 0n) {
+      throw new MarketplaceHttpError(409, "MARKETPLACE_PAID_CHECKOUT_UNAVAILABLE", "Paid listings cannot be published until checkout is ready.", `/api/v1/marketplace/listings/${listingId}`);
     }
     const result = await this.repository.updateListing(tenantId, listingId, input);
     if (!result) throw this.notFound(listingId);
