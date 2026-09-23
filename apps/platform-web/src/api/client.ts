@@ -782,6 +782,7 @@ class ApiClient {
   }
 
   async removeTrigger(id: string): Promise<void> {
+    if (isLiveApi) return live.removeTrigger(id)
     await delay(MOCK_DELAY)
     const index = mockTriggers.findIndex(t => t.id === id)
     if (index > -1) mockTriggers.splice(index, 1)

@@ -518,7 +518,9 @@ export async function getProjectPreview(id: string): Promise<{ url: string; stat
 
 export async function getTriggers(workflowId: string): Promise<Trigger[]> {
   const body = await apiGet<unknown>(`/api/v1/triggers?workflowId=${encodeURIComponent(workflowId)}`)
-  return asArray(body, "triggers").map(mapTrigger)
+  return asArray(body, "triggers")
+    .filter((item) => item.status !== "archived")
+    .map(mapTrigger)
 }
 
 export async function getTrigger(id: string): Promise<Trigger> {
@@ -533,10 +535,21 @@ export async function createTrigger(data: Partial<Trigger>): Promise<Trigger> {
 }
 
 export async function updateTrigger(id: string, data: Partial<Trigger>): Promise<Trigger> {
-  const current = await getTrigger(id)
-  return mapTrigger(await apiPatch(`/api/v1/triggers/${encodeURIComponent(id)}/status`, { status: data.enabled === false ? "disabled" : data.status }, {
+  if (data.enabled === undefined) {
+    throw new Error("Trigger updates require an enabled state")
+  }
+  return setTriggerStatus(id, data.enabled ? "enabled" : "disabled")
+}
+
+async function setTriggerStatus(id: string, status: "enabled" | "disabled" | "archived"): Promise<Trigger> {
+  const path = `/api/v1/triggers/${encodeURIComponent(id)}`
+  const current = await apiGetWithEtag<unknown>(path)
+  if (!current.etag) {
+    throw new Error("Trigger ETag missing")
+  }
+  return mapTrigger(await apiPatch(`${path}/status`, { status }, {
     idempotencyKey: mutationKey("trigger-status"),
-    ifMatch: `"${current.updatedAt}"`,
+    ifMatch: current.etag,
   }))
 }
 
@@ -544,7 +557,11 @@ export async function testTrigger(id: string): Promise<{ success: boolean; messa
   const body = await apiPost<AnyRecord>(`/api/v1/triggers/${encodeURIComponent(id)}/actions/test`, {}, {
     idempotencyKey: mutationKey("trigger-test"),
   })
-  return { success: true, message: "Trigger test accepted.", eventId: asString(body.eventId ?? body.event_id) }
+  const eventId = body?.eventId ?? body?.event_id
+  if (typeof eventId !== "string" || !eventId.startsWith("evt_")) {
+    throw new Error("No test event was returned")
+  }
+  return { success: true, message: "Test event recorded.", eventId }
 }
 
 export async function enableTrigger(id: string): Promise<Trigger> {
@@ -554,7 +571,11 @@ export async function enableTrigger(id: string): Promise<Trigger> {
 }
 
 export async function disableTrigger(id: string): Promise<Trigger> {
-  return updateTrigger(id, { status: "configured", enabled: false })
+  return setTriggerStatus(id, "disabled")
+}
+
+export async function removeTrigger(id: string): Promise<void> {
+  await setTriggerStatus(id, "archived")
 }
 
 export async function getEvents(filters?: any): Promise<IncomingEvent[]> {
@@ -1127,10 +1148,14 @@ function mapTrigger(value: unknown): Trigger {
   return {
     id: asString(item.id ?? item.trigger_id),
     workflowId: asString(item.workflowId ?? item.workflow_id),
-    type: String(item.type ?? "webhook") as Trigger["type"],
+    type: (item.type === "cron" ? "schedule" : String(item.type ?? "webhook")) as Trigger["type"],
     name: String(item.name ?? "Trigger"),
-    enabled: Boolean(item.enabled ?? status === "active"),
-    status: (status === "active" ? "configured" : status) as Trigger["status"],
+    enabled: status === "enabled" || Boolean(item.enabled),
+    status: (status === "enabled" || status === "disabled"
+      ? "configured"
+      : status === "draft" || status === "archived"
+        ? "needs_configuration"
+        : status) as Trigger["status"],
     config: item.config ?? {},
     lastTriggeredAt: item.lastTriggeredAt ?? item.last_triggered_at,
     lastTestedAt: item.lastTestedAt ?? item.last_tested_at,
