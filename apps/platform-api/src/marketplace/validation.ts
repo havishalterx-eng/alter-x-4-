@@ -41,6 +41,7 @@ const updateListingSchema = z
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "At least one field required");
+const staffTransitionSchema = z.object({ status: z.enum(["automated_review", "human_review", "private_testing"]) }).strict();
 const createVersionSchema = z
   .object({
     version: z.string().regex(semverPattern, "Expected semantic version"),
@@ -67,6 +68,10 @@ export function parseCreateListing(input: unknown, instance: string): CreateList
 export function parseUpdateListing(input: unknown, instance: string): UpdateListingInput {
   const value = parse(updateListingSchema, input, instance);
   return { ...(value.name === undefined ? {} : { name: value.name }), ...(value.description === undefined ? {} : { description: value.description }), ...(value.license_type === undefined ? {} : { license_type: value.license_type }), ...(value.status === undefined ? {} : { status: value.status }) };
+}
+
+export function parseStaffTransition(input: unknown, instance: string) {
+  return parse(staffTransitionSchema, input, instance).status;
 }
 
 export function parseCreateListingVersion(

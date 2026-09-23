@@ -4,7 +4,7 @@ import { Idempotent } from "../idempotency";
 import { IfMatchGuard, EtagResponseInterceptor } from "../concurrency";
 import { MarketplaceHttpError } from "./problem";
 import { MarketplaceService } from "./marketplace.service";
-import { parseCompatibilityCheck, parseCreateListing, parseCreateListingVersion, parseCreateReview, parseInstallListing, parseListingId, parseListingQuery, parseUpdateListing } from "./validation";
+import { parseCompatibilityCheck, parseCreateListing, parseCreateListingVersion, parseCreateReview, parseInstallListing, parseListingId, parseListingQuery, parseStaffTransition, parseUpdateListing } from "./validation";
 
 const allWorkspaceRoles = ["admin", "editor", "operator", "approver", "viewer"] as const;
 
@@ -24,6 +24,8 @@ export class MarketplaceController {
   update(@Param("listingId") listingId: string, @Body() body: unknown, @ActorContext() actor: ActorContextType) { return this.marketplace.update(actor.tenant_id, parseListingId(listingId, "/api/v1/marketplace/listings"), parseUpdateListing(body, "/api/v1/marketplace/listings")); }
   @Post("admin/listings/:listingId/actions/publish") @RequireStaffRole("staff_admin", "staff_security", "staff_support")
   publish(@Param("listingId") listingId: string, @StaffActorContext() staff: StaffActorContextType) { return this.marketplace.publish(staff, parseListingId(listingId, "/api/v1/marketplace/admin/listings")); }
+  @Post("admin/listings/:listingId/actions/transition") @RequireStaffRole("staff_admin", "staff_security", "staff_support")
+  staffTransition(@Param("listingId") listingId: string, @Body() body: unknown, @StaffActorContext() staff: StaffActorContextType) { return this.marketplace.staffTransition(staff, parseListingId(listingId, "/api/v1/marketplace/admin/listings"), parseStaffTransition(body, "/api/v1/marketplace/admin/listings")); }
   @Post("listings/:listingId/versions") @RequireWorkspaceRole("admin", "editor")
   createVersion(@Param("listingId") listingId: string, @Body() body: unknown, @ActorContext() actor: ActorContextType) { return this.marketplace.createVersion(actor.tenant_id, parseListingId(listingId, "/api/v1/marketplace/listings"), parseCreateListingVersion(body, "/api/v1/marketplace/listings")); }
   @Post("listings/:listingId/actions/check-compatibility") @RequireWorkspaceRole(...allWorkspaceRoles)

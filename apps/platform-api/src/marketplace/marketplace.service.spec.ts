@@ -223,7 +223,7 @@ describe("MarketplaceService", () => {
   // Spec 7 — transition table, not enum validation.
   describe("listing status transitions", () => {
     it.each([
-      ["draft", "submitted"],
+      ["draft", "private_testing"],
       ["published", "removed"],
     ] as const)("allows %s to %s", async (from, to) => {
       h.repository.findListing.mockResolvedValueOnce(listing({ status: from }));

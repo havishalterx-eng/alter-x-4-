@@ -43,14 +43,11 @@ export class MarketplaceService {
   async update(tenantId: string, listingId: string, input: UpdateListingInput, staff?: StaffActorContext) {
     const current = await this.requireOwnedListing(tenantId, listingId);
     if (input.status && !transitions[current.status]!.includes(input.status)) throw new MarketplaceHttpError(409, "MARKETPLACE_INVALID_STATUS_TRANSITION", `Cannot transition listing from ${current.status} to ${input.status}.`, `/api/v1/marketplace/listings/${listingId}`);
-    // ENGINE-FIX-B1-SECURITY #5: publishing bypasses staff review only when
-    // a staff actor performs it. A tenant (the listing owner) calling update
-    // with status=published must be denied so listings cannot self-publish.
-    if (input.status === "published" && !this.isPublishAuthorized(staff)) {
+    if (input.status && ["submitted", "automated_review", "human_review", "published"].includes(input.status) && !this.isPublishAuthorized(staff)) {
       throw new MarketplaceHttpError(
         403,
         "MARKETPLACE_PUBLISH_REQUIRES_STAFF",
-        "Publishing a marketplace listing requires staff review.",
+        input.status === "published" ? "Publishing a marketplace listing requires staff review." : "Listing review transitions require staff review.",
         `/api/v1/marketplace/listings/${listingId}`,
       );
     }
@@ -68,6 +65,12 @@ export class MarketplaceService {
     const listing = await this.repository.findListingById(listingId);
     if (!listing || !listing.tenantId) throw this.notFound(listingId);
     return this.update(listing.tenantId, listingId, { status: "published" }, staff);
+  }
+
+  async staffTransition(staff: StaffActorContext, listingId: string, status: "automated_review" | "human_review" | "private_testing") {
+    const listing = await this.repository.findListingById(listingId);
+    if (!listing?.tenantId) throw this.notFound(listingId);
+    return this.update(listing.tenantId, listingId, { status }, staff);
   }
 
   private isPublishAuthorized(staff?: StaffActorContext): boolean {

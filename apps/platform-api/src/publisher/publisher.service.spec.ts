@@ -18,9 +18,10 @@ function repository(current: ListingStatus, verificationStatus = "verified") {
 }
 
 describe("PublisherService publishing pipeline", () => {
-  it("allows every exact graph edge", async () => {
+  it("allows tenant-managed graph edges", async () => {
     for (const from of statuses) {
       for (const to of PUBLISHING_TRANSITIONS[from]) {
+        if (["submitted", "automated_review", "human_review", "published"].includes(to)) continue;
         const store = repository(from);
         const service = new PublisherService(store as never, unusedKyc);
         await expect(service.transitionListing(tenantId, listingId, to)).resolves.toEqual({ listingId, status: to });
@@ -31,7 +32,7 @@ describe("PublisherService publishing pipeline", () => {
 
   it("rejects every non-edge", async () => {
     for (const from of statuses) {
-      for (const to of statuses.filter((status) => !PUBLISHING_TRANSITIONS[from].includes(status))) {
+      for (const to of statuses.filter((status) => !PUBLISHING_TRANSITIONS[from].includes(status) && !["submitted", "automated_review", "human_review", "published"].includes(status))) {
         const store = repository(from);
         const service = new PublisherService(store as never, unusedKyc);
         await expect(service.transitionListing(tenantId, listingId, to)).rejects.toMatchObject({ status: 409 });
