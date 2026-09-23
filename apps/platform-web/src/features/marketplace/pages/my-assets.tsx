@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
 import { api } from "@/api/client"
+import { isLiveApi } from "@/api/http"
 import { queryKeys } from "@/api/query-keys"
 import { PageHeader } from "@/components/common/page-header"
 import { Card, CardContent } from "@/components/ui/card"
@@ -12,7 +13,7 @@ import { Play, Store } from "lucide-react"
 export function MyAssetsPage() {
   const navigate = useNavigate()
   
-  const { data: assets, isLoading } = useQuery({
+  const { data: assets, isLoading, error } = useQuery({
     queryKey: queryKeys.marketplace.myAssets,
     queryFn: () => api.marketplace.myAssets.list()
   })
@@ -37,7 +38,7 @@ export function MyAssetsPage() {
               <TableRow>
                 <TableHead>Asset</TableHead>
                 <TableHead>Type</TableHead>
-                <TableHead>Version</TableHead>
+                <TableHead>{isLiveApi ? "Version ID" : "Version"}</TableHead>
                 <TableHead>Installed On</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -47,6 +48,8 @@ export function MyAssetsPage() {
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-8 text-muted-foreground animate-pulse">Loading assets...</TableCell>
                 </TableRow>
+              ) : error ? (
+                <TableRow><TableCell colSpan={5} role="alert" className="text-center py-8 text-destructive">Could not load installed assets: {error.message}</TableCell></TableRow>
               ) : assets?.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
@@ -68,14 +71,14 @@ export function MyAssetsPage() {
                           </div>
                           <div>
                             <div>{listing?.title || asset.listingId}</div>
-                            {listing?.seller && <div className="text-xs text-muted-foreground font-normal">By {listing.seller.displayName}</div>}
+                            {listing?.seller.displayName && <div className="text-xs text-muted-foreground font-normal">By {listing.seller.displayName}</div>}
                           </div>
                         </div>
                       </TableCell>
                       <TableCell>
                         <Badge variant="secondary" className="capitalize">{listing?.assetType.replace("_", " ") || "Unknown"}</Badge>
                       </TableCell>
-                      <TableCell className="text-muted-foreground text-sm">{asset.installedVersion || "latest"}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm">{asset.installedVersion || "Unavailable"}</TableCell>
                       <TableCell className="text-sm">{new Date(asset.installedAt).toLocaleDateString()}</TableCell>
                       <TableCell className="text-right">
                         {asset.createdWorkflowId && (

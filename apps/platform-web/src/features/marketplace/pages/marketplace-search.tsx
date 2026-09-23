@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
 import { api } from "@/api/client"
+import { isLiveApi } from "@/api/http"
 import { queryKeys } from "@/api/query-keys"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -13,7 +14,7 @@ export function MarketplaceSearchPage() {
   const navigate = useNavigate()
   const [search, setSearch] = useState("")
 
-  const { data: listings, isLoading } = useQuery({
+  const { data: listings, isLoading, error } = useQuery({
     queryKey: queryKeys.marketplace.listings({ q: search }),
     queryFn: () => api.marketplace.listings.list({ q: search })
   })
@@ -34,12 +35,17 @@ export function MarketplaceSearchPage() {
           className="pl-10 py-6 text-base"
         />
       </div>
+      {isLiveApi && listings && listings.length >= (search.trim() ? 50 : 200) && (
+        <p className="text-sm text-muted-foreground">Showing the first {listings.length} {search.trim() ? "search matches" : "recent listings"}.</p>
+      )}
 
       {isLoading ? (
         <div className="animate-pulse text-muted-foreground">Searching...</div>
+      ) : error ? (
+        <div role="alert" className="text-destructive">Could not search the marketplace: {error.message}</div>
       ) : listings?.length === 0 ? (
         <div className="text-center p-12 border rounded-lg border-dashed">
-          <p className="text-muted-foreground">No listings found matching "{search}"</p>
+          <p className="text-muted-foreground">{search ? `No listings found matching "${search}"` : "No published listings are available yet."}</p>
         </div>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -57,19 +63,19 @@ export function MarketplaceSearchPage() {
               </CardHeader>
               <CardContent className="mt-auto">
                 <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1">
+                  {listing.rating !== undefined && <span className="flex items-center gap-1">
                     <Star className="h-3 w-3 fill-primary text-primary" />
-                    {listing.rating} ({listing.reviewCount})
-                  </span>
-                  <span className="flex items-center gap-1">
+                    {listing.rating} {listing.reviewCount !== undefined && `(${listing.reviewCount})`}
+                  </span>}
+                  {listing.installCount !== undefined && <span className="flex items-center gap-1">
                     <Download className="h-3 w-3" />
-                    {formatCompactNumber(listing.installCount || 0)} installs
-                  </span>
+                    {formatCompactNumber(listing.installCount)} installs
+                  </span>}
                 </div>
               </CardContent>
-              <CardFooter className="pt-0 text-xs text-muted-foreground border-t border-border mt-4 p-4">
+              {listing.seller.displayName && <CardFooter className="pt-0 text-xs text-muted-foreground border-t border-border mt-4 p-4">
                 By {listing.seller.displayName}
-              </CardFooter>
+              </CardFooter>}
             </Card>
           ))}
         </div>
