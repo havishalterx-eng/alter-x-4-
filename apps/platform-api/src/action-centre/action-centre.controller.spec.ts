@@ -197,7 +197,7 @@ describe("Human Action Centre routes", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.body)).toMatchObject({ source_type: sourceType });
+    expect(response.json()).toMatchObject({ source_type: sourceType });
     // One read of one item: the screen used to page the whole queue to find it.
     expect(engine.get).toHaveBeenCalledTimes(1);
     expect(engine.get.mock.calls[0]?.[0]).toBe(`${path}/${id}`);
@@ -590,7 +590,7 @@ class StatefulActionEngine {
   private async getResponse(
     path: EnginePath,
     _context: EngineCallerContext,
-  ): Promise<EngineResponse<EnginePage<EngineResource>>> {
+  ): Promise<EngineResponse<EnginePage<EngineResource> | EngineResource>> {
     void _context;
     this.throwIfFailed(path);
     const url = new URL(path, "https://engine.internal");
@@ -616,13 +616,13 @@ class StatefulActionEngine {
       };
     }
     if (url.pathname === `/api/v1/approvals/${approvalId}`) {
-      return { status: 200, body: this.approvals[0] as EnginePage<EngineResource> };
+      return { status: 200, body: this.approvals[0] ?? {} };
     }
     if (url.pathname === `/api/v1/escalations/${escalationId}`) {
-      return { status: 200, body: this.escalations[0] as EnginePage<EngineResource> };
+      return { status: 200, body: this.escalations[0] ?? {} };
     }
     if (url.pathname === `/api/v1/clarifications/${clarificationId}`) {
-      return { status: 200, body: this.clarifications[0] as EnginePage<EngineResource> };
+      return { status: 200, body: this.clarifications[0] ?? {} };
     }
     if (url.pathname === "/api/v1/escalations") {
       return {
