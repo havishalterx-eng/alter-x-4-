@@ -13,6 +13,7 @@ from src.planner.model_gateway_llm_client import (
     _TOOL_REFERENCE,
     ModelGatewayLlmClient,
     _executable_problems,
+    _linked_to_referenced_nodes,
 )
 from src.planner.task_skeleton import TaskNode, TaskSkeleton
 
@@ -387,6 +388,92 @@ def test_a_tool_argument_cannot_reference_what_the_tool_does_not_receive() -> No
         "tool node 'c' arguments.body.0 is not a reference of the form "
         '{"$from": "<node key>", "path": "<field>.<field>"}',
     ]
+
+
+def test_a_referenced_step_becomes_a_dependency() -> None:
+    # The reference says the value comes from "a", so depending on "a" is the
+    # only reading of the plan; adding the edge beats spending a model call.
+    skeleton = _linked_to_referenced_nodes(
+        TaskSkeleton.from_json(
+            _skeleton_json(
+                [
+                    _llm("a", []),
+                    _llm("b", ["a"]),
+                    _email(
+                        "c",
+                        ["b"],
+                        {
+                            "to": "ops@example.com",
+                            "subject": {"$from": "b", "path": "subject"},
+                            "body": {"$from": "a"},
+                        },
+                    ),
+                ]
+            )
+        )
+    )
+
+    assert [node.depends_on for node in skeleton.nodes] == [[], ["a"], ["b", "a"]]
+    assert _executable_problems(skeleton) == []
+
+
+def test_a_reference_that_cannot_become_a_dependency_is_left_to_fail() -> None:
+    skeleton = _linked_to_referenced_nodes(
+        TaskSkeleton.from_json(
+            _skeleton_json(
+                [
+                    _llm("a", []),
+                    {
+                        "key": "route",
+                        "type": "branch",
+                        "config": {"conditions": {"b": "true"}},
+                        "depends_on": ["a"],
+                    },
+                    _email("b", ["route"], {"to": {"$from": "route"}}),
+                    _email("c", ["a"], {"to": {"$from": "missing"}}),
+                    _email("d", ["a"], {"to": {"$from": "e"}}),
+                    _llm("e", ["d"]),
+                ]
+            )
+        )
+    )
+
+    # A branch has no output, an unknown key names no step, and depending on
+    # "e" would close a cycle, so none of these three edges is added.
+    assert [node.depends_on for node in skeleton.nodes] == [
+        [],
+        ["a"],
+        ["route"],
+        ["a"],
+        ["a"],
+        ["d"],
+    ]
+    assert _executable_problems(skeleton) != []
+
+
+def test_the_entry_point_never_gains_a_dependency() -> None:
+    skeleton = _linked_to_referenced_nodes(
+        TaskSkeleton.from_json(
+            _skeleton_json(
+                [_email("a", [], {"to": {"$from": "b"}}), _llm("b", ["a"])],
+            )
+        )
+    )
+
+    assert skeleton.nodes[0].depends_on == []
+
+
+async def test_generate_skeleton_does_not_spend_a_repair_turn_on_a_missing_edge() -> None:
+    stub = _SequenceStub(
+        _skeleton_json(
+            [_llm("a", []), _email("b", [], {"to": {"$from": "a", "path": "to"}})],
+        )
+    )
+
+    skeleton = await _generate(stub)
+
+    assert len(stub.requests) == 1
+    assert skeleton.nodes[1].depends_on == ["a"]
 
 
 def test_the_planner_is_told_how_to_reference_an_earlier_step() -> None:

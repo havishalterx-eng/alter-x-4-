@@ -120,9 +120,11 @@ TOOL_NAMING_CASES: tuple[ToolNamingCase, ...] = (
 
 
 def _fresh_tenant_id() -> str:
-    # The Model Gateway caches answers per tenant by prompt similarity, so a
-    # tenant reused across runs replays earlier plans instead of sampling new
-    # ones. Each run plans as a tenant the cache has never seen.
+    # The Model Gateway caches answers per tenant by prompt similarity, and the
+    # fixed part of a planning payload (the system prompt) dominates that
+    # similarity: inside one tenant, a second objective scores above the
+    # threshold against the first and replays its plan. So every case plans as
+    # a tenant the cache has never seen, not just every run.
     hex_ = uuid.uuid4().hex
     return f"ten_{hex_[:8]}-{hex_[8:12]}-7{hex_[13:16]}-8{hex_[17:20]}-{hex_[20:]}"
 
@@ -134,14 +136,13 @@ async def test_planner_tool_naming_golden_set() -> None:
         timeout_seconds=120,
         access_token_provider=lazy_auth0_m2m_token_provider_from_settings(settings),
     )
-    tenant_id = _fresh_tenant_id()
     results = []
     try:
         for case in TOOL_NAMING_CASES:
             spec = ProblemSpec(objective=case.objective, risk="low")
             try:
                 skeleton = await client.generate_skeleton(
-                    tenant_id=tenant_id,
+                    tenant_id=_fresh_tenant_id(),
                     run_id=f"run_{uuid.uuid4()}",
                     strategy="iterative",
                     problem_spec_json=problem_spec_json(spec),

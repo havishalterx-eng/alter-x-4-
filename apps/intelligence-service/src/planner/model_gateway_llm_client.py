@@ -82,15 +82,9 @@ contained instruction for that step). The model executing this step will be told
 respond with JSON only, so the prompt should describe what fields the JSON output needs.
 - "tool": config must have "tool_name" and "arguments". "tool_name" must be exactly one \
 of the tools listed below -- these are the only tools that exist, and a step naming any \
-other tool cannot run. "arguments" is an object with that tool's fields. An argument \
-value that an earlier step produces is written as a reference instead of a literal: \
-{"$from": "<key of that step>", "path": "<field>.<field>"} stands for the value at that \
-path in the step's JSON output (a number in the path picks an array item; leave out \
-"path" for the whole output). The referenced step must be listed in this node's \
-depends_on, and cannot be a "branch" step. A reference is the whole argument value -- it \
-cannot be embedded inside a longer string -- so when an argument combines several values, \
-add an "llm" step that outputs the finished value and reference that. Never put \
-passwords, API keys, tokens or other secrets in arguments.
+other tool cannot run. "arguments" is an object with that tool's fields, each a literal \
+value or a reference to an earlier step (see "Using another step's output" below). \
+Never put passwords, API keys, tokens or other secrets in arguments.
 - "branch" and "join": config can be an empty object {}.
 
 Tools (tool_name: arguments):
@@ -98,10 +92,24 @@ Tools (tool_name: arguments):
     + _TOOL_REFERENCE
     + """
 
-Never invent a tool. When the objective needs an action none of these tools performs \
-(for example posting to a chat app, uploading a video, creating a ticket or sending a \
-text message), do not add a tool node for it: use an "llm" node that prepares exactly \
-what a person needs to complete that action themselves.
+Anything the plan cannot already know -- a fact from the web, a page's contents, rows \
+in a database -- is fetched by the matching tool step. A plan that needs current \
+information and calls no tool is wrong: "search.web" is how the web is read, and \
+the browser tools are for a specific page you were given.
+
+Never invent a tool: a tool_name that is not in that list is not a tool. When the \
+objective needs an action none of these tools performs -- posting to a chat app, \
+uploading a video, creating a ticket, sending a text message, adding a calendar event -- \
+do not add a tool node for it at all. Use an "llm" node that prepares exactly what a \
+person needs to complete that action themselves.
+
+Using another step's output. An argument whose value an earlier step produces is written \
+as {"$from": "<key of that step>", "path": "<field>.<field>"} instead of a literal: it \
+stands for the value at that path in that step's JSON output (a number in the path picks \
+an array item; leave out "path" for the whole output). List that step in this node's \
+depends_on. A "branch" step has no output to reference. A reference is the whole argument \
+value and cannot be embedded inside a longer string, so when an argument combines several \
+values, add an "llm" step that outputs the finished value and reference that.
 
 An "llm" step only reasons over its prompt and the outputs of the steps it depends on. \
 It cannot search the web, open pages, read or change a database, or send anything, so a \
@@ -117,7 +125,8 @@ must have this exact shape:
 
 Keep the plan small and concrete -- 2 to 6 nodes. Every node's dependencies must reference \
 real node keys in the same skeleton. Exactly one node must have depends_on: [] and must \
-match entry_point."""
+match entry_point: the first step starts the work itself and never waits on another \
+step."""
 
 # Replanning happens after something already failed on a plan good enough to
 # compile, so it needs more judgement than drafting one.
@@ -305,7 +314,9 @@ class ModelGatewayLlmClient(StubLlmClient):
         )
         # strict=False: models put raw newlines inside long prompt strings.
         answer = json.loads(content, strict=False)
-        revised = TaskSkeleton.model_validate(answer["skeleton"])
+        revised = _entry_point_fixed(
+            _linked_to_referenced_nodes(TaskSkeleton.model_validate(answer["skeleton"]))
+        )
         problems = _executable_problems(revised)
         if problems:
             raise ValueError(f"revised skeleton is not executable: {'; '.join(problems)}")
@@ -399,6 +410,7 @@ def _parsed_skeleton(content: str) -> tuple[TaskSkeleton | None, list[str]]:
         skeleton = TaskSkeleton.model_validate(json.loads(content, strict=False))
     except ValueError as error:
         return None, [f"the answer is not a valid skeleton ({error})"]
+    skeleton = _entry_point_fixed(_linked_to_referenced_nodes(skeleton))
     return skeleton, _executable_problems(skeleton)
 
 
@@ -413,7 +425,10 @@ def _repair_payload(problem_spec_json: str, plan: str, problems: list[str]) -> s
                     "role": "user",
                     "content": "That plan cannot run: "
                     + "; ".join(problems)
-                    + ". Return the corrected plan in the same JSON shape.",
+                    + ". Return the corrected plan in the same JSON shape. A step naming a "
+                    "tool that does not exist cannot be renamed to another tool that does "
+                    'not exist either: replace it with an "llm" step whose prompt prepares '
+                    "exactly what a person needs to do that action themselves.",
                 },
             ],
             "temperature": 0.2,
@@ -533,6 +548,81 @@ def _executable_problems(skeleton: TaskSkeleton) -> list[str]:
     if remaining:
         problems.append(f"dependency cycle among {sorted(remaining)}")
     return problems
+
+
+def _linked_to_referenced_nodes(skeleton: TaskSkeleton) -> TaskSkeleton:
+    """The skeleton with every referenced step added to the referring node's
+    depends_on.
+
+    A tool node that reads an earlier step's output through {"$from": ...} must
+    depend on that step, or the compiler never wires the value through. Models
+    write the reference and forget the edge often enough that rejecting the plan
+    wastes a model call to fix something that follows from the reference itself.
+    The edge is only added when it cannot change what the plan means: the
+    referenced node exists, is not a branch (a branch decides whether a node
+    runs and has no output), and does not itself depend on this node, which
+    would make a cycle.
+    """
+    nodes = {node.key: node for node in skeleton.nodes}
+    repaired: list[TaskNode] = []
+    for node in skeleton.nodes:
+        added = [
+            source
+            for source in sorted(_referenced_keys(node.config.get("arguments")))
+            if source not in node.depends_on
+            and (source_node := nodes.get(source)) is not None
+            and source_node.type != "branch"
+            and node.key != skeleton.entry_point
+            and not _depends_on_transitively(nodes, source, node.key)
+        ]
+        repaired.append(
+            node.model_copy(update={"depends_on": [*node.depends_on, *added]}) if added else node
+        )
+    return skeleton.model_copy(update={"nodes": repaired})
+
+
+def _entry_point_fixed(skeleton: TaskSkeleton) -> TaskSkeleton:
+    """The skeleton with entry_point naming the step that actually starts it.
+
+    The shape rules say exactly one node has no dependencies and entry_point
+    names it. Models sometimes name a later step instead, which is a label
+    error rather than a different plan: the graph already says which step runs
+    first. Only repaired when the plan leaves no doubt -- exactly one node has
+    no dependencies.
+    """
+    roots = [node.key for node in skeleton.nodes if not node.depends_on]
+    if len(roots) != 1 or skeleton.entry_point == roots[0]:
+        return skeleton
+    return skeleton.model_copy(update={"entry_point": roots[0]})
+
+
+def _referenced_keys(value: object) -> set[str]:
+    """Every node key an argument value references, at any depth."""
+
+    if isinstance(value, list):
+        return {key for item in value for key in _referenced_keys(item)}
+    if not isinstance(value, dict):
+        return set()
+    source = value.get("$from")
+    if isinstance(source, str) and source:
+        return {source}
+    return {key for item in value.values() for key in _referenced_keys(item)}
+
+
+def _depends_on_transitively(nodes: dict[str, TaskNode], start: str, target: str) -> bool:
+    seen: set[str] = set()
+    pending = [start]
+    while pending:
+        key = pending.pop()
+        if key == target:
+            return True
+        if key in seen:
+            continue
+        seen.add(key)
+        node = nodes.get(key)
+        if node is not None:
+            pending.extend(node.depends_on)
+    return False
 
 
 def _reference_problems(
