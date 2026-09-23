@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   ModelAliasSchema,
   ModelInvocationUsageSchema,
@@ -206,14 +207,20 @@ export class ModelGatewayService implements ModelgwHandler {
     // store below -- computing it twice would double the embedding
     // provider's cost on every cache miss for no benefit, since the text
     // being embedded is identical both times.
-    const embedding = await this.#embedBestEffort(
-      request.tenant_id,
+    const key = cacheKey(
+      binding.model_id,
+      alias,
       redacted.redactedText,
+      alterAuthoredIndexes(request.input_json),
     );
+    // Nothing the caller varied means nothing to compare: not cached.
+    const embedding =
+      key.text === "" ? undefined : await this.#embedBestEffort(request.tenant_id, key.text);
 
     const cacheHit = await this.#lookupCacheBestEffort(
       request.tenant_id,
       embedding,
+      key.scope,
     );
     if (cacheHit !== undefined) {
       return cacheHit;
@@ -293,7 +300,7 @@ export class ModelGatewayService implements ModelgwHandler {
       ),
     };
 
-    await this.#storeCacheBestEffort(request.tenant_id, embedding, response);
+    await this.#storeCacheBestEffort(request.tenant_id, embedding, response, key.scope);
 
     return response;
   }
@@ -318,13 +325,19 @@ export class ModelGatewayService implements ModelgwHandler {
     // hit, invoke() never resolves a cost limit or touches the real model
     // provider at all; stream() does the same below, returning before
     // `resolveCostLimit` is even called.
-    const embedding = await this.#embedBestEffort(
-      request.tenant_id,
+    const key = cacheKey(
+      binding.model_id,
+      alias,
       redacted.redactedText,
+      alterAuthoredIndexes(request.input_json),
     );
+    // Nothing the caller varied means nothing to compare: not cached.
+    const embedding =
+      key.text === "" ? undefined : await this.#embedBestEffort(request.tenant_id, key.text);
     const cacheHit = await this.#lookupCacheBestEffort(
       request.tenant_id,
       embedding,
+      key.scope,
     );
     if (cacheHit !== undefined) {
       const cachedText = extractCachedStreamText(cacheHit.output_json);
@@ -452,7 +465,7 @@ export class ModelGatewayService implements ModelgwHandler {
         resolved_capability: `${alias}:${servedBy ?? binding.model_id}`,
         cache_hit: false,
         estimated_cost_usd: finalCostUsd,
-      });
+      }, key.scope);
     } catch (error) {
       // A success outcome was already recorded above the moment the final
       // chunk arrived -- a later throw (e.g. a cost-limit rejection, or a
@@ -715,6 +728,7 @@ export class ModelGatewayService implements ModelgwHandler {
   async #lookupCacheBestEffort(
     tenantId: string,
     embedding: readonly number[] | undefined,
+    scope: string,
   ): Promise<ModelgwInvokeResponse | undefined> {
     if (embedding === undefined) {
       return undefined;
@@ -723,6 +737,7 @@ export class ModelGatewayService implements ModelgwHandler {
       const lookup = await this.cacheProvider.lookupSemantic({
         tenantId,
         embedding,
+        scope,
       });
       if (!lookup.hit || lookup.valueJson === undefined) {
         return undefined;
@@ -741,6 +756,7 @@ export class ModelGatewayService implements ModelgwHandler {
     tenantId: string,
     embedding: readonly number[] | undefined,
     response: ModelgwInvokeResponse,
+    scope: string,
   ): Promise<void> {
     if (embedding === undefined) {
       return;
@@ -750,6 +766,7 @@ export class ModelGatewayService implements ModelgwHandler {
         tenantId,
         embedding,
         valueJson: JSON.stringify(response),
+        scope,
       });
     } catch {
       // Never fail an otherwise-successful model invocation because the
@@ -774,4 +791,91 @@ export class ModelGatewayService implements ModelgwHandler {
       return undefined;
     }
   }
+}
+
+/**
+ * What the semantic cache compares, and what it must never compare across.
+ *
+ * The cache used to embed the whole payload and compare every candidate a
+ * tenant had. Two different objectives sent with the same fixed prompt are
+ * mostly identical text, so as prompts grew they scored above the similarity
+ * threshold against each other and one objective was answered with another's
+ * cached response. Nothing about similarity can fix that: the parts that must
+ * match exactly belong in the scope, not in the comparison.
+ *
+ * So the scope pins the model (a cheap model's answer must not serve a call
+ * that asked for a better one), the alias, and everything in the payload the
+ * caller did not vary -- the messages marked `alter_authored`, which are
+ * constant prompts Alter wrote, and the inference settings. What is embedded
+ * is only the rest: the caller's own content, in order and with its roles.
+ *
+ * A payload with no varying content at all has nothing to compare, so it is
+ * not cached: `text` is empty and embedding is skipped.
+ */
+export function cacheKey(
+  modelId: string,
+  alias: string,
+  inputJson: string,
+  fixedMessageIndexes: ReadonlySet<number> = new Set(),
+): { readonly scope: string; readonly text: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(inputJson);
+  } catch {
+    return { scope: scopeHash({ modelId, alias }), text: inputJson };
+  }
+  const payload = parsed as {
+    messages?: unknown;
+    [key: string]: unknown;
+  };
+  if (!Array.isArray(payload.messages)) {
+    return { scope: scopeHash({ modelId, alias }), text: inputJson };
+  }
+  const { messages, ...settings } = payload;
+  const fixed: unknown[] = [];
+  const varying: unknown[] = [];
+  messages.forEach((message, index) => {
+    const record = message as { role?: unknown; content?: unknown; alter_authored?: unknown };
+    const isFixed =
+      record.role === "system" &&
+      (record.alter_authored === true || fixedMessageIndexes.has(index));
+    (isFixed ? fixed : varying).push({ role: record.role, content: record.content });
+  });
+  return {
+    scope: scopeHash({ modelId, alias, fixed, settings }),
+    text: varying.length === 0 ? "" : JSON.stringify(varying),
+  };
+}
+
+/**
+ * Which messages the caller marked `alter_authored`, by position.
+ *
+ * Redaction strips the marker before a payload leaves the gateway (providers
+ * never see it), and the cache key is built from the redacted payload so no
+ * unredacted text is sent to the embedding provider either. Redaction keeps
+ * the messages in place, so the positions still line up.
+ */
+export function alterAuthoredIndexes(inputJson: string): ReadonlySet<number> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(inputJson);
+  } catch {
+    return new Set();
+  }
+  const messages = (parsed as { messages?: unknown }).messages;
+  if (!Array.isArray(messages)) {
+    return new Set();
+  }
+  const indexes = new Set<number>();
+  messages.forEach((message, index) => {
+    const record = message as { role?: unknown; alter_authored?: unknown };
+    if (record.role === "system" && record.alter_authored === true) {
+      indexes.add(index);
+    }
+  });
+  return indexes;
+}
+
+function scopeHash(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("base64url");
 }

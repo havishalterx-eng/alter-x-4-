@@ -800,6 +800,14 @@ export interface SemanticCacheLookupRequest {
   readonly tenantId: string;
   readonly embedding: readonly number[];
   readonly similarityThreshold?: number;
+  /**
+   * Candidates outside this scope are never considered. Similarity alone
+   * cannot tell apart two requests that merely share boilerplate, so a
+   * caller puts everything that must match exactly -- the model, and the
+   * fixed prompt around the varying content -- into the scope, and embeds
+   * only what varies. Defaults to one shared scope per tenant.
+   */
+  readonly scope?: string;
 }
 
 export interface SemanticCacheLookupResult {
@@ -813,6 +821,8 @@ export interface SemanticCacheStoreRequest {
   readonly embedding: readonly number[];
   readonly valueJson: string;
   readonly ttlSeconds?: number;
+  /** The scope this candidate may be served from; see the lookup request. */
+  readonly scope?: string;
 }
 
 export interface CacheProvider extends BaseProvider<"CacheProvider"> {
