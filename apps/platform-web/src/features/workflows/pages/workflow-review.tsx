@@ -4,6 +4,7 @@ import { Play, FileCheck, AlertTriangle, CheckCircle2 } from "lucide-react"
 import { api } from "@/api/client"
 import { queryKeys } from "@/api/query-keys"
 import { Button } from "@/components/ui/button"
+import { SafeguardsSection } from "../components/safeguards-section"
 import { toast } from "sonner"
 
 export function WorkflowReview() {
@@ -53,6 +54,8 @@ export function WorkflowReview() {
             </div>
           </div>
         </div>
+
+        <SafeguardsSection workflowId={workflowId!} />
 
         <div className="rounded-xl border border-border bg-surface-raised overflow-hidden">
           <div className="border-b border-border bg-surface px-4 py-3 font-medium">
