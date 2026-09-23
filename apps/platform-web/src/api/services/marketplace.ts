@@ -51,7 +51,15 @@ function mapListing(row: ListingRecord): MarketplaceListing {
     assetType: row.type,
     category: row.type.replaceAll("_", " "),
     seller: { id: row.tenantId ?? "", displayName: "" },
-    pricing: priceMinor === 0 ? { type: "free" } : { type: "paid", price: priceMinor / 100, currency: row.currency ?? "INR" },
+    pricing:
+      priceMinor === 0
+        ? { type: "free" }
+        : {
+            type: "paid",
+            price: priceMinor / 100,
+            currency: row.currency ?? "INR",
+            priceMinor: String(priceMinor),
+          },
     tags: [],
     status: "published",
     createdAt: row.createdAt,

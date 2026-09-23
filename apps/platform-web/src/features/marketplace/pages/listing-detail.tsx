@@ -5,7 +5,7 @@ import { isLiveApi } from "@/api/http"
 import { queryKeys } from "@/api/query-keys"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { formatCurrency, formatCompactNumber } from "@/lib/formatters"
+import { formatCompactNumber, formatListingPrice } from "@/lib/formatters"
 import { Download, Star, ArrowLeft, CheckCircle2, Loader2, Store } from "lucide-react"
 
 export function ListingDetailPage() {
@@ -108,7 +108,7 @@ export function ListingDetailPage() {
         <div className="w-full md:w-80 shrink-0 sticky top-24">
           <div className="rounded-xl border border-border bg-surface p-6 shadow-sm">
             <div className="text-3xl font-bold mb-6">
-              {listing.pricing.type === "free" ? "Free" : formatCurrency(listing.pricing.price, listing.pricing.currency)}
+              {formatListingPrice(listing.pricing)}
             </div>
             <Button 
               className="w-full mb-4" 

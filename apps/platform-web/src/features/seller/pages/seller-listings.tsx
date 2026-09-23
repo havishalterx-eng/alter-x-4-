@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { formatCurrency, formatCompactNumber } from "@/lib/formatters"
+import { formatCompactNumber, formatListingPrice } from "@/lib/formatters"
 import { Plus } from "lucide-react"
 
 export function SellerListingsPage() {
@@ -73,7 +73,7 @@ export function SellerListingsPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      {listing.pricing.type === "free" ? "Free" : formatCurrency(listing.pricing.price, listing.pricing.currency)}
+                      {formatListingPrice(listing.pricing)}
                     </TableCell>
                     {!isLiveApi && <TableCell className="text-right">{formatCompactNumber(listing.installCount || 0)}</TableCell>}
                     <TableCell className="text-right text-muted-foreground text-sm">{new Date(listing.updatedAt).toLocaleDateString()}</TableCell>

@@ -895,7 +895,15 @@ export interface MarketplaceListing {
   assetType: MarketplaceAssetType;
   category: string;
   seller: SellerSummary;
-  pricing: { type: "free" } | { type: "paid"; price: number; currency: string; };
+  pricing:
+    | { type: "free" }
+    /**
+     * price is the major-unit amount the demo data uses, which the currency
+     * switcher converts with a mock rate. A listing read from the API sets
+     * priceMinor as well: that amount is already in its own currency and
+     * must be shown as-is, never converted.
+     */
+    | { type: "paid"; price: number; currency: string; priceMinor?: string };
   rating?: number;
   reviewCount?: number;
   installCount?: number;
