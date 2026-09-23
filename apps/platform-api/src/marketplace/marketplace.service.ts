@@ -9,7 +9,8 @@ import { parseInstalledPayloadRef } from "./validation";
 import type { StaffActorContext } from "../rbac/types";
 import type { CompatibilityRequirement, CompatibilityResult, CreateListingInput, CreateListingVersionInput, CreateReviewInput, InstallListingInput, ListingQuery, ListingRecord, ListingVersionRecord, UpdateListingInput } from "./types";
 
-// Sellers can submit listings for review; only staff can advance or publish them.
+// Sellers submit through the Publisher endpoint, which verifies them first.
+// Only staff can advance or publish listings after submission.
 const PUBLISH_ROLES: ReadonlyArray<StaffActorContext["roles"][number]> = [
   "staff_admin",
   "staff_security",
@@ -42,7 +43,7 @@ export class MarketplaceService {
   async update(tenantId: string, listingId: string, input: UpdateListingInput, staff?: StaffActorContext) {
     const current = await this.requireOwnedListing(tenantId, listingId);
     if (input.status && !transitions[current.status]!.includes(input.status)) throw new MarketplaceHttpError(409, "MARKETPLACE_INVALID_STATUS_TRANSITION", `Cannot transition listing from ${current.status} to ${input.status}.`, `/api/v1/marketplace/listings/${listingId}`);
-    if (input.status && ["automated_review", "human_review", "published"].includes(input.status) && !this.isPublishAuthorized(staff)) {
+    if (input.status && ["submitted", "automated_review", "human_review", "published"].includes(input.status) && !this.isPublishAuthorized(staff)) {
       throw new MarketplaceHttpError(
         403,
         "MARKETPLACE_PUBLISH_REQUIRES_STAFF",
