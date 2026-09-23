@@ -14,7 +14,7 @@ describe("RazorpayMarketplacePayoutProvider", () => {
       payoutId: "order_route_1", orderRef: "ord_1", sellerShareMinor: "8004", platformShareMinor: "2001", status: "created",
     });
     expect(request).toHaveBeenCalledWith(expect.objectContaining({
-      method: "POST", path: "/v1/orders", body: expect.objectContaining({ amount: "10005", currency: "INR", receipt: "ord_1", transfers: [{ account: "acc_seller", amount: "8004", currency: "INR" }] }),
+      method: "POST", path: "/v1/orders", body: expect.objectContaining({ amount: 10005, currency: "INR", receipt: "ord_1", partial_payment: false, transfers: [{ account: "acc_seller", amount: 8004, currency: "INR" }] }),
     }));
   });
 

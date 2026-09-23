@@ -78,10 +78,11 @@ export class RazorpayMarketplacePayoutProvider implements MarketplacePayoutProvi
     }
     const sellerShare = (total * BigInt(sellerShareBps)) / 10_000n;
     const order = object(await this.call("POST", "/v1/orders", {
-      amount: total.toString(),
+      amount: razorpayAmount(total),
       currency: this.config.currency ?? "INR",
       receipt: orderId,
-      transfers: [{ account: sellerAccountRef, amount: sellerShare.toString(), currency: this.config.currency ?? "INR" }],
+      partial_payment: false,
+      transfers: [{ account: sellerAccountRef, amount: razorpayAmount(sellerShare), currency: this.config.currency ?? "INR" }],
       notes: { marketplace_order_id: orderId },
     }));
     return {
@@ -94,11 +95,27 @@ export class RazorpayMarketplacePayoutProvider implements MarketplacePayoutProvi
   }
 
   async getPayoutStatus(payoutId: string): Promise<PayoutStatus> {
-    const transfer = object(await this.call("GET", `/v1/transfers/${encodeURIComponent(payoutId)}`));
+    // createSplitOrder returns a Razorpay order ID. Its transfer is created only
+    // after payment capture, so reconcile through the order's expanded transfers.
+    const order = object(await this.call("GET", `/v1/orders/${encodeURIComponent(payoutId)}?expand[]=transfers`));
+    if (order.id !== payoutId) throw new RazorpayMarketplacePayoutError(502, "Razorpay Route returned a different order");
+    const collection = object(order.transfers);
+    if (!Array.isArray(collection.items) || collection.items.length > 1 || collection.count !== collection.items.length) {
+      throw new RazorpayMarketplacePayoutError(502, "Razorpay Route returned an invalid transfer collection");
+    }
+    if (collection.items.length === 0) {
+      if (order.status !== "created" && order.status !== "attempted" && order.status !== "paid") {
+        throw new RazorpayMarketplacePayoutError(502, "Razorpay Route returned an unknown order status");
+      }
+      return { payoutId, status: order.status === "created" ? "created" : "pending", processedAt: null };
+    }
+    const transfer = object(collection.items[0]);
+    if (transfer.source !== payoutId) throw new RazorpayMarketplacePayoutError(502, "Razorpay Route transfer belongs to another order");
+    const status = routeStatus(transfer.transfer_status ?? transfer.status);
     return {
       payoutId,
-      status: routeStatus(transfer.status),
-      processedAt: typeof transfer.processed_at === "number" ? new Date(transfer.processed_at * 1_000).toISOString() : null,
+      status,
+      processedAt: status === "processed" && typeof transfer.processed_at === "number" ? new Date(transfer.processed_at * 1_000).toISOString() : null,
     };
   }
 
@@ -138,11 +155,18 @@ function positiveMinor(value: string): bigint {
   return BigInt(value);
 }
 
+function razorpayAmount(value: bigint): number {
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RazorpayMarketplacePayoutError(400, "Amount exceeds the supported Route range");
+  }
+  return Number(value);
+}
+
 function routeStatus(value: unknown): PayoutStatus["status"] {
-  if (value === "processed" || value === "paid") return "processed";
+  if (value === "processed") return "processed";
   if (value === "failed") return "failed";
   if (value === "pending" || value === "created") return value;
-  return "pending";
+  throw new RazorpayMarketplacePayoutError(502, "Razorpay Route returned an unknown transfer status");
 }
 
 function object(value: unknown): Readonly<Record<string, unknown>> {
