@@ -860,7 +860,7 @@ export interface CostEstimate {
 }
 
 // --- Phase 8: Marketplace & Seller ---
-export type MarketplaceAssetType = "workflow_template" | "project_template" | "agent_pack" | "node_pack" | "knowledge_pack";
+export type MarketplaceAssetType = "workflow_template" | "project_template" | "agent" | "tool" | "agent_pack" | "node_pack" | "knowledge_pack";
 
 export interface SellerSummary {
   id: string;
