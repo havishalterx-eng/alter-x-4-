@@ -50,7 +50,12 @@ export class MarketplaceService {
         `/api/v1/marketplace/listings/${listingId}`,
       );
     }
-    const result = await this.repository.updateListing(tenantId, listingId, input);
+    if (input.status === "published" && !(await this.repository.findLatestVersion(tenantId, listingId))) {
+      throw new MarketplaceHttpError(409, "MARKETPLACE_VERSION_REQUIRED", "A listing version is required before publishing.", `/api/v1/marketplace/listings/${listingId}`);
+    }
+    const result = input.status === "published"
+      ? await this.repository.publishListing(tenantId, listingId)
+      : await this.repository.updateListing(tenantId, listingId, input);
     if (!result) throw this.notFound(listingId);
     return result;
   }

@@ -113,6 +113,8 @@ interface Harness {
   repository: {
     findListing: ReturnType<typeof vi.fn>;
     updateListing: ReturnType<typeof vi.fn>;
+    publishListing: ReturnType<typeof vi.fn>;
+    findLatestVersion: ReturnType<typeof vi.fn>;
     findVersion: ReturnType<typeof vi.fn>;
     findInstallByIdempotencyKey: ReturnType<typeof vi.fn>;
     createInstall: ReturnType<typeof vi.fn>;
@@ -134,6 +136,8 @@ function harness(): Harness {
       async (_tenant: string, id: string, input: { status?: ListingStatus }) =>
         listing({ id, status: input.status ?? "draft" }),
     ),
+    publishListing: vi.fn(async (_tenant: string, id: string) => listing({ id, status: "published" })),
+    findLatestVersion: vi.fn(async () => version()),
     findVersion: vi.fn(async () => version()),
     findInstallByIdempotencyKey: vi.fn(
       async (_tenant: string, key: string) =>

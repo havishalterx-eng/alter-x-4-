@@ -175,6 +175,30 @@ export class MarketplaceRepository implements OnModuleDestroy {
     });
   }
 
+  publishListing(tenantId: string, id: string): Promise<ListingRecord | undefined> {
+    return this.withTenant(tenantId, async (client) => {
+      const result = await client.query<ListingRow>(
+        `UPDATE listings SET status = 'published', updated_at = clock_timestamp()
+         WHERE tenant_id = $1 AND id = $2 AND latest_version IS NOT NULL
+           AND EXISTS (SELECT 1 FROM listing_versions
+                       WHERE listing_id = $2 AND version = listings.latest_version)
+         RETURNING *`,
+        [tenantId, id],
+      );
+      const listing = result.rows[0];
+      if (!listing) return undefined;
+      const version = await client.query(
+        `UPDATE listing_versions
+         SET published_at = COALESCE(published_at, clock_timestamp())
+         WHERE listing_id = $1 AND version = $2
+         RETURNING id`,
+        [id, listing.latest_version],
+      );
+      if (version.rowCount !== 1) throw new Error("Published listing version is unavailable");
+      return mapListing(listing);
+    });
+  }
+
   listVersions(tenantId: string, listingId: string): Promise<ListingVersionRecord[]> {
     return this.withTenant(tenantId, async (client) => {
       const result = await client.query<ListingVersionRow>(
