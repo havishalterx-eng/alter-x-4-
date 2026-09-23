@@ -9,6 +9,7 @@ type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown
   idempotencyKey?: string
   ifMatch?: string
+  onResponse?: (response: Response) => void
 }
 
 export class ApiHttpError extends Error {
@@ -23,6 +24,32 @@ export class ApiHttpError extends Error {
   }
 }
 
+/**
+ * A response and the ETag the server sent with it, for a resource whose write
+ * needs If-Match. The value is read off the wire rather than recomputed from
+ * the body, which only works for resources whose hash input is a field the
+ * body happens to carry.
+ */
+export interface ApiResult<T> {
+  readonly data: T
+  readonly etag: string | undefined
+}
+
+export async function apiGetWithEtag<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<ApiResult<T>> {
+  let etag: string | undefined
+  const data = await apiRequest<T>(path, {
+    ...options,
+    method: "GET",
+    onResponse: (response) => {
+      etag = response.headers.get("etag") ?? undefined
+    },
+  })
+  return { data, etag }
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers(options.headers)
   headers.set("Accept", "application/json, application/problem+json")
@@ -35,12 +62,14 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (options.idempotencyKey) headers.set("Idempotency-Key", options.idempotencyKey)
   if (options.ifMatch) headers.set("If-Match", options.ifMatch)
 
+  const { onResponse, ...init } = options
   const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
+    ...init,
     headers,
     body,
     credentials: "include",
   })
+  onResponse?.(response)
 
   if (response.status === 204) return undefined as T
 
@@ -54,6 +83,9 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
 export const apiGet = <T>(path: string, options?: RequestOptions) =>
   apiRequest<T>(path, { ...options, method: "GET" })
+
+export const apiPut = <T>(path: string, body?: unknown, options?: RequestOptions) =>
+  apiRequest<T>(path, { ...options, method: "PUT", body })
 
 export const apiPost = <T>(path: string, body?: unknown, options?: RequestOptions) =>
   apiRequest<T>(path, { ...options, method: "POST", body })

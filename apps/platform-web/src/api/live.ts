@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost, mutationKey } from "./http"
+import { apiDelete, apiGet, apiGetWithEtag, apiPatch, apiPost, apiPut, mutationKey } from "./http"
 import { compileDag } from "./compile-dag"
 import type {
   Artifact,
@@ -16,6 +16,7 @@ import type {
   Trigger,
   WebhookEndpoint,
   Workflow,
+  WorkflowSafeguards,
   Workspace,
   WorkspaceRole,
   HumanAction,
@@ -155,6 +156,61 @@ export async function getWorkflows(): Promise<Workflow[]> {
 
 export async function getWorkflow(id: string): Promise<Workflow> {
   return mapWorkflow(await apiGet<unknown>(`/api/v1/workflows/${encodeURIComponent(id)}`))
+}
+
+interface SafeguardsResponse {
+  workspace?: { contains_pii?: unknown; approve_external_actions?: unknown }
+  additions?: SafeguardSet
+  effective?: SafeguardSet
+}
+interface SafeguardSet {
+  customer_visible?: unknown
+  contains_pii?: unknown
+  approve_external_actions?: unknown
+}
+
+export async function getWorkflowSafeguards(id: string): Promise<WorkflowSafeguards> {
+  const { data, etag } = await apiGetWithEtag<SafeguardsResponse>(
+    `/api/v1/workflows/${encodeURIComponent(id)}/safeguards`,
+  )
+  return {
+    workspace: {
+      containsPii: data.workspace?.contains_pii === true,
+      approveExternalActions: data.workspace?.approve_external_actions === true,
+    },
+    additions: safeguardSet(data.additions),
+    effective: safeguardSet(data.effective),
+    ...(etag === undefined ? {} : { etag }),
+  }
+}
+
+export async function updateWorkflowSafeguards(
+  id: string,
+  additions: WorkflowSafeguards["additions"],
+  etag: string | undefined,
+): Promise<WorkflowSafeguards> {
+  await apiPut<unknown>(
+    `/api/v1/workflows/${encodeURIComponent(id)}/safeguards`,
+    {
+      additions: {
+        customer_visible: additions.customerVisible,
+        contains_pii: additions.containsPii,
+        approve_external_actions: additions.approveExternalActions,
+      },
+    },
+    // The route requires If-Match over the whole view, so a save made against
+    // a stale workspace rule is refused rather than silently applied.
+    etag === undefined ? {} : { ifMatch: etag },
+  )
+  return getWorkflowSafeguards(id)
+}
+
+function safeguardSet(value: SafeguardSet | undefined): WorkflowSafeguards["additions"] {
+  return {
+    customerVisible: value?.customer_visible === true,
+    containsPii: value?.contains_pii === true,
+    approveExternalActions: value?.approve_external_actions === true,
+  }
 }
 
 export async function createWorkflow(goal: string): Promise<Workflow> {

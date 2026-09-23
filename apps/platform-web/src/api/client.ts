@@ -31,7 +31,7 @@ import {
   mockCredentials, mockWhatsAppChannels, mockMemoryConfig
 } from "./mock/data"
 import { 
-  type Workflow, type Run, type DashboardSummary, 
+  type Workflow, type WorkflowSafeguards, type Run, type DashboardSummary, 
   type Workspace, type Member, type WorkspaceRole, 
   type Profile, type Session,
   type Project, type ProjectBrief, type NodeTypeDefinition,
@@ -243,6 +243,23 @@ class ApiClient {
     const wf = mockWorkflows.find(w => w.id === id)
     if (!wf) throw new Error("Workflow not found")
     return wf
+  }
+
+  async getWorkflowSafeguards(id: string): Promise<WorkflowSafeguards> {
+    if (isLiveApi) return live.getWorkflowSafeguards(id)
+    await delay(MOCK_DELAY)
+    return mockSafeguards(id)
+  }
+
+  async updateWorkflowSafeguards(
+    id: string,
+    additions: WorkflowSafeguards["additions"],
+    etag: string | undefined,
+  ): Promise<WorkflowSafeguards> {
+    if (isLiveApi) return live.updateWorkflowSafeguards(id, additions, etag)
+    await delay(MOCK_DELAY)
+    mockSafeguardAdditions.set(id, additions)
+    return mockSafeguards(id)
   }
 
   async compileWorkflow(_data: { goal: string; answers: any }): Promise<{ workflow: Workflow, explanation: string, warnings: any[], questions: any[] }> {
@@ -1183,3 +1200,25 @@ export const api = Object.assign(apiClient, {
     support: new SupportAccessService()
   }
 });
+
+// Demo data: the workspace requires both safeguards, as a new workspace does.
+const mockWorkspaceSafeguards = { containsPii: true, approveExternalActions: true }
+const mockSafeguardAdditions = new Map<string, WorkflowSafeguards["additions"]>()
+
+function mockSafeguards(id: string): WorkflowSafeguards {
+  const additions = mockSafeguardAdditions.get(id) ?? {
+    customerVisible: false,
+    containsPii: false,
+    approveExternalActions: false,
+  }
+  return {
+    workspace: mockWorkspaceSafeguards,
+    additions,
+    effective: {
+      customerVisible: additions.customerVisible,
+      containsPii: mockWorkspaceSafeguards.containsPii || additions.containsPii,
+      approveExternalActions:
+        mockWorkspaceSafeguards.approveExternalActions || additions.approveExternalActions,
+    },
+  }
+}

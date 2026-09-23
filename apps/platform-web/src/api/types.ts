@@ -427,6 +427,17 @@ export type HumanActionStatus = "open" | "claimed" | "resolved" | "expired" | "c
 export type HumanActionResolution = "approved" | "rejected" | "answered" | "resolved" | "dismissed"
 export type HumanActionPriority = "low" | "normal" | "high" | "critical"
 
+/** What a workflow's plans run with, from the workspace and the workflow. */
+export interface WorkflowSafeguards {
+  /** The workspace's rules. A workflow can add to these, never switch them off. */
+  workspace: { containsPii: boolean; approveExternalActions: boolean }
+  additions: { customerVisible: boolean; containsPii: boolean; approveExternalActions: boolean }
+  /** What every plan of this workflow runs with: the workspace's rules or the workflow's. */
+  effective: { customerVisible: boolean; containsPii: boolean; approveExternalActions: boolean }
+  /** Sent back on save, so a change made since this read is refused. */
+  etag?: string
+}
+
 export interface HumanActionOption {
   id: string
   label: string
