@@ -4,7 +4,7 @@ import { api } from "@/api/client"
 import { queryKeys } from "@/api/query-keys"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { formatCurrency, formatCompactNumber } from "@/lib/formatters"
+import { formatCompactNumber, formatListingPrice } from "@/lib/formatters"
 import { Download, Star } from "lucide-react"
 
 export function MarketplaceHomePage() {
@@ -34,7 +34,7 @@ export function MarketplaceHomePage() {
                 <div className="flex justify-between items-start mb-2">
                   <Badge variant="secondary" className="capitalize">{listing.category}</Badge>
                   <div className="font-semibold text-sm">
-                    {listing.pricing.type === "free" ? "Free" : formatCurrency(listing.pricing.price, listing.pricing.currency)}
+                    {formatListingPrice(listing.pricing)}
                   </div>
                 </div>
                 <CardTitle className="text-lg leading-tight">{listing.title}</CardTitle>
