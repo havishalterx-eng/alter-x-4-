@@ -36,11 +36,18 @@ export class PublisherService {
     if (publisher?.verificationStatus !== "verified") {
       throw new PublisherHttpError(403, "PUBLISHER_VERIFICATION_REQUIRED", "Publisher verification is required before listing submission.", `/api/v1/publisher/listings/${listingId}/actions/submit`);
     }
-    return this.transitionListing(tenantId, listingId, "submitted");
+    return this.applyTransition(tenantId, listingId, "submitted");
   }
 
   async transitionListing(tenantId: string, listingId: string, input: ListingTransitionInput | ListingStatus) {
     const target = typeof input === "string" ? input : input.status;
+    if (["submitted", "automated_review", "human_review", "published"].includes(target)) {
+      throw new PublisherHttpError(403, "PUBLISHER_REVIEW_TRANSITION_REQUIRED", "Use the dedicated submission or staff review action.", `/api/v1/publisher/listings/${listingId}/actions/transition`);
+    }
+    return this.applyTransition(tenantId, listingId, target);
+  }
+
+  private async applyTransition(tenantId: string, listingId: string, target: ListingStatus) {
     const current = await this.repository.listingStatus(tenantId, listingId);
     if (!current) throw new PublisherHttpError(404, "PUBLISHER_LISTING_NOT_FOUND", "Publisher listing was not found.", `/api/v1/publisher/listings/${listingId}`);
     if (!isListingStatus(current) || !PUBLISHING_TRANSITIONS[current].includes(target)) {

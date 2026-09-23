@@ -122,21 +122,6 @@ export class MarketplaceRepository implements OnModuleDestroy {
     });
   }
 
-  // Cross-tenant lookup for the staff publish plane, which carries no tenant
-  // actor. Listings have no RLS policy, so a direct pool query is safe here.
-  async findListingById(id: string): Promise<ListingRecord | undefined> {
-    const client = await this.pool.connect();
-    try {
-      const result = await client.query<ListingRow>(
-        "SELECT * FROM listings WHERE id = $1",
-        [id],
-      );
-      return result.rows[0] ? mapListing(result.rows[0]) : undefined;
-    } finally {
-      client.release();
-    }
-  }
-
   createListing(
     tenantId: string,
     id: string,
@@ -187,6 +172,30 @@ export class MarketplaceRepository implements OnModuleDestroy {
         ],
       );
       return result.rows[0] ? mapListing(result.rows[0]) : undefined;
+    });
+  }
+
+  publishListing(tenantId: string, id: string): Promise<ListingRecord | undefined> {
+    return this.withTenant(tenantId, async (client) => {
+      const result = await client.query<ListingRow>(
+        `UPDATE listings SET status = 'published', updated_at = clock_timestamp()
+         WHERE tenant_id = $1 AND id = $2 AND latest_version IS NOT NULL
+           AND EXISTS (SELECT 1 FROM listing_versions
+                       WHERE listing_id = $2 AND version = listings.latest_version)
+         RETURNING *`,
+        [tenantId, id],
+      );
+      const listing = result.rows[0];
+      if (!listing) return undefined;
+      const version = await client.query(
+        `UPDATE listing_versions
+         SET published_at = COALESCE(published_at, clock_timestamp())
+         WHERE listing_id = $1 AND version = $2
+         RETURNING id`,
+        [id, listing.latest_version],
+      );
+      if (version.rowCount !== 1) throw new Error("Published listing version is unavailable");
+      return mapListing(listing);
     });
   }
 
