@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Play, Webhook, Clock, Zap, Settings, CheckCircle2, AlertCircle, Mail, Loader2 } from "lucide-react"
+import { Play, Webhook, Clock, Zap, Settings, CheckCircle2, AlertCircle, Mail, Loader2, Trash2 } from "lucide-react"
+import { toast } from "sonner"
 import { api } from "@/api/client"
 import { queryKeys } from "@/api/query-keys"
 import { Button } from "@/components/ui/button"
@@ -23,16 +24,33 @@ export function TriggerList({ workflowId }: TriggerListProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.triggers.list(workflowId) })
-    }
+    },
+    onError: (error) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.triggers.list(workflowId) })
+      toast.error(error instanceof Error ? error.message : "Could not change trigger status")
+    },
   })
 
   const testTrigger = useMutation({
     mutationFn: (id: string) => api.testTrigger(id),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.triggers.list(workflowId) })
-      // Normally we'd show a toast here
-      alert(data.success ? `Success: ${data.message}` : `Failed: ${data.message}`)
-    }
+      if (data.success) toast.success(data.message)
+      else toast.error(data.message)
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not test trigger"),
+  })
+
+  const removeTrigger = useMutation({
+    mutationFn: (id: string) => api.removeTrigger(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.triggers.list(workflowId) })
+      toast.success("Trigger removed")
+    },
+    onError: (error) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.triggers.list(workflowId) })
+      toast.error(error instanceof Error ? error.message : "Could not remove trigger")
+    },
   })
 
   if (isLoading) return <div className="p-8 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
@@ -97,6 +115,20 @@ export function TriggerList({ workflowId }: TriggerListProps) {
               </Button>
               <Button variant="ghost" size="icon">
                 <Settings className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Remove trigger"
+                aria-label={`Remove ${t.name}`}
+                onClick={() => {
+                  if (window.confirm(`Remove '${t.name}'? This archives the trigger.`)) {
+                    removeTrigger.mutate(t.id)
+                  }
+                }}
+                disabled={removeTrigger.isPending}
+              >
+                <Trash2 className="h-4 w-4" />
               </Button>
               <Button 
                 variant={t.enabled ? "primary" : "outline"}
