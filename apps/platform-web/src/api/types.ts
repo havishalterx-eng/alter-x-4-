@@ -826,22 +826,40 @@ export interface Budget {
 export interface BillingPlan {
   id: string;
   name: string;
-  priceMonthly?: number;
-  description: string;
-  features: string[];
-  limits?: Record<string, number | string>;
-  current?: boolean;
+  description: string | null;
+  amount: number;
+  currency: string;
+  interval: number;
+  period: "daily" | "weekly" | "monthly" | "yearly";
+  active: boolean;
+}
+
+export interface BillingSubscription {
+  id: string;
+  tenantId: string;
+  planId: string;
+  status: "created" | "authenticated" | "active" | "pending" | "halted" | "cancelled" | "completed" | "expired";
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  providerCustomerRef: string | null;
+  version: string;
+}
+
+export interface BillingPaymentMethod {
+  ref: string;
+  type: string;
+  brand: string | null;
+  last4: string | null;
 }
 
 export interface Invoice {
   id: string;
-  number: string;
-  status: "paid" | "open" | "failed" | "void";
+  subscriptionId: string | null;
+  status: string;
   amount: number;
   currency: string;
   issuedAt: string;
-  dueAt?: string;
-  pdfUrl?: string;
+  paidAt: string | null;
 }
 
 export interface CostEstimateItem {
