@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { api } from "@/api/client"
+import { isLiveApi } from "@/api/http"
 import { queryKeys } from "@/api/query-keys"
 import { PageHeader } from "@/components/common/page-header"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,12 +29,17 @@ export function NewListingPage() {
       title, shortDescription, description, category,
       assetType: workflowId ? "workflow_template" : "project_template",
       pricing: { type: "free" },
-      tags: ["template"]
+      tags: ["template"],
+      licenseType: "single_workspace",
     }),
     onSuccess: (newListing) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.seller.listings })
-      alert("Draft listing created! Submitting for review... (Mock)")
-      api.seller.listings.submit(newListing.id)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.seller.listings })
+      if (isLiveApi) {
+        alert("Draft created. Add a version and complete verification before submitting for review.")
+      } else {
+        alert("Draft listing created! Submitting for review... (Mock)")
+        void api.seller.listings.submit(newListing.id)
+      }
       navigate("/app/seller/listings")
     }
   })
@@ -42,7 +48,7 @@ export function NewListingPage() {
     <div className="space-y-8 max-w-2xl">
       <PageHeader 
         title="Create Listing"
-        description="Publish a new asset to the AlterX Marketplace."
+        description={isLiveApi ? "Create a draft asset for the AlterX Marketplace." : "Publish a new asset to the AlterX Marketplace."}
       />
 
       <Card>
@@ -51,7 +57,7 @@ export function NewListingPage() {
             <CardTitle>Listing Details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {workflowId && (
+            {workflowId && !isLiveApi && (
               <div className="bg-primary/10 text-primary px-3 py-2 rounded-md text-sm mb-4">
                 Publishing workflow template for ID: {workflowId}
               </div>
@@ -60,10 +66,10 @@ export function NewListingPage() {
               <Label>Title</Label>
               <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Acme Support Automation" required />
             </div>
-            <div className="space-y-2">
+            {!isLiveApi && <div className="space-y-2">
               <Label>Short Description</Label>
               <Input value={shortDescription} onChange={e => setShortDescription(e.target.value)} placeholder="A quick summary for the marketplace card." required />
-            </div>
+            </div>}
             <div className="space-y-2">
               <Label>Description</Label>
               <Textarea 
@@ -74,7 +80,7 @@ export function NewListingPage() {
                 required 
               />
             </div>
-            <div className="space-y-2">
+            {!isLiveApi && <div className="space-y-2">
               <Label>Category</Label>
               <select 
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
@@ -87,13 +93,15 @@ export function NewListingPage() {
                 <option>Research</option>
                 <option>Productivity</option>
               </select>
-            </div>
+            </div>}
+            {isLiveApi && <p className="text-sm text-muted-foreground">This saves a draft only. Listing versions and verification are required before review.</p>}
+            {mutation.error && <p role="alert" className="text-sm text-destructive">{mutation.error.message}</p>}
           </CardContent>
           <CardFooter className="flex justify-between">
             <Button type="button" variant="ghost" onClick={() => navigate(-1)}>Cancel</Button>
             <Button type="submit" disabled={mutation.isPending || !title}>
               {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save & Submit
+              {isLiveApi ? "Save Draft" : "Save & Submit"}
             </Button>
           </CardFooter>
         </form>

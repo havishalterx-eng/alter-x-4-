@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
 import { api } from "@/api/client"
+import { isLiveApi } from "@/api/http"
 import { queryKeys } from "@/api/query-keys"
 import { PageHeader } from "@/components/common/page-header"
 import { Card, CardContent } from "@/components/ui/card"
@@ -13,7 +14,7 @@ import { Plus } from "lucide-react"
 export function SellerListingsPage() {
   const navigate = useNavigate()
   
-  const { data: listings, isLoading } = useQuery({
+  const { data: listings, isLoading, error } = useQuery({
     queryKey: queryKeys.seller.listings,
     queryFn: () => api.seller.listings.list()
   })
@@ -29,6 +30,7 @@ export function SellerListingsPage() {
           </Button>
         }
       />
+      {isLiveApi && listings && listings.length >= 200 && <p className="text-sm text-muted-foreground">Showing the first 200 recent listings.</p>}
 
       <Card>
         <CardContent className="p-0">
@@ -39,18 +41,20 @@ export function SellerListingsPage() {
                 <TableHead>Type</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Price</TableHead>
-                <TableHead className="text-right">Installs</TableHead>
+                {!isLiveApi && <TableHead className="text-right">Installs</TableHead>}
                 <TableHead className="text-right">Updated</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground animate-pulse">Loading listings...</TableCell>
+                  <TableCell colSpan={isLiveApi ? 5 : 6} className="text-center py-8 text-muted-foreground animate-pulse">Loading listings...</TableCell>
                 </TableRow>
+              ) : error ? (
+                <TableRow><TableCell colSpan={isLiveApi ? 5 : 6} role="alert" className="text-center py-8 text-destructive">Could not load listings: {error.message}</TableCell></TableRow>
               ) : listings?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                  <TableCell colSpan={isLiveApi ? 5 : 6} className="text-center py-12 text-muted-foreground">
                     <p>No listings found.</p>
                   </TableCell>
                 </TableRow>
@@ -64,14 +68,14 @@ export function SellerListingsPage() {
                       <Badge variant="secondary" className="capitalize">{listing.assetType.replace("_", " ")}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={listing.status === "published" ? "success" : listing.status === "review" ? "warning" : "default"}>
-                        {listing.status}
+                      <Badge variant={listing.status === "published" ? "success" : ["review", "submitted", "automated_review", "human_review"].includes(listing.status) ? "warning" : "default"}>
+                        {listing.status.replaceAll("_", " ")}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
                       {listing.pricing.type === "free" ? "Free" : formatCurrency(listing.pricing.price, listing.pricing.currency)}
                     </TableCell>
-                    <TableCell className="text-right">{formatCompactNumber(listing.installCount || 0)}</TableCell>
+                    {!isLiveApi && <TableCell className="text-right">{formatCompactNumber(listing.installCount || 0)}</TableCell>}
                     <TableCell className="text-right text-muted-foreground text-sm">{new Date(listing.updatedAt).toLocaleDateString()}</TableCell>
                   </TableRow>
                 ))

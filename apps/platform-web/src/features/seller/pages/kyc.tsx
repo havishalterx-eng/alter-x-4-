@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/api/client"
+import { isLiveApi } from "@/api/http"
 import { queryKeys } from "@/api/query-keys"
 import { PageHeader } from "@/components/common/page-header"
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
@@ -13,7 +14,7 @@ import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react"
 export function KycPage() {
   const queryClient = useQueryClient()
   
-  const { data: profile, isLoading } = useQuery({ 
+  const { data: profile, isLoading, error } = useQuery({
     queryKey: queryKeys.seller.profile, 
     queryFn: () => api.seller.getProfile() 
   })
@@ -30,8 +31,27 @@ export function KycPage() {
   })
 
   if (isLoading) return <div className="p-8 text-muted-foreground animate-pulse">Loading...</div>
+  if (error) return <div role="alert" className="p-8 text-destructive">Could not load verification status: {error.message}</div>
 
   const status = profile?.status || "not_started"
+
+  if (isLiveApi) return (
+    <div className="space-y-8 max-w-2xl">
+      <PageHeader title="Seller Verification" description="Review your publisher verification status." />
+      <Card>
+        <CardHeader><CardTitle>Verification Status</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {status === "verified" && <Badge variant="success">Verified</Badge>}
+          {status === "pending" && <Badge variant="warning">Under review</Badge>}
+          {status === "restricted" && <Badge variant="danger">Rejected</Badge>}
+          {status === "not_started" && <Badge variant="secondary">Not started</Badge>}
+          {status === "not_started" && <p className="text-sm text-muted-foreground">Secure document submission is being set up. You can create draft listings now; review submission will become available after verification is ready.</p>}
+          {status === "pending" && <p className="text-sm text-muted-foreground">Your documents are awaiting manual review.</p>}
+          {status === "restricted" && <p className="text-sm text-muted-foreground">Contact support to review your verification outcome.</p>}
+        </CardContent>
+      </Card>
+    </div>
+  )
 
   return (
     <div className="space-y-8 max-w-2xl">

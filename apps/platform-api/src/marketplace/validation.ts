@@ -133,9 +133,11 @@ export function parseListingQuery(
   }
   const type = query.type === undefined ? undefined : z.enum(listingTypes).safeParse(query.type);
   const status = query.status === undefined ? undefined : z.enum(listingStatuses).safeParse(query.status);
+  if (query.owner !== undefined && query.owner !== "me") throw invalid(instance, [{ field: "owner", message: "Expected me" }]);
   if (type && !type.success) throw invalid(instance, [{ field: "type", message: "Invalid listing type" }]);
   if (status && !status.success) throw invalid(instance, [{ field: "status", message: "Invalid listing status" }]);
   return {
+    ...(query.owner === "me" ? { owner: "me" as const } : {}),
     ...(type ? { type: type.data } : {}),
     ...(status ? { status: status.data } : {}),
     ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
