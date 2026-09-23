@@ -1,4 +1,5 @@
-import { type SellerProfile, type MarketplaceListing, type MarketplacePayout } from "../types"
+import { type SellerProfile, type MarketplaceListing, type MarketplacePayout, type SellerEarnings } from "../types"
+import { apiGet, isLiveApi } from "../http"
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -82,29 +83,24 @@ export const sellerService = {
     }
   },
   earnings: {
-    get: async () => {
+    get: async (): Promise<SellerEarnings> => {
+      if (isLiveApi) return apiGet<SellerEarnings>("/api/v1/publisher/earnings")
       await delay(300)
       return {
-        lifetime: 1450.00,
-        currentPeriod: 320.00,
-        pending: 120.00,
-        paidOut: 1010.00,
-        breakdown: [
-          { listingId: "mkt_2", title: "Invoice Approval Automation", sales: 15, gross: 435.00, platformFee: 87.00, net: 348.00 }
-        ]
+        availableMinor: "32000",
+        pendingMinor: "12000",
+        paidMinor: "101000",
+        currency: "INR"
       }
     }
   },
   payouts: {
     list: async (): Promise<MarketplacePayout[]> => {
+      if (isLiveApi) return apiGet<MarketplacePayout[]>("/api/v1/publisher/payouts")
       await delay(400)
       return [
-        { id: "po_1", amount: 1010.00, currency: "USD", status: "paid", createdAt: "2026-07-01T00:00:00Z", paidAt: "2026-07-05T00:00:00Z" }
+        { id: "po_1", orderId: "ord_1", totalMinor: "126250", sellerShareMinor: "101000", platformShareMinor: "25250", status: "processed", createdAt: "2026-07-01T00:00:00Z" }
       ]
-    },
-    request: async (amount: number): Promise<MarketplacePayout> => {
-      await delay(800)
-      return { id: "po_" + Date.now(), amount, currency: "USD", status: "pending", createdAt: new Date().toISOString() }
     }
   }
 }
