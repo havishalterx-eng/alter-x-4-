@@ -112,7 +112,6 @@ interface Harness {
   service: MarketplaceService;
   repository: {
     findListing: ReturnType<typeof vi.fn>;
-    findListingById: ReturnType<typeof vi.fn>;
     updateListing: ReturnType<typeof vi.fn>;
     findVersion: ReturnType<typeof vi.fn>;
     findInstallByIdempotencyKey: ReturnType<typeof vi.fn>;
@@ -131,7 +130,6 @@ function harness(): Harness {
 
   const repository = {
     findListing: vi.fn(async () => listing()),
-    findListingById: vi.fn(async () => listing()),
     updateListing: vi.fn(
       async (_tenant: string, id: string, input: { status?: ListingStatus }) =>
         listing({ id, status: input.status ?? "draft" }),
@@ -284,18 +282,17 @@ describe("MarketplaceService", () => {
       ).resolves.toMatchObject({ status: "published" });
     });
 
-    it("publish() resolves the owning tenant and publishes as staff", async () => {
-      h.repository.findListingById.mockResolvedValueOnce(listing({ tenantId, status: "automated_review" }));
+    it("publish() uses the owning tenant and publishes as staff", async () => {
       h.repository.findListing.mockResolvedValueOnce(listing({ tenantId, status: "automated_review" }));
       const staff: StaffActorContext = { staff_user_id: "stf_1", identity_ref: "x", email: "s@x", roles: ["staff_security"] };
-      await expect(h.service.publish(staff, listingId)).resolves.toMatchObject({ status: "published" });
-      expect(h.repository.findListingById).toHaveBeenCalledWith(listingId);
+      await expect(h.service.publish(staff, tenantId, listingId)).resolves.toMatchObject({ status: "published" });
+      expect(h.repository.findListing).toHaveBeenCalledWith(tenantId, listingId);
     });
 
     it("publish() rejects unknown listing with not found", async () => {
-      h.repository.findListingById.mockResolvedValueOnce(undefined);
+      h.repository.findListing.mockResolvedValueOnce(undefined);
       const staff: StaffActorContext = { staff_user_id: "stf_1", identity_ref: "x", email: "s@x", roles: ["staff_admin"] };
-      await expect(h.service.publish(staff, listingId)).rejects.toMatchObject({
+      await expect(h.service.publish(staff, tenantId, listingId)).rejects.toMatchObject({
         response: { error_code: "MARKETPLACE_NOT_FOUND" },
       });
     });

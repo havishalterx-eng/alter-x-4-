@@ -9,8 +9,7 @@ import { parseInstalledPayloadRef } from "./validation";
 import type { StaffActorContext } from "../rbac/types";
 import type { CompatibilityRequirement, CompatibilityResult, CreateListingInput, CreateListingVersionInput, CreateReviewInput, InstallListingInput, ListingQuery, ListingRecord, ListingVersionRecord, UpdateListingInput } from "./types";
 
-// Only a staff actor may move a listing into the published state; tenants
-// reach human_review (submitted for review) but must not self-publish.
+// Sellers can submit listings for review; only staff can advance or publish them.
 const PUBLISH_ROLES: ReadonlyArray<StaffActorContext["roles"][number]> = [
   "staff_admin",
   "staff_security",
@@ -43,7 +42,7 @@ export class MarketplaceService {
   async update(tenantId: string, listingId: string, input: UpdateListingInput, staff?: StaffActorContext) {
     const current = await this.requireOwnedListing(tenantId, listingId);
     if (input.status && !transitions[current.status]!.includes(input.status)) throw new MarketplaceHttpError(409, "MARKETPLACE_INVALID_STATUS_TRANSITION", `Cannot transition listing from ${current.status} to ${input.status}.`, `/api/v1/marketplace/listings/${listingId}`);
-    if (input.status && ["submitted", "automated_review", "human_review", "published"].includes(input.status) && !this.isPublishAuthorized(staff)) {
+    if (input.status && ["automated_review", "human_review", "published"].includes(input.status) && !this.isPublishAuthorized(staff)) {
       throw new MarketplaceHttpError(
         403,
         "MARKETPLACE_PUBLISH_REQUIRES_STAFF",
@@ -56,21 +55,12 @@ export class MarketplaceService {
     return result;
   }
 
-  /**
-   * Staff-only publish path. Resolves the listing's owning tenant
-   * cross-tenant (no tenant actor is present on a staff request) and applies
-   * the published transition, which update() only permits for a staff actor.
-   */
-  async publish(staff: StaffActorContext, listingId: string) {
-    const listing = await this.repository.findListingById(listingId);
-    if (!listing || !listing.tenantId) throw this.notFound(listingId);
-    return this.update(listing.tenantId, listingId, { status: "published" }, staff);
+  async publish(staff: StaffActorContext, tenantId: string, listingId: string) {
+    return this.update(tenantId, listingId, { status: "published" }, staff);
   }
 
-  async staffTransition(staff: StaffActorContext, listingId: string, status: "automated_review" | "human_review" | "private_testing") {
-    const listing = await this.repository.findListingById(listingId);
-    if (!listing?.tenantId) throw this.notFound(listingId);
-    return this.update(listing.tenantId, listingId, { status }, staff);
+  async staffTransition(staff: StaffActorContext, tenantId: string, listingId: string, status: "automated_review" | "human_review" | "private_testing") {
+    return this.update(tenantId, listingId, { status }, staff);
   }
 
   private isPublishAuthorized(staff?: StaffActorContext): boolean {

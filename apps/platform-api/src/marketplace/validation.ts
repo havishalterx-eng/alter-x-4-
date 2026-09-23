@@ -128,6 +128,13 @@ export function parseListingId(value: string, instance: string): string {
   return value;
 }
 
+export function parseMarketplaceTenantId(value: string, instance: string): string {
+  if (!/^ten_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw invalid(instance, [{ field: "tenantId", message: "Expected tenant UUIDv7" }]);
+  }
+  return value;
+}
+
 export function parseListingQuery(
   query: Record<string, string | undefined>,
   instance: string,
