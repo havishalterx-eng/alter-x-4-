@@ -44,6 +44,7 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     "channel.manage",
     "data.export",
     "data.delete",
+    "seller.access",
   ],
   admin: [
     "member.read",

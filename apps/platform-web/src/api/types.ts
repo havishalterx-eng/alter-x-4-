@@ -929,11 +929,19 @@ export interface MarketplaceTransaction {
 
 export interface MarketplacePayout {
   id: string;
-  amount: number;
-  currency: string;
-  status: "pending" | "processing" | "paid" | "failed";
+  orderId: string;
+  totalMinor: string;
+  sellerShareMinor: string;
+  platformShareMinor: string;
+  status: "created" | "pending" | "processed" | "failed";
   createdAt: string;
-  paidAt?: string;
+}
+
+export interface SellerEarnings {
+  availableMinor: string;
+  pendingMinor: string;
+  paidMinor: string;
+  currency: "INR";
 }
 
 export interface GlobalSearchResult {
