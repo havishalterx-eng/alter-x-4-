@@ -6,7 +6,7 @@ import { applyMarketplaceMigrations } from "./marketplace-migrator";
 // Whether the real SQL applies and reverses against real Postgres. The
 // runner's decision logic -- what it applies, what it records, what it refuses
 // -- is covered without a database in marketplace-migrator.spec.ts, so this
-// file stays deliberately small: applying the five migrations and unwinding
+// file stays deliberately small: applying the migrations and unwinding
 // them is heavy DDL (an extension, two generated columns, six GIN indexes),
 // and every extra case is another full cycle competing with the other
 // DB-backed specs in this target.
@@ -35,6 +35,7 @@ const TAGS = [
   "0002_tool_registry",
   "0003_search_indexes",
   "0004_scan_unavailable",
+  "0005_listing_pricing",
 ];
 
 describe.skipIf(!databaseUrl)("marketplace migration runner", () => {
@@ -89,12 +90,12 @@ describe.skipIf(!databaseUrl)("marketplace migration runner", () => {
   it("unwinds fully and can be applied again", async () => {
     await applyMarketplaceMigrations(admin);
 
-    // Two steps first, so 0003's rollback -- the pair that did not exist
+    // Three steps first, so 0003's rollback -- the pair that did not exist
     // before this change -- is exercised on its own and its generated columns
     // checked while the tables it hangs off are still there.
     expect(
-      await applyMarketplaceMigrations(admin, { direction: "down", steps: 2 }),
-    ).toEqual(["0004_scan_unavailable", "0003_search_indexes"]);
+      await applyMarketplaceMigrations(admin, { direction: "down", steps: 3 }),
+    ).toEqual(["0005_listing_pricing", "0004_scan_unavailable", "0003_search_indexes"]);
     const columns = await admin.query(
       `SELECT 1 FROM information_schema.columns
        WHERE table_schema = $1 AND column_name = 'search_document'`,

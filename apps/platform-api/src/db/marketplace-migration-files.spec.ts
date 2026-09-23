@@ -26,6 +26,7 @@ describe("marketplace migration files", () => {
       "0002_tool_registry.sql",
       "0003_search_indexes.sql",
       "0004_scan_unavailable.sql",
+      "0005_listing_pricing.sql",
     ]);
     expect(rollbackFiles).toEqual([
       "0000_drop_marketplace_core.sql",
@@ -33,6 +34,7 @@ describe("marketplace migration files", () => {
       "0002_drop_tool_registry.sql",
       "0003_drop_search_indexes.sql",
       "0004_drop_scan_unavailable.sql",
+      "0005_drop_listing_pricing.sql",
     ]);
   });
 

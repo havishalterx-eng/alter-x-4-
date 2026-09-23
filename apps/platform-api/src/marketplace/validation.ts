@@ -24,12 +24,17 @@ const compatibilitySchema = z
     requiredEntitlements: z.array(z.enum(ENTITLEMENT_LIMIT_KEYS)).max(7),
   })
   .strict();
+const priceMinorSchema = z.string().refine(
+  (value) => /^(0|[1-9]\d{0,15})$/.test(value) && BigInt(value) <= BigInt(Number.MAX_SAFE_INTEGER),
+  "Expected nonnegative integer minor units within the supported range",
+);
 const createListingSchema = z
   .object({
     type: z.enum(listingTypes),
     name: z.string().trim().min(1).max(255),
     description: z.string().trim().min(1).max(10_000).optional(),
     license_type: z.enum(licenseTypes),
+    price_minor: priceMinorSchema.optional(),
   })
   .strict();
 const updateListingSchema = z
@@ -37,6 +42,7 @@ const updateListingSchema = z
     name: z.string().trim().min(1).max(255).optional(),
     description: z.string().trim().min(1).max(10_000).nullable().optional(),
     license_type: z.enum(licenseTypes).optional(),
+    price_minor: priceMinorSchema.optional(),
     status: z.enum(listingStatuses).optional(),
   })
   .strict()
@@ -62,12 +68,12 @@ const createReviewSchema = z
 
 export function parseCreateListing(input: unknown, instance: string): CreateListingInput {
   const value = parse(createListingSchema, input, instance);
-  return { type: value.type, name: value.name, license_type: value.license_type, ...(value.description === undefined ? {} : { description: value.description }) };
+  return { type: value.type, name: value.name, license_type: value.license_type, ...(value.description === undefined ? {} : { description: value.description }), ...(value.price_minor === undefined ? {} : { price_minor: value.price_minor }) };
 }
 
 export function parseUpdateListing(input: unknown, instance: string): UpdateListingInput {
   const value = parse(updateListingSchema, input, instance);
-  return { ...(value.name === undefined ? {} : { name: value.name }), ...(value.description === undefined ? {} : { description: value.description }), ...(value.license_type === undefined ? {} : { license_type: value.license_type }), ...(value.status === undefined ? {} : { status: value.status }) };
+  return { ...(value.name === undefined ? {} : { name: value.name }), ...(value.description === undefined ? {} : { description: value.description }), ...(value.license_type === undefined ? {} : { license_type: value.license_type }), ...(value.price_minor === undefined ? {} : { price_minor: value.price_minor }), ...(value.status === undefined ? {} : { status: value.status }) };
 }
 
 export function parseStaffTransition(input: unknown, instance: string) {

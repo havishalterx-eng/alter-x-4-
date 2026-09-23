@@ -37,6 +37,8 @@ export interface ListingRecord {
   readonly description: string | null;
   readonly latestVersion: string | null;
   readonly licenseType: LicenseType;
+  readonly priceMinor: string;
+  readonly currency: "INR";
   readonly status: ListingStatus;
   readonly createdAt: Date;
   readonly updatedAt: Date;
@@ -79,12 +81,14 @@ export interface CreateListingInput {
   readonly name: string;
   readonly description?: string;
   readonly license_type: LicenseType;
+  readonly price_minor?: string;
 }
 
 export interface UpdateListingInput {
   readonly name?: string;
   readonly description?: string | null;
   readonly license_type?: LicenseType;
+  readonly price_minor?: string;
   readonly status?: ListingStatus;
 }
 

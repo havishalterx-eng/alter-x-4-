@@ -34,6 +34,8 @@ interface ListingRow {
   description: string | null;
   latest_version: string | null;
   license_type: LicenseType;
+  price_minor: string;
+  currency: "INR";
   status: ListingStatus;
   created_at: Date;
   updated_at: Date;
@@ -130,8 +132,8 @@ export class MarketplaceRepository implements OnModuleDestroy {
     return this.withTenant(tenantId, async (client) => {
       const result = await client.query<ListingRow>(
         `INSERT INTO listings
-           (id, tenant_id, type, name, description, license_type, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'draft')
+           (id, tenant_id, type, name, description, license_type, price_minor, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft')
          RETURNING *`,
         [
           id,
@@ -140,6 +142,7 @@ export class MarketplaceRepository implements OnModuleDestroy {
           input.name,
           input.description ?? null,
           input.license_type,
+          input.price_minor ?? "0",
         ],
       );
       return mapListing(result.rows[0]!);
@@ -158,8 +161,10 @@ export class MarketplaceRepository implements OnModuleDestroy {
              description = CASE WHEN $4 THEN $5 ELSE description END,
              license_type = COALESCE($6, license_type),
              status = COALESCE($7, status),
+             price_minor = COALESCE($8, price_minor),
              updated_at = clock_timestamp()
          WHERE tenant_id = $1 AND id = $2
+           AND ($8::bigint IS NULL OR status IN ('draft', 'private_testing'))
          RETURNING *`,
         [
           tenantId,
@@ -169,6 +174,7 @@ export class MarketplaceRepository implements OnModuleDestroy {
           input.description ?? null,
           input.license_type ?? null,
           input.status ?? null,
+          input.price_minor ?? null,
         ],
       );
       return result.rows[0] ? mapListing(result.rows[0]) : undefined;
@@ -405,6 +411,8 @@ function mapListing(row: ListingRow): ListingRecord {
     description: row.description,
     latestVersion: row.latest_version,
     licenseType: row.license_type,
+    priceMinor: row.price_minor,
+    currency: row.currency,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

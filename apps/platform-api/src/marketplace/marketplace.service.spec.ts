@@ -72,6 +72,8 @@ function listing(overrides: Partial<ListingRecord> = {}): ListingRecord {
     description: null,
     latestVersion: "1.0.0",
     licenseType: "single_workspace",
+    priceMinor: "0",
+    currency: "INR",
     status: "draft",
     createdAt,
     updatedAt: createdAt,
