@@ -122,6 +122,37 @@ export class ActionCentreService {
     };
   }
 
+  /**
+   * One action, addressed by its own id.
+   *
+   * The screen that shows an action had no way to fetch it: it loaded the
+   * whole queue and searched for the id, which grows with the queue and
+   * misses anything past the first page. An id names its family through its
+   * prefix (`apr_`, `esc_`, `clr_`), so the engine read is a direct one.
+   */
+  async item(
+    actionId: string,
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<ActionQueueItem> {
+    const instance = `/api/v1/action-centre/${actionId}`;
+    const id = parseResourceId(actionId, "actionId", instance);
+    const source = ACTION_SOURCES.find((candidate) => id.startsWith(candidate.prefix));
+    if (source === undefined) {
+      throw new ActionCentreHttpError(
+        400,
+        "INVALID_ACTION_CENTRE_REQUEST",
+        "Action id must name an approval, escalation or clarification",
+        instance,
+      );
+    }
+    const response = await this.engine.get<EngineResource>(
+      `${source.path}/${encodeURIComponent(id)}`,
+      callerContext(actor, traceparent, instance),
+    );
+    return { source_type: source.sourceType, item: response.body };
+  }
+
   decideApproval(
     approvalId: string,
     action: ActionKind,
@@ -253,6 +284,17 @@ function listPath(
   if (status) query.set("status", status);
   return `${base}?${query.toString()}`;
 }
+
+/** Which engine collection owns an id, by the prefix the id carries. */
+const ACTION_SOURCES = [
+  { prefix: "apr_", sourceType: "approval", path: "/api/v1/approvals" },
+  { prefix: "esc_", sourceType: "escalation", path: "/api/v1/escalations" },
+  { prefix: "clr_", sourceType: "clarification", path: "/api/v1/clarifications" },
+] as const satisfies readonly {
+  readonly prefix: string;
+  readonly sourceType: ActionQueueItem["source_type"];
+  readonly path: `/api/v1/${string}`;
+}[];
 
 function tag(
   sourceType: ActionQueueItem["source_type"],

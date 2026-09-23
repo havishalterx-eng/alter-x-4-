@@ -3,12 +3,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { type HumanAction } from "@/api/types"
 import { api } from "@/api/client"
 import { queryKeys } from "@/api/query-keys"
+import { useAuth } from "@/features/auth/hooks/useAuth"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { CheckCircle, XCircle, Hand, Lock } from "lucide-react"
 
 export function DecisionPanel({ action }: { action: HumanAction }) {
   const queryClient = useQueryClient()
+  const currentUserId = useAuth((state) => state.user?.userId)
   const [comment, setComment] = React.useState("")
   
   const claimMutation = useMutation({
@@ -46,7 +48,11 @@ export function DecisionPanel({ action }: { action: HumanAction }) {
     }
   })
 
-  const isClaimedByOther = action.status === "claimed" && action.claimedBy?.id !== "usr_1"
+  // Who holds a claimed action decides whether this person may act on it. The
+  // signed-in user comes from the session; until it is known, a claimed action
+  // is treated as somebody else's rather than as this person's.
+  const isClaimedByOther =
+    action.status === "claimed" && !sameUser(action.claimedBy?.id, currentUserId)
   const isResolved = action.status === "resolved"
   const isClosed = ["expired", "cancelled"].includes(action.status)
 
@@ -185,3 +191,15 @@ export function DecisionPanel({ action }: { action: HumanAction }) {
   )
 }
 
+
+/**
+ * Whether two user ids name the same person.
+ *
+ * The engine returns the bare UUID an action was assigned to; the session may
+ * carry the same id with its `usr_` prefix.
+ */
+function sameUser(left: string | undefined, right: string | undefined): boolean {
+  if (!left || !right) return false
+  const bare = (value: string) => (value.startsWith("usr_") ? value.slice("usr_".length) : value)
+  return bare(left) === bare(right)
+}

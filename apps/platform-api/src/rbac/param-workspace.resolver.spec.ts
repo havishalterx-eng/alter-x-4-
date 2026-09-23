@@ -56,8 +56,12 @@ function staticLookup(value: string | undefined): ResourceWorkspaceLookup {
 }
 
 describe("defaultWorkspaceResolutionRules dispatch", () => {
-  const getMock = vi.fn<(path: string) => Promise<{ status: number; body?: Record<string, unknown> }>>(
-    async (path) => {
+  // One test swaps this implementation for its own; beforeEach puts this one
+  // back, so a later test never inherits the swapped one.
+  const engineResponse = async (
+    path: string,
+  ): Promise<{ status: number; body?: Record<string, unknown> }> => {
+    {
       if (path.includes("/workflows/")) return { status: 200, body: { workspace_id: workspaceA } };
       if (path.includes("/projects/")) return { status: 200, body: { workspace_id: workspaceA } };
       if (path.includes("/runs/")) return { status: 200, body: { workspace_id: workspaceB } };
@@ -71,8 +75,12 @@ describe("defaultWorkspaceResolutionRules dispatch", () => {
       if (path.includes("/clarifications/")) return { status: 200, body: { workspace_id: workspaceA } };
       if (path.endsWith("/missing")) return { status: 404 };
       return { status: 500 };
-    },
-  );
+    }
+  };
+  const getMock =
+    vi.fn<(path: string) => Promise<{ status: number; body?: Record<string, unknown> }>>(
+      engineResponse,
+    );
   const queryTenantMock = vi.fn<
     (tenantId: string, sql: string, params: readonly unknown[]) => Promise<Record<string, unknown>[]>
   >(async () => [{ workspace_id: workspaceA }]);
@@ -84,6 +92,7 @@ describe("defaultWorkspaceResolutionRules dispatch", () => {
 
   beforeEach(() => {
     getMock.mockClear();
+    getMock.mockImplementation(engineResponse);
     queryTenantMock.mockClear();
   });
 
@@ -172,6 +181,22 @@ describe("defaultWorkspaceResolutionRules dispatch", () => {
       ),
     ).resolves.toBeUndefined();
     expect(queryTenantMock).not.toHaveBeenCalled(); // beforeEach-cleared; malformed never reaches the DB
+  });
+
+  it.each([
+    ["an approval", approvalId, workspaceA],
+    ["an escalation", escalationId, workspaceB],
+    ["a clarification", clarificationId, workspaceA],
+  ])("resolves %s addressed by the action centre through its own family", async (_name, id, expected) => {
+    await expect(
+      resolver.resolveWorkspaceId(request({ actionId: id }, `/api/v1/action-centre/${id}`)),
+    ).resolves.toBe(expected);
+  });
+
+  it("leaves an action-centre id that names no family unresolved", async () => {
+    await expect(
+      resolver.resolveWorkspaceId(request({ actionId: runId }, `/api/v1/action-centre/${runId}`)),
+    ).resolves.toBeUndefined();
   });
 
   it("keeps unrelated generic :id routes unbound (documented legacy path)", async () => {
