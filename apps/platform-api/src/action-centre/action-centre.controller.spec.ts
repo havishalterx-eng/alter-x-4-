@@ -185,6 +185,35 @@ describe("Human Action Centre routes", () => {
     expect((fourth.json() as QueueResponse).page.has_more).toBe(false);
   });
 
+  it.each([
+    ["approval", approvalId, "/api/v1/approvals"],
+    ["escalation", escalationId, "/api/v1/escalations"],
+    ["clarification", clarificationId, "/api/v1/clarifications"],
+  ])("reads one %s straight from its own engine collection", async (sourceType, id, path) => {
+    const response = await request({
+      method: "GET",
+      url: `/api/v1/action-centre/${id}`,
+      headers: { "x-test-actor": JSON.stringify(actor) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ source_type: sourceType });
+    // One read of one item: the screen used to page the whole queue to find it.
+    expect(engine.get).toHaveBeenCalledTimes(1);
+    expect(engine.get.mock.calls[0]?.[0]).toBe(`${path}/${id}`);
+  });
+
+  it("refuses an id that names no action family before calling the engine", async () => {
+    const response = await request({
+      method: "GET",
+      url: `/api/v1/action-centre/${runId}`,
+      headers: { "x-test-actor": JSON.stringify(actor) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(engine.get).not.toHaveBeenCalled();
+  });
+
   it("uses only contract-backed source and status filters", async () => {
     const approval = await request({
       method: "GET",
@@ -561,7 +590,7 @@ class StatefulActionEngine {
   private async getResponse(
     path: EnginePath,
     _context: EngineCallerContext,
-  ): Promise<EngineResponse<EnginePage<EngineResource>>> {
+  ): Promise<EngineResponse<EnginePage<EngineResource> | EngineResource>> {
     void _context;
     this.throwIfFailed(path);
     const url = new URL(path, "https://engine.internal");
@@ -585,6 +614,15 @@ class StatefulActionEngine {
           this.invalidPage ? true : undefined,
         ),
       };
+    }
+    if (url.pathname === `/api/v1/approvals/${approvalId}`) {
+      return { status: 200, body: this.approvals[0] ?? {} };
+    }
+    if (url.pathname === `/api/v1/escalations/${escalationId}`) {
+      return { status: 200, body: this.escalations[0] ?? {} };
+    }
+    if (url.pathname === `/api/v1/clarifications/${clarificationId}`) {
+      return { status: 200, body: this.clarifications[0] ?? {} };
     }
     if (url.pathname === "/api/v1/escalations") {
       return {

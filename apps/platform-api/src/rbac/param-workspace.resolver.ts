@@ -233,6 +233,14 @@ export class ParamWorkspaceResolver implements ResourceWorkspaceResolver {
 
 /** Production registry (EnforcingRbacModule). Order matters: specific
  * param families before the marker-gated bare-`id` fallbacks. */
+/** The engine collection an Action Centre id belongs to, by its prefix. */
+function actionCentreSegment(resourceId: string): string | undefined {
+  if (resourceId.startsWith("apr_")) return "approvals";
+  if (resourceId.startsWith("esc_")) return "escalations";
+  if (resourceId.startsWith("clr_")) return "clarifications";
+  return undefined;
+}
+
 export function defaultWorkspaceResolutionRules(deps: {
   readonly engineClient: EngineClient;
   readonly db: PlatformDb;
@@ -257,6 +265,20 @@ export function defaultWorkspaceResolutionRules(deps: {
     // artifacts response, unlike runs'/workflows', was never snake_cased.
     { paramNames: ["artifactId", "artifact_id"], lookup: engine((id) => `/api/v1/artifacts/${id}`, "workspaceId") },
     { paramNames: ["triggerId", "trigger_id"], lookup: engine((id) => `/api/v1/triggers/${id}`, "workspaceId") },
+    // The Action Centre addresses an item of any family by its own id; the
+    // prefix says which engine collection owns it.
+    {
+      paramNames: ["actionId"],
+      pathMarkers: ["/action-centre/"],
+      lookup: {
+        async getWorkspaceId(actor, resourceId) {
+          const segment = actionCentreSegment(resourceId);
+          return segment === undefined
+            ? undefined
+            : approvalLike(segment).getWorkspaceId(actor, resourceId);
+        },
+      },
+    },
     { paramNames: ["approvalId", "approval_id"], lookup: approvalLike("approvals") },
     { paramNames: ["escalationId", "escalation_id"], lookup: approvalLike("escalations") },
     { paramNames: ["clarificationId", "clarification_id"], lookup: approvalLike("clarifications") },

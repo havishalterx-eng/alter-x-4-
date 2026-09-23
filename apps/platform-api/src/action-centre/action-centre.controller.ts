@@ -36,6 +36,21 @@ const assignmentRoles = ["admin", "editor", "operator", "approver"] as const;
 export class ActionQueueController {
   constructor(private readonly actionCentre: ActionCentreService) {}
 
+  @Get(":actionId")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("human-actions:read")
+  item(
+    @Param("actionId") actionId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+  ): Promise<unknown> {
+    return this.actionCentre.item(
+      actionId,
+      requireActor(actor, `/api/v1/action-centre/${actionId}`),
+      traceparent,
+    );
+  }
+
   @Get()
   @RequireWorkspaceRole(...readRoles)
   @RequirePermission("human-actions:read")

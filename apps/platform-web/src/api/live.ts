@@ -1189,14 +1189,10 @@ export async function getHumanActions(filters?: any): Promise<HumanAction[]> {
 }
 
 export async function getHumanAction(id: string): Promise<HumanAction> {
-  // We don't know the exact type from just the ID to hit the specialized endpoint directly without knowing its source,
-  // but usually we get it from the list. However, if we must fetch one by ID, we'd have to try each or rely on a list filter.
-  // Wait, does the backend have a generic `GET /api/v1/action-centre/:id`? No.
-  // So we fetch the list and find it.
-  const actions = await getHumanActions()
-  const action = actions.find((a) => a.id === id)
-  if (!action) throw new Error("Human action not found")
-  return action
+  // One action, read directly: the id names its own family, so the action
+  // centre reads it from the right engine collection. This used to load the
+  // whole queue and search it, which missed anything past the first page.
+  return mapHumanAction(await apiGet<unknown>(`/api/v1/action-centre/${encodeURIComponent(id)}`))
 }
 
 function mapAnnotation(value: unknown): HumanAnnotation {
