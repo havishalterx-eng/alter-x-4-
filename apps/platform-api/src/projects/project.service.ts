@@ -15,7 +15,9 @@ import type {
   ProjectActionResult,
   ProjectBuild,
   ProjectClarificationList,
+  ProjectList,
   ProjectPlan,
+  ProjectRecord,
   ProjectResource,
   RejectPlanInput,
   RequestPlanChangesInput,
@@ -23,6 +25,7 @@ import type {
 import {
   parseClarificationId,
   parseProjectId,
+  parseProjectListQuery,
   parseTraceparent,
 } from "./validation";
 
@@ -43,6 +46,33 @@ export class ProjectService {
       jsonBody(input),
       callerContext(actor, traceparent, instance),
       { idempotencyKey },
+    );
+  }
+
+  list(
+    cursor: string | undefined,
+    limit: string | undefined,
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<EngineResponse<ProjectList>> {
+    const instance = "/api/v1/projects";
+    const query = parseProjectListQuery(cursor, limit, instance);
+    return this.engine.get(
+      `/api/v1/projects${query}`,
+      callerContext(actor, traceparent, instance),
+    );
+  }
+
+  get(
+    projectId: string,
+    actor: ActorContext,
+    traceparent: string | undefined,
+  ): Promise<EngineResponse<ProjectRecord>> {
+    const instance = `/api/v1/projects/${projectId}`;
+    const id = parseProjectId(projectId, instance);
+    return this.engine.get(
+      `/api/v1/projects/${encodeURIComponent(id)}`,
+      callerContext(actor, traceparent, instance),
     );
   }
 

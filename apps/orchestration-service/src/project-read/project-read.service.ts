@@ -28,6 +28,15 @@ export interface Project {
   readonly updatedAt: string;
 }
 
+export interface ProjectPage {
+  readonly data: readonly Project[];
+  readonly page: {
+    readonly next_cursor: string | null;
+    readonly has_more: boolean;
+    readonly limit: number;
+  };
+}
+
 export interface Deployment {
   readonly id: string;
   readonly tenantId: string;
@@ -115,6 +124,23 @@ function bareTenantUuid(tenantId: string): string {
 }
 
 /**
+ * `projects.workspace_id` is a bare `uuid` column for the same reason
+ * `tenant_id` is, and the ActorContext the SessionGatewayGuard populates
+ * carries the `ws_`-prefixed form. Same shape as WorkflowReadService's own
+ * `bareWorkspaceUuid()`, duplicated locally per this repo's convention.
+ */
+function bareWorkspaceUuid(workspaceId: string): string {
+  if (
+    !/^ws_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+      workspaceId,
+    )
+  ) {
+    throw new ProjectValidationError("workspaceId must be a ws_ prefixed UUIDv7");
+  }
+  return workspaceId.slice("ws_".length);
+}
+
+/**
  * Real read/deploy surface over the real, RLS-scoped `projects`/
  * `deployments` tables (0019_create_projects.sql). Neither table had
  * any real schema anywhere in orchestration-service before this --
@@ -149,6 +175,52 @@ export class ProjectReadService {
         throw new ProjectNotFoundError(projectId);
       }
       return projectFromRow(row);
+    });
+  }
+
+  /**
+   * Workspace-scoped, same shape and keyset as WorkflowReadService's own
+   * listWorkflows: RLS scopes the read to the tenant, and the explicit
+   * workspace_id predicate keeps one workspace's projects out of another's
+   * list inside that tenant. Ordered by id, which is a UUIDv7 and therefore
+   * already in creation order, so the cursor is just the last id returned.
+   */
+  async listProjects(
+    tenantId: string,
+    workspaceId: string,
+    cursor: string | undefined,
+    limit: number,
+  ): Promise<ProjectPage> {
+    requireNonEmpty("tenantId", tenantId);
+    requireNonEmpty("workspaceId", workspaceId);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+      throw new ProjectValidationError("limit must be an integer from 1 to 200");
+    }
+    if (cursor !== undefined && !cursor.startsWith("prj_")) {
+      throw new ProjectValidationError("cursor must be a project ID");
+    }
+    const bareTenant = bareTenantUuid(tenantId);
+    const bareWorkspace = bareWorkspaceUuid(workspaceId);
+    return this.store.withTenant(bareTenant, async (tx) => {
+      const result = await tx.query<ProjectRow>(
+        `SELECT id, tenant_id, workspace_id, name, status, created_at, updated_at
+         FROM projects
+         WHERE tenant_id = $1 AND workspace_id = $2
+           AND ($3::text IS NULL OR id > $3)
+         ORDER BY id
+         LIMIT $4`,
+        [bareTenant, bareWorkspace, cursor ?? null, limit + 1],
+      );
+      const hasMore = result.rows.length > limit;
+      const rows = result.rows.slice(0, limit);
+      return {
+        data: rows.map(projectFromRow),
+        page: {
+          next_cursor: hasMore ? (rows.at(-1)?.id ?? null) : null,
+          has_more: hasMore,
+          limit,
+        },
+      };
     });
   }
 

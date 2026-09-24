@@ -77,6 +77,45 @@ export function parseProjectId(value: string, instance: string): string {
   return value;
 }
 
+export function parseProjectListQuery(
+  cursor: string | undefined,
+  limit: string | undefined,
+  instance: string,
+): string {
+  if (
+    cursor !== undefined &&
+    (!prefixedIdPattern.test(cursor) || !cursor.startsWith("prj_"))
+  ) {
+    throw invalidListQuery(instance, "cursor", "Expected a project ID");
+  }
+  const parsedLimit = limit === undefined ? undefined : Number(limit);
+  if (
+    parsedLimit !== undefined &&
+    (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 200)
+  ) {
+    throw invalidListQuery(instance, "limit", "Expected integer from 1 to 200");
+  }
+  const query = new URLSearchParams();
+  if (cursor !== undefined) query.set("cursor", cursor);
+  if (parsedLimit !== undefined) query.set("limit", String(parsedLimit));
+  const serialized = query.toString();
+  return serialized ? `?${serialized}` : "";
+}
+
+function invalidListQuery(
+  instance: string,
+  field: string,
+  message: string,
+): ProjectHttpError {
+  return new ProjectHttpError(
+    400,
+    "PROJECT_VALIDATION_FAILED",
+    "Project request validation failed",
+    instance,
+    [{ field, message }],
+  );
+}
+
 export function parseClarificationId(
   value: string,
   instance: string,

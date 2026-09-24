@@ -132,11 +132,28 @@ export class CachedEngineResourceLookup implements ResourceWorkspaceLookup {
   }
 }
 
-function snakeField(field: string) {
-  return (body: Record<string, unknown>): string | undefined =>
-    typeof body[field] === "string" && (body[field] as string).length > 0
-      ? (body[field] as string)
-      : undefined;
+/**
+ * Reads the workspace off an engine response by either spelling of the
+ * field, because the engine is not consistent about it: runs and the Action
+ * Centre families answer `workspace_id`, while workflows, projects, triggers
+ * and artifacts answer `workspaceId`. A lookup naming only one spelling
+ * reads undefined for the other and fails closed -- which is how every
+ * workflow and project id route came to answer 403 to the very workspace
+ * that owns the resource.
+ */
+function workspaceField(field: string) {
+  const spellings = [
+    field,
+    field.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase()),
+    field.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
+  ];
+  return (body: Record<string, unknown>): string | undefined => {
+    for (const spelling of spellings) {
+      const value = body[spelling];
+      if (typeof value === "string" && value.length > 0) return value;
+    }
+    return undefined;
+  };
 }
 
 /** platform_db-backed lookup for oauth connection ids -- the rows live
@@ -250,7 +267,7 @@ export function defaultWorkspaceResolutionRules(deps: {
     pathFor: (id: string) => string,
     field: string,
   ): ResourceWorkspaceLookup =>
-    new CachedEngineResourceLookup(engineClient, pathFor, snakeField(field));
+    new CachedEngineResourceLookup(engineClient, pathFor, workspaceField(field));
 
   const approvalLike = (segment: string): ResourceWorkspaceLookup =>
     engine((id) => `/api/v1/${segment}/${id}`, "workspace_id");

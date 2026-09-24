@@ -1213,6 +1213,8 @@ function mapRunStatus(value: unknown): Run["status"] {
 function mapProjectStatus(value: unknown): Project["status"] {
   if (value === "planning" || value === "building" || value === "testing" || value === "completed" || value === "archived") return value
   if (value === "ready") return "ready"
+  // What the projects row itself stores, now that the read routes exist.
+  if (value === "active") return "active"
   return "draft"
 }
 

@@ -62,8 +62,12 @@ describe("defaultWorkspaceResolutionRules dispatch", () => {
     path: string,
   ): Promise<{ status: number; body?: Record<string, unknown> }> => {
     {
-      if (path.includes("/workflows/")) return { status: 200, body: { workspace_id: workspaceA } };
-      if (path.includes("/projects/")) return { status: 200, body: { workspace_id: workspaceA } };
+      // Workflows and projects answer camelCase, as WorkflowReadService and
+      // ProjectReadService really do. This fake used to say `workspace_id`
+      // for both, which is why a suite this thorough stayed green while
+      // every workflow and project id route answered 403 in a live stack.
+      if (path.includes("/workflows/")) return { status: 200, body: { workspaceId: workspaceA } };
+      if (path.includes("/projects/")) return { status: 200, body: { workspaceId: workspaceA } };
       if (path.includes("/runs/")) return { status: 200, body: { workspace_id: workspaceB } };
       if (path.includes("/artifacts/")) return { status: 200, body: { workspaceId: workspaceB } };
       if (path.includes("/ads/sources/")) return { status: 200, body: { workspace_id: workspaceA } };
@@ -119,6 +123,18 @@ describe("defaultWorkspaceResolutionRules dispatch", () => {
       resolver.resolveWorkspaceId(request({ workspaceId: workspaceA })),
     ).resolves.toBe(workspaceA);
     expect(getMock).not.toHaveBeenCalled();
+  });
+
+  it("reads the workspace whichever way the engine spells it", async () => {
+    for (const body of [{ workspace_id: workspaceA }, { workspaceId: workspaceA }]) {
+      getMock.mockImplementation(async () => ({ status: 200, body }));
+      await expect(
+        resolver.resolveWorkspaceId(request({ projectId }, `/api/v1/projects/${projectId}`)),
+      ).resolves.toBe(workspaceA);
+      await expect(
+        resolver.resolveWorkspaceId(request({ workflowId }, `/api/v1/workflows/${workflowId}`)),
+      ).resolves.toBe(workspaceA);
+    }
   });
 
   it("extracts snake_case workspace_id from run reads and camelCase from trigger reads", async () => {
