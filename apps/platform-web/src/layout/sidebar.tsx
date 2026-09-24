@@ -23,6 +23,8 @@ import { WorkspaceSwitcher } from "./workspace-switcher"
 import { useTranslation } from "react-i18next"
 import { useState } from "react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { isLiveFeatureAvailable, type LiveFeature } from "@/features/availability/live-feature-policy"
+import type { LucideIcon } from "lucide-react"
 
 function SidebarCollapseIcon({ collapsed }: { collapsed: boolean }) {
   return (
@@ -34,7 +36,19 @@ function SidebarCollapseIcon({ collapsed }: { collapsed: boolean }) {
   )
 }
 
-const getNavGroups = (t: any) => [
+type NavItem = {
+  name: string
+  href: string
+  icon: LucideIcon
+  feature?: LiveFeature
+}
+
+type NavGroup = {
+  label: string
+  items: NavItem[]
+}
+
+const getNavGroups = (t: any): NavGroup[] => [
   {
     label: "Main",
     items: [
@@ -68,8 +82,8 @@ const getNavGroups = (t: any) => [
   {
     label: "Discover",
     items: [
-      { name: t("sidebar.benchmarks", "Benchmarks"), href: "/app/benchmarks", icon: Activity },
-      { name: t("sidebar.discover", "Discover"), href: "/app/discover", icon: BookOpen },
+      { name: t("sidebar.benchmarks", "Benchmarks"), href: "/app/benchmarks", icon: Activity, feature: "benchmarks" },
+      { name: t("sidebar.discover", "Discover"), href: "/app/discover", icon: BookOpen, feature: "discovery" },
       { name: t("sidebar.marketplace", "Marketplace"), href: "/app/marketplace", icon: ShoppingBag },
       { name: "Seller Console", href: "/app/seller", icon: Store },
     ],
@@ -83,7 +97,7 @@ const getNavGroups = (t: any) => [
   },
   {
     label: "Admin",
-    items: [{ name: "Admin Console", href: "/app/admin", icon: Shield }],
+    items: [{ name: "Admin Console", href: "/app/admin", icon: Shield, feature: "admin-console" }],
   },
 ]
 
@@ -95,6 +109,13 @@ export function Sidebar({ className }: SidebarProps) {
   const { t } = useTranslation("common")
   const [collapsed, setCollapsed] = useState(false)
   const navGroups = getNavGroups(t)
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) =>
+        item.feature ? isLiveFeatureAvailable(item.feature) : true
+      ),
+    }))
+    .filter((group) => group.items.length > 0)
 
   return (
     <aside
