@@ -130,21 +130,26 @@ function bareTenantUuid(tenantId: string): string {
 }
 
 /**
- * `triggers.workspace_id` is a bare `uuid` column, and every caller sends the
- * `ws_`-prefixed form the API boundary uses. Inserting the prefixed value
+ * `triggers.workspace_id` is a bare `uuid` column, while callers disagree
+ * about the form they hold: platform-api sends the `ws_`-prefixed id the API
+ * boundary uses, and the service's own inbound paths (WhatsApp dispatch, the
+ * ingress checks) already hold the bare uuid. Inserting the prefixed value
  * made Postgres reject the row, so registering a trigger answered 500 for
- * every type and every config. Same split as `bareTenantUuid` above, and the
- * same helper WorkflowReadService and ProjectReadService each carry.
+ * every type and every config. Both spellings are accepted and stored the one
+ * way the column can hold, rather than making either caller convert.
  */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function bareWorkspaceUuid(workspaceId: string): string {
-  if (
-    !/^ws_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      workspaceId,
-    )
-  ) {
-    throw new TriggerValidationError("workspaceId must be a ws_ prefixed UUIDv7");
+  const bare = workspaceId.startsWith("ws_")
+    ? workspaceId.slice("ws_".length)
+    : workspaceId;
+  if (!UUID_PATTERN.test(bare)) {
+    throw new TriggerValidationError(
+      "workspaceId must be a UUID, with or without the ws_ prefix",
+    );
   }
-  return workspaceId.slice("ws_".length);
+  return bare;
 }
 
 function requireNonEmpty(field: string, value: string | undefined): void {

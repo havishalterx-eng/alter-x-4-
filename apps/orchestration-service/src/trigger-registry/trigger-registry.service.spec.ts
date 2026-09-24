@@ -338,16 +338,22 @@ describe("TriggerRegistryService", () => {
     });
   });
 
-  it("stores the workspace as the bare uuid the column holds", async () => {
+  // platform-api holds the ws_-prefixed id, the service's own inbound paths
+  // hold the bare uuid, and the column can only hold one of them.
+  it.each([
+    ["the ws_ prefixed form platform-api sends", WORKSPACE_A],
+    ["the bare uuid an internal caller already holds", WORKSPACE_A_BARE],
+  ])("stores the workspace as a bare uuid, given %s", async (_case, workspaceId) => {
     const { store, triggers } = createFakeStore();
     const service = new TriggerRegistryService(store);
 
-    const result = await service.registerTrigger(baseRequest());
+    const result = await service.registerTrigger(baseRequest({ workspaceId }));
 
     expect(triggers.get(result.trigger.id)?.workspace_id).toBe(WORKSPACE_A_BARE);
+    expect(result.trigger.workspaceId).toBe(WORKSPACE_A_BARE);
   });
 
-  it("refuses a workspace id that is not a ws_ prefixed UUIDv7", async () => {
+  it("refuses a workspace id that is not a uuid at all", async () => {
     const { store, triggers } = createFakeStore();
     const service = new TriggerRegistryService(store);
 
