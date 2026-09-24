@@ -16,6 +16,7 @@ const config: EngineConfig = {
   m2mClientId: "platform-api",
   m2mClientSecretRef: "env:ENGINE_SECRET",
   requestTimeoutMs: 100,
+  planningTimeoutMs: 120_000,
 };
 
 describe("EvalFacadeClient", () => {

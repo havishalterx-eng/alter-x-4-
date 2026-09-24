@@ -15,6 +15,7 @@ const config: EngineConfig = {
   m2mClientId: "platform",
   m2mClientSecretRef: "env:M2M",
   requestTimeoutMs: 5000,
+  planningTimeoutMs: 120_000,
 };
 const input = {
   tenant_id: "018f4d6e-2b4a-7a3e-8c1a-1234567890ab",

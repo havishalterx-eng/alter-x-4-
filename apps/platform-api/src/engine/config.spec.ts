@@ -30,6 +30,7 @@ describe("engineConfigFromEnvironment", () => {
       m2mClientId: "platform-api",
       m2mClientSecretRef: "env:ENGINE_SECRET",
       requestTimeoutMs: 5_000,
+      planningTimeoutMs: 120_000,
     });
   });
 

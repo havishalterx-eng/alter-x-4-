@@ -86,6 +86,7 @@ describe.sequential("RunService per-node cost aggregation", () => {
         m2mClientId: "platform-api",
         m2mClientSecretRef: "env:secret",
         requestTimeoutMs: 100,
+  planningTimeoutMs: 120_000,
       } satisfies EngineConfig,
       { authorize: vi.fn().mockResolvedValue({ m2mAccessToken: "m2m", actorToken: "actor" }) } satisfies EngineAuthProvider,
     );

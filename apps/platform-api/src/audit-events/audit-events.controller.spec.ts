@@ -57,6 +57,7 @@ describe("audit-events platform relay", () => {
       evalFacadeTokenRef: "env:EVAL_FACADE_TOKEN", m2mTokenUrl: "https://identity.test/token",
       deploymentAdminServiceTokenRef: "env:DEPLOYMENT_ADMIN_TOKEN",
       m2mAudience: "engine", m2mClientId: "platform-api", m2mClientSecretRef: "env:ENGINE_SECRET", requestTimeoutMs: 100,
+  planningTimeoutMs: 120_000,
     };
     const secrets: SecretsProvider = { getSecret: async (reference) => {
       if (reference !== "test/audit-query-token") throw new Error("unexpected secret reference");

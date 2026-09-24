@@ -13,6 +13,16 @@ const engineConfigSchema = z.object({
   ENGINE_M2M_CLIENT_ID: z.string().min(1),
   ENGINE_M2M_CLIENT_SECRET_REF: z.string().min(1),
   ENGINE_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
+  // A few engine routes run the planner inline, which means two model calls
+  // before they answer. Five seconds cannot cover that: creating a project
+  // timed out every time while the engine went on to write the project, its
+  // conversation, its plan and its first clarification, so the caller saw a
+  // failure for work that had already succeeded.
+  ENGINE_PLANNING_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(120_000),
 });
 
 export interface EngineConfig {
@@ -28,6 +38,7 @@ export interface EngineConfig {
   m2mClientId: string;
   m2mClientSecretRef: string;
   requestTimeoutMs: number;
+  planningTimeoutMs: number;
 }
 
 export function engineConfigFromEnvironment(
@@ -54,5 +65,6 @@ export function engineConfigFromEnvironment(
     m2mClientId: parsed.data.ENGINE_M2M_CLIENT_ID,
     m2mClientSecretRef: parsed.data.ENGINE_M2M_CLIENT_SECRET_REF,
     requestTimeoutMs: parsed.data.ENGINE_REQUEST_TIMEOUT_MS,
+    planningTimeoutMs: parsed.data.ENGINE_PLANNING_TIMEOUT_MS,
   };
 }

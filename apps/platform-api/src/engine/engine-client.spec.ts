@@ -21,6 +21,7 @@ const config: EngineConfig = {
   m2mClientId: "platform-api",
   m2mClientSecretRef: "env:ENGINE_SECRET",
   requestTimeoutMs: 100,
+  planningTimeoutMs: 120_000,
 };
 
 const context: EngineCallerContext = {
@@ -377,6 +378,37 @@ describe("EngineClient", () => {
     await expect(
       client.get("https://other.test/api/v1/workflows" as EnginePath, context),
     ).rejects.toThrow("Engine path must stay under /api/v1/");
+  });
+
+  // The default is deliberately short, so a call that waits on the planner
+  // has to say so. Creating a project timed out on every attempt until it did.
+  it("gives a call its own timeout when one is asked for, and the short default otherwise", async () => {
+    vi.useFakeTimers();
+    try {
+      const aborted: (boolean | undefined)[] = [];
+      const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+        const signal = init.signal as AbortSignal;
+        await vi.advanceTimersByTimeAsync(200);
+        aborted.push(signal.aborted);
+        return jsonResponse(200, { ok: true });
+      });
+      const client = new EngineClient(config, authProvider, fetchImpl, noDelay);
+
+      // requestTimeoutMs is 100 here, so 200ms of waiting aborts this one.
+      await client
+        .post("/api/v1/projects", {}, context, { idempotencyKey: "short" })
+        .catch(() => undefined);
+      // The planning timeout is two minutes, so the same wait does not.
+      await client.post("/api/v1/projects", {}, context, {
+        idempotencyKey: "planning",
+        timeoutMs: client.planningTimeoutMs,
+      });
+
+      expect(aborted).toEqual([true, false]);
+      expect(client.planningTimeoutMs).toBe(120_000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sanitizes auth-provider failure before transport", async () => {
