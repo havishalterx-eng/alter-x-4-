@@ -129,6 +129,24 @@ function bareTenantUuid(tenantId: string): string {
   return parsed.data.slice("ten_".length);
 }
 
+/**
+ * `triggers.workspace_id` is a bare `uuid` column, and every caller sends the
+ * `ws_`-prefixed form the API boundary uses. Inserting the prefixed value
+ * made Postgres reject the row, so registering a trigger answered 500 for
+ * every type and every config. Same split as `bareTenantUuid` above, and the
+ * same helper WorkflowReadService and ProjectReadService each carry.
+ */
+function bareWorkspaceUuid(workspaceId: string): string {
+  if (
+    !/^ws_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      workspaceId,
+    )
+  ) {
+    throw new TriggerValidationError("workspaceId must be a ws_ prefixed UUIDv7");
+  }
+  return workspaceId.slice("ws_".length);
+}
+
 function requireNonEmpty(field: string, value: string | undefined): void {
   if (value === undefined || value.trim().length === 0) {
     throw new TriggerValidationError(`${field} is required`);
@@ -197,6 +215,7 @@ export class TriggerRegistryService {
     const config = buildVersionConfig(request.type, request.config);
     const nextFireAt = computeNextFireAt(config);
     const tenantId = bareTenantUuid(request.tenantId);
+    const workspaceId = bareWorkspaceUuid(request.workspaceId);
 
     return this.store.withTenant(tenantId, async (tx) => {
       const triggerId = `trg_${this.mintId()}`;
@@ -208,7 +227,7 @@ export class TriggerRegistryService {
         [
           triggerId,
           tenantId,
-          request.workspaceId,
+          workspaceId,
           request.workflowId,
           request.name,
           request.type,
@@ -232,7 +251,9 @@ export class TriggerRegistryService {
         trigger: {
           id: triggerId,
           tenantId: request.tenantId,
-          workspaceId: request.workspaceId,
+          // The stored value, so registering and reading a trigger describe
+          // its workspace the same way; every read returns the bare column.
+          workspaceId,
           workflowId: request.workflowId,
           name: request.name,
           type: request.type,

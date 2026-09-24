@@ -65,6 +65,12 @@ function createFakeStore(): {
           if (sql.startsWith("INSERT INTO triggers")) {
             const [id, tenantId, workspaceId, workflowId, name, type, provider] =
               values as [string, string, string, string, string, string, string | null];
+            // tenant_id and workspace_id are bare `uuid` columns: Postgres
+            // rejects anything else, and a fake that accepted a prefixed id
+            // is why registering a trigger could 500 in every real stack
+            // while this suite stayed green.
+            requireBareUuid("tenant_id", tenantId);
+            requireBareUuid("workspace_id", workspaceId);
             insertOrder += 1;
             triggers.set(id, {
               id,
@@ -292,13 +298,21 @@ function createFakeStore(): {
 
 const TENANT_A = "ten_018f47a5-7b2c-7d10-8f11-123456789abc";
 const TENANT_B = "ten_018f47a5-7b2c-7d10-8f11-123456789abd";
+const WORKSPACE_A_BARE = "018f47a5-7b2c-7d10-8f11-1234567890ab";
+const WORKSPACE_A = `ws_${WORKSPACE_A_BARE}`;
+
+function requireBareUuid(column: string, value: string): void {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+    throw new Error(`invalid input syntax for type uuid: "${value}" (${column})`);
+  }
+}
 
 function baseRequest(
   overrides: Partial<RegisterTriggerRequest> = {},
 ): RegisterTriggerRequest {
   return {
     tenantId: TENANT_A,
-    workspaceId: "ws_a",
+    workspaceId: WORKSPACE_A,
     workflowId: "wf_a",
     name: "test trigger",
     type: "manual",
@@ -322,6 +336,25 @@ describe("TriggerRegistryService", () => {
       maxReceiveCount: 5,
       visibilityTimeoutSeconds: 120,
     });
+  });
+
+  it("stores the workspace as the bare uuid the column holds", async () => {
+    const { store, triggers } = createFakeStore();
+    const service = new TriggerRegistryService(store);
+
+    const result = await service.registerTrigger(baseRequest());
+
+    expect(triggers.get(result.trigger.id)?.workspace_id).toBe(WORKSPACE_A_BARE);
+  });
+
+  it("refuses a workspace id that is not a ws_ prefixed UUIDv7", async () => {
+    const { store, triggers } = createFakeStore();
+    const service = new TriggerRegistryService(store);
+
+    await expect(
+      service.registerTrigger(baseRequest({ workspaceId: "ws_a" })),
+    ).rejects.toThrow(TriggerValidationError);
+    expect(triggers.size).toBe(0);
   });
 
   it("requires a cron expression for cron triggers and computes nextFireAt", async () => {
