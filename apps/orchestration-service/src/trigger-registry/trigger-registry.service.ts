@@ -129,6 +129,29 @@ function bareTenantUuid(tenantId: string): string {
   return parsed.data.slice("ten_".length);
 }
 
+/**
+ * `triggers.workspace_id` is a bare `uuid` column, while callers disagree
+ * about the form they hold: platform-api sends the `ws_`-prefixed id the API
+ * boundary uses, and the service's own inbound paths (WhatsApp dispatch, the
+ * ingress checks) already hold the bare uuid. Inserting the prefixed value
+ * made Postgres reject the row, so registering a trigger answered 500 for
+ * every type and every config. Both spellings are accepted and stored the one
+ * way the column can hold, rather than making either caller convert.
+ */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function bareWorkspaceUuid(workspaceId: string): string {
+  const bare = workspaceId.startsWith("ws_")
+    ? workspaceId.slice("ws_".length)
+    : workspaceId;
+  if (!UUID_PATTERN.test(bare)) {
+    throw new TriggerValidationError(
+      "workspaceId must be a UUID, with or without the ws_ prefix",
+    );
+  }
+  return bare;
+}
+
 function requireNonEmpty(field: string, value: string | undefined): void {
   if (value === undefined || value.trim().length === 0) {
     throw new TriggerValidationError(`${field} is required`);
@@ -197,6 +220,7 @@ export class TriggerRegistryService {
     const config = buildVersionConfig(request.type, request.config);
     const nextFireAt = computeNextFireAt(config);
     const tenantId = bareTenantUuid(request.tenantId);
+    const workspaceId = bareWorkspaceUuid(request.workspaceId);
 
     return this.store.withTenant(tenantId, async (tx) => {
       const triggerId = `trg_${this.mintId()}`;
@@ -208,7 +232,7 @@ export class TriggerRegistryService {
         [
           triggerId,
           tenantId,
-          request.workspaceId,
+          workspaceId,
           request.workflowId,
           request.name,
           request.type,
@@ -232,7 +256,9 @@ export class TriggerRegistryService {
         trigger: {
           id: triggerId,
           tenantId: request.tenantId,
-          workspaceId: request.workspaceId,
+          // The stored value, so registering and reading a trigger describe
+          // its workspace the same way; every read returns the bare column.
+          workspaceId,
           workflowId: request.workflowId,
           name: request.name,
           type: request.type,
