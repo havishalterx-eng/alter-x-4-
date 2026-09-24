@@ -48,6 +48,7 @@ interface RequestOptions {
   body?: EngineRequestBody;
   idempotencyKey?: string;
   ifMatch?: string;
+  timeoutMs?: number;
 }
 
 @Injectable()
@@ -76,6 +77,7 @@ export class EngineClient {
     return this.request("POST", path, context, {
       body,
       idempotencyKey: options.idempotencyKey,
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     });
   }
 
@@ -257,6 +259,7 @@ export class EngineClient {
               ? {}
               : { body: JSON.stringify(options.body) }),
           },
+          options.timeoutMs,
         );
 
         if (response.ok) {
@@ -298,15 +301,18 @@ export class EngineClient {
     throw new Error("Engine request exhausted without result");
   }
 
+  /** The planning timeout every route that waits on the planner should use. */
+  get planningTimeoutMs(): number {
+    return this.config.planningTimeoutMs;
+  }
+
   private async fetchWithTimeout(
     url: string,
     init: RequestInit,
+    timeoutMs: number = this.config.requestTimeoutMs,
   ): Promise<Response> {
     const controller = new AbortController();
-    const timer = setTimeout(
-      () => controller.abort(),
-      this.config.requestTimeoutMs,
-    );
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       return await this.fetchImpl(url, {
         ...init,

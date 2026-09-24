@@ -41,11 +41,13 @@ export class ProjectService {
     idempotencyKey: string,
   ): Promise<EngineResponse<ProjectResource>> {
     const instance = "/api/v1/projects";
+    // Creating a project runs the planner before the engine answers, so this
+    // call waits on two model calls rather than a database write.
     return this.engine.post(
       instance,
       jsonBody(input),
       callerContext(actor, traceparent, instance),
-      { idempotencyKey },
+      { idempotencyKey, timeoutMs: this.engine.planningTimeoutMs },
     );
   }
 
@@ -101,11 +103,13 @@ export class ProjectService {
       `/api/v1/projects/${projectId}/clarifications/${clarificationId}/answer`;
     const id = parseProjectId(projectId, instance);
     const clarification = parseClarificationId(clarificationId, instance);
+    // Answering resumes the planner, which writes the next part of the plan
+    // before this returns -- the same wait as creating the project.
     return this.engine.post(
       `/api/v1/projects/${encodeURIComponent(id)}/clarifications/${encodeURIComponent(clarification)}/answer`,
       jsonBody(input),
       callerContext(actor, traceparent, instance),
-      { idempotencyKey },
+      { idempotencyKey, timeoutMs: this.engine.planningTimeoutMs },
     );
   }
 

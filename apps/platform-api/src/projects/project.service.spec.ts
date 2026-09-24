@@ -42,8 +42,54 @@ describe("ProjectService", () => {
         permissions: actor.permissions,
         traceparent,
       },
-      { idempotencyKey: "brief-key" },
+      { idempotencyKey: "brief-key", timeoutMs: 120_000 },
     );
+  });
+
+  // Both of these wait on the planner inside the engine, which is two model
+  // calls. On the client's ordinary five-second timeout, creating a project
+  // failed for the caller every time while the engine went on to write it.
+  it.each([
+    [
+      "creating a project",
+      (service: ProjectService) =>
+        service.create({ brief: "Build it" }, actor, traceparent, "k"),
+    ],
+    [
+      "answering a clarification",
+      (service: ProjectService) =>
+        service.answerClarification(
+          projectId,
+          clarificationId,
+          { answer: "PostgreSQL" },
+          actor,
+          traceparent,
+          "k",
+        ),
+    ],
+  ])("waits on the planner for %s", async (_case, call) => {
+    const engine = engineStub();
+
+    await call(new ProjectService(engine.value));
+
+    expect(engine.post).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ timeoutMs: 120_000 }),
+    );
+  });
+
+  it("leaves every other project action on the ordinary timeout", async () => {
+    const engine = engineStub();
+    const service = new ProjectService(engine.value);
+
+    await service.reviewPlan(projectId, "approve", {}, actor, traceparent, "k");
+    await service.startBuild(projectId, {}, actor, traceparent, "k");
+
+    for (const call of engine.post.mock.calls) {
+      expect(call[3]).not.toHaveProperty("timeoutMs");
+    }
   });
 
   it("relays pending clarification read and answer", async () => {
@@ -72,7 +118,7 @@ describe("ProjectService", () => {
       `/api/v1/projects/${projectId}/clarifications/${clarificationId}/answer`,
       { answer: "Use PostgreSQL" },
       expect.objectContaining({ traceparent }),
-      { idempotencyKey: "answer-key" },
+      { idempotencyKey: "answer-key", timeoutMs: 120_000 },
     );
   });
 
@@ -238,7 +284,7 @@ function engineStub(): {
   const get = vi.fn().mockResolvedValue(response);
   const post = vi.fn().mockResolvedValue(response);
   return {
-    value: { get, post } as unknown as EngineClient,
+    value: { get, post, planningTimeoutMs: 120_000 } as unknown as EngineClient,
     get,
     post,
   };
