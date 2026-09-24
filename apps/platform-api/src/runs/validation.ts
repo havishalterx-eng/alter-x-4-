@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CreateRunRequestSchema, type CreateRunRequest } from "@alterx/contracts";
 import { RunHttpError } from "./problem";
-import type { RunListQuery } from "./types";
+import type { CancelRunRequest, RetryNodeRequest, RunListQuery } from "./types";
 
 const uuidV7 =
   "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
@@ -55,6 +55,31 @@ export function parseCreateRunRequest(input: unknown, instance: string): CreateR
       message: issue.message,
     })),
   );
+}
+
+// The engine's own retry-node route requires a non-empty node_key and
+// rejects anything else (runs.controller.ts), so the same bodies are
+// refused here rather than spending an engine round trip on them.
+const retryNodeSchema = z
+  .object({
+    node_key: z.string().trim().min(1).max(512),
+  })
+  .strict();
+
+export function parseRetryNodeRequest(
+  input: unknown,
+  instance: string,
+): RetryNodeRequest {
+  return parse(retryNodeSchema, input, instance);
+}
+
+const cancelSchema = z.object({}).strict();
+
+export function parseCancelRunRequest(
+  input: unknown,
+  instance: string,
+): CancelRunRequest {
+  return parse(cancelSchema, input ?? {}, instance);
 }
 
 export function parseRunId(value: string, instance: string): string {

@@ -176,7 +176,11 @@ export class RunsController {
     }
   }
 
+  // Neither action creates anything, and openapi.json documents both as 200.
+  // Without this they answer Nest's POST default of 201, which no spec here
+  // could see: these tests call the method, not the route.
   @Post(":id/actions/cancel")
+  @HttpCode(200)
   async cancel(@Req() request: SessionGatewayRequest, @Param("id") runId: string) {
     const tenantId = requiredTenantId(request);
     try {
@@ -187,6 +191,7 @@ export class RunsController {
   }
 
   @Post(":id/actions/retry-node")
+  @HttpCode(200)
   async retryNode(
     @Req() request: SessionGatewayRequest,
     @Param("id") runId: string,

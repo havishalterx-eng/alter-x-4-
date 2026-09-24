@@ -191,6 +191,17 @@ describe("RunsController.cancel", () => {
     const response = await new RunsController(service, outcomes()).cancel(request() as never, RUN);
     expect(response).toMatchObject({ status: "cancelled" });
   });
+
+  // These tests call the method rather than the route, so the status code
+  // they answer with is invisible here: both actions answered Nest's POST
+  // default of 201 for as long as nothing called them over HTTP, while
+  // openapi.json documented 200.
+  it.each(["cancel", "retryNode"] as const)(
+    "declares %s as 200, the status its contract publishes",
+    (method) => {
+      expect(Reflect.getMetadata("__httpCode__", RunsController.prototype[method])).toBe(200);
+    },
+  );
 });
 
 describe("RunsController.retryNode", () => {

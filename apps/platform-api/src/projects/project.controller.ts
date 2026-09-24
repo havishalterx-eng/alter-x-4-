@@ -6,13 +6,14 @@ import {
   HttpCode,
   Param,
   Post,
+  Query,
   Res,
   UseFilters,
 } from "@nestjs/common";
 import type { FastifyReply } from "fastify";
 import type { EngineResponse } from "../engine";
 import { Idempotent } from "../idempotency";
-import { ActorContext, RequireWorkspaceRole } from "../rbac";
+import { ActorContext, RequirePermission, RequireWorkspaceRole } from "../rbac";
 import type { ActorContextType } from "../rbac";
 import { ProjectHttpError } from "./problem";
 import { ProjectExceptionFilter } from "./project-exception.filter";
@@ -25,7 +26,9 @@ import type {
   ProjectActionResult,
   ProjectBuild,
   ProjectClarificationList,
+  ProjectList,
   ProjectPlan,
+  ProjectRecord,
   ProjectResource,
   RejectPlanInput,
   RequestPlanChangesInput,
@@ -68,6 +71,48 @@ export class ProjectController {
         requireActor(actor, instance),
         traceparent,
         idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+
+  @Get()
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("projects:read")
+  async list(
+    @Query("cursor") cursor: string | undefined,
+    @Query("limit") limit: string | undefined,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<ProjectList> {
+    const instance = "/api/v1/projects";
+    return project(
+      await this.projects.list(
+        cursor,
+        limit,
+        requireActor(actor, instance),
+        traceparent,
+      ),
+      reply,
+    );
+  }
+
+  @Get(":projectId")
+  @RequireWorkspaceRole(...readRoles)
+  @RequirePermission("projects:read")
+  async get(
+    @Param("projectId") projectId: string,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<ProjectRecord> {
+    const instance = `/api/v1/projects/${projectId}`;
+    return project(
+      await this.projects.get(
+        projectId,
+        requireActor(actor, instance),
+        traceparent,
       ),
       reply,
     );

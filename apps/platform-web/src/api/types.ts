@@ -254,7 +254,10 @@ export interface ChatMessage {
   createdAt: string
 }
 
-export type ProjectStatus = "draft" | "clarifying" | "planning" | "ready" | "building" | "testing" | "completed" | "archived"
+// "active" is what the projects table itself stores (draft/active/archived,
+// 0019_create_projects.sql); the richer words below come from the planning
+// resource rather than from the row.
+export type ProjectStatus = "draft" | "active" | "clarifying" | "planning" | "ready" | "building" | "testing" | "completed" | "archived"
 
 export interface ProjectBrief {
   goal: string

@@ -17,6 +17,12 @@ export interface RunListQuery {
   started_before?: string | undefined;
 }
 
+export interface RetryNodeRequest {
+  node_key: string;
+}
+
+export type CancelRunRequest = Record<string, never>;
+
 export type EngineResource = Readonly<Record<string, JsonValue>>;
 
 export interface EnginePage<T> {

@@ -26,6 +26,32 @@ export interface ProjectResource {
   [key: string]: JsonValue;
 }
 
+/**
+ * What the engine's project read routes return, which is not the shape
+ * ProjectResource describes: the create route answers with the planning
+ * resource above, while the read routes answer from the `projects` table
+ * (0019_create_projects.sql) in camelCase.
+ */
+export interface ProjectRecord {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  name: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  [key: string]: JsonValue;
+}
+
+export interface ProjectList {
+  data: ProjectRecord[];
+  page: {
+    next_cursor: string | null;
+    has_more: boolean;
+    limit: number;
+  };
+}
+
 export interface ProjectClarification {
   clarification_id: string;
   question: string;

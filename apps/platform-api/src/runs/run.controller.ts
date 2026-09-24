@@ -96,6 +96,54 @@ export class RunController {
     );
   }
 
+  @Post(":runId/actions/cancel")
+  @RequireWorkspaceRole(...operateRoles)
+  @Idempotent()
+  async cancel(
+    @Param("runId") runId: string,
+    @Body() body: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<EngineResource> {
+    const instance = `/api/v1/runs/${runId}/actions/cancel`;
+    return project(
+      await this.runs.cancel(
+        runId,
+        body,
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+
+  @Post(":runId/actions/retry-node")
+  @RequireWorkspaceRole(...operateRoles)
+  @Idempotent()
+  async retryNode(
+    @Param("runId") runId: string,
+    @Body() body: unknown,
+    @ActorContext() actor: ActorContextType | undefined,
+    @Headers("traceparent") traceparent: string | undefined,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<EngineResource> {
+    const instance = `/api/v1/runs/${runId}/actions/retry-node`;
+    return project(
+      await this.runs.retryNode(
+        runId,
+        body,
+        requireActor(actor, instance),
+        traceparent,
+        idempotencyKey!,
+      ),
+      reply,
+    );
+  }
+
   @Get(":runId/verification-results")
   @RequireWorkspaceRole(...readRoles)
   @RequirePermission("runs:read")

@@ -17,7 +17,9 @@ import type {
 } from "./types";
 import {
   parseArtifactId,
+  parseCancelRunRequest,
   parseCreateRunRequest,
+  parseRetryNodeRequest,
   parseRunId,
   parseRunListQuery,
   parseTraceparent,
@@ -56,6 +58,42 @@ export class RunService {
     const request = parseCreateRunRequest(input, instance);
     return this.engine.post(
       "/api/v1/runs",
+      request as unknown as EngineRequestBody,
+      callerContext(actor, traceparent, instance),
+      { idempotencyKey },
+    );
+  }
+
+  cancel(
+    runId: string,
+    input: unknown,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<EngineResource>> {
+    const instance = `/api/v1/runs/${runId}/actions/cancel`;
+    const id = parseRunId(runId, instance);
+    const request = parseCancelRunRequest(input, instance);
+    return this.engine.post(
+      `/api/v1/runs/${encodeURIComponent(id)}/actions/cancel`,
+      request as unknown as EngineRequestBody,
+      callerContext(actor, traceparent, instance),
+      { idempotencyKey },
+    );
+  }
+
+  retryNode(
+    runId: string,
+    input: unknown,
+    actor: ActorContext,
+    traceparent: string | undefined,
+    idempotencyKey: string,
+  ): Promise<EngineResponse<EngineResource>> {
+    const instance = `/api/v1/runs/${runId}/actions/retry-node`;
+    const id = parseRunId(runId, instance);
+    const request = parseRetryNodeRequest(input, instance);
+    return this.engine.post(
+      `/api/v1/runs/${encodeURIComponent(id)}/actions/retry-node`,
       request as unknown as EngineRequestBody,
       callerContext(actor, traceparent, instance),
       { idempotencyKey },
