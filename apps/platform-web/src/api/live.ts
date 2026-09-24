@@ -20,6 +20,8 @@ import type {
   WorkflowSafeguards,
   Workspace,
   WorkspaceRole,
+  TenantDataResidency,
+  TenantDataResidencySettings,
   HumanAction,
   HumanActionType,
   HumanActionStatus,
@@ -81,6 +83,63 @@ export async function getDashboardOverview(fallback: DashboardOverview): Promise
 export async function getWorkspaces(): Promise<Workspace[]> {
   const body = await apiGet<unknown>("/api/v1/workspaces")
   return asArray(body, "workspaces").map(mapWorkspace)
+}
+
+interface TenantViewResponse {
+  id?: unknown
+  name?: unknown
+  role?: unknown
+}
+
+interface TenantDataResidencyResponse {
+  data_residency?: {
+    allowed?: unknown
+    legal_basis?: unknown
+  } | null
+}
+
+export async function getTenantDataResidencySettings(): Promise<TenantDataResidencySettings> {
+  const tenants = asArray(await apiGet<unknown>("/api/v1/tenants"), "tenants")
+  const tenant = tenants[0] as TenantViewResponse | undefined
+  if (!tenant || typeof tenant.id !== "string") {
+    throw new Error("Current tenant not found")
+  }
+
+  const tenantId = tenant.id
+  const { data, etag } = await apiGetWithEtag<TenantDataResidencyResponse>(
+    `/api/v1/tenants/${encodeURIComponent(tenantId)}/data-residency`,
+  )
+
+  return {
+    tenantId,
+    tenantName: typeof tenant.name === "string" ? tenant.name : "Tenant",
+    role: mapTenantRole(tenant.role),
+    dataResidency: mapTenantDataResidency(data.data_residency),
+    ...(etag === undefined ? {} : { etag }),
+  }
+}
+
+export async function updateTenantDataResidencySettings(
+  tenantId: string,
+  dataResidency: TenantDataResidency | null,
+  etag: string | undefined,
+): Promise<TenantDataResidencySettings> {
+  if (!etag) throw new Error("Tenant data residency ETag missing")
+  await apiPut(
+    `/api/v1/tenants/${encodeURIComponent(tenantId)}/data-residency`,
+    {
+      data_residency: dataResidency === null
+        ? null
+        : {
+            allowed: dataResidency.allowed,
+            ...(dataResidency.legalBasis
+              ? { legal_basis: dataResidency.legalBasis }
+              : {}),
+          },
+    },
+    { ifMatch: etag },
+  )
+  return getTenantDataResidencySettings()
 }
 
 export async function createWorkspace(data: { name: string; slug: string }): Promise<Workspace> {
@@ -1020,6 +1079,36 @@ function mapWorkspace(value: unknown): Workspace {
     role: mapRole(item.role ?? item.roles?.[0]),
     memberCount: Number(item.memberCount ?? item.member_count ?? 0),
     createdAt: asDate(item.createdAt ?? item.created_at ?? item.updatedAt ?? item.updated_at),
+  }
+}
+
+function mapTenantRole(value: unknown): TenantDataResidencySettings["role"] {
+  if (value === "owner" || value === "admin" || value === "billing") return value
+  return "member"
+}
+
+function mapTenantDataResidency(
+  value: TenantDataResidencyResponse["data_residency"],
+): TenantDataResidency | null {
+  if (value === null) return null
+  if (!value || !Array.isArray(value.allowed)) {
+    throw new Error("Tenant data residency response is malformed")
+  }
+  const allowed = value.allowed
+  if (
+    allowed.length < 1 ||
+    allowed.length > 32 ||
+    allowed.some((code) => typeof code !== "string" || code.trim().length === 0) ||
+    (value.legal_basis !== undefined &&
+      (typeof value.legal_basis !== "string" || value.legal_basis.trim().length === 0))
+  ) {
+    throw new Error("Tenant data residency response is malformed")
+  }
+  return {
+    allowed: allowed.map((code) => (code as string).trim()),
+    ...(typeof value.legal_basis === "string"
+      ? { legalBasis: value.legal_basis.trim() }
+      : {}),
   }
 }
 

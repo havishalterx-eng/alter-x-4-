@@ -68,6 +68,7 @@ import { PayoutsPage } from "@/features/seller/pages/payouts"
 import { KycPage } from "@/features/seller/pages/kyc"
 import { NotificationCentrePage } from "@/features/notifications/pages/notification-centre"
 import { NotificationPreferencesPage } from "@/features/settings/pages/notification-preferences"
+import { DataResidencySettings } from "@/features/settings/pages/data-residency"
 import { DiscoveryPage } from "@/features/discovery/pages/discovery-page"
 import { BenchmarkListPage } from "@/features/benchmarks/pages/benchmark-list"
 import { CreateBenchmarkPage } from "@/features/benchmarks/pages/create-benchmark"
@@ -354,6 +355,7 @@ export const router = createBrowserRouter([
           { path: "workspace", element: <WorkspaceSettings /> },
           { path: "members", element: <MembersPage /> },
           { path: "roles", element: <RolesPage /> },
+          { path: "data-residency", element: <DataResidencySettings /> },
           { path: "audit", element: <RequirePermission permission="audit.read"><SettingsAudit /></RequirePermission> },
           { path: "support", element: <SettingsSupport /> },
         ]
