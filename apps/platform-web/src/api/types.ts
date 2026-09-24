@@ -265,6 +265,13 @@ export interface ProjectBrief {
   coreCapabilities: string[]
 }
 
+/** A question the planner raised against a project's plan, answered in free text. */
+export interface ProjectClarification {
+  id: string
+  question: string
+  required: boolean
+}
+
 export interface ProjectPlanTask {
   id: string
   title: string

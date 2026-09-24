@@ -1,0 +1,122 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("./http", () => ({
+  apiGet: vi.fn(),
+  apiGetWithEtag: vi.fn(),
+  apiPost: vi.fn(),
+  apiPatch: vi.fn(),
+  apiPut: vi.fn(),
+  apiDelete: vi.fn(),
+  mutationKey: (prefix: string) => `${prefix}-test-key`,
+  isLiveApi: true,
+}))
+
+import { apiGet, apiPost } from "./http"
+import { api } from "./client"
+import { answerProjectClarification, getProjectClarifications } from "./live"
+
+const workflowId = "wf_018f47a5-7b2c-7d10-8f11-123456789abc"
+const projectId = "prj_018f47a5-7b2c-7d10-8f11-123456789abc"
+const clarificationId = "clr_018f47a5-7b2c-7d10-8f11-123456789abc"
+
+beforeEach(() => {
+  vi.mocked(apiGet).mockReset()
+  vi.mocked(apiPost).mockReset()
+})
+
+describe("a workflow plan that needs clarifying", () => {
+  it("returns the planner's own questions", async () => {
+    vi.mocked(apiPost).mockImplementation(async (path: string) => {
+      if (path.endsWith("/actions/plan")) {
+        return { type: "clarification", questions: ["Which inbox?", "Who approves?"] } as never
+      }
+      return { id: workflowId, name: "Triage", status: "draft" } as never
+    })
+
+    const result = await api.compileWorkflow({ goal: "Triage support mail", answers: {} })
+
+    expect(result.questions).toEqual(["Which inbox?", "Who approves?"])
+  })
+
+  it("re-plans the workflow that asked, with the original goal and the answers", async () => {
+    vi.mocked(apiGet).mockResolvedValue({ id: workflowId, name: "Triage", status: "draft" })
+    vi.mocked(apiPost).mockResolvedValue({ type: "compiled", versionId: "wfv_1" })
+
+    await api.compileWorkflow({
+      goal: "Triage support mail",
+      answers: { "Which inbox?": "support@acme.test" },
+      workflowId,
+    })
+
+    // No second workflow: the draft that raised the questions is re-planned.
+    expect(vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/api/v1/workflows")).toHaveLength(0)
+    expect(apiPost).toHaveBeenCalledWith(
+      `/api/v1/workflows/${workflowId}/actions/plan`,
+      { goal: "Triage support mail", answers: { "Which inbox?": "support@acme.test" } },
+      expect.anything(),
+    )
+  })
+
+  it("creates a draft only on the first plan", async () => {
+    vi.mocked(apiGet).mockResolvedValue({ id: workflowId, name: "Triage", status: "draft" })
+    vi.mocked(apiPost).mockImplementation(async (path: string) =>
+      path === "/api/v1/workflows"
+        ? ({ id: workflowId, name: "Triage", status: "draft" } as never)
+        : ({ type: "compiled", versionId: "wfv_1" } as never),
+    )
+
+    await api.compileWorkflow({ goal: "Triage support mail", answers: {} })
+
+    expect(vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/api/v1/workflows")).toHaveLength(1)
+  })
+})
+
+describe("project clarifications", () => {
+  it("reads the questions the engine has open", async () => {
+    vi.mocked(apiGet).mockResolvedValue({
+      data: [{ clarification_id: clarificationId, question: "Which framework?", options: [], required: true }],
+    })
+
+    expect(await getProjectClarifications(projectId)).toEqual([
+      { id: clarificationId, question: "Which framework?", required: true },
+    ])
+    expect(apiGet).toHaveBeenCalledWith(`/api/v1/projects/${projectId}/clarifications`)
+  })
+
+  it("answers one through its own route", async () => {
+    vi.mocked(apiPost).mockResolvedValue({})
+
+    await answerProjectClarification(projectId, clarificationId, "React")
+
+    expect(apiPost).toHaveBeenCalledWith(
+      `/api/v1/projects/${projectId}/clarifications/${clarificationId}/answer`,
+      { answer: "React" },
+      { idempotencyKey: "project-clarification-answer-test-key" },
+    )
+  })
+
+  it("answers every question, then reports what is still open", async () => {
+    const second = "clr_018f47a5-7b2c-7d10-8f11-123456789abd"
+    vi.mocked(apiPost).mockResolvedValue({})
+    vi.mocked(apiGet).mockResolvedValue({
+      data: [{ clarification_id: second, question: "Who hosts it?", options: [], required: true }],
+    })
+
+    const remaining = await api.answerProjectClarifications(projectId, {
+      [clarificationId]: "React",
+    })
+
+    expect(apiPost).toHaveBeenCalledTimes(1)
+    expect(remaining).toEqual([{ id: second, question: "Who hosts it?", required: true }])
+  })
+
+  it("carries the real project id out of a brief, so the project can be opened", async () => {
+    vi.mocked(apiPost).mockResolvedValue({ id: projectId, name: "Portal", status: "draft" })
+    vi.mocked(apiGet).mockResolvedValue({ data: [] })
+
+    const result = await api.compileProjectBrief({ goal: "Build a customer portal" })
+
+    expect(result.projectId).toBe(projectId)
+    expect(result.clarifications).toEqual([])
+  })
+})

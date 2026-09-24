@@ -34,7 +34,7 @@ import {
   type Workflow, type WorkflowSafeguards, type Run, type DashboardSummary, 
   type Workspace, type Member, type WorkspaceRole, 
   type Profile, type Session,
-  type Project, type ProjectBrief, type NodeTypeDefinition,
+  type Project, type ProjectBrief, type ProjectClarification, type NodeTypeDefinition,
   type Artifact, type ProjectFile, type TestResult,
   type HumanAction, type HumanActionType, type HumanAnnotation, type RecoveryEvent, type WorkflowHealth, type NodeVerification,
   type Conversation, type ConversationMessage, type Trigger, type WebhookEndpoint, type IncomingEvent, type DashboardOverview,
@@ -262,17 +262,22 @@ class ApiClient {
     return mockSafeguards(id)
   }
 
-  async compileWorkflow(_data: { goal: string; answers: any }): Promise<{ workflow: Workflow, explanation: string, warnings: any[], questions: any[] }> {
+  // workflowId is how answering a clarification re-plans the workflow that
+  // raised it. Without it every answer created another draft and planned it
+  // with the answer as the goal, losing the objective the user started from.
+  async compileWorkflow(_data: { goal: string; answers: Record<string, string>; workflowId?: string }): Promise<{ workflow: Workflow, explanation: string, warnings: any[], questions: string[] }> {
     if (isLiveApi) {
-      const newWorkflow = await live.createWorkflow(_data.goal);
+      const newWorkflow = _data.workflowId
+        ? await live.getWorkflow(_data.workflowId)
+        : await live.createWorkflow(_data.goal);
       const planRes = await live.workflowAction(newWorkflow.id, "plan", { goal: _data.goal, answers: _data.answers }) as any;
-      
+
       if (planRes.type === "clarification") {
         return {
           workflow: newWorkflow,
           explanation: "I need more details to compile the workflow.",
           warnings: [],
-          questions: planRes.questions,
+          questions: (planRes.questions ?? []).map((question: unknown) => String(question)),
         };
       }
       
@@ -350,21 +355,50 @@ class ApiClient {
     return proj
   }
 
-  async compileProjectBrief(data: { goal: string }): Promise<ProjectBrief> {
+  // Returns the project's id as well as its brief: the planner's questions
+  // are addressed to that project, and answering one needs it.
+  async compileProjectBrief(data: { goal: string }): Promise<{ projectId: string; brief: ProjectBrief; clarifications: ProjectClarification[] }> {
     if (isLiveApi) {
       const project = await live.createProject(data.goal)
-      return project.brief ?? {
-        goal: data.goal,
-        primaryUsers: "",
-        coreCapabilities: [],
+      return {
+        projectId: project.id,
+        brief: project.brief ?? {
+          goal: data.goal,
+          primaryUsers: "",
+          coreCapabilities: [],
+        },
+        clarifications: await live.getProjectClarifications(project.id),
       }
     }
     await delay(MOCK_DELAY * 2)
     return {
-      goal: data.goal,
-      primaryUsers: "Identified users",
-      coreCapabilities: ["Capability 1", "Capability 2"]
+      projectId: `prj_${Date.now()}`,
+      brief: {
+        goal: data.goal,
+        primaryUsers: "Identified users",
+        coreCapabilities: ["Capability 1", "Capability 2"]
+      },
+      clarifications: [],
     }
+  }
+
+  async getProjectClarifications(id: string): Promise<ProjectClarification[]> {
+    if (isLiveApi) return live.getProjectClarifications(id)
+    await delay(MOCK_DELAY)
+    return []
+  }
+
+  async answerProjectClarifications(id: string, answers: Record<string, string>): Promise<ProjectClarification[]> {
+    if (isLiveApi) {
+      // Answered one at a time because that is the route the engine offers;
+      // each answer is what lets the planner write the next part of the plan.
+      for (const [clarificationId, answer] of Object.entries(answers)) {
+        await live.answerProjectClarification(id, clarificationId, answer)
+      }
+      return live.getProjectClarifications(id)
+    }
+    await delay(MOCK_DELAY)
+    return []
   }
 
   async approveProjectPlan(_id: string): Promise<void> {
