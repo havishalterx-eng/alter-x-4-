@@ -32,7 +32,8 @@ import {
 } from "./mock/data"
 import { 
   type Workflow, type WorkflowSafeguards, type Run, type DashboardSummary, 
-  type Workspace, type Member, type WorkspaceRole, 
+  type Workspace, type Member, type WorkspaceRole, type TenantDataResidency,
+  type TenantDataResidencySettings,
   type Profile, type Session,
   type Project, type ProjectBrief, type ProjectClarification, type NodeTypeDefinition,
   type Artifact, type ProjectFile, type TestResult,
@@ -116,6 +117,30 @@ class ApiClient {
     if (isLiveApi) return live.getWorkspaces()
     await delay(MOCK_DELAY)
     return mockWorkspaces
+  }
+
+  async getTenantDataResidencySettings(): Promise<TenantDataResidencySettings> {
+    if (isLiveApi) return live.getTenantDataResidencySettings()
+    await delay(MOCK_DELAY)
+    return mockTenantDataResidencySettings
+  }
+
+  async updateTenantDataResidencySettings(
+    tenantId: string,
+    dataResidency: TenantDataResidency | null,
+    etag: string | undefined,
+  ): Promise<TenantDataResidencySettings> {
+    if (isLiveApi) {
+      return live.updateTenantDataResidencySettings(tenantId, dataResidency, etag)
+    }
+    await delay(MOCK_DELAY)
+    mockTenantDataResidencySettings = {
+      ...mockTenantDataResidencySettings,
+      tenantId,
+      dataResidency,
+      etag: `"mock-${Date.now()}"`,
+    }
+    return mockTenantDataResidencySettings
   }
 
   async createWorkspace(data: { name: string; slug: string }): Promise<Workspace> {
@@ -1239,6 +1264,13 @@ export const api = Object.assign(apiClient, {
 // Demo data: the workspace requires both safeguards, as a new workspace does.
 const mockWorkspaceSafeguards = { containsPii: true, approveExternalActions: true }
 const mockSafeguardAdditions = new Map<string, WorkflowSafeguards["additions"]>()
+let mockTenantDataResidencySettings: TenantDataResidencySettings = {
+  tenantId: "ten_mock",
+  tenantName: "Demo tenant",
+  role: "owner",
+  dataResidency: null,
+  etag: '"mock-1"',
+}
 
 function mockSafeguards(id: string): WorkflowSafeguards {
   const additions = mockSafeguardAdditions.get(id) ?? {

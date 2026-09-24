@@ -44,6 +44,7 @@ export const queryKeys = {
     profile: ["settings", "profile"] as const,
     sessions: ["settings", "sessions"] as const,
     language: ["settings", "language"] as const,
+    dataResidency: ["settings", "data-residency"] as const,
   },
   humanActions: {
     list: (filters?: any) => ["humanActions", "list", filters] as const,

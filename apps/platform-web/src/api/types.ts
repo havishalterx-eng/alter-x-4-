@@ -14,6 +14,21 @@ export interface Workspace {
   createdAt: string
 }
 
+export type TenantRole = "owner" | "admin" | "billing" | "member"
+
+export interface TenantDataResidency {
+  allowed: string[]
+  legalBasis?: string
+}
+
+export interface TenantDataResidencySettings {
+  tenantId: string
+  tenantName: string
+  role: TenantRole
+  dataResidency: TenantDataResidency | null
+  etag?: string
+}
+
 export interface User {
   id: string
   name: string
