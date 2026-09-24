@@ -4,19 +4,34 @@ import { Sparkles, Loader2, Briefcase } from "lucide-react"
 import { Composer } from "@/components/conversation/Composer"
 import { MessageList } from "@/components/conversation/MessageList"
 import { SuggestionCard } from "@/components/conversation/SuggestionCard"
-import { ClarificationCard } from "@/components/conversation/ClarificationCard"
+import { ClarificationQuestions } from "@/components/conversation/clarification-questions"
 import { StructuredArtifactMessage } from "@/components/conversation/StructuredArtifactMessage"
 import { useMutation } from "@tanstack/react-query"
 import { api } from "@/api/client"
-import { type ChatMessage } from "@/api/types"
+import { type ChatMessage, type ProjectClarification } from "@/api/types"
 
 export function ProjectCreate() {
   const navigate = useNavigate()
   const [messages, setMessages] = React.useState<ChatMessage[]>([])
   
+  const [projectId, setProjectId] = React.useState<string | undefined>(undefined)
+
+  const clarificationMessage = (clarifications: ProjectClarification[]): ChatMessage => ({
+    id: `msg_c_${Date.now()}`,
+    role: "assistant",
+    type: "clarification",
+    content:
+      clarifications.length === 1
+        ? "One thing before the plan is written."
+        : "A few things before the plan is written.",
+    data: { clarifications },
+    createdAt: new Date().toISOString()
+  })
+
   const compileMutation = useMutation({
     mutationFn: api.compileProjectBrief,
     onSuccess: (data) => {
+      setProjectId(data.projectId)
       setMessages(prev => [
         ...prev,
         {
@@ -25,13 +40,27 @@ export function ProjectCreate() {
           type: "project_brief",
           content: "I've reviewed your request and prepared a Project Brief.",
           data: {
-            id: `proj_${Date.now()}`,
-            name: "Generated Project",
-            brief: data
+            // The project the engine really created, so opening it goes
+            // somewhere. This used to be a timestamp, which resolved to
+            // nothing.
+            id: data.projectId,
+            name: data.brief.goal,
+            brief: data.brief
           },
           createdAt: new Date().toISOString()
-        }
+        },
+        ...(data.clarifications.length > 0 ? [clarificationMessage(data.clarifications)] : [])
       ])
+    }
+  })
+
+  const answerMutation = useMutation({
+    mutationFn: (variables: { id: string; answers: Record<string, string> }) =>
+      api.answerProjectClarifications(variables.id, variables.answers),
+    onSuccess: (remaining) => {
+      // The planner writes the next part of the plan from the answers, and
+      // may have more to ask.
+      if (remaining.length > 0) setMessages(prev => [...prev, clarificationMessage(remaining)])
     }
   })
 
@@ -54,26 +83,25 @@ export function ProjectCreate() {
       }
     ])
 
-    if (messages.length === 0 && text.toLowerCase().includes("portal")) {
-      setTimeout(() => {
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `msg_a_${Date.now()}`,
-            role: "assistant",
-            type: "clarification",
-            content: "What frontend framework should the portal use?",
-            data: {
-              question: "Framework",
-              options: ["React", "Next.js", "Use best judgment"]
-            },
-            createdAt: new Date().toISOString()
-          }
-        ])
-      }, 800)
-    } else {
-      compileMutation.mutate({ goal: text })
-    }
+    compileMutation.mutate({ goal: text })
+  }
+
+  const handleAnswers = (clarifications: ProjectClarification[], answers: Record<string, string>) => {
+    if (!projectId) return
+    const asked = new Map(clarifications.map((item) => [item.id, item.question]))
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `msg_u_${Date.now()}`,
+        role: "user",
+        type: "text",
+        content: Object.entries(answers)
+          .map(([id, answer]) => `${asked.get(id) ?? ""} ${answer}`.trim())
+          .join("\n"),
+        createdAt: new Date().toISOString()
+      }
+    ])
+    answerMutation.mutate({ id: projectId, answers })
   }
 
   return (
@@ -102,14 +130,24 @@ export function ProjectCreate() {
               messages={messages}
               renderCustomMessage={(msg) => {
                 if (msg.type === "clarification") {
+                  const clarifications = msg.data.clarifications as ProjectClarification[]
+                  const answered = messages.indexOf(msg) < messages.length - 1
                   return (
                     <div className="space-y-2">
                       <p>{msg.content}</p>
-                      <ClarificationCard 
-                        question={msg.data.question} 
-                        options={msg.data.options} 
-                        onSelect={(opt) => handleSend(opt)} 
-                      />
+                      {answered ? (
+                        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                          {clarifications.map((item) => (
+                            <li key={item.id}>{item.question}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <ClarificationQuestions
+                          questions={clarifications}
+                          onSubmit={(answers) => handleAnswers(clarifications, answers)}
+                          pending={answerMutation.isPending}
+                        />
+                      )}
                     </div>
                   )
                 }

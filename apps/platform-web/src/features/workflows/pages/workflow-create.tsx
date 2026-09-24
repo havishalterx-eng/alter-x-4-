@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { Sparkles, Loader2, Network } from "lucide-react"
 import { Composer } from "@/components/conversation/Composer"
 import { MessageList } from "@/components/conversation/MessageList"
-import { ClarificationCard } from "@/components/conversation/ClarificationCard"
+import { ClarificationQuestions } from "@/components/conversation/clarification-questions"
 import { SuggestionCard } from "@/components/conversation/SuggestionCard"
 import { StructuredArtifactMessage } from "@/components/conversation/StructuredArtifactMessage"
 import { useMutation } from "@tanstack/react-query"
@@ -13,20 +13,36 @@ import { type ChatMessage } from "@/api/types"
 export function WorkflowCreate() {
   const navigate = useNavigate()
   const [messages, setMessages] = React.useState<ChatMessage[]>([])
-  
+  // The objective the planner is working on, kept out of the chat log: an
+  // answer to a clarification is not a new goal, and re-planning has to send
+  // the original objective back with the answers attached. The workflow id
+  // keeps those re-plans on the draft that raised the questions.
+  const [objective, setObjective] = React.useState("")
+  const [workflowId, setWorkflowId] = React.useState<string | undefined>(undefined)
+
   const compileMutation = useMutation({
     mutationFn: api.compileWorkflow,
     onSuccess: (data) => {
+      setWorkflowId(data.workflow.id)
       setMessages(prev => [
         ...prev,
-        {
-          id: `msg_${Date.now()}`,
-          role: "assistant",
-          type: "workflow_draft",
-          content: data.explanation,
-          data: data.workflow,
-          createdAt: new Date().toISOString()
-        }
+        data.questions.length > 0
+          ? {
+              id: `msg_${Date.now()}`,
+              role: "assistant" as const,
+              type: "clarification" as const,
+              content: data.explanation,
+              data: { questions: data.questions },
+              createdAt: new Date().toISOString()
+            }
+          : {
+              id: `msg_${Date.now()}`,
+              role: "assistant" as const,
+              type: "workflow_draft" as const,
+              content: data.explanation,
+              data: data.workflow,
+              createdAt: new Date().toISOString()
+            }
       ])
     }
   })
@@ -50,31 +66,26 @@ export function WorkflowCreate() {
       }
     ])
 
-    // Mock Clarification logic
-    if (messages.length === 0 && text.toLowerCase().includes("support")) {
-      setTimeout(() => {
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `msg_a_${Date.now()}`,
-            role: "assistant",
-            type: "clarification",
-            content: "Before I create this workflow, I need one detail.",
-            data: {
-              question: "Where should urgent issues be sent?",
-              options: ["Slack", "Microsoft Teams", "Email"]
-            },
-            createdAt: new Date().toISOString()
-          }
-        ])
-      }, 800)
-    } else {
-      compileMutation.mutate({ goal: text, answers: {} })
-    }
+    setObjective(text)
+    compileMutation.mutate({ goal: text, answers: {} })
   }
 
-  const handleClarification = (option: string) => {
-    handleSend(option)
+  const handleAnswers = (answers: Record<string, string>) => {
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `msg_u_${Date.now()}`,
+        role: "user",
+        type: "text",
+        content: Object.entries(answers)
+          .map(([question, answer]) => `${question} ${answer}`)
+          .join("\n"),
+        createdAt: new Date().toISOString()
+      }
+    ])
+    // The same objective and the same draft, now with the answers attached:
+    // the planner asked about this goal, not about a new one.
+    compileMutation.mutate({ goal: objective, answers, workflowId })
   }
 
   return (
@@ -103,14 +114,27 @@ export function WorkflowCreate() {
               messages={messages}
               renderCustomMessage={(msg) => {
                 if (msg.type === "clarification") {
+                  const answered = messages.indexOf(msg) < messages.length - 1
                   return (
                     <div className="space-y-2">
                       <p>{msg.content}</p>
-                      <ClarificationCard 
-                        question={msg.data.question} 
-                        options={msg.data.options} 
-                        onSelect={handleClarification} 
-                      />
+                      {answered ? (
+                        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                          {(msg.data.questions as string[]).map((question) => (
+                            <li key={question}>{question}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <ClarificationQuestions
+                          questions={(msg.data.questions as string[]).map((question) => ({
+                            id: question,
+                            question,
+                          }))}
+                          onSubmit={handleAnswers}
+                          pending={compileMutation.isPending}
+                          submitLabel="Answer and plan again"
+                        />
+                      )}
                     </div>
                   )
                 }

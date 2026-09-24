@@ -9,6 +9,7 @@ import type {
   NodeTypeDefinition,
   Profile,
   Project,
+  ProjectClarification,
   ProjectFile,
   Run,
   Session,
@@ -483,6 +484,31 @@ export async function startProjectBuild(id: string): Promise<{ runId: string }> 
     idempotencyKey: mutationKey("project-build"),
   })
   return { runId: String(body.run_id ?? body.runId ?? body.build_id ?? body.id ?? "") }
+}
+
+// The planner asks these while a project's plan is still being written; the
+// engine keeps them on the plan's conversation and answers the open ones
+// only. `options` is always empty -- no option vocabulary exists anywhere
+// behind this -- so an answer is free text.
+export async function getProjectClarifications(id: string): Promise<ProjectClarification[]> {
+  const body = await apiGet<unknown>(`/api/v1/projects/${encodeURIComponent(id)}/clarifications`)
+  return asArray(body, "data").map((item) => ({
+    id: String(item.clarification_id ?? item.id ?? ""),
+    question: String(item.question ?? ""),
+    required: item.required !== false,
+  }))
+}
+
+export async function answerProjectClarification(
+  id: string,
+  clarificationId: string,
+  answer: string,
+): Promise<void> {
+  await apiPost(
+    `/api/v1/projects/${encodeURIComponent(id)}/clarifications/${encodeURIComponent(clarificationId)}/answer`,
+    { answer },
+    { idempotencyKey: mutationKey("project-clarification-answer") },
+  )
 }
 
 export async function approveProjectPlan(id: string): Promise<void> {
