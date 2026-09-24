@@ -386,12 +386,14 @@ describe("EngineClient", () => {
     vi.useFakeTimers();
     try {
       const aborted: (boolean | undefined)[] = [];
-      const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
-        const signal = init.signal as AbortSignal;
-        await vi.advanceTimersByTimeAsync(200);
-        aborted.push(signal.aborted);
-        return jsonResponse(200, { ok: true });
-      });
+      const fetchImpl = vi.fn(
+        async (_input: string | URL | Request, init?: RequestInit) => {
+          const signal = init?.signal as AbortSignal;
+          await vi.advanceTimersByTimeAsync(200);
+          aborted.push(signal.aborted);
+          return jsonResponse(200, { ok: true });
+        },
+      );
       const client = new EngineClient(config, authProvider, fetchImpl, noDelay);
 
       // requestTimeoutMs is 100 here, so 200ms of waiting aborts this one.
