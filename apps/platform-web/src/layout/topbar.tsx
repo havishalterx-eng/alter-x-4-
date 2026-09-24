@@ -16,6 +16,7 @@ import { GlobalSearchModal } from "@/features/search/components/global-search-mo
 import { NotificationPopover } from "@/features/notifications/components/notification-popover"
 import { KeyboardShortcutsDialog } from "@/features/commands/components/keyboard-shortcuts-dialog"
 import { useTranslation } from "react-i18next"
+import { isLiveFeatureAvailable } from "@/features/availability/live-feature-policy"
 
 function initials(value: string | undefined) {
   if (!value) return "AX"
@@ -80,7 +81,7 @@ export function Topbar() {
         </div>
 
         <div className="ml-auto flex items-center gap-4">
-          <NotificationPopover />
+          {isLiveFeatureAvailable("notifications") && <NotificationPopover />}
           <button className="text-text-muted hover:text-text-primary transition-colors hidden sm:block">
             <HelpCircle className="h-5 w-5" />
           </button>
