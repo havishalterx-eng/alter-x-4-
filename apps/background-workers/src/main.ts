@@ -78,7 +78,14 @@ async function bootstrap(): Promise<void> {
         ...(environment.temporalApiKey === undefined
           ? {}
           : { apiKey: environment.temporalApiKey }),
+        ...(environment.workerDeployment === undefined
+          ? {}
+          : { workerDeployment: environment.workerDeployment }),
+        ...(environment.minimumRetentionDays === undefined
+          ? {}
+          : { minimumRetentionDays: environment.minimumRetentionDays }),
       },
+      conversationTaskQueue: environment.conversationTaskQueue,
       nodeexec: {
         address: environment.nodeexecAddress,
         protoPath: NODEEXEC_PROTO_PATH,
@@ -178,6 +185,15 @@ async function bootstrap(): Promise<void> {
         ...(platformJobsEnvironment.temporalApiKey === undefined
           ? {}
           : { apiKey: platformJobsEnvironment.temporalApiKey }),
+        ...(platformJobsEnvironment.workerDeployment === undefined
+          ? {}
+          : { workerDeployment: platformJobsEnvironment.workerDeployment }),
+        ...(platformJobsEnvironment.minimumRetentionDays === undefined
+          ? {}
+          : {
+              minimumRetentionDays:
+                platformJobsEnvironment.minimumRetentionDays,
+            }),
       },
     },
     createPlatformJobHandlers({
