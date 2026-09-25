@@ -47,6 +47,7 @@ const CONTEXT = {
   nodeKey: "failed_node",
   failureClass: "logic_output_failure",
   estimate: ESTIMATE,
+  recoveryActionId: "rec_018f47a5-7b2c-7d10-8f11-123456789abc",
 };
 
 function buildService(overrides: {
@@ -62,6 +63,7 @@ function buildService(overrides: {
   findForSourceNode?: (request: unknown) => Promise<unknown[]>;
   resolveNodeRequirements?: CapabilityResolverHandler["resolveNodeRequirements"];
   bindAgentModelTool?: SelectionBindingHandler["bindAgentModelTool"];
+  createEscalation?: (request: unknown) => Promise<{ readonly id: string }>;
 } = {}): RecoveryDispatchService {
   const modelGateway = {
     invoke:
@@ -139,6 +141,11 @@ function buildService(overrides: {
     5,
     capabilityResolver,
     selectionBinding,
+    // Unset unless a test configures one, so "repair" sees production's
+    // own optional dependency both ways round.
+    overrides.createEscalation === undefined
+      ? undefined
+      : ({ create: overrides.createEscalation } as never),
   );
 }
 
@@ -175,6 +182,100 @@ describe("RecoveryDispatchService", () => {
     ],
     edges: [],
     waves: [{ key: "wave_0", order: 0, node_keys: [CONTEXT.nodeKey], depends_on: [] }],
+  });
+
+  // Decision 6: repair escalates and parks. Nothing here holds a tenant's
+  // third-party credential, so the only honest move is to name the missing
+  // connection to a person and leave the run waiting.
+  const DAG_WITH_CREDENTIAL = JSON.stringify({
+    schema_version: "v1",
+    entry_node_keys: [CONTEXT.nodeKey],
+    nodes: [
+      {
+        key: CONTEXT.nodeKey,
+        type: "ToolCall",
+        config: {
+          // The shape the contract locks:
+          // /alter/{env}/tenant/{tenant_id}/integration/{integration_id}/{secret_name}
+          credential_ref:
+            "/alter/local/tenant/ten_018f47a5-7b2c-7d10-8f11-123456789abc/integration/zendesk/oauth",
+        },
+        metadata: { ui: {} },
+      },
+    ],
+    edges: [],
+    waves: [{ key: "wave_0", order: 0, node_keys: [CONTEXT.nodeKey], depends_on: [] }],
+  });
+
+  function dagReader(dagJson: string) {
+    return vi.fn().mockResolvedValue({
+      compiledDagJson: dagJson,
+      dagSchemaVersion: "v1",
+      workflowId: "wf_test",
+      workspaceId: "018f47a5-7b2c-7d10-8f11-000000000ws1",
+    });
+  }
+
+  it("repair raises an escalation naming the connection the step could not authenticate with", async () => {
+    const createEscalation = vi.fn().mockResolvedValue({ id: "esc_test" });
+    const service = buildService({
+      createEscalation,
+      loadCompiledDagJson: dagReader(DAG_WITH_CREDENTIAL),
+    });
+
+    const result = await service.dispatch("repair", CONTEXT);
+
+    expect(result.outcome).toBe("escalated");
+    expect(createEscalation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: CONTEXT.runId,
+        nodeExecutionId: CONTEXT.nodeExecutionId,
+        recoveryActionId: CONTEXT.recoveryActionId,
+        reason: expect.stringContaining("zendesk"),
+      }),
+    );
+  });
+
+  it("repair never signals the run, which is what parks it", async () => {
+    const signalWorkflow = vi.fn().mockResolvedValue(undefined);
+    const service = buildService({
+      signalWorkflow,
+      createEscalation: vi.fn().mockResolvedValue({ id: "esc_test" }),
+      loadCompiledDagJson: dagReader(DAG_WITH_CREDENTIAL),
+    });
+
+    await service.dispatch("repair", CONTEXT);
+
+    expect(signalWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("repair names the node when the DAG carries no connection to name", async () => {
+    const createEscalation = vi.fn().mockResolvedValue({ id: "esc_test" });
+    const service = buildService({
+      createEscalation,
+      loadCompiledDagJson: dagReader(REAL_DAG),
+    });
+
+    await service.dispatch("repair", CONTEXT);
+
+    expect(createEscalation).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: expect.stringContaining(CONTEXT.nodeKey) }),
+    );
+  });
+
+  it.each([
+    ["no escalation queue is wired", undefined],
+    ["the escalation cannot be raised", vi.fn().mockRejectedValue(new Error("queue down"))],
+  ])("repair still reports escalated when %s", async (_case, createEscalation) => {
+    const service = buildService({
+      ...(createEscalation === undefined ? {} : { createEscalation }),
+      loadCompiledDagJson: dagReader(DAG_WITH_CREDENTIAL),
+    });
+
+    const result = await service.dispatch("repair", CONTEXT);
+
+    // Never "resolved": no credential was supplied, so nothing was repaired.
+    expect(result.outcome).toBe("escalated");
   });
 
   it("swap_agent makes a real ranked-match call but never reports resolved (no execution-time consumer exists)", async () => {

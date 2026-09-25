@@ -107,8 +107,22 @@ const ESCALATION_SELECT_COLUMNS = `id, run_id, node_execution_id, recovery_actio
  * human decision, disclosed here rather than faked as an automatic
  * resume.
  */
+/** The one signal this service sends: the same one the `retry` strategy sends. */
+export interface EscalationRetrySignaler {
+  signalWorkflow(request: {
+    readonly workflowId: string;
+    readonly signalName: string;
+    readonly payload: unknown;
+  }): Promise<void>;
+}
+
 export class EscalationsService {
-  constructor(private readonly store: OrchestrationTenantStore) {}
+  constructor(
+    private readonly store: OrchestrationTenantStore,
+    // Optional: a deployment or test with no durable provider still records
+    // every human decision, it just cannot wake a parked run.
+    private readonly retrySignaler?: EscalationRetrySignaler,
+  ) {}
 
   async create(input: {
     readonly tenantId: string;
@@ -230,6 +244,24 @@ export class EscalationsService {
     });
   }
 
+  /**
+   * Decision 6: an escalation raised by "repair" is the one kind whose
+   * resolution means something a run can act on -- a person has connected
+   * the account the step needed, so the step can run again. The run has been
+   * parked all along inside the Executor's own 24-hour wait for a
+   * `nodeRetryDecided` signal, so resolving sends exactly that signal, the
+   * same one the `retry` strategy sends.
+   *
+   * Signalled before the row is committed, for the reason
+   * ApprovalsService.decide gives: if the signal fails, the escalation stays
+   * open and the whole call can be retried, rather than a resolved
+   * escalation sitting beside a run that never heard about it.
+   *
+   * Every other escalation still resolves without signalling anything. A
+   * strategy that exhausted itself has no step waiting to be re-run, and
+   * telling a workflow to retry on the strength of a human's note would be
+   * inventing a contract that does not exist.
+   */
   async resolve(
     tenantIdInput: string,
     escalationId: string,
@@ -238,6 +270,12 @@ export class EscalationsService {
   ): Promise<EscalationRow> {
     const tenantId = bareTenantUuid(tenantIdInput);
     requireEscalationId(escalationId);
+
+    const current = await this.getById(tenantIdInput, escalationId);
+    if (current.status === "open" || current.status === "claimed") {
+      await this.#resumeParkedRun(tenantId, current);
+    }
+
     return this.store.withTenant(tenantId, async (tx) => {
       const updated = await tx.query<EscalationRow>(
         `UPDATE escalations
@@ -257,6 +295,35 @@ export class EscalationsService {
       throw new EscalationStateConflictError(
         `escalation ${escalationId} is already "${existing.rows[0].status}" and cannot be resolved again`,
       );
+    });
+  }
+
+  /**
+   * Sends the parked run's failed step back to the Executor, but only for an
+   * escalation that "repair" raised: the strategy on the linked
+   * recovery_actions row is what says so, so no new column is needed to tell
+   * the two kinds apart.
+   */
+  async #resumeParkedRun(tenantId: string, escalation: EscalationRow): Promise<void> {
+    if (this.retrySignaler === undefined) return;
+    if (escalation.node_execution_id === null) return;
+
+    const strategy = await this.store.withTenant(tenantId, async (tx) => {
+      const result = await tx.query<{ readonly strategy: string | null }>(
+        "SELECT strategy FROM recovery_actions WHERE tenant_id = $1 AND id = $2",
+        [tenantId, escalation.recovery_action_id],
+      );
+      return result.rows[0]?.strategy ?? null;
+    });
+    if (strategy !== "repair") return;
+
+    await this.retrySignaler.signalWorkflow({
+      workflowId: escalation.run_id,
+      signalName: "nodeRetryDecided",
+      payload: {
+        nodeExecutionId: escalation.node_execution_id,
+        action: "retry",
+      },
     });
   }
 }

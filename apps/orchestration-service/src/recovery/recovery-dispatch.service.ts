@@ -11,6 +11,7 @@ import type { JsonValue } from "@alterx/shared-clients";
 
 import type { ApprovalsService } from "../approvals/approvals.service";
 import type { BlackboardService } from "../blackboard/blackboard.service";
+import type { EscalationsService } from "../escalations/escalations.service";
 import { SynthesisHandler } from "../registry/handlers/synthesis.handler";
 import type { VerificationGateReader } from "../registry/verification-gate-reader";
 import type { RecoveryStrategy } from "./recovery-strategy-table";
@@ -25,6 +26,8 @@ export interface DispatchContext {
   readonly nodeKey: string; // real dag_node_id of the failed node
   readonly failureClass: string;
   readonly estimate: RootCauseEstimate;
+  /** The recovery_actions row this dispatch belongs to; an escalation links back to it. */
+  readonly recoveryActionId: string;
 }
 
 export interface GraphCompilerHandler {
@@ -145,6 +148,9 @@ export class RecoveryDispatchService {
     private readonly backoffDelayMs: number = DEFAULT_BACKOFF_DELAY_MS,
     private readonly capabilityResolver?: CapabilityResolverHandler,
     private readonly selectionBinding?: SelectionBindingHandler,
+    // Optional for the same reason RecoveryPolicyService's is: a caller or
+    // test that never dispatches "repair" needs no escalation queue.
+    private readonly escalations?: EscalationsService,
   ) {}
 
   async dispatch(
@@ -174,11 +180,7 @@ export class RecoveryDispatchService {
       case "backoff":
         return this.#retryNode(context, { withBackoff: true });
       case "repair":
-        // Still has no defined concept anywhere in the codebase.
-        return {
-          outcome: "escalated",
-          detail: 'strategy_dispatch_deferred: "repair" has no real target system wired yet (see HEAL-6 PR known-gaps)',
-        };
+        return this.#repair(context);
       case "swap_agent":
         return this.#swapAgent(context);
       default:
@@ -486,6 +488,91 @@ export class RecoveryDispatchService {
         outcome: "failed",
         detail: `${options.withBackoff ? "backoff" : "retry"} dispatch failed: ${(error as Error).message}`,
       };
+    }
+  }
+
+  /**
+   * Decision 6: escalate and park.
+   *
+   * `repair` is selected for exactly one failure class,
+   * `credential_missing`: a tool call failed because the tenant has not
+   * connected the third-party account it needs. Nothing here holds that
+   * credential and nothing should invent one, so the only honest move is to
+   * tell a person which connection is missing and leave the run where it is.
+   *
+   * Parking needs no new mechanism. A failed node already waits up to
+   * NODE_RECOVERY_TIMEOUT_MS (24 hours) for a `nodeRetryDecided` signal
+   * before the run gives up, so not signalling *is* the park, and resolving
+   * the escalation is what sends that signal
+   * (EscalationsService.resolve). The 24 hours is the real ceiling: a
+   * credential connected later than that arrives after the run has already
+   * timed out.
+   *
+   * Without an escalations service wired, this still reports `escalated`
+   * rather than claiming a repair that did not happen -- the run then waits
+   * and times out exactly as it did before, which is the old behaviour and
+   * not a worse one.
+   */
+  async #repair(context: DispatchContext): Promise<DispatchResult> {
+    const connection = await this.#missingConnection(context);
+    const reason = connection
+      ? `A tool call could not authenticate: this workspace has not connected "${connection}". ` +
+        `Connect it and resolve this escalation to run the step again.`
+      : `A tool call could not authenticate: node "${context.nodeKey}" needs a connection this ` +
+        `workspace has not made. Connect it and resolve this escalation to run the step again.`;
+
+    if (this.escalations === undefined) {
+      return {
+        outcome: "escalated",
+        detail: `${reason} (no escalation queue wired, so nobody was told)`,
+      };
+    }
+
+    try {
+      const escalation = await this.escalations.create({
+        tenantId: `ten_${context.tenantId}`,
+        runId: context.runId,
+        nodeExecutionId: context.nodeExecutionId,
+        recoveryActionId: context.recoveryActionId,
+        reason,
+      });
+      return {
+        outcome: "escalated",
+        detail: `escalation ${escalation.id} raised; the run waits for it to be resolved`,
+      };
+    } catch (error: unknown) {
+      return {
+        outcome: "escalated",
+        detail: `repair could not raise an escalation: ${(error as Error).message}`,
+      };
+    }
+  }
+
+  /**
+   * The connector the failed node was configured to authenticate with, read
+   * from the run's own compiled DAG. Credential references are built as
+   * .../integration/<id>/... by the compiler, the same shape the review
+   * screen reads. Anything else, or an unreadable DAG, leaves the
+   * escalation naming the node instead -- a vaguer message is better than a
+   * wrong connector name.
+   */
+  async #missingConnection(context: DispatchContext): Promise<string | undefined> {
+    if (context.nodeKey.length === 0) return undefined;
+    try {
+      const { compiledDagJson } = await this.runs.loadCompiledDagJson(
+        context.tenantId,
+        context.runId,
+      );
+      const parsed = CompiledDagSchema.safeParse(JSON.parse(compiledDagJson));
+      if (!parsed.success) return undefined;
+      const node = parsed.data.nodes.find((candidate) => candidate.key === context.nodeKey);
+      const reference = node?.config?.["credential_ref"];
+      if (typeof reference !== "string") return undefined;
+      const segments = reference.split("/");
+      const index = segments.indexOf("integration");
+      return index >= 0 ? segments[index + 1] : undefined;
+    } catch {
+      return undefined;
     }
   }
 

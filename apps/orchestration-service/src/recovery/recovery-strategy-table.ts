@@ -19,18 +19,21 @@ export type RecoveryStrategy =
   | "terminate";
 
 /**
- * Real dispatch exists today (RecoveryDispatchService) for these 8.
+ * Real dispatch exists today (RecoveryDispatchService) for these 9.
  * `recompile` shares `replan`'s real mechanism (no narrower
  * "recompile without a new plan" primitive exists -- Self-Healing
  * exit-check closure, disclosed merge, not two independent paths).
  * `retry`/`backoff` send a real nodeRetryDecidedSignal to the run's
  * Executor workflow (Self-Healing exit-check closure -- see
- * executor-workflow.ts's executeNodeWithRecovery). The remaining 2
- * (repair, swap_agent) are selected correctly by the deterministic table
- * below (a real, auditable decision lands in recovery_actions.strategy)
- * but have no real system to call yet -- dispatch honestly reports them
- * as deferred instead of pretending to have acted. See PR bodies for the
- * gap behind each one.
+ * executor-workflow.ts's executeNodeWithRecovery). `repair` raises a real
+ * escalation naming the connection the step could not authenticate with,
+ * and leaves the run parked in that same wait: nothing here holds a
+ * tenant's third-party credential and nothing should invent one
+ * (decision 6). The remaining one, `swap_agent`, is selected correctly by
+ * the deterministic table below (a real, auditable decision lands in
+ * recovery_actions.strategy) but has no real system to call yet --
+ * dispatch honestly reports it as deferred instead of pretending to have
+ * acted.
  */
 export const DISPATCHABLE_STRATEGIES = new Set<RecoveryStrategy>([
   "escalate_model",
@@ -41,6 +44,7 @@ export const DISPATCHABLE_STRATEGIES = new Set<RecoveryStrategy>([
   "degrade",
   "ask_user",
   "terminate",
+  "repair",
 ]);
 
 /**
