@@ -2,7 +2,7 @@ import * as React from "react"
 import { useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
-import { GitCommit, Loader2, RotateCcw, Rocket, Split } from "lucide-react"
+import { FlaskConical, GitCommit, Loader2, RotateCcw, Rocket, Split } from "lucide-react"
 import { api } from "@/api/client"
 import { queryKeys } from "@/api/query-keys"
 import { Button } from "@/components/ui/button"
@@ -15,7 +15,8 @@ import type { WorkflowVersion } from "@/api/types"
  * The Deployment Manager (C8). Every version and status here comes from the
  * workflow's own compiled versions, and the three actions are the lifecycle
  * contract's own: promote a tested version, run one as a canary on a share
- * of traffic, or roll the promoted one back.
+ * of traffic, or roll the promoted one back. A compiled version is tested
+ * first, because nothing else can be done to it until it has been.
  */
 export function WorkflowVersions() {
   const { workflowId } = useParams()
@@ -57,6 +58,14 @@ export function WorkflowVersions() {
     }
   }
 
+  // A compiled version has to be tested before it can be deployed at all:
+  // the release gate behind this decides whether it becomes "tested".
+  const test = useMutation({
+    mutationFn: (versionId: string) => api.testWorkflowVersion(workflowId!, versionId),
+    onSuccess: afterAction("Version tested."),
+    onError: onError("Could not test this version"),
+  })
+
   const promote = useMutation({
     mutationFn: (versionId: string) => api.promoteWorkflowVersion(workflowId!, versionId),
     onSuccess: afterAction("Version promoted."),
@@ -76,7 +85,8 @@ export function WorkflowVersions() {
     onError: onError("Could not roll back to this version"),
   })
 
-  const busy = promote.isPending || canary.isPending || rollback.isPending
+  const busy =
+    test.isPending || promote.isPending || canary.isPending || rollback.isPending
 
   return (
     <div className="flex-1 space-y-8 p-8 max-w-4xl mx-auto">
@@ -151,6 +161,7 @@ export function WorkflowVersions() {
                 canaryOpen={canaryFor === version.id}
                 trafficPercent={trafficPercent}
                 onTrafficPercentChange={setTrafficPercent}
+                onTest={() => test.mutate(version.id)}
                 onPromote={() => promote.mutate(version.id)}
                 onOpenCanary={() => setCanaryFor(version.id)}
                 onCancelCanary={() => setCanaryFor(undefined)}
@@ -173,6 +184,7 @@ interface VersionActionsProps {
   canaryOpen: boolean
   trafficPercent: string
   onTrafficPercentChange: (value: string) => void
+  onTest: () => void
   onPromote: () => void
   onOpenCanary: () => void
   onCancelCanary: () => void
@@ -182,7 +194,7 @@ interface VersionActionsProps {
 
 /**
  * Only the transitions the lifecycle service allows are offered: a version
- * is promoted or sent out as a canary once it has been tested, and only a
+ * is tested first, then promoted or sent out as a canary, and only a
  * promoted version can be rolled back.
  */
 function VersionActions({
@@ -191,6 +203,7 @@ function VersionActions({
   canaryOpen,
   trafficPercent,
   onTrafficPercentChange,
+  onTest,
   onPromote,
   onOpenCanary,
   onCancelCanary,
@@ -219,6 +232,17 @@ function VersionActions({
         </Button>
         <Button size="sm" variant="ghost" onClick={onCancelCanary} disabled={busy}>
           Cancel
+        </Button>
+      </div>
+    )
+  }
+
+  if (version.status === "compiled") {
+    return (
+      <div className="flex flex-wrap gap-2 pt-2">
+        <Button size="sm" onClick={onTest} disabled={busy}>
+          <FlaskConical className="mr-2 h-4 w-4" />
+          Test
         </Button>
       </div>
     )
