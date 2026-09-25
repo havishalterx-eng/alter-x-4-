@@ -346,6 +346,11 @@ class ApiClient {
     return []
   }
 
+  async testWorkflowVersion(id: string, versionId: string): Promise<void> {
+    if (isLiveApi) return live.testWorkflowVersion(id, versionId)
+    await delay(MOCK_DELAY)
+  }
+
   async promoteWorkflowVersion(id: string, versionId: string): Promise<void> {
     if (isLiveApi) return live.promoteWorkflowVersion(id, versionId)
     await delay(MOCK_DELAY)

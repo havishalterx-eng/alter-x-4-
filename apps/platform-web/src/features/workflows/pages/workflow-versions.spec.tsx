@@ -85,7 +85,7 @@ describe("the Deployment Manager's version history", () => {
   // The lifecycle service refuses transitions its state machine does not
   // allow, so the screen offers only the ones it would accept.
   it.each([
-    ["compiled", []],
+    ["compiled", ["Test"]],
     ["tested", ["Promote", "Start canary"]],
     ["promoted", ["Roll back"]],
     ["rolled_back", []],
@@ -96,11 +96,26 @@ describe("the Deployment Manager's version history", () => {
     renderScreen()
     await screen.findByText("Version 2")
 
-    const actions = ["Promote", "Start canary", "Roll back"].filter(
+    const actions = ["Test", "Promote", "Start canary", "Roll back"].filter(
       (label) => screen.queryByRole("button", { name: label }) !== null,
     )
     expect(actions).toEqual([...expected])
   })
+
+  it("tests a compiled version, which is the only thing that can be done to one", async () => {
+    vi.spyOn(api, "getWorkflowVersions").mockResolvedValue([version({ status: "compiled" })]);
+    const testVersion = vi.spyOn(api, "testWorkflowVersion").mockResolvedValue(undefined);
+
+    renderScreen();
+    await userEvent.click(await screen.findByRole("button", { name: "Test" }));
+
+    await waitFor(() =>
+      expect(testVersion).toHaveBeenCalledWith(
+        workflowId,
+        "wfv_019a1b2c-3d4e-7f50-8a61-72839405a6b2",
+      ),
+    );
+  });
 
   it("promotes the version it was asked to promote", async () => {
     vi.spyOn(api, "getWorkflowVersions").mockResolvedValue([version()])

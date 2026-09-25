@@ -13,6 +13,7 @@ vi.mock("./http", () => ({
 import { apiGet, apiPost } from "./http"
 import {
   getWorkflowVersions,
+  testWorkflowVersion,
   promoteWorkflowVersion,
   rollbackWorkflowVersion,
   startWorkflowVersionCanary,
@@ -74,7 +75,17 @@ describe("a workflow's version history", () => {
   })
 })
 
-describe("the three things the lifecycle contract allows", () => {
+describe("the four things the lifecycle contract allows", () => {
+  it("tests a compiled version", async () => {
+    await testWorkflowVersion(workflowId, versionId)
+
+    expect(apiPost).toHaveBeenCalledWith(
+      `/api/v1/workflows/${workflowId}/actions/test-version`,
+      { workflowVersionId: versionId },
+      { idempotencyKey: "workflow-test-version-test-key" },
+    )
+  })
+
   it("promotes a version", async () => {
     await promoteWorkflowVersion(workflowId, versionId)
 

@@ -309,6 +309,19 @@ export async function getWorkflowVersions(workflowId: string): Promise<WorkflowV
   return asArray(body, "data").map(mapWorkflowVersion)
 }
 
+// A deployment starts here: promote and canary each refuse a version that
+// has not been tested.
+export async function testWorkflowVersion(
+  workflowId: string,
+  workflowVersionId: string,
+): Promise<void> {
+  await apiPost(
+    `/api/v1/workflows/${encodeURIComponent(workflowId)}/actions/test-version`,
+    { workflowVersionId },
+    { idempotencyKey: mutationKey("workflow-test-version") },
+  )
+}
+
 export async function promoteWorkflowVersion(
   workflowId: string,
   workflowVersionId: string,
