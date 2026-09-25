@@ -133,6 +133,9 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
   const blackboardCache = new RedisCacheProvider(parseRedisHostPort(dbConfig.redisUrl));
   const blackboard = new BlackboardService(store, blackboardCache);
   const verificationReader = new PostgresVerificationGateReader(store);
+  // Built before the dispatcher, because "repair" raises its escalation
+  // itself so the reason can name the connection the step was missing.
+  const escalations = new EscalationsService(store, durable);
   const dispatch = new RecoveryDispatchService(
     modelGateway,
     compiler,
@@ -145,8 +148,8 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
     undefined,
     capabilityResolverForRecovery,
     selectionBinding,
+    escalations,
   );
-  const escalations = new EscalationsService(store);
   return new RecoveryPolicyService(
     store,
     modelGateway,
@@ -411,7 +414,18 @@ function buildRecoveryPolicyService(): RecoveryPolicyService {
       useFactory: () => {
         const dbConfig = sessionGatewayEnvironment(process.env);
         const store = orchestrationStore(dbConfig);
-        return new EscalationsService(store);
+        // Same provider ApprovalsService takes above: resolving an
+        // escalation that parked a run has to reach that run's workflow.
+        const runLauncherConfig = loadRunLauncherEnvironment(process.env);
+        const durable = new TemporalDurableExecutionProvider({
+          address: runLauncherConfig.temporalAddress,
+          namespace: runLauncherConfig.temporalNamespace,
+          taskQueue: runLauncherConfig.taskQueue,
+          ...(runLauncherConfig.temporalApiKey === undefined
+            ? {}
+            : { apiKey: runLauncherConfig.temporalApiKey }),
+        });
+        return new EscalationsService(store, durable);
       },
     },
     {

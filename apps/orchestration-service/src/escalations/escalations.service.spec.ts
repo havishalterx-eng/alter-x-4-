@@ -38,9 +38,17 @@ function baseRow(overrides: Partial<EscalationRow> = {}): EscalationRow {
   };
 }
 
-function fakeStore(row: EscalationRow): { store: OrchestrationTenantStore; tx: FakeTx } {
+function fakeStore(
+  row: EscalationRow,
+  // The strategy on the recovery_actions row this escalation links back to.
+  // "repair" is the one that parked a run, and so the one that can wake it.
+  strategy: string | null = "replan",
+): { store: OrchestrationTenantStore; tx: FakeTx } {
   let current = row;
   const query = vi.fn(async (statement: string, values?: readonly unknown[]) => {
+    if (statement.includes("FROM recovery_actions")) {
+      return { rowCount: 1, rows: [{ strategy }] };
+    }
     if (statement.includes("INSERT INTO escalations")) {
       return { rowCount: 1, rows: [current] };
     }
@@ -185,5 +193,56 @@ describe("EscalationsService.resolve", () => {
     await expect(
       service.resolve(TENANT, ESCALATION, undefined, undefined),
     ).rejects.toBeInstanceOf(EscalationStateConflictError);
+  });
+
+  // Decision 6: an escalation raised by "repair" parked a run on a missing
+  // connection. Resolving it means a person connected the account, so the
+  // step runs again -- the same signal the retry strategy sends.
+  it("wakes the run a repair escalation parked", async () => {
+    const { store } = fakeStore(baseRow(), "repair");
+    const signalWorkflow = vi.fn().mockResolvedValue(undefined);
+    const service = new EscalationsService(store, { signalWorkflow });
+
+    await expect(
+      service.resolve(TENANT, ESCALATION, "018f4d6e-user", "connected the account"),
+    ).resolves.toMatchObject({ status: "resolved" });
+
+    expect(signalWorkflow).toHaveBeenCalledWith({
+      workflowId: RUN,
+      signalName: "nodeRetryDecided",
+      payload: { nodeExecutionId: NODE_EXECUTION, action: "retry" },
+    });
+  });
+
+  it("leaves every other escalation resolving without waking anything", async () => {
+    const { store } = fakeStore(baseRow(), "replan");
+    const signalWorkflow = vi.fn().mockResolvedValue(undefined);
+    const service = new EscalationsService(store, { signalWorkflow });
+
+    await expect(
+      service.resolve(TENANT, ESCALATION, undefined, undefined),
+    ).resolves.toMatchObject({ status: "resolved" });
+
+    expect(signalWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("leaves the escalation open when the run could not be woken", async () => {
+    const { store } = fakeStore(baseRow(), "repair");
+    const signalWorkflow = vi.fn().mockRejectedValue(new Error("workflow unreachable"));
+    const service = new EscalationsService(store, { signalWorkflow });
+
+    await expect(
+      service.resolve(TENANT, ESCALATION, undefined, undefined),
+    ).rejects.toThrow("workflow unreachable");
+    await expect(service.getById(TENANT, ESCALATION)).resolves.toMatchObject({ status: "open" });
+  });
+
+  it("records the decision even with no way to signal a run", async () => {
+    const { store } = fakeStore(baseRow(), "repair");
+    const service = new EscalationsService(store);
+
+    await expect(
+      service.resolve(TENANT, ESCALATION, undefined, undefined),
+    ).resolves.toMatchObject({ status: "resolved" });
   });
 });

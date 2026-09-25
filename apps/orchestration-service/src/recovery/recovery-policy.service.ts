@@ -231,11 +231,12 @@ export class RecoveryPolicyService {
       policyVersion = decision.policyVersion;
     }
 
-    // Only "degrade" needs the failed node's real DAG key (to find its
-    // predecessors) -- skip the extra query for the other 7 dispatchable
-    // strategies, which never read it.
+    // "degrade" needs the failed node's real DAG key to find its
+    // predecessors, and "repair" needs it to name the connection the node
+    // could not authenticate with -- skip the extra query for the other six
+    // dispatchable strategies, which never read it.
     const nodeKey =
-      strategy === "degrade"
+      strategy === "degrade" || strategy === "repair"
         ? await this.#loadNodeKey(bareTenantId, request.run_id, request.node_execution_id)
         : "";
 
@@ -246,6 +247,7 @@ export class RecoveryPolicyService {
       nodeKey,
       failureClass,
       estimate,
+      recoveryActionId,
     });
     await this.#persistOutcome(
       bareTenantId,
