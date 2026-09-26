@@ -2662,9 +2662,19 @@ def agent_binding_server_target(
     for agent_selection_binding, backed by a real, live model-gateway
     (production main.ts, ALTER_CONFIG_SOURCE=mock) so
     SelectionBindingEngine.bind()'s real GrpcEmbeddingClient.embed() call
-    actually succeeds -- see agent_binding_client.py's own module doc for
-    why mock config source needs no live LLM key here (only the
-    embedding provider is exercised, not the model provider).
+    actually succeeds.
+
+    Mock config source is enough for the embedding provider but no longer
+    for the whole operation. Since #220, creating a persona for a no-match
+    node drafts its instructions through the model
+    (AgentInstructionsClient.draft_instructions), so the model provider is
+    exercised too and needs a live key. Without one the router answers 503
+    and the case cannot complete, which is why agent_selection_binding sits
+    in the live-key bucket of
+    test_tenant_isolation_golden_set_executes_for_real_where_wired rather
+    than among the operations asserted to pass unconditionally. The earlier
+    version of this docstring claimed only the embedding provider was
+    exercised; that stopped being true in #220.
     """
     intelligence_root = REPO_ROOT / "apps" / "intelligence-service"
     intelligence_python = intelligence_root / ".venv" / "bin" / "python"
@@ -2974,7 +2984,6 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
             "ads_upload_download",
             "workflow_get",
             "workflow_update",
-            "agent_selection_binding",
             "project_get",
             "project_deploy",
         )
@@ -2984,33 +2993,49 @@ def test_tenant_isolation_golden_set_executes_for_real_where_wired(
         # platform_credential_delete, idempotency_replay, policy_read,
         # recovery_node_lookup, run_stream_subscribe, verification_score_node,
         # audit_event_read, memory_drift_observations, ads_upload_download,
-        # workflow_get, workflow_update, agent_selection_binding, project_get,
-        # project_deploy are real and must always pass regardless of
-        # whether a real LLM key is available. All 20 of 20 tenant-
-        # isolation cases HARD-7g targeted are real.
-        assert len(real_results) == 19
+        # workflow_get, workflow_update, project_get, project_deploy are real
+        # and must always pass regardless of whether a real LLM key is
+        # available. All 20 of 20 tenant-isolation cases HARD-7g targeted are
+        # real; two of the 20 additionally need a live key, below.
+        assert len(real_results) == 18
         assert all(row.verdict == "pass" for row in real_results)
 
-        # model_gateway_cache is real but, like injection's LLM-dependent
-        # suites, needs a real live ANTHROPIC_API_KEY/OPENAI_API_KEY to
-        # populate the real cache in the first place -- its pass/fail is
-        # not asserted here (same pattern as
+        # Two operations are real but, like injection's LLM-dependent suites,
+        # need a real live ANTHROPIC_API_KEY/OPENAI_API_KEY before they can
+        # succeed. Their pass/fail is not asserted here (same pattern as
         # test_injection_golden_set_executes_for_real's ssrf/upload-only
-        # assertion), it just must never fall into the "unsupported
+        # assertion); they must only never fall into the "unsupported
         # operation" bucket below.
+        #
+        #   model_gateway_cache needs a live key to populate the real cache in
+        #   the first place.
+        #
+        #   agent_selection_binding joined them in #220, which replaced the
+        #   template persona description with one drafted by the model:
+        #   AgentAutoCreationEngine now calls
+        #   AgentInstructionsClient.draft_instructions() through model-gateway,
+        #   and selection_binding's router answers 503 when that is
+        #   unavailable. This fixture runs model-gateway with
+        #   ALTER_CONFIG_SOURCE=mock and no live key, so binding a
+        #   no-match node cannot complete here. Refusing to bind is the
+        #   intended behaviour -- #220 exists so that an auto-created agent
+        #   never carries template instructions -- so the assertion moved
+        #   rather than the engine gaining a fallback.
+        #
         # On a real exception (e.g. no live LLM key -> unreachable target),
         # the generic per-case except clause's details dict only has
         # "error" (embedding the operation name inline via repr), not a
         # top-level "operation" key -- check both shapes.
+        live_key_operations = ("model_gateway_cache", "agent_selection_binding")
         live_key_dependent_results = [
             row
             for row in results
-            if row.details.get("operation") == "model_gateway_cache"
-            or "'model_gateway_cache'" in row.details.get("error", "")
+            if row.details.get("operation") in live_key_operations
+            or any(f"'{name}'" in row.details.get("error", "") for name in live_key_operations)
         ]
-        assert len(live_key_dependent_results) == 1
-        live_key_error = live_key_dependent_results[0].details.get("error", "")
-        assert "unsupported operation" not in live_key_error
+        assert len(live_key_dependent_results) == len(live_key_operations)
+        for row in live_key_dependent_results:
+            assert "unsupported operation" not in row.details.get("error", "")
 
         excluded = [*real_results, *live_key_dependent_results]
         unsupported_results = [row for row in results if row not in excluded]
