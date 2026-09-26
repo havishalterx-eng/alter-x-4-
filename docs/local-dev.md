@@ -587,7 +587,9 @@ service owns.
   token-free Community release `4.14.0`; newer releases require an account and
   conflict with this stack's zero-account contract.
 - Temporal container is official `temporalio/temporal` CLI dev server with
-  bundled Web UI.
+  bundled Web UI. It is intentionally disposable; production namespace,
+  retention, history rollover, and versioned-worker rollout requirements are
+  in [`runbooks/temporal-production.md`](runbooks/temporal-production.md).
 - Tracing is a real `grafana/tempo` OTLP receiver (gRPC 4317 / HTTP 4318,
   local disk storage) with `grafana/grafana` wired to it as a datasource for
   browsing traces -- not a passive console-only collector. Shared mock

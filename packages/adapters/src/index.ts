@@ -36,6 +36,7 @@ export {
   TemporalConfigurationError,
   TemporalDurableExecutionProvider,
   type TemporalConnectionConfig,
+  type TemporalWorkerDeploymentConfig,
 } from "./temporal/durable-execution-provider";
 export {
   ConversationDispatchClient,
