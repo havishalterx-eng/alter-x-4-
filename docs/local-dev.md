@@ -200,8 +200,9 @@ curl --fail --silent http://127.0.0.1:8000/health
 ```
 
 Depends on engine-db (Postgres, port 5433 â€” `intelligence_db`), model-gateway
-gRPC (default `localhost:50051`), sandbox-service gRPC (default `localhost:50057`),
-and memory-service HTTP (default `http://localhost:8002`). Auth0 M2M credentials
+gRPC (default `localhost:50051`), ads-core's ADSQ gRPC (default
+`localhost:50050`), and memory-service HTTP (default
+`http://localhost:8002`). Auth0 M2M credentials
 are optional for local (`AUTH0_M2M_*` can be empty when `ALTER_ENV=local`).
 
 ## Run memory-service
