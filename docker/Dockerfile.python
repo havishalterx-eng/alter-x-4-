@@ -74,8 +74,10 @@ COPY --from=build --chown=alter:alter /app /app
 WORKDIR /app/apps/${APP}
 USER alter
 
-# The HTTP app. eval-service also serves gRPC from a second entry point
-# (`python -m src.grpc_server`, the surface the engine dials on port 50062);
-# override the command to run that one. Same image either way.
+# The HTTP app. Three of the five also serve gRPC from a second entry point,
+# `python -m src.grpc_server` -- eval-service, memory-service and
+# verification-service -- reached by overriding this command. Same image
+# either way, so a service that serves both runs as two containers from one
+# image. See docker/README.md for the ports each gRPC surface answers on.
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

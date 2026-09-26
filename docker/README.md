@@ -43,13 +43,24 @@ The nine names: `audit-service`, `background-workers`, `cost-ledger-service`,
 bootstrap for any service whose build emits one, which is what each service's Nx
 `serve` target does.
 
-A Python container runs its HTTP app by default. `eval-service` has a second
-entry point -- the gRPC surface the engine dials -- reached by overriding the
-command on the same image:
+A Python container runs its HTTP app by default. Three of the five also serve
+gRPC from a second entry point, `python -m src.grpc_server`, reached by
+overriding the command on the same image:
+
+| Service | gRPC surface dialled on |
+|---|---|
+| `eval-service` | `EVAL_SERVICE_GRPC_TARGET`, 50062 |
+| `memory-service` | `MEMORY_SERVICE_ADDRESS`, 50060 |
+| `verification-service` | `VERIFICATION_GRPC_TARGET`, 50054 |
 
 ```bash
 docker run --rm alter/eval-service:dev python -m src.grpc_server
 ```
+
+Each of the three therefore runs as two containers from a single image. A
+service whose gRPC surface is not running answers nothing on that port, and
+its caller sees a timeout rather than an error, so treat the second container
+as required rather than optional wherever that port is dialled.
 
 ## What the images do not contain
 
